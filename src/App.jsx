@@ -57,7 +57,9 @@ const formatMath = (text) => {
     formatted = formatted.split('\\)').join('$');
     formatted = formatted.replace(/(P\([^)]+\)\s*=\s*[0-9.x*+\/ -]+)/g, (match) => `$$${match}$$`);
     return formatted;
-  } catch (e) { return text; }
+  } catch (e) {
+    return text; // Fallback if formatting fails so screen never goes blank
+  }
 };
 
 // --- MAIN APP ---
@@ -83,7 +85,6 @@ export default function App() {
   const [filePreview, setFilePreview] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  const [autoSpeak, setAutoSpeak] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceModeOpen, setIsVoiceModeOpen] = useState(false);
 
@@ -91,11 +92,11 @@ export default function App() {
   const recognitionRef = useRef(null);
   const fileInputRef = useRef(null);
   const chatFeedRef = useRef(null);
-  const textareaRef = useRef(null); // Reference for auto-expanding textbox
   
   const isUserScrolling = useRef(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
+  // 🧠 REFS FOR SAFE EVENT LISTENERS
   const inputRef = useRef(input);
   const isVoiceModeOpenRef = useRef(isVoiceModeOpen);
   const messagesRef = useRef(messages);
@@ -106,18 +107,10 @@ export default function App() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
 
-  // 🛑 GHOST VOICE KILLER
+  // 🛑 GHOST VOICE KILLER: Stops background voices when app loads or reloads
   useEffect(() => {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
   }, []);
-
-  // 📏 AUTO-EXPAND TEXTBOX LOGIC
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-    }
-  }, [input]);
 
   const handleScroll = () => {
     if (!chatFeedRef.current) return;
@@ -206,15 +199,16 @@ export default function App() {
   
   const logout = () => { localStorage.removeItem("token"); setUser(null); setMessages([]); setCurrentSessionId(null); };
 
-  // --- 🗣️ VOICE ENGINE ---
+  // --- 🗣️ VOICE ENGINE (WITH AUTO-INTERRUPT) ---
   const stopSpeak = () => {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
   };
 
   const speak = (text) => {
     if (!window.speechSynthesis) return;
-    stopSpeak(); 
+    stopSpeak(); // Kill anything currently speaking
     
+    // Strip out math and code before speaking so it doesn't sound like a robot reading symbols
     let cleanText = (text || "").replace(/[*#_`~]/g, "");
     cleanText = cleanText.replace(/\$\$.*?\$\$/g, " [equation] ");
     cleanText = cleanText.replace(/\$.*?\$/g, " [math] ");
@@ -229,26 +223,19 @@ export default function App() {
                   voices.find(v => v.lang === "en-US") || voices[0];
     utter.pitch = 0.95; utter.rate = 1.05;
     
-    utter.onstart = () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch(e){}
-      }
-      setIsListening(false);
-    };
-
+    // Once AI stops talking, reopen the mic ONLY if we are in Voice Mode
     utter.onend = () => {
       if (isVoiceModeOpenRef.current) {
         setInput(""); 
-        if (recognitionRef.current) {
+        if (recognitionRef.current && !isLoadingRef.current) {
           try { recognitionRef.current.start(); setIsListening(true); } catch(e){}
         }
       }
     };
-    
     window.speechSynthesis.speak(utter);
   };
 
-  // --- 🎙️ SPEECH RECOGNITION ---
+  // --- 🎙️ SPEECH RECOGNITION (CRASH PROOF) ---
   useEffect(() => {
     const loadVoices = () => window.speechSynthesis.getVoices();
     loadVoices();
@@ -260,7 +247,10 @@ export default function App() {
     sr.interimResults = true;
     
     sr.onresult = (e) => {
-      if (window.speechSynthesis.speaking) return; 
+      // ✨ AUTO-INTERRUPT: If AI is talking and you say a word, shut the AI up instantly!
+      if (window.speechSynthesis.speaking) {
+         window.speechSynthesis.cancel();
+      }
 
       let text = "";
       for (let i = e.resultIndex; i < e.results.length; i++) text += e.results[i][0].transcript;
@@ -273,9 +263,11 @@ export default function App() {
       if (isVoiceModeOpenRef.current) {
         const currentInput = inputRef.current || "";
         
-        if (currentInput.trim() !== "" && !isLoadingRef.current && !window.speechSynthesis.speaking) {
+        // Send if we have text and the AI isn't currently responding
+        if (currentInput.trim() !== "" && !isLoadingRef.current) {
           submitFromVoiceMode(currentInput);
         } else {
+          // Silent? Restart mic after a safe delay to prevent infinite loop crashes
           setTimeout(() => {
             if (isVoiceModeOpenRef.current && recognitionRef.current && !isLoadingRef.current && !window.speechSynthesis.speaking) {
               try { recognitionRef.current.start(); setIsListening(true); } catch(e){}
@@ -303,11 +295,13 @@ export default function App() {
     else { setInput(""); recognitionRef.current.start(); setIsListening(true); }
   };
 
+  // 🌊 OPEN VOICE MODE (ChatGPT Style)
   const openVoiceMode = (e) => {
     e.preventDefault();
+    // Silent utterance to unlock browser autoplay policy
     const unlock = new SpeechSynthesisUtterance(""); 
     window.speechSynthesis.speak(unlock); 
-    setAutoSpeak(true);
+
     setIsVoiceModeOpen(true);
     if (!isListening && recognitionRef.current) {
       setInput("");
@@ -322,6 +316,7 @@ export default function App() {
     stopSpeak();
   };
 
+  // 🛑 TAP TO INTERRUPT ORB
   const handleOrbClick = () => {
     if (isLoading) return; 
     
@@ -351,7 +346,7 @@ export default function App() {
   const triggerAI = async (newHistory, fileData = null) => {
     setIsLoading(true);
     scrollToBottom();
-    stopSpeak(); 
+    stopSpeak(); // Force shut up when a new prompt is sent
 
     const formData = new FormData();
     const lastUserMsg = newHistory[newHistory.length - 1];
@@ -400,8 +395,8 @@ export default function App() {
         }
       }
       
-      setIsLoading(false); 
-      if (isVoiceModeOpenRef.current || autoSpeak) speak(botResponse);
+      setIsLoading(false); // Important: Clear loading before speaking so Voice Mode loop unlocks
+      if (isVoiceModeOpenRef.current) speak(botResponse);
 
     } catch { 
       setIsLoading(false);
@@ -424,7 +419,7 @@ export default function App() {
   };
 
   const sendMessage = async (e) => {
-    if(e) e.preventDefault();
+    e.preventDefault();
     if (!(input || "").trim() && !selectedFile) return;
     if (isListening) recognitionRef.current?.stop();
 
@@ -434,22 +429,11 @@ export default function App() {
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     setInput("");
-    // Reset textarea height back to normal after sending
-    if(textareaRef.current) textareaRef.current.style.height = "auto";
     triggerAI(newHistory, selectedFile);
-  };
-
-  // ⌨️ HANDLE ENTER KEY (Enter = Send, Shift+Enter = New Line)
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (!isLoading) sendMessage(e);
-    }
   };
 
   const submitEdit = (index) => {
     if (!(editInput || "").trim()) return;
-    stopSpeak();
     const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const newHistory = [...messages.slice(0, index), { role: "user", content: editInput, timestamp }];
     setMessages(newHistory);
@@ -531,6 +515,7 @@ export default function App() {
         
         <div className="sidebar-footer">
           <select value={selectedMode} onChange={(e) => setSelectedMode(e.target.value)}>{MODES.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+          {/* Notice: Auto-Voice toggle button is completely gone! */}
           <button className="logout-btn" onClick={logout}>🚪 Logout</button>
         </div>
       </aside>
@@ -608,20 +593,16 @@ export default function App() {
         )}
 
         <div className="input-wrapper">
-          <form className="input-box">
+          <form onSubmit={sendMessage} className="input-box">
             <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} />
             <button type="button" className="icon-btn" onClick={() => fileInputRef.current.click()}>📎</button>
             
-            {/* ✨ THE NEW MULTI-LINE AUTO-EXPANDING TEXTAREA ✨ */}
-            <textarea 
-              ref={textareaRef}
-              className="chat-textarea"
+            <input 
+              type="text" 
               placeholder={isListening && !isVoiceModeOpen ? "Listening..." : "Ask VetroAI..."} 
               value={input} 
               onChange={(e) => setInput(e.target.value)} 
-              onKeyDown={handleKeyDown}
               disabled={isLoading} 
-              rows={1}
             />
             
             <div className="input-actions-right">
@@ -635,7 +616,7 @@ export default function App() {
                   </button>
                 </>
               ) : (
-                <button type="button" className="send-btn" onClick={sendMessage} disabled={isLoading} id="hidden-send-btn">
+                <button type="submit" className="send-btn" disabled={isLoading} id="hidden-send-btn">
                   <SendIcon />
                 </button>
               )}
