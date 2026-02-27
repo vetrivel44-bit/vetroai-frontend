@@ -6,7 +6,6 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import "./App.css";
 
 const API = "https://ai-chatbot-backend-gvvz.onrender.com";
 
@@ -14,8 +13,8 @@ const API = "https://ai-chatbot-backend-gvvz.onrender.com";
 const LANGS = {
   en:{ flag:"🇬🇧", name:"English", t:{
     newChat:"New Chat", search:"Search history…", logout:"Logout", send:"Send",
-    placeholder:"Ask VetroAI…", listening:"Listening…", share:"Share", stop:"Stop",
-    welcome:"How can I help you today?", welcomeSub:"Type a message or tap the mic.",
+    placeholder:"Ask VetroAI anything…", listening:"Listening…", share:"Share", stop:"Stop",
+    welcome:"What can I help you with?", welcomeSub:"Type a message, use a prompt, or tap the mic.",
     signIn:"Sign In", register:"Create Account", emailLbl:"Email address", passLbl:"Password",
     newHere:"New here?", signUpFree:"Sign up free", haveAcc:"Already have an account?", signInLink:"Sign in",
     profile:"Profile", displayName:"Display Name", nameHolder:"Your name", changeAvatar:"Choose Avatar",
@@ -24,19 +23,21 @@ const LANGS = {
     copy:"Copy", copied:"Copied!", readAloud:"Read aloud", edit:"Edit", regen:"Regenerate", del:"Delete",
     pin:"Pin chat", unpin:"Unpin chat",
     voiceListen:"Listening…", voiceThink:"Thinking…", voiceSpeak:"Speaking…",
-    tapStop:"Tap orb to stop", tapWait:"Please wait", tapInterrupt:"Tap orb to interrupt",
+    tapStop:"Tap orb to stop", tapWait:"Please wait", tapInterrupt:"Tap to interrupt",
     today:"Today", yesterday:"Yesterday", older:"Older",
     systemPrompt:"Custom Persona", systemPromptLabel:"System Prompt", systemPromptHolder:"You are a helpful assistant…",
     systemPromptBadge:"Custom persona active", clearPrompt:"Clear",
-    presets:"Presets", searchInChat:"Search messages…", noResults:"No results", matches:"match",
+    presets:"Quick Presets", searchInChat:"Search messages…", noResults:"No results", matches:"match",
     shareTitle:"Share Conversation", shareNote:"Copy this link to share the conversation.",
-    pinnedSection:"Pinned", allChats:"All Chats",
+    pinnedSection:"Pinned", allChats:"All Chats", exportChat:"Export Chat",
+    chars:"chars", tokens:"~tokens", saveAndSend:"Save & Send",
     scList:[
       {keys:["Ctrl","K"],desc:"New chat"},{keys:["Ctrl","/"],desc:"Focus input"},
       {keys:["Ctrl","P"],desc:"Profile"},{keys:["Ctrl","L"],desc:"Cycle language"},
       {keys:["Ctrl","F"],desc:"Search messages"},{keys:["Esc"],desc:"Close modal"},
       {keys:["Enter"],desc:"Send message"},{keys:["Shift","↵"],desc:"New line"},
-    ]
+    ],
+    suggestions:["Explain quantum entanglement simply","Write a Python web scraper","Give me a meal plan for the week","What are the best productivity tips?","Help me debug my React code","Summarize the history of AI"]
   }},
   hi:{ flag:"🇮🇳", name:"हिंदी", t:{
     newChat:"नई चैट", search:"खोजें…", logout:"लॉगआउट", send:"भेजें",
@@ -56,13 +57,15 @@ const LANGS = {
     systemPromptBadge:"कस्टम पर्सोना सक्रिय", clearPrompt:"हटाएं",
     presets:"प्रीसेट", searchInChat:"संदेश खोजें…", noResults:"कोई परिणाम नहीं", matches:"मिला",
     shareTitle:"बातचीत शेयर करें", shareNote:"इस लिंक को कॉपी करें।",
-    pinnedSection:"पिन किए गए", allChats:"सभी चैट",
+    pinnedSection:"पिन किए गए", allChats:"सभी चैट", exportChat:"चैट एक्सपोर्ट",
+    chars:"अक्षर", tokens:"~टोकन", saveAndSend:"सहेजें और भेजें",
     scList:[
       {keys:["Ctrl","K"],desc:"नई चैट"},{keys:["Ctrl","/"],desc:"इनपुट फोकस"},
       {keys:["Ctrl","P"],desc:"प्रोफ़ाइल"},{keys:["Ctrl","L"],desc:"भाषा बदलें"},
       {keys:["Ctrl","F"],desc:"संदेश खोजें"},{keys:["Esc"],desc:"बंद करें"},
       {keys:["Enter"],desc:"भेजें"},{keys:["Shift","↵"],desc:"नई लाइन"},
-    ]
+    ],
+    suggestions:["क्वांटम एंटेंगलमेंट समझाएं","Python वेब स्क्रेपर लिखें","साप्ताहिक भोजन योजना दें","उत्पादकता टिप्स बताएं","React कोड डीबग करें","AI का इतिहास बताएं"]
   }},
   kn:{ flag:"🇮🇳", name:"ಕನ್ನಡ", t:{
     newChat:"ಹೊಸ ಚಾಟ್", search:"ಹುಡುಕಿ…", logout:"ಲಾಗ್ ಔಟ್", send:"ಕಳುಹಿಸಿ",
@@ -82,39 +85,15 @@ const LANGS = {
     systemPromptBadge:"ಕಸ್ಟಮ್ ಪರ್ಸೋನಾ ಸಕ್ರಿಯ", clearPrompt:"ತೆಗೆದುಹಾಕಿ",
     presets:"ಪ್ರೀಸೆಟ್", searchInChat:"ಸಂದೇಶ ಹುಡುಕಿ…", noResults:"ಫಲಿತಾಂಶಗಳಿಲ್ಲ", matches:"ಹೊಂದಿಕೆ",
     shareTitle:"ಹಂಚಿಕೊಳ್ಳಿ", shareNote:"ಈ ಲಿಂಕ್ ನಕಲಿಸಿ.",
-    pinnedSection:"ಪಿನ್ ಮಾಡಲಾದವು", allChats:"ಎಲ್ಲಾ ಚಾಟ್",
+    pinnedSection:"ಪಿನ್ ಮಾಡಲಾದವು", allChats:"ಎಲ್ಲಾ ಚಾಟ್", exportChat:"ಎಕ್ಸ್‌ಪೋರ್ಟ್",
+    chars:"ಅಕ್ಷರ", tokens:"~ಟೋಕನ್", saveAndSend:"ಉಳಿಸಿ ಮತ್ತು ಕಳುಹಿಸಿ",
     scList:[
       {keys:["Ctrl","K"],desc:"ಹೊಸ ಚಾಟ್"},{keys:["Ctrl","/"],desc:"ಇನ್ಪುಟ್ ಫೋಕಸ್"},
       {keys:["Ctrl","P"],desc:"ಪ್ರೊಫೈಲ್"},{keys:["Ctrl","L"],desc:"ಭಾಷೆ ಬದಲಿಸಿ"},
       {keys:["Ctrl","F"],desc:"ಸಂದೇಶ ಹುಡುಕಿ"},{keys:["Esc"],desc:"ಮುಚ್ಚಿ"},
       {keys:["Enter"],desc:"ಕಳುಹಿಸಿ"},{keys:["Shift","↵"],desc:"ಹೊಸ ಸಾಲು"},
-    ]
-  }},
-  ta:{ flag:"🇮🇳", name:"தமிழ்", t:{
-    newChat:"புதிய அரட்டை", search:"தேடு…", logout:"வெளியேறு", send:"அனுப்பு",
-    placeholder:"VetroAI கேள்…", listening:"கேட்கிறேன்…", share:"பகிர்", stop:"நிறுத்து",
-    welcome:"இன்று எப்படி உதவலாம்?", welcomeSub:"செய்தி தட்டச்சு செய்யவும்.",
-    signIn:"உள்நுழைக", register:"கணக்கு உருவாக்கு", emailLbl:"மின்னஞ்சல்", passLbl:"கடவுச்சொல்",
-    newHere:"புதியவரா?", signUpFree:"இலவச பதிவு", haveAcc:"கணக்கு உள்ளதா?", signInLink:"உள்நுழைக",
-    profile:"சுயவிவரம்", displayName:"காட்சி பெயர்", nameHolder:"உங்கள் பெயர்", changeAvatar:"அவதார்",
-    save:"சேமி", saved:"சேமிக்கப்பட்டது!", cancel:"ரத்து", lang:"மொழி",
-    shortcuts:"குறுக்குவழிகள்", shortcutsTitle:"விசைப்பலகை குறுக்குவழிகள்",
-    copy:"நகல்", copied:"நகலெடுக்கப்பட்டது!", readAloud:"படி", edit:"திருத்து", regen:"மீண்டும் உருவாக்கு", del:"நீக்கு",
-    pin:"பின் செய்", unpin:"பின் நீக்கு",
-    voiceListen:"கேட்கிறேன்…", voiceThink:"யோசிக்கிறேன்…", voiceSpeak:"பேசுகிறேன்…",
-    tapStop:"நிறுத்த தட்டவும்", tapWait:"காத்திருக்கவும்", tapInterrupt:"நிறுத்த தட்டவும்",
-    today:"இன்று", yesterday:"நேற்று", older:"பழையது",
-    systemPrompt:"தனிப்பயன் நபர்", systemPromptLabel:"சிஸ்டம் ப்ராம்ப்ட்", systemPromptHolder:"நீங்கள் உதவியாளர்…",
-    systemPromptBadge:"தனிப்பயன் நபர் செயலில்", clearPrompt:"நீக்கு",
-    presets:"முன்னமைவுகள்", searchInChat:"செய்திகள் தேடு…", noResults:"முடிவுகள் இல்லை", matches:"பொருத்தம்",
-    shareTitle:"உரையாடலை பகிர்", shareNote:"இந்த இணைப்பை நகலெடுக்கவும்.",
-    pinnedSection:"பின் செய்யப்பட்டவை", allChats:"அனைத்து அரட்டைகள்",
-    scList:[
-      {keys:["Ctrl","K"],desc:"புதிய அரட்டை"},{keys:["Ctrl","/"],desc:"உள்ளீடு கவனம்"},
-      {keys:["Ctrl","P"],desc:"சுயவிவரம்"},{keys:["Ctrl","L"],desc:"மொழி மாற்று"},
-      {keys:["Ctrl","F"],desc:"செய்திகள் தேடு"},{keys:["Esc"],desc:"மூடு"},
-      {keys:["Enter"],desc:"அனுப்பு"},{keys:["Shift","↵"],desc:"புதிய வரி"},
-    ]
+    ],
+    suggestions:["ಕ್ವಾಂಟಮ್ ಎಂಟ್ಯಾಂಗಲ್ಮೆಂಟ್ ವಿವರಿಸಿ","Python ಸ್ಕ್ರಿಪ್ಟ್ ಬರೆಯಿರಿ","ವಾರದ ಆಹಾರ ಯೋಜನೆ","ಉತ್ಪಾದಕತೆ ಸಲಹೆಗಳು","React ಕೋಡ್ ಡೀಬಗ್","AI ಇತಿಹಾಸ"]
   }},
   es:{ flag:"🇪🇸", name:"Español", t:{
     newChat:"Nuevo chat", search:"Buscar…", logout:"Salir", send:"Enviar",
@@ -134,13 +113,15 @@ const LANGS = {
     systemPromptBadge:"Persona activa", clearPrompt:"Limpiar",
     presets:"Presets", searchInChat:"Buscar mensajes…", noResults:"Sin resultados", matches:"coincidencia",
     shareTitle:"Compartir conversación", shareNote:"Copia este enlace.",
-    pinnedSection:"Fijados", allChats:"Todos los chats",
+    pinnedSection:"Fijados", allChats:"Todos los chats", exportChat:"Exportar",
+    chars:"caract.", tokens:"~tokens", saveAndSend:"Guardar y enviar",
     scList:[
       {keys:["Ctrl","K"],desc:"Nuevo chat"},{keys:["Ctrl","/"],desc:"Enfocar entrada"},
       {keys:["Ctrl","P"],desc:"Perfil"},{keys:["Ctrl","L"],desc:"Cambiar idioma"},
       {keys:["Ctrl","F"],desc:"Buscar mensajes"},{keys:["Esc"],desc:"Cerrar"},
       {keys:["Enter"],desc:"Enviar"},{keys:["Shift","↵"],desc:"Nueva línea"},
-    ]
+    ],
+    suggestions:["Explica el entrelazamiento cuántico","Escribe un script Python","Plan de comidas semanal","Mejores consejos de productividad","Ayúdame con React","Historia de la IA"]
   }},
   fr:{ flag:"🇫🇷", name:"Français", t:{
     newChat:"Nouveau chat", search:"Rechercher…", logout:"Déconnexion", send:"Envoyer",
@@ -160,108 +141,38 @@ const LANGS = {
     systemPromptBadge:"Personnage actif", clearPrompt:"Effacer",
     presets:"Préréglages", searchInChat:"Rechercher…", noResults:"Aucun résultat", matches:"correspondance",
     shareTitle:"Partager la conversation", shareNote:"Copiez ce lien.",
-    pinnedSection:"Épinglés", allChats:"Tous les chats",
+    pinnedSection:"Épinglés", allChats:"Tous les chats", exportChat:"Exporter",
+    chars:"caract.", tokens:"~tokens", saveAndSend:"Sauvegarder et envoyer",
     scList:[
       {keys:["Ctrl","K"],desc:"Nouveau chat"},{keys:["Ctrl","/"],desc:"Focus saisie"},
       {keys:["Ctrl","P"],desc:"Profil"},{keys:["Ctrl","L"],desc:"Changer langue"},
       {keys:["Ctrl","F"],desc:"Chercher"},{keys:["Esc"],desc:"Fermer"},
       {keys:["Enter"],desc:"Envoyer"},{keys:["Shift","↵"],desc:"Nouvelle ligne"},
-    ]
-  }},
-  de:{ flag:"🇩🇪", name:"Deutsch", t:{
-    newChat:"Neuer Chat", search:"Suchen…", logout:"Abmelden", send:"Senden",
-    placeholder:"VetroAI fragen…", listening:"Höre zu…", share:"Teilen", stop:"Stoppen",
-    welcome:"Wie kann ich helfen?", welcomeSub:"Nachricht tippen oder Mikrofon.",
-    signIn:"Anmelden", register:"Konto erstellen", emailLbl:"E-Mail", passLbl:"Passwort",
-    newHere:"Neu hier?", signUpFree:"Registrieren", haveAcc:"Schon ein Konto?", signInLink:"Anmelden",
-    profile:"Profil", displayName:"Name", nameHolder:"Ihr Name", changeAvatar:"Avatar wählen",
-    save:"Speichern", saved:"Gespeichert!", cancel:"Abbrechen", lang:"Sprache",
-    shortcuts:"Tastenkürzel", shortcutsTitle:"Tastenkürzel",
-    copy:"Kopieren", copied:"Kopiert!", readAloud:"Vorlesen", edit:"Bearbeiten", regen:"Neu generieren", del:"Löschen",
-    pin:"Anheften", unpin:"Lösen",
-    voiceListen:"Höre zu…", voiceThink:"Denke nach…", voiceSpeak:"Spreche…",
-    tapStop:"Antippen zum Stoppen", tapWait:"Bitte warten", tapInterrupt:"Antippen zum Unterbrechen",
-    today:"Heute", yesterday:"Gestern", older:"Älter",
-    systemPrompt:"Benutzerdefinierte Persona", systemPromptLabel:"System-Prompt", systemPromptHolder:"Sie sind ein Assistent…",
-    systemPromptBadge:"Persona aktiv", clearPrompt:"Löschen",
-    presets:"Voreinstellungen", searchInChat:"Nachrichten suchen…", noResults:"Keine Ergebnisse", matches:"Treffer",
-    shareTitle:"Gespräch teilen", shareNote:"Diesen Link kopieren.",
-    pinnedSection:"Angeheftet", allChats:"Alle Chats",
-    scList:[
-      {keys:["Ctrl","K"],desc:"Neuer Chat"},{keys:["Ctrl","/"],desc:"Eingabe fokussieren"},
-      {keys:["Ctrl","P"],desc:"Profil"},{keys:["Ctrl","L"],desc:"Sprache wechseln"},
-      {keys:["Ctrl","F"],desc:"Suchen"},{keys:["Esc"],desc:"Schließen"},
-      {keys:["Enter"],desc:"Senden"},{keys:["Shift","↵"],desc:"Neue Zeile"},
-    ]
-  }},
-  zh:{ flag:"🇨🇳", name:"中文", t:{
-    newChat:"新对话", search:"搜索…", logout:"退出", send:"发送",
-    placeholder:"问 VetroAI…", listening:"正在聆听…", share:"分享", stop:"停止",
-    welcome:"今天我能帮你什么？", welcomeSub:"输入消息或使用麦克风。",
-    signIn:"登录", register:"创建账户", emailLbl:"邮箱", passLbl:"密码",
-    newHere:"新用户？", signUpFree:"免费注册", haveAcc:"已有账户？", signInLink:"登录",
-    profile:"个人资料", displayName:"显示名称", nameHolder:"你的名字", changeAvatar:"选择头像",
-    save:"保存", saved:"已保存!", cancel:"取消", lang:"语言",
-    shortcuts:"快捷键", shortcutsTitle:"键盘快捷键",
-    copy:"复制", copied:"已复制!", readAloud:"朗读", edit:"编辑", regen:"重新生成", del:"删除",
-    pin:"固定", unpin:"取消固定",
-    voiceListen:"正在聆听…", voiceThink:"思考中…", voiceSpeak:"说话中…",
-    tapStop:"点击停止", tapWait:"请稍候", tapInterrupt:"点击打断",
-    today:"今天", yesterday:"昨天", older:"更早",
-    systemPrompt:"自定义角色", systemPromptLabel:"系统提示词", systemPromptHolder:"你是一个助手…",
-    systemPromptBadge:"自定义角色已启用", clearPrompt:"清除",
-    presets:"预设", searchInChat:"搜索消息…", noResults:"无结果", matches:"匹配",
-    shareTitle:"分享对话", shareNote:"复制此链接以分享。",
-    pinnedSection:"已固定", allChats:"所有对话",
-    scList:[
-      {keys:["Ctrl","K"],desc:"新对话"},{keys:["Ctrl","/"],desc:"聚焦输入"},
-      {keys:["Ctrl","P"],desc:"个人资料"},{keys:["Ctrl","L"],desc:"切换语言"},
-      {keys:["Ctrl","F"],desc:"搜索消息"},{keys:["Esc"],desc:"关闭"},
-      {keys:["Enter"],desc:"发送"},{keys:["Shift","↵"],desc:"换行"},
-    ]
-  }},
-  ja:{ flag:"🇯🇵", name:"日本語", t:{
-    newChat:"新しいチャット", search:"検索…", logout:"ログアウト", send:"送信",
-    placeholder:"VetroAIに質問…", listening:"聞いています…", share:"共有", stop:"停止",
-    welcome:"今日はどのようにお手伝いできますか？", welcomeSub:"メッセージを入力またはマイクを使用。",
-    signIn:"サインイン", register:"アカウント作成", emailLbl:"メール", passLbl:"パスワード",
-    newHere:"初めてですか？", signUpFree:"無料登録", haveAcc:"アカウントをお持ちですか？", signInLink:"サインイン",
-    profile:"プロフィール", displayName:"表示名", nameHolder:"あなたの名前", changeAvatar:"アバター選択",
-    save:"保存", saved:"保存しました!", cancel:"キャンセル", lang:"言語",
-    shortcuts:"ショートカット", shortcutsTitle:"キーボードショートカット",
-    copy:"コピー", copied:"コピーしました!", readAloud:"読み上げ", edit:"編集", regen:"再生成", del:"削除",
-    pin:"ピン留め", unpin:"ピン解除",
-    voiceListen:"聞いています…", voiceThink:"考えています…", voiceSpeak:"話しています…",
-    tapStop:"タップして停止", tapWait:"お待ちください", tapInterrupt:"タップして中断",
-    today:"今日", yesterday:"昨日", older:"それ以前",
-    systemPrompt:"カスタムペルソナ", systemPromptLabel:"システムプロンプト", systemPromptHolder:"あなたはアシスタントです…",
-    systemPromptBadge:"カスタムペルソナ有効", clearPrompt:"クリア",
-    presets:"プリセット", searchInChat:"メッセージを検索…", noResults:"結果なし", matches:"一致",
-    shareTitle:"会話を共有", shareNote:"このリンクをコピーしてください。",
-    pinnedSection:"ピン留め済み", allChats:"全チャット",
-    scList:[
-      {keys:["Ctrl","K"],desc:"新しいチャット"},{keys:["Ctrl","/"],desc:"入力フォーカス"},
-      {keys:["Ctrl","P"],desc:"プロフィール"},{keys:["Ctrl","L"],desc:"言語切替"},
-      {keys:["Ctrl","F"],desc:"メッセージ検索"},{keys:["Esc"],desc:"閉じる"},
-      {keys:["Enter"],desc:"送信"},{keys:["Shift","↵"],desc:"改行"},
-    ]
+    ],
+    suggestions:["Expliquer l'intrication quantique","Script Python web","Plan repas hebdomadaire","Conseils productivité","Déboguer React","Histoire de l'IA"]
   }},
 };
 
 const MODES = [
-  {id:"vtu_academic",name:"🎓 VTU Academic Mode"},
-  {id:"debugger",    name:"🐛 Smart Debugger"},
-  {id:"astrology",   name:"🔮 Astrologer Mode"},
-  {id:"fast_chat",   name:"⚡ Fast Chat"},
+  {id:"vtu_academic",  name:"🎓 VTU Academic",   desc:"Deep academic explanations"},
+  {id:"debugger",      name:"🐛 Smart Debugger",  desc:"Code analysis & fixes"},
+  {id:"astrology",     name:"🔮 Astrologer",       desc:"Cosmic insights"},
+  {id:"fast_chat",     name:"⚡ Fast Chat",        desc:"Quick responses"},
+  {id:"creative",      name:"✨ Creative Writer",   desc:"Stories & creative content"},
+  {id:"analyst",       name:"📊 Data Analyst",     desc:"Data insights & charts"},
 ];
-const AVATARS = ["👤","🤖","🦊","🐼","🐸","🦁","🐯","🐺","🦅","🌟","🔥","💎","🎭","🚀","🌈","🎨","🦋","🐉","🌙","⚡"];
+
+const AVATARS = ["👤","🤖","🦊","🐼","🐸","🦁","🐯","🐺","🦅","🌟","🔥","💎","🎭","🚀","🌈","🎨","🦋","🐉","🌙","⚡","🧠","🎯","🦄","🌊","🪐"];
 const SYSTEM_PRESETS = [
-  "You are a Socratic tutor. Guide with questions.",
+  "You are a Socratic tutor. Guide with questions only.",
   "You are a senior software engineer. Be concise and precise.",
-  "You are a creative writing coach. Be encouraging.",
-  "You are a debate partner. Challenge every claim.",
-  "You are an expert on Indian culture and history.",
+  "You are a creative writing coach. Be vivid and encouraging.",
+  "You are a debate partner. Challenge every claim rigorously.",
+  "You are an expert on Indian culture, history, and traditions.",
+  "You are a startup advisor. Focus on actionable insights.",
 ];
+
+const REACTIONS = ["👍","❤️","😂","😮","🔥","🧠"];
 
 function getDateGroup(id, t) {
   const ts = parseInt(id, 10);
@@ -296,6 +207,11 @@ const SearchIc    = () => <S size={15}><circle cx="11" cy="11" r="8"/><line x1="
 const BotIc       = () => <S size={15}><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></S>;
 const StopIc      = () => <S size={16}><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none"/></S>;
 const CheckIc     = () => <S size={14}><polyline points="20 6 9 17 4 12"/></S>;
+const DownloadIc  = () => <S size={14}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></S>;
+const SmileIc     = () => <S size={14}><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></S>;
+const BoldIc      = () => <S size={14}><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></S>;
+const ItalicIc    = () => <S size={14}><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></S>;
+const CodeIc      = () => <S size={14}><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></S>;
 
 // ─── CODE BLOCK ───────────────────────────────────────────────────────────────
 const CodeBlock = ({match, codeString, copyLabel}) => {
@@ -304,8 +220,8 @@ const CodeBlock = ({match, codeString, copyLabel}) => {
   return (
     <div className="code-block-wrapper">
       <div className="code-block-header">
-        <span>{match?match[1]:"code"}</span>
-        <button onClick={doCopy}>{cp ? "✓ Copied" : <><CopyIcon/> {copyLabel||"Copy"}</>}</button>
+        <span className="code-lang-badge">{match?match[1]:"code"}</span>
+        <button onClick={doCopy} className="code-copy-btn">{cp ? <><CheckIc/> Copied</> : <><CopyIcon/> {copyLabel||"Copy"}</>}</button>
       </div>
       <SyntaxHighlighter style={vscDarkPlus} language={match?match[1]:"text"} PreTag="div"
         customStyle={{margin:0,padding:"16px",background:"transparent"}}>
@@ -356,7 +272,7 @@ function ProfileModal({onClose, t, langCode, setLangCode, theme, setTheme}) {
               <div className="avatar-grid">
                 {AVATARS.map(a=>(
                   <button key={a} className={`avatar-option ${avatar===a?"selected":""}`} onClick={()=>setAvatar(a)}>
-                    {a}{avatar===a&&<span style={{position:"absolute",bottom:2,right:2,background:"var(--accent)",borderRadius:"50%",width:13,height:13,display:"flex",alignItems:"center",justifyContent:"center"}}><CheckIc/></span>}
+                    {a}{avatar===a&&<span className="avatar-check"><CheckIc/></span>}
                   </button>
                 ))}
               </div>
@@ -368,8 +284,7 @@ function ProfileModal({onClose, t, langCode, setLangCode, theme, setTheme}) {
             </div>
             <div>
               <p className="modal-label">{theme==="dark"?"🌙 Dark Mode":"☀️ Light Mode"}</p>
-              <button className="modal-btn-secondary" style={{width:"100%",display:"flex",justifyContent:"center",gap:8}}
-                onClick={()=>setTheme(theme==="dark"?"light":"dark")}>
+              <button className="modal-btn-secondary theme-toggle-btn" onClick={()=>setTheme(theme==="dark"?"light":"dark")}>
                 {theme==="dark"?<SunIc/>:<MoonIc/>} Switch to {theme==="dark"?"Light":"Dark"} Mode
               </button>
             </div>
@@ -437,7 +352,7 @@ function SystemPromptModal({onClose, t, value, setValue}) {
             <p className="modal-label">{t.presets}</p>
             <div className="preset-chips">
               {SYSTEM_PRESETS.map((p,i)=>(
-                <button key={i} className="preset-chip" onClick={()=>setDraft(p)}>{p.slice(0,28)}…</button>
+                <button key={i} className={`preset-chip ${draft===p?"active":""}`} onClick={()=>setDraft(p)}>{p.slice(0,30)}…</button>
               ))}
             </div>
           </div>
@@ -464,6 +379,13 @@ function ShareModal({onClose, t, messages}) {
     return `${window.location.origin}${window.location.pathname}?share=${data.slice(0,200)}`;
   },[messages]);
   const copy = () => { navigator.clipboard.writeText(url); setCp(true); setTimeout(()=>setCp(false),2500); };
+
+  const exportTxt = () => {
+    const txt = messages.map(m=>`[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n---\n\n");
+    const b = new Blob([txt],{type:"text/plain"});
+    const a = document.createElement("a"); a.href=URL.createObjectURL(b); a.download="vetroai-chat.txt"; a.click();
+  };
+
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal-card share-modal">
@@ -472,13 +394,33 @@ function ShareModal({onClose, t, messages}) {
           <button className="modal-close-btn" onClick={onClose}><XIc/></button>
         </div>
         <div className="modal-body">
-          <div className="share-url-row">
-            <input className="share-url-input" readOnly value={url}/>
-            <button className="share-copy-btn" onClick={copy}>{cp?<><CheckIc/> Copied!</>:t.copy}</button>
+          <div>
+            <p className="modal-label">Share Link</p>
+            <div className="share-url-row">
+              <input className="share-url-input" readOnly value={url}/>
+              <button className="share-copy-btn" onClick={copy}>{cp?<><CheckIc/> Copied!</>:t.copy}</button>
+            </div>
+            <p className="share-note">{t.shareNote}</p>
           </div>
-          <p className="share-note">{t.shareNote}</p>
+          <div>
+            <p className="modal-label">{t.exportChat}</p>
+            <button className="modal-btn-secondary export-btn" onClick={exportTxt}>
+              <DownloadIc/> Download as .txt
+            </button>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── MESSAGE REACTION PICKER ──────────────────────────────────────────────────
+function ReactionPicker({onPick, onClose}) {
+  return (
+    <div className="reaction-picker">
+      {REACTIONS.map(r=>(
+        <button key={r} className="reaction-option" onClick={()=>{onPick(r);onClose();}}>{r}</button>
+      ))}
     </div>
   );
 }
@@ -487,7 +429,6 @@ function ShareModal({onClose, t, messages}) {
 //  MAIN APP
 // ════════════════════════════════════════════════════════════
 export default function App() {
-  // ── theme & language ───────────────────────────────────────
   const [theme,    setTheme]    = useState(()=>localStorage.getItem("vetroai_theme")||"dark");
   const [langCode, setLangCode] = useState(()=>localStorage.getItem("vetroai_lang")||"en");
   const t = LANGS[langCode]?.t || LANGS.en.t;
@@ -497,20 +438,18 @@ export default function App() {
     localStorage.setItem("vetroai_theme", theme);
   },[theme]);
 
-  // ── auth ───────────────────────────────────────────────────
   const [user,     setUser]     = useState(localStorage.getItem("token"));
   const [authMode, setAuthMode] = useState("login");
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
-  // ── sessions ───────────────────────────────────────────────
   const [sessions,         setSessions]         = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [histSearch,       setHistSearch]        = useState("");
   const [pinnedIds,        setPinnedIds]         = useState(()=>JSON.parse(localStorage.getItem("vetroai_pins")||"[]"));
   const [isSidebarOpen,    setIsSidebarOpen]     = useState(false);
 
-  // ── chat ───────────────────────────────────────────────────
   const [messages,     setMessages]     = useState([]);
   const [input,        setInput]        = useState("");
   const [editIdx,      setEditIdx]      = useState(null);
@@ -519,11 +458,12 @@ export default function App() {
   const [selFile,      setSelFile]      = useState(null);
   const [filePreview,  setFilePreview]  = useState(null);
   const [isLoading,    setIsLoading]    = useState(false);
-  const [isTyping,     setIsTyping]     = useState(false); // typing indicator (before first token)
+  const [isTyping,     setIsTyping]     = useState(false);
   const [showScrollDn, setShowScrollDn] = useState(false);
-  const abortRef = useRef(null); // for stop generation
+  const [reactions,    setReactions]    = useState({});
+  const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  const abortRef = useRef(null);
 
-  // ── in-chat search ─────────────────────────────────────────
   const [chatSearchOpen,   setChatSearchOpen]   = useState(false);
   const [chatSearchQuery,  setChatSearchQuery]  = useState("");
   const chatSearchResults = useMemo(()=>{
@@ -533,7 +473,6 @@ export default function App() {
   },[messages,chatSearchQuery]);
   const [chatSearchCursor, setChatSearchCursor] = useState(0);
 
-  // ── modals ─────────────────────────────────────────────────
   const [showProfile,     setShowProfile]     = useState(false);
   const [showSystemPrompt,setShowSystemPrompt]= useState(false);
   const [showShare,       setShowShare]       = useState(false);
@@ -541,12 +480,10 @@ export default function App() {
 
   useEffect(()=>{ localStorage.setItem("vetroai_sysprompt",systemPrompt); },[systemPrompt]);
 
-  // ── voice ──────────────────────────────────────────────────
   const [autoSpeak,       setAutoSpeak]       = useState(false);
   const [isListening,     setIsListening]     = useState(false);
   const [isVoiceOpen,     setIsVoiceOpen]     = useState(false);
 
-  // ── refs ───────────────────────────────────────────────────
   const chatFeedRef       = useRef(null);
   const textareaRef       = useRef(null);
   const chatSearchRef     = useRef(null);
@@ -565,7 +502,6 @@ export default function App() {
 
   useEffect(()=>{ window.speechSynthesis?.cancel(); },[]);
 
-  // Auto-expand textarea
   useEffect(()=>{
     if(textareaRef.current){
       textareaRef.current.style.height="auto";
@@ -573,17 +509,14 @@ export default function App() {
     }
   },[input]);
 
-  // Body scroll lock
   useEffect(()=>{
     const lock = isSidebarOpen||showProfile||showSystemPrompt||showShare;
     document.body.style.overflow = lock?"hidden":"";
     return ()=>{ document.body.style.overflow=""; };
   },[isSidebarOpen,showProfile,showSystemPrompt,showShare]);
 
-  // Save pins
   useEffect(()=>{ localStorage.setItem("vetroai_pins",JSON.stringify(pinnedIds)); },[pinnedIds]);
 
-  // Jump to search result
   useEffect(()=>{
     if(chatSearchResults.length===0) return;
     const idx = chatSearchResults[chatSearchCursor % chatSearchResults.length];
@@ -591,8 +524,15 @@ export default function App() {
     if(el) el.scrollIntoView({behavior:"smooth",block:"center"});
   },[chatSearchCursor,chatSearchResults]);
 
-  // Focus chat search input when opened
   useEffect(()=>{ if(chatSearchOpen) setTimeout(()=>chatSearchRef.current?.focus(),100); },[chatSearchOpen]);
+
+  // Close reaction picker on outside click
+  useEffect(()=>{
+    if(reactionPickerFor===null) return;
+    const handler = ()=>setReactionPickerFor(null);
+    setTimeout(()=>window.addEventListener("click",handler),10);
+    return ()=>window.removeEventListener("click",handler);
+  },[reactionPickerFor]);
 
   // ── keyboard shortcuts ─────────────────────────────────────
   useEffect(()=>{
@@ -617,7 +557,6 @@ export default function App() {
     return ()=>window.removeEventListener("keydown",handler);
   },[showProfile,showSystemPrompt,showShare,isSidebarOpen,isVoiceOpen,chatSearchOpen]);
 
-  // ── scroll ─────────────────────────────────────────────────
   const handleScroll = () => {
     if(!chatFeedRef.current) return;
     const {scrollTop,scrollHeight,clientHeight} = chatFeedRef.current;
@@ -629,7 +568,6 @@ export default function App() {
   },[]);
   useEffect(()=>{ if(!isScrolling.current) scrollToBottom(); },[messages]);
 
-  // ── sessions ───────────────────────────────────────────────
   useEffect(()=>{
     if(user){ try{ const s=localStorage.getItem("vetroai_sessions_"+user); if(s) setSessions(JSON.parse(s)||[]); }catch{ setSessions([]); } }
   },[user]);
@@ -650,7 +588,7 @@ export default function App() {
     const s=sessions.find(x=>x.id===id);
     if(s){ setMessages(s.messages||[]); setCurrentSessionId(id); stopSpeak(); setIsSidebarOpen(false); isScrolling.current=false; setShowScrollDn(false); }
   };
-  const createNewChat = useCallback(()=>{ setMessages([]); setCurrentSessionId(null); setInput(""); stopSpeak(); setIsSidebarOpen(false); },[]);
+  const createNewChat = useCallback(()=>{ setMessages([]); setCurrentSessionId(null); setInput(""); stopSpeak(); setIsSidebarOpen(false); setReactions({}); },[]);
   const deleteSession = id => {
     const list=sessions.filter(s=>s.id!==id); setSessions(list);
     try{ localStorage.setItem("vetroai_sessions_"+user,JSON.stringify(list)); }catch{}
@@ -659,7 +597,6 @@ export default function App() {
   };
   const togglePin = (e,id) => { e.stopPropagation(); setPinnedIds(p=>p.includes(id)?p.filter(x=>x!==id):[id,...p]); };
 
-  // Group sessions
   const {pinnedSessions, groupedSessions} = useMemo(()=>{
     const filtered = sessions.filter(s=>s?.title?.toLowerCase().includes(histSearch.toLowerCase()));
     const pinned   = filtered.filter(s=>pinnedIds.includes(s.id));
@@ -671,8 +608,8 @@ export default function App() {
 
   const dateOrder = [t.today, t.yesterday, t.older];
 
-  // ── auth ───────────────────────────────────────────────────
   const handleAuth = async () => {
+    setAuthLoading(true);
     const ep=authMode==="login"?"/login":"/signup";
     try{
       const res=await fetch(API+ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password})});
@@ -680,10 +617,10 @@ export default function App() {
       if(data.token){ localStorage.setItem("token",data.token); setUser(data.token); }
       else alert(data.error||data.message);
     }catch{ alert("Server connection failed."); }
+    finally{ setAuthLoading(false); }
   };
   const logout = () => { localStorage.removeItem("token"); setUser(null); setMessages([]); setCurrentSessionId(null); };
 
-  // ── voice ──────────────────────────────────────────────────
   const stopSpeak = () => window.speechSynthesis?.cancel();
   const speak = txt => {
     if(!window.speechSynthesis) return; stopSpeak();
@@ -713,8 +650,7 @@ export default function App() {
   const closeVoice = () => { setIsVoiceOpen(false); if(isListening) recognitionRef.current?.stop(); setIsListening(false); stopSpeak(); };
   const handleOrb = () => { if(isLoading) return; if(window.speechSynthesis.speaking){stopSpeak();setInput("");try{recognitionRef.current?.start();setIsListening(true);}catch{}}else if(isListening) recognitionRef.current?.stop(); else{setInput("");try{recognitionRef.current?.start();setIsListening(true);}catch{}} };
 
-  // ── send / AI ──────────────────────────────────────────────
-  const handleFileChange = e => { const f=e.target.files[0]; if(!f) return; setSelFile(f); if(f.type.startsWith("image/")){const r=new FileReader();r.onloadend=()=>setFilePreview(r.result);r.readAsDataURL(f);} };
+  const handleFileChange = e => { const f=e.target.files[0]; if(!f) return; setSelFile(f); if(f.type.startsWith("image/")){const r=new FileReader();r.onloadend=()=>setFilePreview(r.result);r.readAsDataURL(f);}};
 
   const stopGeneration = () => { abortRef.current?.abort(); setIsLoading(false); setIsTyping(false); };
 
@@ -759,12 +695,13 @@ export default function App() {
     setMessages(hist); setInput(""); triggerAI(hist);
   };
 
-  const sendMessage = e => {
+  const sendMessage = (e, prefill) => {
     e?.preventDefault();
-    if(!input.trim()&&!selFile) return;
+    const text = prefill || input;
+    if(!text.trim()&&!selFile) return;
     if(isListening) recognitionRef.current?.stop();
     const ts=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
-    const msg={role:"user",content:input,file:selFile?{preview:filePreview}:null,timestamp:ts};
+    const msg={role:"user",content:text,file:selFile?{preview:filePreview}:null,timestamp:ts};
     const hist=[...messages,msg];
     setMessages(hist); setInput("");
     if(textareaRef.current) textareaRef.current.style.height="auto";
@@ -772,19 +709,33 @@ export default function App() {
   };
 
   const handleKeyDown = e => { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!isLoading) sendMessage();} };
-
   const submitEdit = idx => {
     if(!editInput.trim()) return; stopSpeak();
     const ts=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
     const hist=[...messages.slice(0,idx),{role:"user",content:editInput,timestamp:ts}];
     setMessages(hist); setEditIdx(null); triggerAI(hist);
   };
-
   const handleRegen = idx => { if(idx===0) return; const hist=messages.slice(0,idx); setMessages(hist); triggerAI(hist); };
 
-  // ── profile data ───────────────────────────────────────────
-  const profileData = useMemo(()=>JSON.parse(localStorage.getItem("vetroai_profile")||'{"name":"","avatar":"👤"}'),[showProfile]);
+  const addReaction = (msgIdx, emoji) => {
+    setReactions(prev=>({...prev,[msgIdx]:[...(prev[msgIdx]||[]).filter(r=>r!==emoji),emoji]}));
+  };
+  const removeReaction = (msgIdx, emoji) => {
+    setReactions(prev=>({...prev,[msgIdx]:(prev[msgIdx]||[]).filter(r=>r!==emoji)}));
+  };
 
+  const insertFormatting = (prefix, suffix="") => {
+    if(!textareaRef.current) return;
+    const {selectionStart:s, selectionEnd:e, value:v} = textareaRef.current;
+    const selected = v.slice(s,e);
+    const newVal = v.slice(0,s)+prefix+(selected||"text")+suffix+v.slice(e);
+    setInput(newVal);
+    setTimeout(()=>{ if(textareaRef.current){textareaRef.current.focus();textareaRef.current.setSelectionRange(s+prefix.length, s+prefix.length+(selected||"text").length);} },0);
+  };
+
+  const profileData = useMemo(()=>JSON.parse(localStorage.getItem("vetroai_profile")||'{"name":"","avatar":"👤"}'),[showProfile]);
+  const charCount = input.length;
+  const tokenEstimate = Math.ceil(charCount / 4);
   const isInputEmpty = !input.trim()&&!selFile;
 
   // ════════════════════════════════════════════════════════════
@@ -792,14 +743,31 @@ export default function App() {
   // ════════════════════════════════════════════════════════════
   if(!user) return (
     <div className="auth-wrapper">
+      <div className="auth-bg-mesh"/>
       <div className="auth-card">
-        <h1 className="text-logo">VetroAI <span className="beta-tag">v1.0</span></h1>
-        <p className="auth-sub">{authMode==="login"?"Sign in to continue.":"Create your account."}</p>
-        <input className="auth-input" type="email" placeholder={t.emailLbl} value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAuth()}/>
-        <input className="auth-input" type="password" placeholder={t.passLbl} value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAuth()}/>
-        <button className="auth-btn" onClick={handleAuth}>{authMode==="login"?t.signIn:t.register}</button>
+        <div className="auth-logo-wrap">
+          <div className="auth-logo-orb">V</div>
+          <h1 className="text-logo">VetroAI <span className="beta-tag">v1.0</span></h1>
+        </div>
+        <p className="auth-sub">{authMode==="login"?"Welcome back. Sign in to continue.":"Create your account and get started."}</p>
+        <div className="auth-field">
+          <label className="auth-label">{t.emailLbl}</label>
+          <input className="auth-input" type="email" placeholder="you@example.com" value={email}
+            onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAuth()}/>
+        </div>
+        <div className="auth-field">
+          <label className="auth-label">{t.passLbl}</label>
+          <input className="auth-input" type="password" placeholder="••••••••" value={password}
+            onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAuth()}/>
+        </div>
+        <button className={`auth-btn ${authLoading?"loading":""}`} onClick={handleAuth} disabled={authLoading}>
+          {authLoading ? <span className="auth-spinner"/> : (authMode==="login"?t.signIn:t.register)}
+        </button>
         <p className="auth-toggle" onClick={()=>setAuthMode(authMode==="login"?"signup":"login")}>
-          {authMode==="login"?<><span style={{color:"var(--text-dim)"}}>{t.newHere} </span><span>{t.signUpFree}</span></>:<><span style={{color:"var(--text-dim)"}}>{t.haveAcc} </span><span>{t.signInLink}</span></>}
+          {authMode==="login"
+            ?<><span className="auth-toggle-dim">{t.newHere} </span><span className="auth-toggle-link">{t.signUpFree}</span></>
+            :<><span className="auth-toggle-dim">{t.haveAcc} </span><span className="auth-toggle-link">{t.signInLink}</span></>
+          }
         </p>
       </div>
     </div>
@@ -820,37 +788,52 @@ export default function App() {
       {isVoiceOpen && (
         <div className="voice-modal-overlay">
           <button className="close-voice-btn" onClick={closeVoice}><XIc/></button>
-          <div className={`voice-orb ${isListening?"listening":isLoading?"":"speaking"}`} onClick={handleOrb}/>
+          <div className="voice-rings">
+            <div className={`voice-ring ring-1 ${isListening?"active":""}`}/>
+            <div className={`voice-ring ring-2 ${isListening?"active":""}`}/>
+            <div className={`voice-ring ring-3 ${isListening?"active":""}`}/>
+          </div>
+          <div className={`voice-orb ${isListening?"listening":isLoading?"loading":"speaking"}`} onClick={handleOrb}>
+            {isLoading?<span className="orb-icon">⏳</span>:isListening?<MicIc/>:<WaveIc/>}
+          </div>
           <h2 className="voice-status">{isListening?t.voiceListen:isLoading?t.voiceThink:t.voiceSpeak}</h2>
           <p className="voice-hint">{isListening?t.tapStop:isLoading?t.tapWait:t.tapInterrupt}</p>
           <p className="voice-transcript">{input||"…"}</p>
         </div>
       )}
 
-      {/* SIDEBAR OVERLAY */}
       {isSidebarOpen && <div className="sidebar-overlay" onClick={()=>setIsSidebarOpen(false)}/>}
 
       {/* SIDEBAR */}
       <aside className={`sidebar ${isSidebarOpen?"open":""}`}>
         <div className="sidebar-top">
-          <h2 className="text-logo">VetroAI <span className="beta-tag">v1.0</span></h2>
+          <div className="sidebar-brand">
+            <div className="brand-orb">V</div>
+            <h2 className="text-logo">VetroAI <span className="beta-tag">v1.0</span></h2>
+          </div>
           <div className="sidebar-top-actions">
             <button className="icon-action-btn" title="Theme" onClick={()=>setTheme(theme==="dark"?"light":"dark")}>
               {theme==="dark"?<SunIc/>:<MoonIc/>}
             </button>
-            <button className="icon-action-btn" title={t.profile} onClick={()=>setShowProfile(true)}>
-              <span style={{fontSize:"1rem"}}>{profileData.avatar}</span>
+            <button className="icon-action-btn avatar-btn" title={t.profile} onClick={()=>setShowProfile(true)}>
+              <span className="sidebar-avatar">{profileData.avatar}</span>
             </button>
           </div>
         </div>
 
-        <button className="new-chat-btn" onClick={createNewChat}><span>{t.newChat}</span><PlusIc/></button>
-        <div className="search-bar"><input type="text" placeholder={t.search} value={histSearch} onChange={e=>setHistSearch(e.target.value)}/></div>
+        <button className="new-chat-btn" onClick={createNewChat}>
+          <PlusIc/>
+          <span>{t.newChat}</span>
+        </button>
+
+        <div className="search-bar">
+          <SearchIc/>
+          <input type="text" placeholder={t.search} value={histSearch} onChange={e=>setHistSearch(e.target.value)}/>
+        </div>
 
         <div className="history-list">
-          {/* PINNED */}
           {pinnedSessions.length>0&&(<>
-            <div className="history-group-label">📌 {t.pinnedSection}</div>
+            <div className="history-group-label"><span>📌</span> {t.pinnedSection}</div>
             {pinnedSessions.map(s=>(
               <div key={s.id} className={`history-item-wrapper ${s.id===currentSessionId?"active":""}`} onClick={()=>loadSession(s.id)}>
                 <span className="history-pin-icon">📌</span>
@@ -863,7 +846,6 @@ export default function App() {
             ))}
           </>)}
 
-          {/* ALL CHATS */}
           {dateOrder.map(group=> groupedSessions[group]?.length>0&&(
             <React.Fragment key={group}>
               <div className="history-group-label">{group}</div>
@@ -878,12 +860,22 @@ export default function App() {
               ))}
             </React.Fragment>
           ))}
+
+          {sessions.length===0&&(
+            <div className="empty-history">
+              <span>💬</span>
+              <p>No conversations yet</p>
+            </div>
+          )}
         </div>
 
         <div className="sidebar-footer">
-          <select value={selectedMode} onChange={e=>setSelectedMode(e.target.value)}>
-            {MODES.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          <div className="mode-selector">
+            <BotIc/>
+            <select value={selectedMode} onChange={e=>setSelectedMode(e.target.value)}>
+              {MODES.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
           <button className="logout-btn" onClick={logout}>🚪 {t.logout}</button>
         </div>
       </aside>
@@ -891,9 +883,14 @@ export default function App() {
       {/* CHAT AREA */}
       <main className="chat-area">
         <header className="chat-header">
-          <button className="mobile-menu-btn" onClick={()=>setIsSidebarOpen(true)}><MenuIc/></button>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <button className="header-btn icon-only" title="Search messages (Ctrl+F)" onClick={()=>setChatSearchOpen(v=>!v)}><SearchIc/></button>
+          <div className="header-left">
+            <button className="mobile-menu-btn" onClick={()=>setIsSidebarOpen(true)}><MenuIc/></button>
+            <div className="header-mode-pill">
+              <span>{MODES.find(m=>m.id===selectedMode)?.name}</span>
+            </div>
+          </div>
+          <div className="header-right">
+            <button className="header-btn icon-only" title="Search (Ctrl+F)" onClick={()=>setChatSearchOpen(v=>!v)}><SearchIc/></button>
             <button className="header-btn icon-only" title={t.systemPrompt} onClick={()=>setShowSystemPrompt(true)}><BotIc/></button>
             <button className="header-btn icon-only" title="Theme" onClick={()=>setTheme(theme==="dark"?"light":"dark")}>
               {theme==="dark"?<SunIc/>:<MoonIc/>}
@@ -908,7 +905,7 @@ export default function App() {
             <SearchIc/>
             <input ref={chatSearchRef} placeholder={t.searchInChat} value={chatSearchQuery}
               onChange={e=>{setChatSearchQuery(e.target.value);setChatSearchCursor(0);}}
-              onKeyDown={e=>{ if(e.key==="Enter") setChatSearchCursor(c=>(c+1)%Math.max(chatSearchResults.length,1)); }}/>
+              onKeyDown={e=>{ if(e.key==="Enter") setChatSearchCursor(c=>(c+1)%Math.max(chatSearchResults.length,1)); if(e.key==="ArrowDown") setChatSearchCursor(c=>(c+1)%Math.max(chatSearchResults.length,1)); if(e.key==="ArrowUp") setChatSearchCursor(c=>(c-1+chatSearchResults.length)%Math.max(chatSearchResults.length,1)); }}/>
             {chatSearchQuery&&<span className="chat-search-count">
               {chatSearchResults.length>0?`${(chatSearchCursor%chatSearchResults.length)+1}/${chatSearchResults.length}`:t.noResults}
             </span>}
@@ -920,22 +917,40 @@ export default function App() {
         <div className="messages-feed" ref={chatFeedRef} onScroll={handleScroll}>
           {messages.length===0&&(
             <div className="welcome-screen">
-              <h1 className="text-logo">{t.welcome}</h1>
-              <p>{t.welcomeSub}</p>
+              <div className="welcome-orb">V</div>
+              <h1 className="welcome-title">{t.welcome}</h1>
+              <p className="welcome-sub">{t.welcomeSub}</p>
+              {systemPrompt&&<div className="welcome-persona-badge"><BotIc/> {t.systemPromptBadge}</div>}
+              <div className="suggestion-grid">
+                {(t.suggestions||[]).map((s,i)=>(
+                  <button key={i} className="suggestion-chip" onClick={()=>sendMessage(null,s)}
+                    style={{"--delay":`${i*0.05}s`}}>
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
           {messages.map((msg,idx)=>{
             const isHighlighted = chatSearchQuery&&chatSearchResults.includes(idx);
+            const msgReactions = reactions[idx]||[];
             return (
               <div key={idx} className={`message ${msg.role} message-wrap-${idx} ${isHighlighted?"msg-highlight":""}`}>
+                {msg.role==="assistant"&&(
+                  <div className="bot-avatar-col">
+                    <div className="bot-avatar">V</div>
+                  </div>
+                )}
                 <div className="bubble-wrapper">
                   {msg.role==="user"&&editIdx===idx?(
                     <div className="edit-container">
-                      <textarea className="edit-textarea" value={editInput} autoFocus onChange={e=>setEditInput(e.target.value)}/>
+                      <textarea className="edit-textarea" value={editInput} autoFocus
+                        onChange={e=>setEditInput(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitEdit(idx);}}}/>
                       <div className="edit-actions">
                         <button className="btn-cancel" onClick={()=>setEditIdx(null)}>{t.cancel}</button>
-                        <button className="btn-save"   onClick={()=>submitEdit(idx)}>{t.saveAndSend||"Save & Send"}</button>
+                        <button className="btn-save" onClick={()=>submitEdit(idx)}>{t.saveAndSend||"Save & Send"}</button>
                       </div>
                     </div>
                   ):(
@@ -951,34 +966,55 @@ export default function App() {
                       </ReactMarkdown>
                     </div>
                   )}
+
+                  {/* Reactions display */}
+                  {msgReactions.length>0&&(
+                    <div className="reactions-bar">
+                      {msgReactions.map(r=>(
+                        <button key={r} className="reaction-badge" onClick={()=>removeReaction(idx,r)}>{r}</button>
+                      ))}
+                    </div>
+                  )}
+
                   {editIdx!==idx&&(
                     <div className="message-actions">
                       <span className="timestamp">{msg.timestamp}</span>
-                      {msg.role==="assistant"&&!isLoading&&(
-                        <div className="action-icons">
+                      <div className="action-icons">
+                        {msg.role==="assistant"&&!isLoading&&(<>
                           <button onClick={()=>speak(msg.content)} title={t.readAloud}><SpeakerIcon/></button>
                           <button onClick={()=>navigator.clipboard.writeText(msg.content)} title={t.copy}><CopyIcon/></button>
                           <button onClick={()=>handleRegen(idx)} title={t.regen}><ReloadIc/></button>
-                        </div>
-                      )}
-                      {msg.role==="user"&&!isLoading&&(
-                        <div className="action-icons">
+                        </>)}
+                        {msg.role==="user"&&!isLoading&&(<>
                           <button onClick={()=>{setEditIdx(idx);setEditInput(msg.content);}} title={t.edit}><EditIcon/></button>
                           <button onClick={()=>navigator.clipboard.writeText(msg.content)} title={t.copy}><CopyIcon/></button>
+                        </>)}
+                        <div className="reaction-trigger" style={{position:"relative"}}>
+                          <button onClick={e=>{e.stopPropagation();setReactionPickerFor(reactionPickerFor===idx?null:idx);}} title="React"><SmileIc/></button>
+                          {reactionPickerFor===idx&&(
+                            <ReactionPicker onPick={r=>addReaction(idx,r)} onClose={()=>setReactionPickerFor(null)}/>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>
+                {msg.role==="user"&&(
+                  <div className="user-avatar-col">
+                    <div className="user-avatar">{profileData.avatar}</div>
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {/* TYPING INDICATOR */}
           {isTyping&&(
             <div className="message assistant">
+              <div className="bot-avatar-col"><div className="bot-avatar">V</div></div>
               <div className="bubble-wrapper">
-                <div className="typing-indicator"><div className="typing-dot"/><div className="typing-dot"/><div className="typing-dot"/></div>
+                <div className="typing-indicator">
+                  <div className="typing-dot"/><div className="typing-dot"/><div className="typing-dot"/>
+                </div>
               </div>
             </div>
           )}
@@ -995,9 +1031,27 @@ export default function App() {
               <button onClick={()=>setSystemPrompt("")} title={t.clearPrompt}>✕</button>
             </div>
           )}
+
+          {/* Formatting toolbar - shows when input has content */}
+          {input.length>0&&(
+            <div className="format-toolbar">
+              <button type="button" className="format-btn" title="Bold" onClick={()=>insertFormatting("**","**")}><BoldIc/></button>
+              <button type="button" className="format-btn" title="Italic" onClick={()=>insertFormatting("_","_")}><ItalicIc/></button>
+              <button type="button" className="format-btn" title="Code" onClick={()=>insertFormatting("`","`")}><CodeIc/></button>
+              <div className="format-separator"/>
+              <span className="char-counter">{charCount} {t.chars} · {tokenEstimate} {t.tokens}</span>
+            </div>
+          )}
+
           <form className="input-box" onSubmit={sendMessage}>
             <input type="file" ref={fileInputRef} style={{display:"none"}} onChange={handleFileChange}/>
-            <button type="button" className="icon-btn" onClick={()=>fileInputRef.current.click()} title="Attach">📎</button>
+            {filePreview&&(
+              <div className="file-preview-wrap">
+                <img src={filePreview} alt="preview" className="file-preview-img"/>
+                <button type="button" className="file-remove-btn" onClick={()=>{setSelFile(null);setFilePreview(null);}}>✕</button>
+              </div>
+            )}
+            <button type="button" className="icon-btn" onClick={()=>fileInputRef.current.click()} title="Attach file">📎</button>
             <textarea ref={textareaRef} className="chat-textarea"
               placeholder={isListening&&!isVoiceOpen?t.listening:t.placeholder}
               value={input} onChange={e=>setInput(e.target.value)}
@@ -1015,6 +1069,7 @@ export default function App() {
               )}
             </div>
           </form>
+          <p className="input-footer-note">VetroAI can make mistakes. Verify important info.</p>
         </div>
       </main>
     </div>
