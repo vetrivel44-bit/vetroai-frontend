@@ -8,7 +8,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 
-
+const API = "http://127.0.0.1:3000";
 
 const MODES = [
   { id: "vtu_academic", name: "🎓 VTU Academic Mode" },
