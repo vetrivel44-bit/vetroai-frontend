@@ -10,16 +10,19 @@ import "./App.css";
 
 const API = "https://ai-chatbot-backend-gvvz.onrender.com";
 
-// ─── WEB SEARCH HELPERS ───────────────────────────────────────────────────────
+// ─── SERPER GOOGLE SEARCH ─────────────────────────────────────────────────────
+const SERPER_API_KEY = "19caba58c08177639d61cabf7e5430278044545f";
 
-/**
- * Detect if a query likely needs live/current information
- */
+const TODAY_STR = new Date().toLocaleDateString("en-IN", {
+  weekday: "long", year: "numeric", month: "long", day: "numeric",
+});
+
+// Detect queries that need live/current web data
 const CURRENT_TRIGGERS = [
-  /\b(today|tonight|now|current|currently|live|latest|recent|breaking|new|news)\b/i,
+  /\b(today|tonight|now|current|currently|live|latest|recent|breaking|news)\b/i,
   /\b(2024|2025|this (year|month|week|day))\b/i,
   /\b(who (is|was|won|leads|runs)|what is the (score|price|rate|status))\b/i,
-  /\b(stock|crypto|bitcoin|market|weather|election|war|match|game)\b/i,
+  /\b(stock|crypto|bitcoin|market|weather|election|war|match|game|ipl|cricket)\b/i,
   /\b(just (happened|announced|released|launched))\b/i,
   /\b(trending|viral|happening)\b/i,
 ];
@@ -28,55 +31,104 @@ const needsWebSearch = (query) =>
   CURRENT_TRIGGERS.some((rx) => rx.test(query));
 
 /**
- * Fetch search results from DuckDuckGo Instant Answer API
- * Falls back gracefully if CORS is blocked
+ * fetchWebResults — Google Search via Serper API.
+ * Returns formatted markdown context string for the AI.
  */
 const fetchWebResults = async (query) => {
+  const snippets = [];
+
   try {
-    // DuckDuckGo Instant Answer (CORS-friendly for JSON)
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1&t=VetroAI`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const res = await fetch("https://google.serper.dev/search", {
+      method: "POST",
+      headers: {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ q: query, gl: "in", hl: "en", num: 8 }),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) throw new Error(`Serper error: ${res.status}`);
     const data = await res.json();
 
-    const snippets = [];
-
-    if (data.AbstractText) {
-      snippets.push(`📖 **Summary**: ${data.AbstractText}`);
-      if (data.AbstractURL) snippets.push(`🔗 Source: ${data.AbstractURL}`);
+    // Answer box — highest priority quick answer
+    if (data.answerBox) {
+      const ab = data.answerBox;
+      const ans = ab.answer || ab.snippet || (ab.snippetHighlighted?.join(" ")) || "";
+      if (ans) {
+        snippets.push(
+          `✅ **Google Answer**:\n${ans}${ab.title ? ` (${ab.title})` : ""}${ab.link ? `\n🔗 ${ab.link}` : ""}`
+        );
+      }
     }
 
-    if (data.Answer) snippets.push(`✅ **Answer**: ${data.Answer}`);
-
-    if (data.RelatedTopics?.length) {
-      const topics = data.RelatedTopics
-        .filter((t) => t.Text && !t.Topics)
-        .slice(0, 4)
-        .map((t) => `• ${t.Text}${t.FirstURL ? ` (${t.FirstURL})` : ""}`);
-      if (topics.length) snippets.push(`📌 **Related**:\n${topics.join("\n")}`);
+    // Knowledge graph (e.g. cricket player stats, movie info)
+    if (data.knowledgeGraph) {
+      const kg = data.knowledgeGraph;
+      let kgText = `📊 **${kg.title || ""}**${kg.type ? ` — ${kg.type}` : ""}`;
+      if (kg.description) kgText += `\n${kg.description}`;
+      if (kg.attributes && Object.keys(kg.attributes).length) {
+        const attrs = Object.entries(kg.attributes)
+          .slice(0, 6)
+          .map(([k, v]) => `  • **${k}**: ${v}`)
+          .join("\n");
+        kgText += `\n${attrs}`;
+      }
+      snippets.push(kgText);
     }
 
-    if (data.Results?.length) {
-      const results = data.Results.slice(0, 3).map(
-        (r) => `• [${r.Text}](${r.FirstURL})`
-      );
-      snippets.push(`🌐 **Results**:\n${results.join("\n")}`);
+    // Sports results (scores, tables — great for IPL, cricket, football)
+    if (data.sportsResults) {
+      const sr = data.sportsResults;
+      let sportText = `🏆 **${sr.title || "Sports Update"}**\n`;
+      if (sr.games?.length) {
+        sportText += sr.games.slice(0, 5).map(g =>
+          `  • ${g.homeTeam} **${g.homeScore ?? ""}** vs ${g.awayTeam} **${g.awayScore ?? ""}** ${g.status ? `— ${g.status}` : ""} ${g.date ? `(${g.date})` : ""}`
+        ).join("\n");
+      } else {
+        sportText += "(See organic results below)";
+      }
+      snippets.push(sportText);
     }
 
-    if (data.Infobox?.content?.length) {
-      const facts = data.Infobox.content
-        .filter((c) => c.label && c.value)
-        .slice(0, 5)
-        .map((c) => `• **${c.label}**: ${c.value}`);
-      if (facts.length) snippets.push(`📊 **Facts**:\n${facts.join("\n")}`);
+    // Top news stories
+    if (data.topStories?.length) {
+      const stories = data.topStories.slice(0, 5).map(s =>
+        `  • **${s.title}**\n    Source: ${s.source || "Unknown"} | ${s.date || ""}\n    🔗 ${s.link || ""}`
+      ).join("\n");
+      snippets.push(`📰 **Top News Stories**:\n${stories}`);
     }
 
-    return snippets.length
-      ? snippets.join("\n\n")
-      : null;
+    // Organic Google results
+    if (data.organic?.length) {
+      const organic = data.organic.slice(0, 6).map((r, i) => {
+        let entry = `**${i + 1}. ${r.title}**\n${r.snippet || "No snippet"}`;
+        if (r.link) entry += `\n🔗 ${r.link}`;
+        if (r.attributes && Object.keys(r.attributes).length) {
+          entry += "\n" + Object.entries(r.attributes).slice(0, 3).map(([k,v]) => `  ${k}: ${v}`).join(" | ");
+        }
+        return entry;
+      }).join("\n\n");
+      snippets.push(`🌐 **Google Search Results for "${query}"**:\n\n${organic}`);
+    }
+
+    // People Also Ask
+    if (data.peopleAlsoAsk?.length) {
+      const paa = data.peopleAlsoAsk.slice(0, 3).map(p =>
+        `  **Q: ${p.question}**\n  ${p.snippet || p.answer || ""}`
+      ).join("\n\n");
+      snippets.push(`💡 **Related Questions**:\n\n${paa}`);
+    }
+
   } catch (err) {
-    console.warn("Web search failed:", err);
+    console.error("Serper Google search failed:", err?.message);
     return null;
   }
+
+  if (!snippets.length) return null;
+
+  snippets.unshift(`📅 **Live search performed on**: ${TODAY_STR}`);
+  return snippets.join("\n\n---\n\n");
 };
 
 // ─── TRANSLATIONS ─────────────────────────────────────────────────────────────
@@ -741,16 +793,41 @@ export default function App() {
     // Build context with optional web results injected
     const ctx = hist.slice(-10).map(m => ({ role: m.role, content: m.content }));
 
-    // Build system instruction
-    let sysContent = systemPrompt || "";
-    if (shouldSearch && webContext) {
-      sysContent += `\n\n---\n🌐 LIVE WEB SEARCH RESULTS (use these to answer accurately):\n${webContext}\n---\n\nIMPORTANT: Use the above search results to give an accurate, up-to-date answer. Cite sources where relevant. Today's date context: ${new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}.`;
-    } else if (shouldSearch && !webContext) {
-      sysContent += "\n\nNote: Web search was attempted but returned no results. Answer based on your training data and clearly state when information may be outdated.";
+    // ── Build system instruction ─────────────────────────────────────────
+    const nowStr = new Date().toLocaleDateString("en-IN", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+    });
+
+    // Base: always tell AI today's date to prevent stale answers
+    let sysContent = [
+      `TODAY'S DATE: ${nowStr}.`,
+      `Your knowledge cutoff is around October 2024. The current year is ${new Date().getFullYear()}.`,
+      `NEVER say an event "hasn't happened yet" or "is expected" if the search results or the date show otherwise.`,
+      systemPrompt || "",
+    ].filter(Boolean).join("\n\n");
+
+    if (isWebMode) {
+      sysContent = `You are VetroAI running in 🌐 Web Search Mode. ` + sysContent;
     }
 
-    if (isWebMode && !sysContent.includes("WEB SEARCH")) {
-      sysContent = "You are VetroAI in Web Search mode. You have access to live search results. Always cite sources, provide accurate current information, and clearly indicate when information may be outdated.\n" + sysContent;
+    // Inject live search results as highest-priority context
+    if (shouldSearch && webContext) {
+      sysContent +=
+        `\n\n${"━".repeat(50)}` +
+        `\n🌐 LIVE GOOGLE SEARCH RESULTS (highest priority — use these as ground truth):` +
+        `\n${"━".repeat(50)}` +
+        `\n\n${webContext}` +
+        `\n\n${"━".repeat(50)}` +
+        `\n\nCRITICAL RULES:` +
+        `\n1. Answer using ONLY the search results above for current-event topics.` +
+        `\n2. DO NOT contradict the search results with your training data.` +
+        `\n3. Cite the source URL or website name when giving facts from search results.` +
+        `\n4. If search results are incomplete, say so and answer the best you can from them.`;
+    } else if (shouldSearch && !webContext) {
+      sysContent +=
+        `\n\n⚠️ Web search was attempted for this query but returned no results.` +
+        `\nYou MUST clearly tell the user that your information may be outdated (cutoff: Oct 2024)` +
+        `\nand recommend they check live sources like Google, Cricbuzz, ESPN, NDTV, etc.`;
     }
 
     if (sysContent.trim()) ctx.unshift({ role: "system", content: sysContent });
