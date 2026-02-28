@@ -794,40 +794,53 @@ export default function App() {
     const ctx = hist.slice(-10).map(m => ({ role: m.role, content: m.content }));
 
     // ── Build system instruction ─────────────────────────────────────────
-    const nowStr = new Date().toLocaleDateString("en-IN", {
-      weekday: "long", year: "numeric", month: "long", day: "numeric",
-    });
+    const now        = new Date();
+    const nowStr     = now.toLocaleDateString("en-IN", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
+    const nowISO     = now.toISOString().slice(0,10); // e.g. "2026-02-28"
+    const nowMs      = now.getTime();
 
-    // Base: always tell AI today's date to prevent stale answers
+    // Helper the AI can't get wrong: compare a date string to today
+    // We embed it as plain text instructions instead
     let sysContent = [
-      `TODAY'S DATE: ${nowStr}.`,
-      `Your knowledge cutoff is around October 2024. The current year is ${new Date().getFullYear()}.`,
-      `NEVER say an event "hasn't happened yet" or "is expected" if the search results or the date show otherwise.`,
+      `════════════════════════════════════════`,
+      `SYSTEM: DATE & TEMPORAL REASONING RULES`,
+      `════════════════════════════════════════`,
+      `TODAY IS: ${nowStr} (${nowISO}).`,
+      `You are answering ON this exact date. Use it for ALL temporal reasoning.`,
+      ``,
+      `STRICT DATE LOGIC — follow these precisely:`,
+      `• If a search result says an event starts on a FUTURE date (after ${nowISO}), say "has NOT started yet, starts on [date]".`,
+      `• If a search result says an event starts on a PAST date (before ${nowISO}), say "has started / is ongoing".`,
+      `• If a search result says an event date is TODAY (${nowISO}), say "starts today".`,
+      `• NEVER say an event "has already started" unless its start date is strictly before ${nowISO}.`,
+      `• NEVER say an event "hasn't happened yet" unless its date is strictly after ${nowISO}.`,
+      `• When in doubt about a date, quote the date from the search result exactly and let the user decide.`,
+      `• Your training cutoff is October 2024. For anything after that, rely ONLY on the search results.`,
       systemPrompt || "",
-    ].filter(Boolean).join("\n\n");
+    ].filter(Boolean).join("\n");
 
     if (isWebMode) {
-      sysContent = `You are VetroAI running in 🌐 Web Search Mode. ` + sysContent;
+      sysContent = "You are VetroAI in 🌐 Web Search Mode.\n" + sysContent;
     }
 
     // Inject live search results as highest-priority context
     if (shouldSearch && webContext) {
       sysContent +=
         `\n\n${"━".repeat(50)}` +
-        `\n🌐 LIVE GOOGLE SEARCH RESULTS (highest priority — use these as ground truth):` +
+        `\n🌐 LIVE GOOGLE SEARCH RESULTS — treat as ground truth:` +
         `\n${"━".repeat(50)}` +
         `\n\n${webContext}` +
         `\n\n${"━".repeat(50)}` +
-        `\n\nCRITICAL RULES:` +
-        `\n1. Answer using ONLY the search results above for current-event topics.` +
-        `\n2. DO NOT contradict the search results with your training data.` +
-        `\n3. Cite the source URL or website name when giving facts from search results.` +
-        `\n4. If search results are incomplete, say so and answer the best you can from them.`;
+        `\n\nRULES FOR USING SEARCH RESULTS:` +
+        `\n1. Extract exact dates from results, then compare to TODAY (${nowISO}) before saying started/not started.` +
+        `\n2. Quote numbers, scores, and stats exactly as they appear — do not round or estimate.` +
+        `\n3. Cite the source name or URL for key facts.` +
+        `\n4. If results conflict, mention both versions and note the discrepancy.` +
+        `\n5. If no result directly answers the question, say "The search results don't clearly show X".`;
     } else if (shouldSearch && !webContext) {
       sysContent +=
-        `\n\n⚠️ Web search was attempted for this query but returned no results.` +
-        `\nYou MUST clearly tell the user that your information may be outdated (cutoff: Oct 2024)` +
-        `\nand recommend they check live sources like Google, Cricbuzz, ESPN, NDTV, etc.`;
+        `\n\n⚠️ Web search returned no results for this query.` +
+        `\nYou MUST tell the user your data may be outdated (cutoff Oct 2024) and suggest they check Google, Cricbuzz, ESPN, NDTV, etc.`;
     }
 
     if (sysContent.trim()) ctx.unshift({ role: "system", content: sysContent });
