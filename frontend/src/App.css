@@ -1980,3 +1980,212 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   .welcome-cards { grid-template-columns: 1fr; }
   .followup-chip { max-width: 100%; }
 }
+/* ─── PASTE THESE STYLES INTO YOUR App.css ──────────────────────────────────── */
+
+/* ── YouTube Embed ─────────────────────────────────────────────────────────── */
+.yt-embed {
+  margin: 8px 0 4px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  max-width: 480px;
+  border: 1px solid rgba(255,0,0,0.15);
+}
+.yt-thumb {
+  position: relative;
+  cursor: pointer;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  background: #111;
+}
+.yt-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s, filter 0.25s;
+  display: block;
+}
+.yt-thumb:hover img { transform: scale(1.03); filter: brightness(0.75); }
+.yt-play-btn {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.92;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.yt-thumb:hover .yt-play-btn { opacity: 1; transform: scale(1.08); }
+.yt-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #0f0f0f;
+}
+.yt-title-text {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.yt-author {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.5);
+  flex-shrink: 0;
+}
+
+/* ── YouTube Mode Pills ─────────────────────────────────────────────────────── */
+.yt-mode-pill {
+  background: rgba(255,0,0,0.08) !important;
+  border-color: rgba(255,0,0,0.2) !important;
+  color: #cc0000 !important;
+}
+[data-theme="dark"] .yt-mode-pill { color: #ff6666 !important; }
+.yt-send {
+  background: linear-gradient(135deg, #ff0000, #cc0000) !important;
+}
+.yt-send:hover { background: linear-gradient(135deg, #e60000, #b30000) !important; }
+
+/* ── Calculator Widget ─────────────────────────────────────────────────────── */
+.calc-display {
+  background: var(--surface-2, #f5f5f5);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  text-align: right;
+  border: 1px solid var(--border);
+  min-height: 70px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+[data-theme="dark"] .calc-display { background: #1a1a1a; }
+.calc-expr {
+  font-size: 1rem;
+  color: var(--ink-3);
+  word-break: break-all;
+  min-height: 22px;
+}
+.calc-result {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: var(--ink);
+  min-height: 42px;
+}
+.calc-btns { display: flex; flex-direction: column; gap: 6px; }
+.calc-row { display: flex; gap: 6px; }
+.calc-btn {
+  flex: 1;
+  padding: 13px 6px;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.calc-btn:hover { background: var(--hover); }
+.calc-btn:active { transform: scale(0.95); }
+.calc-btn.eq {
+  background: var(--accent);
+  color: white;
+  border-color: transparent;
+  font-size: 1.1rem;
+}
+.calc-btn.op {
+  background: rgba(var(--accent-rgb, 90,90,200), 0.1);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb, 90,90,200), 0.2);
+}
+.calc-btn.fn {
+  background: rgba(231,111,81,0.1);
+  color: #e76f51;
+  border-color: rgba(231,111,81,0.2);
+}
+.calc-hist {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.calc-hist-label {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.calc-hist-item {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Focus Timer ──────────────────────────────────────────────────────────── */
+.btn-ghost.active {
+  background: var(--accent) !important;
+  color: white !important;
+  border-color: transparent !important;
+}
+
+/* ── Sidebar 4-col quick row ──────────────────────────────────────────────── */
+.sb-quick-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.sb-quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 0.65rem;
+  transition: all 0.15s;
+  position: relative;
+}
+.sb-quick-btn:hover { background: var(--hover); color: var(--ink); }
+.sb-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.58rem;
+  padding: 1px 4px;
+  border-radius: 99px;
+  font-weight: 700;
+  min-width: 14px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ── Header icon buttons ──────────────────────────────────────────────────── */
+.ch-right .icon-btn[title="Calculator"],
+.ch-right .icon-btn[title="Focus Timer"] {
+  opacity: 0.75;
+}
+.ch-right .icon-btn[title="Calculator"]:hover,
+.ch-right .icon-btn[title="Focus Timer"]:hover {
+  opacity: 1;
+}
+
+/* ── YouTube badge in assistant messages ─────────────────────────────────── */
+.web-search-badge.yt {
+  color: #cc0000;
+  background: rgba(255,0,0,0.06);
+  border-color: rgba(255,0,0,0.18);
+}
