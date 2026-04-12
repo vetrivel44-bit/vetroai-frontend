@@ -1,74 +1,106 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const fs = require("fs-extra");
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
-const JWT_SECRET = process.env.JWT_SECRET || "vetroai_secret_key_2025";
-const USERS_FILE = "./users.json";
+const users = new Map();
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 
-// ── Helper: load / save users ──────────────────────────────────────────────
-async function loadUsers() {
-  if (!(await fs.pathExists(USERS_FILE))) return [];
-  try { return await fs.readJson(USERS_FILE); } catch { return []; }
-}
-async function saveUsers(users) {
-  await fs.writeJson(USERS_FILE, users, { spaces: 2 });
-}
-
-// ── Signup ─────────────────────────────────────────────────────────────────
 async function signup(req, res) {
-  const { email, password, name } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ error: "Email and password are required" });
-
-  const users = await loadUsers();
-  if (users.find(u => u.email === email))
-    return res.status(400).json({ error: "User already exists" });
-
-  const hashed = await bcrypt.hash(password, 10);
-  const displayName = name?.trim() || email.split("@")[0];
-  users.push({
-    email,
-    password: hashed,
-    name: displayName,
-    createdAt: new Date().toISOString(),
-  });
-  await saveUsers(users);
-  res.json({ message: "Signup successful" });
-}
-
-// ── Login ──────────────────────────────────────────────────────────────────
-async function login(req, res) {
-  const { email, password } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ error: "Email and password are required" });
-
-  const users = await loadUsers();
-  const user = users.find(u => u.email === email);
-  if (!user || !user.password)
-    return res.status(400).json({ error: "Invalid credentials" });
-
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(400).json({ error: "Invalid credentials" });
-
-  const token = jwt.sign(
-    { email, name: user.name || email },
-    JWT_SECRET,
-    { expiresIn: "7d" }
-  );
-  res.json({ token, name: user.name, email });
-}
-
-// ── Auth Middleware ────────────────────────────────────────────────────────
-function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
-
   try {
-    req.user = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
+    const { email, password, name } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    
+    if (users.has(email)) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = {
+      email,
+      password: hashedPassword,
+      name: name || email.split('@')[0],
+      createdAt: new Date()
+    };
+    
+    users.set(email, user);
+    
+    const token = jwt.sign(
+      { email: user.email, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.status(201).json({
+      token,
+      email: user.email,
+      name: user.name
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 }
 
-module.exports = { signup, login, authMiddleware };
+async function login(req, res) {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    
+    const user = users.get(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = jwt.sign(
+      { email: user.email, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.json({
+      token,
+      email: user.email,
+      name: user.name
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+function authMiddleware(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+    
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+module.exports = {
+  signup,
+  login,
+  authMiddleware
+};
