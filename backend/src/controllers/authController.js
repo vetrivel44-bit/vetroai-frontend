@@ -15,6 +15,7 @@ const {
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
+const DUMMY_PASSWORD_HASH = "$2b$12$KIXm2iQv6OAqAwCQc.ByqO.8Qqw8/ai8FHpE8IKFQZM7Ta03j3Z62";
 
 function parseExpiryToDate(duration) {
   const millis = ms(duration);
@@ -64,24 +65,23 @@ async function login(req, res) {
   const { email, password } = req.validated.body;
   const user = await User.findOne({ email });
 
-  if (!user) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    throw new ApiError(401, "Invalid credentials");
-  }
-
-  if (user.lockUntil && user.lockUntil > new Date()) {
+  if (user && user.lockUntil && user.lockUntil > new Date()) {
     throw new ApiError(429, "Account temporarily locked due to failed login attempts");
   }
 
-  const isValidPassword = await bcrypt.compare(password, user.password);
-  if (!isValidPassword) {
-    user.loginAttempts += 1;
-    if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
-      user.lockUntil = new Date(Date.now() + ACCOUNT_LOCK_MS);
-      user.loginAttempts = 0;
+  const passwordHash = user ? user.password : DUMMY_PASSWORD_HASH;
+  const isValidPassword = await bcrypt.compare(password, passwordHash);
+
+  if (!user || !isValidPassword) {
+    if (user) {
+      user.loginAttempts += 1;
+      if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+        user.lockUntil = new Date(Date.now() + ACCOUNT_LOCK_MS);
+        user.loginAttempts = 0;
+      }
+      await user.save();
     }
-    await user.save();
-    await new Promise((resolve) => setTimeout(resolve, 700));
+
     throw new ApiError(401, "Invalid credentials");
   }
 
