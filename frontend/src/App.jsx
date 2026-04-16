@@ -296,6 +296,28 @@ const fetchWebResults = async (query) => {
   snippets.unshift(`📅 **Search on**: ${TODAY_STR}`);
   return snippets.join("\n\n---\n\n");
 };
+const buildDeepSearchQueries = (query) => {
+  const trimmed = query.trim();
+  return [
+    trimmed,
+    `${trimmed} latest updates`,
+    `${trimmed} statistics facts source`,
+    `${trimmed} expert analysis`,
+  ].filter(Boolean);
+};
+const fetchDeepSearchContext = async (query) => {
+  const queries = buildDeepSearchQueries(query);
+  const results = await Promise.allSettled(queries.map(q => fetchWebResults(q)));
+  const chunks = results
+    .filter(r => r.status === "fulfilled" && r.value)
+    .map(r => r.value);
+  if (!chunks.length) return null;
+  return [
+    `🔎 **DeepSearch bundle for:** ${query}`,
+    `Collected ${chunks.length}/${queries.length} search perspectives.`,
+    ...chunks.map((chunk, i) => `### Source Pack ${i + 1}\n${chunk}`),
+  ].join("\n\n");
+};
 
 // ─── IMAGE GENERATION ─────────────────────────────────────────────────────────
 const IMAGE_DETECT = /\b(generate|create|make|draw|paint|design|render|show me)\b.{0,40}\b(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon)\b/i;
@@ -447,6 +469,7 @@ const MODES = [
   { id: "creative",     name: "✨ Creative" },
   { id: "analyst",      name: "📊 Analyst" },
   { id: "web_search",   name: "🌐 Web Search" },
+  { id: "deep_search",  name: "🧠 DeepSearch" },
   { id: "youtube",      name: "▶️ YouTube" },
   { id: "translator",   name: "🌍 Translator" },
   { id: "interviewer",  name: "💼 Interviewer" },
@@ -997,7 +1020,7 @@ export default function App() {
     e.preventDefault();
     setAuthError(""); setAuthLoading(true);
     try {
-      const endpoint = authMode === "login" ? "/login" : "/signup";
+      const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
       const body = authMode === "login"
         ? { email: authEmail, password: authPassword }
         : { email: authEmail, password: authPassword, name: authName };
@@ -1005,7 +1028,7 @@ export default function App() {
       const res  = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
 
-      if (!res.ok) { setAuthError(data.error || "Something went wrong"); setAuthLoading(false); return; }
+      if (!res.ok || data.success === false) { setAuthError(data.message || data.error || "Something went wrong"); setAuthLoading(false); return; }
 
       if (authMode === "signup") {
         setAuthMode("login");
@@ -1014,16 +1037,20 @@ export default function App() {
         return;
       }
 
-      localStorage.setItem("token", data.token);
-      const info = { name: data.name, email: data.email };
+      const payload = data?.data || {};
+      const accessToken = payload.accessToken;
+      if (!accessToken) { setAuthError("⚠️ Invalid auth response from server."); setAuthLoading(false); return; }
+      localStorage.setItem("token", accessToken);
+      if (payload.refreshToken) localStorage.setItem("refreshToken", payload.refreshToken);
+      const info = { name: payload.user?.name || authName || "", email: payload.user?.email || authEmail };
       localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-      setUser(data.token); setUserInfo(info);
+      setUser(accessToken); setUserInfo(info);
     } catch { setAuthError("⚠️ Connection failed. Please try again."); }
     setAuthLoading(false);
   };
 
   const logout = () => {
-    localStorage.removeItem("token"); localStorage.removeItem("vetroai_userinfo");
+    localStorage.removeItem("token"); localStorage.removeItem("refreshToken"); localStorage.removeItem("vetroai_userinfo");
     setUser(null); setUserInfo(null); setMessages([]); setCurrentSessionId(null);
     setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthError("");
     addToast("Signed out successfully", "info");
@@ -1313,13 +1340,14 @@ export default function App() {
     const userQuery    = hist[hist.length - 1]?.content || "";
     const isYtMode     = selectedMode === "youtube";
     const isWebMode    = selectedMode === "web_search";
-    const shouldSearch = isWebMode || (autoWebSearch && needsWebSearch(userQuery));
+    const isDeepSearch = selectedMode === "deep_search";
+    const shouldSearch = isWebMode || isDeepSearch || (autoWebSearch && needsWebSearch(userQuery));
     const isFirstMsg   = hist.filter(m => m.role === "user").length === 1;
 
     let webContext = null;
     if (shouldSearch && !ytContext) {
       setIsWebSearching(true);
-      webContext = await fetchWebResults(userQuery);
+      webContext = isDeepSearch ? await fetchDeepSearchContext(userQuery) : await fetchWebResults(userQuery);
       setIsWebSearching(false);
     }
 
@@ -1328,7 +1356,7 @@ export default function App() {
 
     const fd = new FormData();
     fd.append("input", userQuery);
-    fd.append("model", (isYtMode || isWebMode) ? "fast_chat" : selectedMode);
+    fd.append("model", (isYtMode || isWebMode || isDeepSearch) ? "fast_chat" : selectedMode);
 
     const ctx             = hist.slice(-14).map(m => ({ role: m.role, content: m.content }));
     const now             = new Date();
@@ -1346,6 +1374,7 @@ export default function App() {
     if (selectedMode === "translator") sysContent = "You are a professional translator. Detect the language and translate accurately. Provide both literal and natural translations. Explain idiomatic differences when relevant.\n\n" + sysContent;
     if (selectedMode === "interviewer") sysContent = "You are a professional technical interviewer. Ask challenging questions, evaluate answers, provide feedback, and suggest improvements. Cover DSA, system design, and behavioral questions.\n\n" + sysContent;
     if (isWebMode) sysContent = "You are VetroAI in Web Search Mode. Always cite your sources clearly.\n" + sysContent;
+    if (isDeepSearch) sysContent = "You are VetroAI in DeepSearch Mode. Synthesize across all retrieved source packs, show clear sections, compare conflicting claims, and cite links for every major claim.\n" + sysContent;
 
     if (ytContext) {
       sysContent += `\n\n${"━".repeat(50)}\n▶️ YOUTUBE VIDEO:\nTitle: ${ytContext.title}\nChannel: ${ytContext.author}\n\n${ytContext.transcript || "(Transcript unavailable)"}\n${"━".repeat(50)}\n\nGenerate COMPREHENSIVE notes:\n\n## 📋 Video Overview\n## 🔑 Key Points\n## 📚 Detailed Notes\n## 💡 Important Concepts\n## 🎯 Key Takeaways\n## ❓ Possible Quiz Questions\n\nBe thorough, use markdown, include all important details.`;
@@ -1538,8 +1567,9 @@ export default function App() {
   const removeRxn = (i, r) => setReactions(p => ({ ...p, [i]: (p[i] || []).filter(x => x !== r) }));
 
   const profileData = useMemo(() => JSON.parse(localStorage.getItem("vetroai_profile") || '{"name":"","avatar":"🧑"}'), []);
-  const isWebMode   = selectedMode === "web_search";
-  const isYtMode    = selectedMode === "youtube";
+  const isWebMode    = selectedMode === "web_search";
+  const isDeepSearch = selectedMode === "deep_search";
+  const isYtMode     = selectedMode === "youtube";
   const charCount   = input.length;
   const tokenEst    = Math.ceil(charCount / 4);
   const isEmpty     = !input.trim() && !selFile;
@@ -1744,12 +1774,12 @@ export default function App() {
         <header className="chat-header">
           <div className="ch-left">
             <button className="icon-btn mobile-only" onClick={() => setIsSidebarOpen(true)}><MenuIcon /></button>
-            <div className={`mode-pill${isWebMode ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`}>
+            <div className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`}>
               {MODES.find(m => m.id === selectedMode)?.name}
-              {isWebMode && <span className="web-live-dot" />}
+              {(isWebMode || isDeepSearch) && <span className="web-live-dot" />}
               {isYtMode  && <span className="web-live-dot" style={{ background: "#ff0000" }} />}
             </div>
-            {autoWebSearch && !isWebMode && !isYtMode && (
+            {autoWebSearch && !isWebMode && !isDeepSearch && !isYtMode && (
               <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, opacity: 0.7 }}>
                 <GlobeIcon /> Auto
               </div>
@@ -1808,6 +1838,11 @@ export default function App() {
                   <GlobeIcon /> Web Search Mode — Live results enabled
                 </div>
               )}
+              {isDeepSearch && (
+                <div className="sys-badge" style={{ background: "rgba(37,99,235,0.11)", borderColor: "rgba(37,99,235,0.30)", color: "#1d4ed8" }}>
+                  <GlobeIcon /> DeepSearch Mode — multi-query research with richer synthesis
+                </div>
+              )}
               {isYtMode && (
                 <div className="sys-badge" style={{ background: "rgba(255,0,0,0.07)", borderColor: "rgba(255,0,0,0.2)", color: "#ff0000" }}>
                   <YTIcon /> YouTube Mode — Paste any YouTube URL for instant notes
@@ -1818,6 +1853,7 @@ export default function App() {
                   { icon: "▶️", label: "YouTube Notes", sub: "Paste any YouTube URL", action: () => { setSelectedMode("youtube"); } },
                   { icon: "🎨", label: "Image Generation", sub: "Create AI images free", action: () => setInput("Generate an image of ") },
                   { icon: "🌐", label: "Live Web Search", sub: "Real-time Google results", action: () => { setAutoWebSearch(true); setInput("Latest news today"); } },
+                  { icon: "🧠", label: "DeepSearch", sub: "Multi-query deep research", action: () => { setSelectedMode("deep_search"); setInput("Analyze latest AI model trends with sources"); } },
                   { icon: "🐛", label: "Code Debugger", sub: "Fix bugs instantly", action: () => setSelectedMode("debugger") },
                   { icon: "🧮", label: "Calculator", sub: "Math with history", action: () => setShowCalc(true) },
                   { icon: "⏱️", label: "Focus Timer", sub: "Pomodoro technique", action: () => setShowTimer(true) },
@@ -1832,7 +1868,9 @@ export default function App() {
               <div className="suggestions">
                 {(isYtMode
                   ? ["Paste a YouTube URL below for instant notes", "Summarize any lecture video", "Extract key points from tutorials", "Study notes from educational videos"]
-                  : isWebMode
+                  : isDeepSearch
+                    ? ["Deep compare AI agent frameworks with citations", "Analyze market outlook from multiple sources", "Research best laptop for coding under budget", "Summarize latest tech policy changes with links"]
+                    : isWebMode
                     ? ["What's trending in tech today?", "Latest IPL scores", "Current stock market", "Recent AI news"]
                     : (t.suggestions || [])
                 ).slice(0, 6).map((s, i) => (
@@ -2019,6 +2057,7 @@ export default function App() {
               placeholder={
                 isListening && !isVoiceOpen ? t.listening :
                 isYtMode  ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
+                isDeepSearch ? "DeepSearch: ask a research question (I will query multiple angles)..." :
                 isWebMode ? "Search the web with AI…" :
                             'Message VetroAI… (try "generate an image of…")'
               }
@@ -2032,12 +2071,13 @@ export default function App() {
                     <button type="button" className={`mic-btn${isListening && !isVoiceOpen ? " active" : ""}`} onClick={toggleMic} title="Toggle mic"><MicIcon /></button>
                     <button type="button" className="wave-btn" onClick={openVoice} title="Voice mode"><WaveIcon /></button>
                   </>
-                  : <button type="submit" className={`send-btn${isWebMode ? " web-send" : isYtMode ? " yt-send" : ""}`} title={t.send}><SendIcon /></button>}
+                  : <button type="submit" className={`send-btn${isWebMode || isDeepSearch ? " web-send" : isYtMode ? " yt-send" : ""}`} title={t.send}><SendIcon /></button>}
             </div>
           </form>
           <p className="input-note">
             VetroAI can make mistakes.&nbsp;
             {isYtMode  ? "YouTube mode uses video transcripts — accuracy depends on transcript availability." :
+             isDeepSearch ? "DeepSearch mode combines multiple web queries; cross-check cited sources for critical decisions." :
              isWebMode ? "Web mode uses live data — verify important info." :
                          "Please verify important information."}
           </p>
