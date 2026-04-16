@@ -1293,7 +1293,7 @@ export default function App() {
   };
 
   // ─────────────────────────────────────────────────────────────
-  //  MAIN AI CALL
+  //  MAIN AI CALL  (fixed SSE stream reader)
   // ─────────────────────────────────────────────────────────────
   const triggerAI = async (hist, fileData = null, ytContext = null) => {
     const ctrl = new AbortController(); abortRef.current = ctrl;
@@ -1372,16 +1372,56 @@ export default function App() {
         ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
       }]);
 
+      // ── FIX: Buffer partial SSE lines so split chunks don't silently drop content ──
+      let lineBuffer = "";
+
       while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        for (const line of dec.decode(value).split("\n")) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Append decoded chunk to buffer — stream:true tells the decoder more data is coming
+        lineBuffer += dec.decode(value, { stream: true });
+
+        // Split on newlines but keep the last incomplete segment in the buffer
+        const lines = lineBuffer.split("\n");
+        lineBuffer  = lines.pop(); // last item may be incomplete — save it
+
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6); if (raw === "[DONE]") continue;
+          const raw = line.slice(6).trim();
+          if (!raw || raw === "[DONE]") continue;
           try {
-            bot += JSON.parse(raw).content;
-            setMessages(prev => { const u = [...prev]; u[u.length - 1].content = bot; return u; });
-            setStreamingContent(bot);
-            if (!isScrolling.current) scrollToBottom();
+            const content = JSON.parse(raw).content;
+            if (content) {
+              bot += content;
+              setMessages(prev => {
+                const u = [...prev];
+                u[u.length - 1] = { ...u[u.length - 1], content: bot };
+                return u;
+              });
+              setStreamingContent(bot);
+              if (!isScrolling.current) scrollToBottom();
+            }
+          } catch {
+            // Silently skip malformed chunks — they are rare and recoverable
+          }
+        }
+      }
+
+      // Flush any remaining buffered data after stream ends
+      if (lineBuffer.startsWith("data: ")) {
+        const raw = lineBuffer.slice(6).trim();
+        if (raw && raw !== "[DONE]") {
+          try {
+            const content = JSON.parse(raw).content;
+            if (content) {
+              bot += content;
+              setMessages(prev => {
+                const u = [...prev];
+                u[u.length - 1] = { ...u[u.length - 1], content: bot };
+                return u;
+              });
+            }
           } catch { }
         }
       }

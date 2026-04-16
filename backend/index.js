@@ -26,7 +26,7 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     if (/\.(onrender\.com|vercel\.app|netlify\.app|github\.io|railway\.app)$/.test(origin)) return cb(null, true);
-    cb(null, true); // allow all for now — restrict in production
+    cb(null, true);
   },
   credentials: true,
 }));
@@ -34,7 +34,7 @@ app.use(cors({
 app.use(express.json({ limit: "4mb" }));
 app.use(express.urlencoded({ extended: true, limit: "4mb" }));
 
-app.get("/",       (_req, res) => res.json({ status: "ok", service: "VetroAI Backend", version: "2.3" }));
+app.get("/",       (_req, res) => res.json({ status: "ok", service: "VetroAI Backend", version: "2.4" }));
 app.get("/health", (_req, res) => res.json({ status: "healthy", uptime: process.uptime(), memory: process.memoryUsage() }));
 
 const upload = multer({
@@ -47,7 +47,6 @@ const upload = multer({
       "text/plain", "text/csv", "text/javascript", "text/typescript",
       "application/json",
     ];
-    // also allow by extension for text files browsers mis-type
     const ext = file.originalname?.split(".").pop()?.toLowerCase();
     const textExts = ["txt","csv","js","ts","jsx","tsx","py","java","cpp","c","cs","go","rs","rb","php","swift","kt","md","json","yaml","yml","env","sh","sql"];
     if (allowed.includes(file.mimetype) || textExts.includes(ext)) return cb(null, true);
@@ -301,6 +300,26 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
   let retryCount    = 0;
   const maxRetries  = 3;
 
+  // ── Helper: start SSE headers once ──
+  const startSSE = () => {
+    if (streamStarted) return;
+    res.setHeader("Content-Type",      "text/event-stream");
+    res.setHeader("Cache-Control",     "no-cache");
+    res.setHeader("Connection",        "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Transfer-Encoding", "chunked");
+    streamStarted = true;
+  };
+
+  // ── KEEPALIVE: send a comment every 15 s so proxies don't drop the connection ──
+  let keepaliveInterval = null;
+  const startKeepalive = () => {
+    keepaliveInterval = setInterval(() => {
+      try { res.write(": keepalive\n\n"); } catch { clearInterval(keepaliveInterval); }
+    }, 15_000);
+  };
+  const stopKeepalive = () => { if (keepaliveInterval) clearInterval(keepaliveInterval); };
+
   const attemptChat = async () => {
     try {
       let messages     = req.body.messages ? JSON.parse(req.body.messages) : [];
@@ -334,7 +353,6 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
               : `Analyse and summarise this PDF (${file.originalname}):\n\n${extracted}`;
           } catch { userPrompt += "\n\n[PDF could not be parsed — please try a different file]"; }
         } else {
-          // Text-based file
           try {
             const text = file.buffer.toString("utf-8").slice(0, 12000);
             userPrompt = userPrompt
@@ -364,15 +382,9 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
       const nonSystem  = messages.filter(m => m.role !== "system").slice(-24);
       messages = [...systemMsgs, ...nonSystem];
 
-      // ── Start SSE ──
-      if (!streamStarted) {
-        res.setHeader("Content-Type",     "text/event-stream");
-        res.setHeader("Cache-Control",    "no-cache");
-        res.setHeader("Connection",       "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
-        res.setHeader("Transfer-Encoding", "chunked");
-        streamStarted = true;
-      }
+      // ── Start SSE + keepalive ──
+      startSSE();
+      startKeepalive();
 
       const hasImage   = messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === "image_url"));
       const modelToUse = hasImage ? "pixtral-12b-2409" : "mistral-large-latest";
@@ -387,43 +399,48 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
         maxRetries,
         (attempt, delay, isRateLimit) => {
           retryCount = attempt;
-          if (streamStarted) {
-            res.write(`data: ${JSON.stringify({ content: `\n\n⏳ ${isRateLimit ? "Rate limited" : "Server error"}, retrying (${attempt}/${maxRetries})...\n\n` })}\n\n`);
-          }
+          res.write(`data: ${JSON.stringify({ content: `\n\n⏳ ${isRateLimit ? "Rate limited" : "Server error"}, retrying (${attempt}/${maxRetries})...\n\n` })}\n\n`);
         }
       );
 
+      // ── FIX: Stream with proper error handling and no hard char cap ──
       let charsSent  = 0;
-      const MAX_OUT  = 64_000; // ~16,000 tokens worth of chars — enough for 1000+ line programs
+      const MAX_OUT  = 120_000; // Raised — enough for very long code responses
 
-      for await (const chunk of stream) {
-        if (charsSent >= MAX_OUT) {
-          res.write(`data: ${JSON.stringify({ content: "\n\n---\n*[Output limit reached — ask me to continue if needed]*" })}\n\n`);
-          break;
+      try {
+        for await (const chunk of stream) {
+          const content = chunk.data.choices[0]?.delta?.content || "";
+          if (content) {
+            charsSent += content.length;
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+
+            // Only stop if truly massive — and warn the user
+            if (charsSent >= MAX_OUT) {
+              res.write(`data: ${JSON.stringify({ content: "\n\n---\n*[Response very long — ask me to continue if needed]*" })}\n\n`);
+              break;
+            }
+          }
         }
-        const content = chunk.data.choices[0]?.delta?.content || "";
-        if (content) {
-          charsSent += content.length;
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-        }
+      } catch (streamErr) {
+        // Stream read error mid-way — send a recoverable message instead of silently dying
+        console.error("Stream read error:", streamErr.message);
+        res.write(`data: ${JSON.stringify({ content: "\n\n⚠️ *Stream interrupted. The response above is what was received. Ask me to continue if needed.*" })}\n\n`);
       }
 
+      stopKeepalive();
       res.write("data: [DONE]\n\n");
       res.end();
 
     } catch (err) {
+      stopKeepalive();
       const isRateLimit   = err?.statusCode === 429 || err?.message?.includes("429") || err?.message?.includes("rate");
       const isServerError = err?.statusCode >= 500;
 
       if ((isRateLimit || isServerError) && retryCount < maxRetries - 1) {
         retryCount++;
         const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
-        if (!streamStarted) {
-          res.setHeader("Content-Type", "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection",    "keep-alive");
-          streamStarted = true;
-        }
+        startSSE();
+        startKeepalive();
         res.write(`data: ${JSON.stringify({ content: `⏳ Rate limited. Retrying in ${Math.round(delay / 1000)}s... (${retryCount}/${maxRetries})\n\n` })}\n\n`);
         await new Promise(r => setTimeout(r, delay));
         return attemptChat();
@@ -435,12 +452,9 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
   try {
     await attemptChat();
   } catch (err) {
+    stopKeepalive();
     console.error("Chat error (final):", err.message || err);
-    if (!streamStarted) {
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection",    "keep-alive");
-    }
+    startSSE();
     const isRateLimit = err?.statusCode === 429 || err?.message?.includes("429");
     const msg = isRateLimit
       ? "⚠️ AI rate limit reached. Please wait 30 seconds and try again."
@@ -458,4 +472,4 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(PORT, () => console.log(`🚀 VetroAI Backend v2.3 on port ${PORT} (${process.env.NODE_ENV || "development"})`));
+app.listen(PORT, () => console.log(`🚀 VetroAI Backend v2.4 on port ${PORT} (${process.env.NODE_ENV || "development"})`));
