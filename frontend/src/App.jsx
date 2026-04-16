@@ -15,6 +15,8 @@ const SERPER_API_KEY = "19caba58c08177639d61cabf7e5430278044545f";
 const TODAY_STR = new Date().toLocaleDateString("en-IN", {
   weekday: "long", year: "numeric", month: "long", day: "numeric",
 });
+const swallowError = () => {};
+const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 
 // ─── YOUTUBE HELPERS ──────────────────────────────────────────────────────────
 const YOUTUBE_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:(?:youtube\.com\/watch\?v=)|(?:youtu\.be\/)|(?:youtube\.com\/embed\/)|(?:youtube\.com\/shorts\/))([a-zA-Z0-9_-]{11})/;
@@ -38,11 +40,11 @@ const fetchYouTubeTranscript = async (videoId) => {
       signal: AbortSignal.timeout(10000),
     });
     if (r.ok) { const d = await r.json(); if (d.transcript) return d.transcript; }
-  } catch { }
+  } catch (err) { swallowError(err); }
   try {
     const r2 = await fetch(`https://transcr-ibe6fxe9g8e9a2fy.centralindia-01.azurewebsites.net/transcript?id=${videoId}`, { signal: AbortSignal.timeout(8000) });
     if (r2.ok) { const d2 = await r2.json(); if (Array.isArray(d2)) return d2.map(t => t.text).join(" "); }
-  } catch { }
+  } catch (err) { swallowError(err); }
   try {
     const r3 = await fetch("https://google.serper.dev/search", {
       method: "POST",
@@ -99,7 +101,6 @@ function CalcWidget({ onClose }) {
     if (!expr.trim()) return;
     try {
       const cleaned = expr.replace(/×/g, "*").replace(/÷/g, "/").replace(/\^/g, "**").replace(/π/g, "Math.PI").replace(/√(\d+)/g, "Math.sqrt($1)");
-      // eslint-disable-next-line no-new-func
       const res = Function(`"use strict"; return (${cleaned})`)();
       const rounded = parseFloat(res.toFixed(10));
       setResult(String(rounded));
@@ -730,6 +731,9 @@ function ShareModal({ onClose, t, messages }) {
     } else if (type === "md") {
       content = messages.map(m => `## ${m.role === "user" ? "👤 You" : "🤖 VetroAI"}\n\n${m.content}`).join("\n\n---\n\n");
       mime = "text/markdown"; ext = "md";
+    } else if (type === "json") {
+      content = JSON.stringify(messages, null, 2);
+      mime = "application/json"; ext = "json";
     } else {
       const rows = messages.map(m => `<div class="msg ${m.role}"><strong>${m.role === "user" ? "You" : "VetroAI"}:</strong><p>${m.content.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p></div>`).join("");
       content = `<!DOCTYPE html><html><head><title>VetroAI Chat</title><style>body{font-family:system-ui;max-width:700px;margin:auto;padding:40px;background:#faf9f7}.msg{padding:16px;margin:12px 0;border-radius:12px}.user{background:#f0ede8;text-align:right}.assistant{background:#fff;border:1px solid #eee}strong{font-size:.8rem;opacity:.5;display:block;margin-bottom:4px}</style></head><body><h2>VetroAI Chat Export</h2>${rows}</body></html>`;
@@ -737,7 +741,7 @@ function ShareModal({ onClose, t, messages }) {
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([content], { type: mime }));
-    a.download = `vetroai-chat-${Date.now()}.${ext}`;
+    a.download = `vetroai-chat-${makeExportStamp()}.${ext}`;
     a.click();
   };
   return (
@@ -759,7 +763,7 @@ function ShareModal({ onClose, t, messages }) {
           <div className="field-group">
             <label className="field-label">{t.exportChat}</label>
             <div style={{ display: "flex", gap: 8 }}>
-              {["txt", "md", "html"].map(type => (
+              {["txt", "md", "html", "json"].map(type => (
                 <button key={type} className="btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => exportFn(type)}>
                   <DlIcon />{type.toUpperCase()}
                 </button>
@@ -1040,9 +1044,9 @@ export default function App() {
         if (!id) { id = Date.now().toString(); setCurrentSessionId(id); list.unshift({ id, title, messages }); }
         else { const i = list.findIndex(s => s.id === id); if (i !== -1) list[i].messages = messages; }
         setSessions(list); localStorage.setItem("vetroai_sessions_" + user, JSON.stringify(list));
-      } catch { }
+      } catch (err) { swallowError(err); }
     }
-  }, [messages]);
+  }, [messages, currentSessionId, sessions, user]);
 
   const updateSessionTitle = useCallback(async (firstMsg) => {
     if (!firstMsg || !currentSessionId) return;
@@ -1060,7 +1064,7 @@ export default function App() {
           return list;
         });
       }
-    } catch { }
+    } catch (err) { swallowError(err); }
   }, [currentSessionId, user]);
 
   const loadSession = id => {
@@ -1082,7 +1086,7 @@ export default function App() {
     if (!confirmDelete) return;
     const { id } = confirmDelete;
     const list = sessions.filter(s => s.id !== id); setSessions(list);
-    try { localStorage.setItem("vetroai_sessions_" + user, JSON.stringify(list)); } catch { }
+    try { localStorage.setItem("vetroai_sessions_" + user, JSON.stringify(list)); } catch (err) { swallowError(err); }
     if (currentSessionId === id) newChat();
     setPinnedIds(p => p.filter(x => x !== id));
     setConfirmDelete(null);
@@ -1172,6 +1176,15 @@ export default function App() {
     return () => window.removeEventListener("click", h);
   }, [rxnFor]);
 
+  // ── Voice helpers ──────────────────────────────────────────────
+  const stopSpeak = () => window.speechSynthesis?.cancel();
+  const closeVoice = useCallback(() => {
+    setIsVoiceOpen(false);
+    if (isListening) recogRef.current?.stop();
+    setIsListening(false);
+    stopSpeak();
+  }, [isListening]);
+
   // ── Keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     const h = e => {
@@ -1198,7 +1211,7 @@ export default function App() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [confirmDelete, showCalc, showTimer, showProfile, showSysPrompt, showShare, showBookmarks, showMemory, isSidebarOpen, isVoiceOpen, chatSearchOpen]);
+  }, [chatSearchOpen, closeVoice, confirmDelete, isSidebarOpen, isVoiceOpen, newChat, showBookmarks, showCalc, showMemory, showProfile, showShare, showSysPrompt, showTimer]);
 
   // ── Scroll ────────────────────────────────────────────────────
   const handleScroll = () => {
@@ -1210,11 +1223,9 @@ export default function App() {
   const scrollToBottom = useCallback(() => {
     if (feedRef.current) { feedRef.current.scrollTop = feedRef.current.scrollHeight; isScrolling.current = false; setShowScrollDn(false); }
   }, []);
-  useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, streamingContent]);
+  useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom, streamingContent]);
 
   // ── Voice ─────────────────────────────────────────────────────
-  const stopSpeak = () => window.speechSynthesis?.cancel();
-
   const speak = txt => {
     if (!window.speechSynthesis) return; stopSpeak();
     const c = (txt || "").replace(/[*#_`~]/g, "").replace(/\$\$.*?\$\$/gs, "[equation]").replace(/\$.*?\$/g, "[math]");
@@ -1223,8 +1234,8 @@ export default function App() {
     const vs  = window.speechSynthesis.getVoices();
     u.voice   = vs.find(v => v.name.includes("AriaNeural")) || vs.find(v => v.lang === "en-US") || vs[0];
     u.pitch   = 0.95; u.rate = 1.05;
-    u.onstart = () => { try { recogRef.current?.stop(); } catch { } setIsListening(false); };
-    u.onend   = () => { if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch { } } };
+    u.onstart = () => { try { recogRef.current?.stop(); } catch (err) { swallowError(err); } setIsListening(false); };
+    u.onend   = () => { if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
     window.speechSynthesis.speak(u);
   };
 
@@ -1250,7 +1261,7 @@ export default function App() {
         } else {
           setTimeout(() => {
             if (voiceRef.current && !loadRef.current && !window.speechSynthesis?.speaking) {
-              try { recogRef.current?.start(); setIsListening(true); } catch { }
+              try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
             }
           }, 800);
         }
@@ -1261,17 +1272,16 @@ export default function App() {
       if (e.error === "not-allowed") { setIsVoiceOpen(false); addToast("⚠️ Microphone access denied", "error"); }
     };
     recogRef.current = sr;
-  }, []);
+  }, [addToast]);
 
   const toggleMic  = e => { e?.preventDefault(); if (!recogRef.current) return; if (isListening) recogRef.current.stop(); else { setInput(""); recogRef.current.start(); setIsListening(true); } };
-  const openVoice  = e => { e.preventDefault(); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); setAutoSpeak(true); setIsVoiceOpen(true); if (!isListening) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch { } } };
-  const closeVoice = () => { setIsVoiceOpen(false); if (isListening) recogRef.current?.stop(); setIsListening(false); stopSpeak(); };
+  const openVoice  = e => { e.preventDefault(); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); setAutoSpeak(true); setIsVoiceOpen(true); if (!isListening) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
 
   const handleOrb = () => {
     if (isLoading) return;
-    if (window.speechSynthesis?.speaking) { stopSpeak(); setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch { } }
+    if (window.speechSynthesis?.speaking) { stopSpeak(); setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } }
     else if (isListening) { recogRef.current?.stop(); }
-    else { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch { } }
+    else { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } }
   };
 
   const handleFileChange = e => {
@@ -1422,7 +1432,7 @@ export default function App() {
                 return u;
               });
             }
-          } catch { }
+          } catch (err) { swallowError(err); }
         }
       }
 
@@ -1442,7 +1452,7 @@ export default function App() {
   };
 
   const submitVoice = useCallback(txt => {
-    try { recogRef.current?.stop(); } catch { }
+    try { recogRef.current?.stop(); } catch (err) { swallowError(err); }
     setIsListening(false);
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const hist = [...msgsRef.current, { role: "user", content: txt, timestamp: ts }];
@@ -1527,7 +1537,7 @@ export default function App() {
   const addRxn    = (i, r) => setReactions(p => ({ ...p, [i]: [...(p[i] || []).filter(x => x !== r), r] }));
   const removeRxn = (i, r) => setReactions(p => ({ ...p, [i]: (p[i] || []).filter(x => x !== r) }));
 
-  const profileData = useMemo(() => JSON.parse(localStorage.getItem("vetroai_profile") || '{"name":"","avatar":"🧑"}'), [showProfile]);
+  const profileData = useMemo(() => JSON.parse(localStorage.getItem("vetroai_profile") || '{"name":"","avatar":"🧑"}'), []);
   const isWebMode   = selectedMode === "web_search";
   const isYtMode    = selectedMode === "youtube";
   const charCount   = input.length;

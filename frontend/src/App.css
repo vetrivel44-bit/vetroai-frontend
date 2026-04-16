@@ -2398,8 +2398,6 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   background: rgba(255,0,0,0.06);
   border-color: rgba(255,0,0,0.18);
 }
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
 /* ══════════════════════════════════════════
    VETROAI v2.3 — WARM EDITORIAL DESIGN
    ══════════════════════════════════════════ */
