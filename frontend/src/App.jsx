@@ -17,6 +17,7 @@ const TODAY_STR = new Date().toLocaleDateString("en-IN", {
 });
 const swallowError = () => {};
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
+const MAX_FILE_SIZE_MB = 25;
 
 // ─── YOUTUBE HELPERS ──────────────────────────────────────────────────────────
 const YOUTUBE_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:(?:youtube\.com\/watch\?v=)|(?:youtu\.be\/)|(?:youtube\.com\/embed\/)|(?:youtube\.com\/shorts\/))([a-zA-Z0-9_-]{11})/;
@@ -33,28 +34,37 @@ const fetchYouTubeInfo = async (videoId) => {
 };
 
 const fetchYouTubeTranscript = async (videoId) => {
-  try {
+  const fromKome = async () => {
     const r = await fetch("https://api.kome.ai/api/tools/youtube-transcripts", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ video_id: videoId, format: true }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(6000),
     });
-    if (r.ok) { const d = await r.json(); if (d.transcript) return d.transcript; }
-  } catch (err) { swallowError(err); }
-  try {
-    const r2 = await fetch(`https://transcr-ibe6fxe9g8e9a2fy.centralindia-01.azurewebsites.net/transcript?id=${videoId}`, { signal: AbortSignal.timeout(8000) });
-    if (r2.ok) { const d2 = await r2.json(); if (Array.isArray(d2)) return d2.map(t => t.text).join(" "); }
-  } catch (err) { swallowError(err); }
-  try {
-    const r3 = await fetch("https://google.serper.dev/search", {
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d?.transcript || null;
+  };
+  const fromAzure = async () => {
+    const r = await fetch(`https://transcr-ibe6fxe9g8e9a2fy.centralindia-01.azurewebsites.net/transcript?id=${videoId}`, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return Array.isArray(d) ? d.map(t => t.text).join(" ") : null;
+  };
+  const fromSerper = async () => {
+    const r = await fetch("https://google.serper.dev/search", {
       method: "POST",
       headers: { "X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ q: `youtube.com/watch?v=${videoId} transcript summary`, num: 5 }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
-    const d3 = await r3.json();
-    return d3.organic?.map(r => `${r.title}: ${r.snippet}`).join("\n") || null;
-  } catch { return null; }
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.organic?.map(x => `${x.title}: ${x.snippet}`).join("\n") || null;
+  };
+  const settled = await Promise.allSettled([fromKome(), fromAzure(), fromSerper()]);
+  const first = settled.find(s => s.status === "fulfilled" && s.value && String(s.value).trim().length > 20);
+  return first?.value || null;
 };
 
 // ─── YOUTUBE EMBED ────────────────────────────────────────────────────────────
@@ -942,6 +952,8 @@ export default function App() {
   const [rxnFor, setRxnFor]                 = useState(null);
   const [streamingContent, setStreamingContent] = useState("");
   const abortRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const transcriptCacheRef = useRef(new Map());
 
   // ── Web search state ─────────────────────────────────────────
   const [isWebSearching, setIsWebSearching] = useState(false);
@@ -1100,8 +1112,11 @@ export default function App() {
   };
 
   const newChat = useCallback(() => {
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
     setMessages([]); setCurrentSessionId(null); setInput(""); stopSpeak();
     setIsSidebarOpen(false); setReactions({}); setFollowUps([]); setMsgFeedback({});
+    setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false); setStreamingContent("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, []);
 
@@ -1313,13 +1328,17 @@ export default function App() {
 
   const handleFileChange = e => {
     const f = e.target.files[0]; if (!f) return;
-    if (f.size > 10 * 1024 * 1024) { addToast("⚠️ File too large (max 10MB)", "error"); return; }
+    if (f.size > MAX_FILE_SIZE_MB * 1024 * 1024) { addToast(`⚠️ File too large (max ${MAX_FILE_SIZE_MB}MB)`, "error"); return; }
     setSelFile(f);
     if (f.type.startsWith("image/")) { const r = new FileReader(); r.onloadend = () => setFilePreview(r.result); r.readAsDataURL(f); }
     else { setFilePreview(null); addToast(`📎 ${f.name} attached`, "success", 2000); }
   };
 
-  const stopGeneration = () => { abortRef.current?.abort(); setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false); setStreamingContent(""); };
+  const stopGeneration = () => {
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
+    setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false); setStreamingContent("");
+  };
 
   const insertFmt = (pre, suf = "") => {
     if (!textareaRef.current) return;
@@ -1333,7 +1352,10 @@ export default function App() {
   //  MAIN AI CALL  (fixed SSE stream reader)
   // ─────────────────────────────────────────────────────────────
   const triggerAI = async (hist, fileData = null, ytContext = null) => {
+    abortRef.current?.abort();
     const ctrl = new AbortController(); abortRef.current = ctrl;
+    const requestId = ++requestIdRef.current;
+    const isRequestActive = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
     setIsLoading(true); setIsTyping(true); scrollToBottom(); stopSpeak();
     setFollowUps([]);
 
@@ -1347,7 +1369,11 @@ export default function App() {
     let webContext = null;
     if (shouldSearch && !ytContext) {
       setIsWebSearching(true);
-      webContext = isDeepSearch ? await fetchDeepSearchContext(userQuery) : await fetchWebResults(userQuery);
+      webContext = await Promise.race([
+        (isDeepSearch ? fetchDeepSearchContext(userQuery) : fetchWebResults(userQuery)),
+        new Promise(resolve => setTimeout(() => resolve(null), isDeepSearch ? 5500 : 3500)),
+      ]);
+      if (!isRequestActive()) return;
       setIsWebSearching(false);
     }
 
@@ -1395,6 +1421,7 @@ export default function App() {
         body: fd,
         signal: ctrl.signal,
       });
+      if (!isRequestActive()) return;
       if (res.status === 401) { logout(); return; }
       if (!res.ok) { throw new Error(`Server error: ${res.status}`); }
 
@@ -1404,6 +1431,7 @@ export default function App() {
       const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
       setIsTyping(false);
+      if (!isRequestActive()) return;
       setMessages(prev => [...prev, {
         role: "assistant", content: "", timestamp: ts,
         usedWebSearch: shouldSearch && !!webContext,
@@ -1417,6 +1445,7 @@ export default function App() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (!isRequestActive()) return;
 
         // Append decoded chunk to buffer — stream:true tells the decoder more data is coming
         lineBuffer += dec.decode(value, { stream: true });
@@ -1433,6 +1462,7 @@ export default function App() {
             const content = JSON.parse(raw).content;
             if (content) {
               bot += content;
+              if (!isRequestActive()) return;
               setMessages(prev => {
                 const u = [...prev];
                 u[u.length - 1] = { ...u[u.length - 1], content: bot };
@@ -1455,6 +1485,7 @@ export default function App() {
             const content = JSON.parse(raw).content;
             if (content) {
               bot += content;
+              if (!isRequestActive()) return;
               setMessages(prev => {
                 const u = [...prev];
                 u[u.length - 1] = { ...u[u.length - 1], content: bot };
@@ -1466,6 +1497,7 @@ export default function App() {
       }
 
       setStreamingContent("");
+      if (!isRequestActive()) return;
       setIsLoading(false);
       if (voiceRef.current || autoSpeak) speak(bot);
       if (isFirstMsg) updateSessionTitle(userQuery);
@@ -1528,7 +1560,11 @@ export default function App() {
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       const wantsNotes = isYtMode || /\b(notes|summarize|summary|analyze|explain|key points|study)\b/i.test(text);
       setIsYtFetching(true);
-      const transcript = await fetchYouTubeTranscript(videoId);
+      let transcript = transcriptCacheRef.current.get(videoId);
+      if (!transcript) {
+        transcript = await fetchYouTubeTranscript(videoId);
+        if (transcript) transcriptCacheRef.current.set(videoId, transcript);
+      }
       setIsYtFetching(false);
       const hist      = [...messages, userMsg];
       const ytContext = { videoId, title: info?.title || "YouTube Video", author: info?.author || "", transcript: transcript ? transcript.slice(0, 8000) : null, wantsNotes };
