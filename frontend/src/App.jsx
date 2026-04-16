@@ -18,14 +18,41 @@ const TODAY_STR = new Date().toLocaleDateString("en-IN", {
 const swallowError = () => {};
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const MAX_FILE_SIZE_MB = 25;
+
+// ── FIX 1: Improved truncation detection ──────────────────────────────────────
 const isLikelyTruncatedAnswer = (text = "") => {
   const t = String(text || "").trim();
-  if (!t) return false;
-  const openCodeFences = (t.match(/```/g) || []).length;
-  if (openCodeFences % 2 !== 0) return true;
-  if (/(INSERT INTO|VALUES|CREATE TABLE|SELECT)\s*$/i.test(t)) return true;
-  if (/[([,=:+-]\s*$/.test(t)) return true;
-  if (/(\bsee this is\b|\bcontinue\b|\.\.\.)$/i.test(t)) return true;
+  if (!t || t.length < 100) return false;
+
+  // Unclosed code fences
+  const fences = (t.match(/```/g) || []).length;
+  if (fences % 2 !== 0) return true;
+
+  // Unclosed parentheses/brackets (rough heuristic)
+  const opens  = (t.match(/[([{]/g) || []).length;
+  const closes = (t.match(/[)\]}]/g) || []).length;
+  if (opens > closes + 4) return true;
+
+  // SQL / code patterns mid-statement
+  if (/(INSERT INTO|VALUES|CREATE TABLE|SELECT|FROM|WHERE|JOIN|UPDATE|DELETE)\s*[\w"'(]*\s*$/i.test(t)) return true;
+
+  // Trailing operator / punctuation indicating more is coming
+  if (/[([{,=:+\-*|&\\]\s*$/.test(t)) return true;
+
+  // Last non-empty line looks like an incomplete sentence
+  const lines    = t.split("\n").map(l => l.trim()).filter(Boolean);
+  const lastLine = lines[lines.length - 1] || "";
+  const words    = lastLine.split(/\s+/).filter(Boolean);
+  if (
+    words.length >= 4 &&
+    lastLine.length > 20 &&
+    !/[.!?:)\]}"'`*]$/.test(lastLine) &&
+    !/^\d+\.\s/.test(lastLine)          // not a list item ending mid-way
+  ) return true;
+
+  // Mid-numbered-list cut: ends with "N." or "N)" pattern
+  if (/^\s*\d+[.)]\s*$/.test(lastLine)) return true;
+
   return false;
 };
 
@@ -46,8 +73,7 @@ const fetchYouTubeInfo = async (videoId) => {
 const fetchYouTubeTranscript = async (videoId) => {
   const fromKome = async () => {
     const r = await fetch("https://api.kome.ai/api/tools/youtube-transcripts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ video_id: videoId, format: true }),
       signal: AbortSignal.timeout(6000),
     });
@@ -61,18 +87,7 @@ const fetchYouTubeTranscript = async (videoId) => {
     const d = await r.json();
     return Array.isArray(d) ? d.map(t => t.text).join(" ") : null;
   };
-  const fromSerper = async () => {
-    const r = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: { "X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ q: `youtube.com/watch?v=${videoId} transcript summary`, num: 5 }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d.organic?.map(x => `${x.title}: ${x.snippet}`).join("\n") || null;
-  };
-  const settled = await Promise.allSettled([fromKome(), fromAzure(), fromSerper()]);
+  const settled = await Promise.allSettled([fromKome(), fromAzure()]);
   const first = settled.find(s => s.status === "fulfilled" && s.value && String(s.value).trim().length > 20);
   return first?.value || null;
 };
@@ -139,12 +154,8 @@ function CalcWidget({ onClose }) {
   };
 
   const rows = [
-    ["C", "⌫", "π", "÷"],
-    ["7", "8", "9", "×"],
-    ["4", "5", "6", "-"],
-    ["1", "2", "3", "+"],
-    ["√", "0", ".", "="],
-    ["(", ")", "x²", "^"],
+    ["C", "⌫", "π", "÷"], ["7", "8", "9", "×"], ["4", "5", "6", "-"],
+    ["1", "2", "3", "+"], ["√", "0", ".", "="], ["(", ")", "x²", "^"],
   ];
 
   return (
@@ -205,7 +216,6 @@ function FocusTimer({ onClose }) {
                 clearInterval(tick.current); setRunning(false);
                 setSessions(prev => prev + 1);
                 if (window.Notification?.permission === "granted") new Notification("VetroAI Timer ✅", { body: "Session complete! Take a break." });
-                else new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA").play?.().catch(() => {});
                 return 0;
               }
               return m - 1;
@@ -219,9 +229,7 @@ function FocusTimer({ onClose }) {
     return () => clearInterval(tick.current);
   }, [running]);
 
-  useEffect(() => {
-    if (window.Notification?.permission === "default") Notification.requestPermission();
-  }, []);
+  useEffect(() => { if (window.Notification?.permission === "default") Notification.requestPermission(); }, []);
 
   const pct = ((MODES_T[mode][0] * 60 - (mins * 60 + secs)) / (MODES_T[mode][0] * 60)) * 100;
   const r = 54, circ = 2 * Math.PI * r;
@@ -262,7 +270,7 @@ function FocusTimer({ onClose }) {
   );
 }
 
-// ─── WEB SEARCH ───────────────────────────────────────────────────────────────
+// ─── WEB SEARCH ──────────────────────────────────────────────────────────────
 const CURRENT_TRIGGERS = [
   /\b(today|tonight|now|current|currently|live|latest|recent|breaking|news)\b/i,
   /\b(2024|2025|2026|this (year|month|week|day))\b/i,
@@ -273,8 +281,43 @@ const CURRENT_TRIGGERS = [
 ];
 const needsWebSearch = (q) => CURRENT_TRIGGERS.some(rx => rx.test(q));
 
+// ── FIX 2A: DuckDuckGo instant answers (CORS-friendly, free) ──────────────────
+const fetchDDGInstant = async (query) => {
+  try {
+    const res = await fetch(
+      `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const d = await res.json();
+    if (d.AbstractText && d.AbstractText.length > 20)
+      return `**Instant Answer (${d.AbstractSource || "DuckDuckGo"})**: ${d.AbstractText}\n${d.AbstractURL ? `Source: ${d.AbstractURL}` : ""}`;
+    if (d.Answer && d.Answer.length > 5)
+      return `**Quick Answer**: ${d.Answer}`;
+    return null;
+  } catch { return null; }
+};
+
+// ── FIX 2B: Fetch real page content via Jina AI reader (CORS-friendly) ───────
+const fetchPageContent = async (url, maxChars = 3000) => {
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { Accept: "text/plain", "X-Return-Format": "text" },
+      signal: AbortSignal.timeout(6000),
+    });
+    const text = await res.text();
+    // Strip excessive whitespace and return useful portion
+    return text.replace(/\s{3,}/g, "\n\n").trim().slice(0, maxChars) || null;
+  } catch { return null; }
+};
+
+// ── FIX 2C: Improved Serper-based search with page content ───────────────────
 const fetchWebResults = async (query) => {
   const snippets = [];
+
+  // 1. DDG instant answer for quick facts
+  const ddgHit = await fetchDDGInstant(query);
+  if (ddgHit) snippets.push(ddgHit);
+
   try {
     const res = await fetch("https://google.serper.dev/search", {
       method: "POST",
@@ -284,57 +327,89 @@ const fetchWebResults = async (query) => {
     });
     if (!res.ok) throw new Error(`${res.status}`);
     const data = await res.json();
+
+    // Priority 1 — Answer box (most accurate)
     if (data.answerBox) {
-      const ab = data.answerBox;
-      const ans = ab.answer || ab.snippet || ab.snippetHighlighted?.join(" ") || "";
-      if (ans) snippets.push(`✅ **Google Answer**:\n${ans}${ab.link ? `\n🔗 ${ab.link}` : ""}`);
+      const ab  = data.answerBox;
+      const ans = ab.answer || ab.snippet || (ab.snippetHighlighted || []).join(" ") || "";
+      if (ans) snippets.unshift(`**DIRECT ANSWER**: ${ans}${ab.link ? `\nSource: ${ab.link}` : ""}`);
     }
+
+    // Priority 2 — Knowledge graph
     if (data.knowledgeGraph) {
       const kg = data.knowledgeGraph;
-      let t = `📊 **${kg.title || ""}**${kg.type ? ` — ${kg.type}` : ""}`;
+      let t = `**${kg.title || ""}**${kg.type ? ` (${kg.type})` : ""}`;
       if (kg.description) t += `\n${kg.description}`;
       if (kg.attributes) t += "\n" + Object.entries(kg.attributes).slice(0, 5).map(([k, v]) => `• **${k}**: ${v}`).join("\n");
       snippets.push(t);
     }
-    if (data.sportsResults) {
+
+    // Priority 3 — Sports results
+    if (data.sportsResults?.games?.length) {
       const sr = data.sportsResults;
-      let t = `🏆 **${sr.title || "Sports"}**\n`;
-      t += sr.games?.length ? sr.games.slice(0, 5).map(g => `• ${g.homeTeam} **${g.homeScore ?? ""}** vs ${g.awayTeam} **${g.awayScore ?? ""}** ${g.status ? `— ${g.status}` : ""} ${g.date ? `(${g.date})` : ""}`).join("\n") : "(see results below)";
-      snippets.push(t);
+      snippets.push(
+        `**${sr.title || "Live Scores"}**:\n` +
+        sr.games.slice(0, 6).map(g =>
+          `• ${g.homeTeam} **${g.homeScore ?? ""}** vs ${g.awayTeam} **${g.awayScore ?? ""}** ${g.status ? `— ${g.status}` : ""} ${g.date ? `(${g.date})` : ""}`
+        ).join("\n")
+      );
     }
+
+    // Priority 4 — Top stories / news
     if (data.topStories?.length) {
-      snippets.push(`📰 **Top Stories**:\n` + data.topStories.slice(0, 5).map(s => `• **${s.title}** — ${s.source || ""} (${s.date || ""})\n  🔗 ${s.link || ""}`).join("\n"));
+      snippets.push(
+        `**Latest News**:\n` +
+        data.topStories.slice(0, 5).map(s =>
+          `• **${s.title}** — ${s.source || ""} ${s.date ? `(${s.date})` : ""}\n  ${s.link || ""}`
+        ).join("\n")
+      );
     }
+
+    // Priority 5 — Organic results with snippets
     if (data.organic?.length) {
-      snippets.push(`🌐 **Results for "${query}"**:\n\n` + data.organic.slice(0, 6).map((r, i) => `**${i + 1}. ${r.title}**\n${r.snippet || ""}\n🔗 ${r.link || ""}`).join("\n\n"));
+      const orgText = data.organic.slice(0, 5).map((r, i) =>
+        `[${i + 1}] **${r.title}**\n${r.snippet || "(no snippet)"}\n${r.link}`
+      ).join("\n\n");
+      snippets.push(`**Web Results for "${query}"**:\n\n${orgText}`);
+
+      // Fetch actual page content from the #1 result for maximum accuracy
+      const topResult = data.organic[0];
+      if (topResult?.link && !topResult.link.includes("youtube.com") && !topResult.link.includes("twitter.com")) {
+        const pageContent = await fetchPageContent(topResult.link);
+        if (pageContent && pageContent.length > 200) {
+          snippets.push(`**Full Content — "${topResult.title}"**:\n${pageContent}`);
+        }
+      }
     }
+
+    // People also ask
     if (data.peopleAlsoAsk?.length) {
-      snippets.push(`💡 **Related**:\n\n` + data.peopleAlsoAsk.slice(0, 3).map(p => `**Q: ${p.question}**\n${p.snippet || ""}`).join("\n\n"));
+      snippets.push(
+        `**Related Questions**:\n` +
+        data.peopleAlsoAsk.slice(0, 3).map(p => `**Q: ${p.question}**\n${p.snippet || ""}`).join("\n\n")
+      );
     }
-  } catch (err) { console.error("Serper:", err.message); return null; }
+  } catch (err) { console.error("Serper:", err.message); }
+
   if (!snippets.length) return null;
-  snippets.unshift(`📅 **Search on**: ${TODAY_STR}`);
+  snippets.unshift(`**Search Date**: ${TODAY_STR} | **Query**: "${query}"`);
   return snippets.join("\n\n---\n\n");
 };
-const buildDeepSearchQueries = (query) => {
-  const trimmed = query.trim();
-  return [
-    trimmed,
-    `${trimmed} latest updates`,
-    `${trimmed} statistics facts source`,
-    `${trimmed} expert analysis`,
-  ].filter(Boolean);
-};
+
+const buildDeepSearchQueries = (query) => [
+  query.trim(),
+  `${query.trim()} latest 2025`,
+  `${query.trim()} statistics data analysis`,
+  `${query.trim()} expert review site:reddit.com OR site:news.ycombinator.com`,
+].filter(Boolean);
+
 const fetchDeepSearchContext = async (query) => {
   const queries = buildDeepSearchQueries(query);
   const results = await Promise.allSettled(queries.map(q => fetchWebResults(q)));
-  const chunks = results
-    .filter(r => r.status === "fulfilled" && r.value)
-    .map(r => r.value);
+  const chunks  = results.filter(r => r.status === "fulfilled" && r.value).map(r => r.value);
   if (!chunks.length) return null;
   return [
-    `🔎 **DeepSearch bundle for:** ${query}`,
-    `Collected ${chunks.length}/${queries.length} search perspectives.`,
+    `🔎 **DeepSearch for**: "${query}" — ${chunks.length}/${queries.length} search packs retrieved`,
     ...chunks.map((chunk, i) => `### Source Pack ${i + 1}\n${chunk}`),
   ].join("\n\n");
 };
@@ -356,10 +431,10 @@ const MEMORY_PATTERNS = [
   { rx: /i(?:'m| am) from ([A-Za-z ,]{3,40})/i, prefix: "User is from:" },
   { rx: /my (?:favourite|favorite|fav) (.{3,50})/i, prefix: "User favourite:" },
 ];
-const extractMemory = (text) => { for (const { rx, prefix } of MEMORY_PATTERNS) { const m = text.match(rx); if (m) return `${prefix} ${m[1].trim()}`; } return null; };
-const getMemories  = (email) => { try { return JSON.parse(localStorage.getItem(`vetroai_memories_${email}`) || "[]"); } catch { return []; } };
-const saveMemories = (email, mems) => { localStorage.setItem(`vetroai_memories_${email}`, JSON.stringify(mems.slice(-30))); };
-const addMemory    = (email, fact) => { const mems = getMemories(email); if (!mems.includes(fact)) saveMemories(email, [...mems, fact]); };
+const extractMemory  = (text) => { for (const { rx, prefix } of MEMORY_PATTERNS) { const m = text.match(rx); if (m) return `${prefix} ${m[1].trim()}`; } return null; };
+const getMemories    = (email) => { try { return JSON.parse(localStorage.getItem(`vetroai_memories_${email}`) || "[]"); } catch { return []; } };
+const saveMemories   = (email, mems) => { localStorage.setItem(`vetroai_memories_${email}`, JSON.stringify(mems.slice(-30))); };
+const addMemory      = (email, fact) => { const mems = getMemories(email); if (!mems.includes(fact)) saveMemories(email, [...mems, fact]); };
 
 // ─── TRANSLATIONS ─────────────────────────────────────────────────────────────
 const LANGS = {
@@ -390,7 +465,7 @@ const LANGS = {
       { keys: ["Ctrl", "P"], desc: "Profile" }, { keys: ["Ctrl", "F"], desc: "Search" },
       { keys: ["Esc"], desc: "Close" }, { keys: ["Enter"], desc: "Send" }, { keys: ["Shift", "↵"], desc: "New line" },
     ],
-    suggestions: ["Explain a concept simply", "Help me write something", "Debug my code", "Plan my week", "Summarize a topic", "Give me ideas"]
+    suggestions: ["Explain a concept simply", "Help me write something", "Debug my code", "Plan my week", "Summarize a topic", "Give me ideas"],
   }},
   hi: { flag: "🇮🇳", name: "हिंदी", t: {
     newChat: "नई चैट", search: "खोजें…", logout: "साइन आउट", send: "भेजें",
@@ -419,7 +494,7 @@ const LANGS = {
       { keys: ["Ctrl", "P"], desc: "प्रोफ़ाइल" }, { keys: ["Ctrl", "F"], desc: "खोज" },
       { keys: ["Esc"], desc: "बंद" }, { keys: ["Enter"], desc: "भेजें" }, { keys: ["Shift", "↵"], desc: "नई लाइन" },
     ],
-    suggestions: ["कुछ सरल समझाएं", "कुछ लिखने में मदद करें", "कोड डीबग करें", "सप्ताह की योजना", "विषय सारांश", "विचार दें"]
+    suggestions: ["कुछ सरल समझाएं", "कुछ लिखने में मदद करें", "कोड डीबग करें", "सप्ताह की योजना", "विषय सारांश", "विचार दें"],
   }},
   kn: { flag: "🇮🇳", name: "ಕನ್ನಡ", t: {
     newChat: "ಹೊಸ ಚಾಟ್", search: "ಹುಡುಕಿ…", logout: "ಸೈನ್ ಔಟ್", send: "ಕಳುಹಿಸಿ",
@@ -448,7 +523,7 @@ const LANGS = {
       { keys: ["Ctrl", "P"], desc: "ಪ್ರೊಫೈಲ್" }, { keys: ["Ctrl", "F"], desc: "ಹುಡುಕಿ" },
       { keys: ["Esc"], desc: "ಮುಚ್ಚಿ" }, { keys: ["Enter"], desc: "ಕಳುಹಿಸಿ" }, { keys: ["Shift", "↵"], desc: "ಹೊಸ ಸಾಲು" },
     ],
-    suggestions: ["ಸರಳವಾಗಿ ವಿವರಿಸಿ", "ಬರೆಯಲು ಸಹಾಯ", "ಕೋಡ್ ಡೀಬಗ್", "ವಾರದ ಯೋಜನೆ", "ಸಾರಾಂಶ", "ಆಲೋಚನೆಗಳು"]
+    suggestions: ["ಸರಳವಾಗಿ ವಿವರಿಸಿ", "ಬರೆಯಲು ಸಹಾಯ", "ಕೋಡ್ ಡೀಬಗ್", "ವಾರದ ಯೋಜನೆ", "ಸಾರಾಂಶ", "ಆಲೋಚನೆಗಳು"],
   }},
   es: { flag: "🇪🇸", name: "Español", t: {
     newChat: "Nuevo chat", search: "Buscar…", logout: "Cerrar sesión", send: "Enviar",
@@ -471,13 +546,13 @@ const LANGS = {
     bookmarks: "Marcadores", noBookmarks: "Sin marcadores",
     memories: "Memoria", clearMemory: "Borrar memoria",
     followUp: "Preguntar más…", generatingImage: "Generando imagen…",
-    ytAnalyzing: "Obteniendo transcripción de YouTube…", ytNotes: "Notas de YouTube listas",
+    ytAnalyzing: "Obteniendo transcripción…", ytNotes: "Notas de YouTube listas",
     scList: [
       { keys: ["Ctrl", "K"], desc: "Nuevo chat" }, { keys: ["Ctrl", "/"], desc: "Entrada" },
       { keys: ["Ctrl", "P"], desc: "Perfil" }, { keys: ["Ctrl", "F"], desc: "Buscar" },
       { keys: ["Esc"], desc: "Cerrar" }, { keys: ["Enter"], desc: "Enviar" }, { keys: ["Shift", "↵"], desc: "Nueva línea" },
     ],
-    suggestions: ["Explica algo simple", "Ayúdame a escribir", "Depura mi código", "Planifica mi semana", "Resume este tema", "Dame ideas"]
+    suggestions: ["Explica algo simple", "Ayúdame a escribir", "Depura mi código", "Planifica mi semana", "Resume este tema", "Dame ideas"],
   }},
 };
 
@@ -495,7 +570,7 @@ const MODES = [
   { id: "interviewer",  name: "💼 Interviewer" },
 ];
 
-const AVATARS = ["🧑", "🤖", "🦊", "🐼", "🐸", "🦁", "🐯", "🦅", "🌟", "🔥", "💎", "🚀", "🌈", "🎨", "🦋", "🐉", "🌙", "⚡", "🧠", "🎯", "🦄", "🌊", "🪐", "🎭", "🏔️"];
+const AVATARS = ["🧑","🤖","🦊","🐼","🐸","🦁","🐯","🦅","🌟","🔥","💎","🚀","🌈","🎨","🦋","🐉","🌙","⚡","🧠","🎯","🦄","🌊","🪐","🎭","🏔️"];
 const SYSTEM_PRESETS = [
   "You are a Socratic tutor. Guide with questions only.",
   "You are a senior software engineer. Be concise and precise.",
@@ -506,7 +581,7 @@ const SYSTEM_PRESETS = [
   "You are a medical information assistant. Always recommend consulting a doctor.",
   "You are a math tutor. Show step-by-step working for all problems.",
 ];
-const REACTIONS = ["👍", "❤️", "😂", "😮", "🔥", "🧠"];
+const REACTIONS = ["👍","❤️","😂","😮","🔥","🧠"];
 
 function getDateGroup(id, t) {
   const ts = parseInt(id, 10);
@@ -523,7 +598,6 @@ const Ic = ({ d, size = 16, fill = "none", sw = 1.75 }) => (
     {typeof d === "string" ? <path d={d} /> : d}
   </svg>
 );
-
 const SendIcon     = () => <Ic size={15} sw={2} fill="currentColor" d={<><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none" /></>} />;
 const MicIcon      = () => <Ic size={17} d={<><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></>} />;
 const WaveIcon     = () => <svg width={17} height={17} viewBox="0 0 24 24" fill="currentColor"><rect x="11" y="3" width="2" height="18" rx="1" /><rect x="7" y="8" width="2" height="8" rx="1" /><rect x="15" y="8" width="2" height="8" rx="1" /><rect x="3" y="10" width="2" height="4" rx="1" /><rect x="19" y="10" width="2" height="4" rx="1" /></svg>;
@@ -598,7 +672,6 @@ const formatMath = txt => {
   catch { return txt; }
 };
 
-// ─── TYPING INDICATOR ─────────────────────────────────────────────────────────
 function TypingIndicator({ text = "" }) {
   return (
     <div className="typing-wrap">
@@ -608,7 +681,6 @@ function TypingIndicator({ text = "" }) {
   );
 }
 
-// ─── FOLLOW-UP CHIPS ─────────────────────────────────────────────────────────
 function FollowUpChips({ suggestions, loading, onSelect }) {
   if (loading) return (
     <div className="followup-row">{[1, 2, 3].map(i => <div key={i} className="followup-chip skeleton" />)}</div>
@@ -625,7 +697,6 @@ function FollowUpChips({ suggestions, loading, onSelect }) {
   );
 }
 
-// ─── TOAST NOTIFICATION ───────────────────────────────────────────────────────
 function Toast({ toasts }) {
   return (
     <div className="toast-container">
@@ -636,7 +707,6 @@ function Toast({ toasts }) {
   );
 }
 
-// ─── PROFILE MODAL ────────────────────────────────────────────────────────────
 function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo }) {
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"🧑"}');
@@ -725,7 +795,6 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
   );
 }
 
-// ─── SYS PROMPT MODAL ────────────────────────────────────────────────────────
 function SysPromptModal({ onClose, t, value, setValue }) {
   const [draft, setDraft] = useState(value);
   return (
@@ -758,7 +827,6 @@ function SysPromptModal({ onClose, t, value, setValue }) {
   );
 }
 
-// ─── SHARE MODAL ─────────────────────────────────────────────────────────────
 function ShareModal({ onClose, t, messages }) {
   const [cp, setCp] = useState(false);
   const url = useMemo(() => {
@@ -768,16 +836,10 @@ function ShareModal({ onClose, t, messages }) {
   const copy = () => { navigator.clipboard.writeText(url); setCp(true); setTimeout(() => setCp(false), 2500); };
   const exportFn = (type) => {
     let content, mime, ext;
-    if (type === "txt") {
-      content = messages.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n---\n\n");
-      mime = "text/plain"; ext = "txt";
-    } else if (type === "md") {
-      content = messages.map(m => `## ${m.role === "user" ? "👤 You" : "🤖 VetroAI"}\n\n${m.content}`).join("\n\n---\n\n");
-      mime = "text/markdown"; ext = "md";
-    } else if (type === "json") {
-      content = JSON.stringify(messages, null, 2);
-      mime = "application/json"; ext = "json";
-    } else {
+    if (type === "txt") { content = messages.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n---\n\n"); mime = "text/plain"; ext = "txt"; }
+    else if (type === "md") { content = messages.map(m => `## ${m.role === "user" ? "👤 You" : "🤖 VetroAI"}\n\n${m.content}`).join("\n\n---\n\n"); mime = "text/markdown"; ext = "md"; }
+    else if (type === "json") { content = JSON.stringify(messages, null, 2); mime = "application/json"; ext = "json"; }
+    else {
       const rows = messages.map(m => `<div class="msg ${m.role}"><strong>${m.role === "user" ? "You" : "VetroAI"}:</strong><p>${m.content.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p></div>`).join("");
       content = `<!DOCTYPE html><html><head><title>VetroAI Chat</title><style>body{font-family:system-ui;max-width:700px;margin:auto;padding:40px;background:#faf9f7}.msg{padding:16px;margin:12px 0;border-radius:12px}.user{background:#f0ede8;text-align:right}.assistant{background:#fff;border:1px solid #eee}strong{font-size:.8rem;opacity:.5;display:block;margin-bottom:4px}</style></head><body><h2>VetroAI Chat Export</h2>${rows}</body></html>`;
       mime = "text/html"; ext = "html";
@@ -819,7 +881,6 @@ function ShareModal({ onClose, t, messages }) {
   );
 }
 
-// ─── BOOKMARKS PANEL ─────────────────────────────────────────────────────────
 function BookmarksPanel({ bookmarks, onSelect, onRemove, onClose, t }) {
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -849,7 +910,6 @@ function BookmarksPanel({ bookmarks, onSelect, onRemove, onClose, t }) {
   );
 }
 
-// ─── MEMORY PANEL ────────────────────────────────────────────────────────────
 function MemoryPanel({ memories, onClear, onRemove, onClose, t }) {
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -876,7 +936,6 @@ function MemoryPanel({ memories, onClear, onRemove, onClose, t }) {
   );
 }
 
-// ─── REACTION PICKER ─────────────────────────────────────────────────────────
 function ReactionPicker({ onPick, onClose }) {
   return (
     <div className="rxn-picker">
@@ -885,7 +944,6 @@ function ReactionPicker({ onPick, onClose }) {
   );
 }
 
-// ─── CONFIRM DIALOG ───────────────────────────────────────────────────────────
 function ConfirmDialog({ message, onConfirm, onCancel }) {
   return (
     <div className="overlay" onClick={onCancel}>
@@ -906,9 +964,9 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 export default function App() {
   const [theme, setTheme]         = useState(() => localStorage.getItem("vetroai_theme") || "light");
   const [langCode, setLangCode]   = useState(() => localStorage.getItem("vetroai_lang") || "en");
@@ -919,7 +977,7 @@ export default function App() {
     localStorage.setItem("vetroai_theme", theme);
   }, [theme]);
 
-  // ── Auth state ───────────────────────────────────────────────
+  // ── Auth ─────────────────────────────────────────────────────────────────────
   const [user, setUser]           = useState(localStorage.getItem("token"));
   const [userInfo, setUserInfo]   = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_userinfo") || "null"); } catch { return null; } });
   const [authMode, setAuthMode]   = useState("login");
@@ -930,23 +988,23 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [showPass, setShowPass]   = useState(false);
 
-  // ── Toast ────────────────────────────────────────────────────
-  const [toasts, setToasts]       = useState([]);
+  // ── Toast ─────────────────────────────────────────────────────────────────────
+  const [toasts, setToasts] = useState([]);
   const addToast = useCallback((message, type = "info", duration = 3000) => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
   }, []);
 
-  // ── Session state ────────────────────────────────────────────
-  const [sessions, setSessions]               = useState([]);
+  // ── Session ───────────────────────────────────────────────────────────────────
+  const [sessions, setSessions]             = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
-  const [histSearch, setHistSearch]           = useState("");
-  const [pinnedIds, setPinnedIds]             = useState(() => JSON.parse(localStorage.getItem("vetroai_pins") || "[]"));
-  const [isSidebarOpen, setIsSidebarOpen]     = useState(false);
-  const [confirmDelete, setConfirmDelete]     = useState(null);
+  const [histSearch, setHistSearch]         = useState("");
+  const [pinnedIds, setPinnedIds]           = useState(() => JSON.parse(localStorage.getItem("vetroai_pins") || "[]"));
+  const [isSidebarOpen, setIsSidebarOpen]   = useState(false);
+  const [confirmDelete, setConfirmDelete]   = useState(null);
 
-  // ── Chat state ───────────────────────────────────────────────
+  // ── Chat ──────────────────────────────────────────────────────────────────────
   const [messages, setMessages]             = useState([]);
   const [input, setInput]                   = useState("");
   const [editIdx, setEditIdx]               = useState(null);
@@ -961,29 +1019,31 @@ export default function App() {
   const [msgFeedback, setMsgFeedback]       = useState({});
   const [rxnFor, setRxnFor]                 = useState(null);
   const [streamingContent, setStreamingContent] = useState("");
-  const abortRef = useRef(null);
+  // FIX 1: track auto-continuation status
+  const [isContinuing, setIsContinuing]     = useState(false);
+  const abortRef     = useRef(null);
   const requestIdRef = useRef(0);
   const transcriptCacheRef = useRef(new Map());
 
-  // ── Web search state ─────────────────────────────────────────
+  // ── Web search ────────────────────────────────────────────────────────────────
   const [isWebSearching, setIsWebSearching] = useState(false);
   const [autoWebSearch, setAutoWebSearch]   = useState(true);
 
-  // ── YouTube state ────────────────────────────────────────────
+  // ── YouTube ───────────────────────────────────────────────────────────────────
   const [isYtFetching, setIsYtFetching]     = useState(false);
   const [ytVideoData, setYtVideoData]       = useState({});
 
-  // ── Follow-up suggestions ─────────────────────────────────────
+  // ── Follow-up ─────────────────────────────────────────────────────────────────
   const [followUps, setFollowUps]           = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
 
-  // ── Bookmarks & Memory ───────────────────────────────────────
+  // ── Bookmarks & Memory ────────────────────────────────────────────────────────
   const [bookmarks, setBookmarks]           = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_bookmarks") || "[]"); } catch { return []; } });
   const [showBookmarks, setShowBookmarks]   = useState(false);
   const [memories, setMemories]             = useState([]);
   const [showMemory, setShowMemory]         = useState(false);
 
-  // ── Modals ───────────────────────────────────────────────────
+  // ── Modals ────────────────────────────────────────────────────────────────────
   const [showProfile, setShowProfile]       = useState(false);
   const [showSysPrompt, setShowSysPrompt]   = useState(false);
   const [showShare, setShowShare]           = useState(false);
@@ -991,33 +1051,40 @@ export default function App() {
   const [showTimer, setShowTimer]           = useState(false);
   const [systemPrompt, setSystemPrompt]     = useState(() => localStorage.getItem("vetroai_sysprompt") || "");
 
-  // ── Search ───────────────────────────────────────────────────
-  const [chatSearchOpen, setChatSearchOpen]   = useState(false);
-  const [chatSearchQuery, setChatSearchQuery] = useState("");
+  // ── Search ────────────────────────────────────────────────────────────────────
+  const [chatSearchOpen, setChatSearchOpen]     = useState(false);
+  const [chatSearchQuery, setChatSearchQuery]   = useState("");
   const [chatSearchCursor, setChatSearchCursor] = useState(0);
 
-  // ── Voice ────────────────────────────────────────────────────
-  const [autoSpeak, setAutoSpeak]           = useState(false);
-  const [isListening, setIsListening]       = useState(false);
-  const [isVoiceOpen, setIsVoiceOpen]       = useState(false);
+  // ── Voice ─────────────────────────────────────────────────────────────────────
+  const [autoSpeak, setAutoSpeak]   = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
 
-  // ── Refs ──────────────────────────────────────────────────────
-  const feedRef         = useRef(null);
-  const textareaRef     = useRef(null);
-  const searchInputRef  = useRef(null);
-  const recogRef        = useRef(null);
-  const fileInputRef    = useRef(null);
-  const isScrolling     = useRef(false);
-  const inputRef        = useRef(input);
-  const voiceRef        = useRef(isVoiceOpen);
-  const msgsRef         = useRef(messages);
-  const loadRef         = useRef(isLoading);
-  const submitVoiceRef  = useRef(null);
+  // ── Refs ──────────────────────────────────────────────────────────────────────
+  const feedRef        = useRef(null);
+  const textareaRef    = useRef(null);
+  const searchInputRef = useRef(null);
+  const recogRef       = useRef(null);
+  const fileInputRef   = useRef(null);
+  const isScrolling    = useRef(false);
+  const inputRef       = useRef(input);
+  const voiceRef       = useRef(isVoiceOpen);
+  const msgsRef        = useRef(messages);
+  const loadRef        = useRef(isLoading);
+  const submitVoiceRef = useRef(null);
+  // FIX 1: ref for selectedMode inside async callbacks
+  const selectedModeRef  = useRef(selectedMode);
+  const systemPromptRef  = useRef(systemPrompt);
+  const autoWebSearchRef = useRef(autoWebSearch);
 
   useEffect(() => { inputRef.current = input; }, [input]);
   useEffect(() => { voiceRef.current = isVoiceOpen; }, [isVoiceOpen]);
   useEffect(() => { msgsRef.current = messages; }, [messages]);
   useEffect(() => { loadRef.current = isLoading; }, [isLoading]);
+  useEffect(() => { selectedModeRef.current = selectedMode; }, [selectedMode]);
+  useEffect(() => { systemPromptRef.current = systemPrompt; }, [systemPrompt]);
+  useEffect(() => { autoWebSearchRef.current = autoWebSearch; }, [autoWebSearch]);
   useEffect(() => { window.speechSynthesis?.cancel(); }, []);
   useEffect(() => { localStorage.setItem("vetroai_sysprompt", systemPrompt); }, [systemPrompt]);
   useEffect(() => { localStorage.setItem("vetroai_pins", JSON.stringify(pinnedIds)); }, [pinnedIds]);
@@ -1037,7 +1104,7 @@ export default function App() {
     return () => { document.body.style.overflow = ""; };
   }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showMemory, showCalc, showTimer, confirmDelete]);
 
-  // ── Email/Password Auth ───────────────────────────────────────
+  // ── Auth submit ───────────────────────────────────────────────────────────────
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError(""); setAuthLoading(true);
@@ -1046,19 +1113,10 @@ export default function App() {
       const body = authMode === "login"
         ? { email: authEmail, password: authPassword }
         : { email: authEmail, password: authPassword, name: authName };
-
       const res  = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
-
       if (!res.ok || data.success === false) { setAuthError(data.message || data.error || "Something went wrong"); setAuthLoading(false); return; }
-
-      if (authMode === "signup") {
-        setAuthMode("login");
-        setAuthError("✅ Account created! Please sign in.");
-        setAuthLoading(false);
-        return;
-      }
-
+      if (authMode === "signup") { setAuthMode("login"); setAuthError("✅ Account created! Please sign in."); setAuthLoading(false); return; }
       const payload = data?.data || {};
       const accessToken = payload.accessToken;
       if (!accessToken) { setAuthError("⚠️ Invalid auth response from server."); setAuthLoading(false); return; }
@@ -1078,7 +1136,7 @@ export default function App() {
     addToast("Signed out successfully", "info");
   };
 
-  // ── Session management ───────────────────────────────────────
+  // ── Session management ────────────────────────────────────────────────────────
   useEffect(() => {
     if (user) {
       try { const s = localStorage.getItem("vetroai_sessions_" + user); if (s) setSessions(JSON.parse(s) || []); } catch { setSessions([]); }
@@ -1126,13 +1184,12 @@ export default function App() {
     abortRef.current?.abort();
     setMessages([]); setCurrentSessionId(null); setInput(""); stopSpeak();
     setIsSidebarOpen(false); setReactions({}); setFollowUps([]); setMsgFeedback({});
-    setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false); setStreamingContent("");
+    setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false);
+    setStreamingContent(""); setIsContinuing(false);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, []);
 
-  const deleteSession = (id) => {
-    setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." });
-  };
+  const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
 
   const confirmDeleteSession = () => {
     if (!confirmDelete) return;
@@ -1154,7 +1211,7 @@ export default function App() {
     });
   };
 
-  // ── Bookmarks ─────────────────────────────────────────────────
+  // ── Bookmarks ─────────────────────────────────────────────────────────────────
   const toggleBookmark = (msg) => {
     setBookmarks(prev => {
       const id = `${msg.timestamp}_${msg.content?.slice(0, 20)}`;
@@ -1164,10 +1221,10 @@ export default function App() {
       return [...prev, { id, ...msg }];
     });
   };
-  const isBookmarked = (msg) => { const id = `${msg.timestamp}_${msg.content?.slice(0, 20)}`; return bookmarks.some(b => b.id === id); };
+  const isBookmarked  = (msg) => { const id = `${msg.timestamp}_${msg.content?.slice(0, 20)}`; return bookmarks.some(b => b.id === id); };
   const removeBookmark = (id) => setBookmarks(prev => prev.filter(b => b.id !== id));
 
-  // ── Memory management ─────────────────────────────────────────
+  // ── Memory ────────────────────────────────────────────────────────────────────
   const handleAddMemory = (fact) => {
     if (!userInfo?.email) return;
     addMemory(userInfo.email, fact);
@@ -1180,7 +1237,7 @@ export default function App() {
   };
   const clearAllMemory = () => { if (!userInfo?.email) return; saveMemories(userInfo.email, []); setMemories([]); addToast("Memory cleared", "info"); };
 
-  // ── Follow-up generation ──────────────────────────────────────
+  // ── Follow-up generation ──────────────────────────────────────────────────────
   const generateFollowUps = useCallback(async (lastBotMsg, userQuery) => {
     if (!lastBotMsg || lastBotMsg.length < 50) return;
     setFollowUpsLoading(true);
@@ -1196,7 +1253,7 @@ export default function App() {
     setFollowUpsLoading(false);
   }, []);
 
-  // ── Computed data ─────────────────────────────────────────────
+  // ── Computed data ─────────────────────────────────────────────────────────────
   const { pinnedSessions, groupedSessions } = useMemo(() => {
     const filtered = sessions.filter(s => s?.title?.toLowerCase().includes(histSearch.toLowerCase()));
     const pinned   = filtered.filter(s => pinnedIds.includes(s.id));
@@ -1228,7 +1285,7 @@ export default function App() {
     return () => window.removeEventListener("click", h);
   }, [rxnFor]);
 
-  // ── Voice helpers ──────────────────────────────────────────────
+  // ── Voice helpers ─────────────────────────────────────────────────────────────
   const stopSpeak = () => window.speechSynthesis?.cancel();
   const closeVoice = useCallback(() => {
     setIsVoiceOpen(false);
@@ -1237,7 +1294,7 @@ export default function App() {
     stopSpeak();
   }, [isListening]);
 
-  // ── Keyboard shortcuts ────────────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────────
   useEffect(() => {
     const h = e => {
       const ctrl = e.ctrlKey || e.metaKey;
@@ -1265,7 +1322,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, [chatSearchOpen, closeVoice, confirmDelete, isSidebarOpen, isVoiceOpen, newChat, showBookmarks, showCalc, showMemory, showProfile, showShare, showSysPrompt, showTimer]);
 
-  // ── Scroll ────────────────────────────────────────────────────
+  // ── Scroll ────────────────────────────────────────────────────────────────────
   const handleScroll = () => {
     if (!feedRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = feedRef.current;
@@ -1277,7 +1334,7 @@ export default function App() {
   }, []);
   useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom, streamingContent]);
 
-  // ── Voice ─────────────────────────────────────────────────────
+  // ── Voice ─────────────────────────────────────────────────────────────────────
   const speak = txt => {
     if (!window.speechSynthesis) return; stopSpeak();
     const c = (txt || "").replace(/[*#_`~]/g, "").replace(/\$\$.*?\$\$/gs, "[equation]").replace(/\$.*?\$/g, "[math]");
@@ -1326,8 +1383,8 @@ export default function App() {
     recogRef.current = sr;
   }, [addToast]);
 
-  const toggleMic  = e => { e?.preventDefault(); if (!recogRef.current) return; if (isListening) recogRef.current.stop(); else { setInput(""); recogRef.current.start(); setIsListening(true); } };
-  const openVoice  = e => { e.preventDefault(); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); setAutoSpeak(true); setIsVoiceOpen(true); if (!isListening) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
+  const toggleMic = e => { e?.preventDefault(); if (!recogRef.current) return; if (isListening) recogRef.current.stop(); else { setInput(""); recogRef.current.start(); setIsListening(true); } };
+  const openVoice = e => { e.preventDefault(); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); setAutoSpeak(true); setIsVoiceOpen(true); if (!isListening) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
 
   const handleOrb = () => {
     if (isLoading) return;
@@ -1347,7 +1404,8 @@ export default function App() {
   const stopGeneration = () => {
     requestIdRef.current += 1;
     abortRef.current?.abort();
-    setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false); setStreamingContent("");
+    setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false);
+    setStreamingContent(""); setIsContinuing(false);
   };
 
   const insertFmt = (pre, suf = "") => {
@@ -1358,22 +1416,135 @@ export default function App() {
     setTimeout(() => { if (textareaRef.current) { textareaRef.current.focus(); textareaRef.current.setSelectionRange(s + pre.length, s + pre.length + (sel || "text").length); } }, 0);
   };
 
-  // ─────────────────────────────────────────────────────────────
-  //  MAIN AI CALL  (fixed SSE stream reader)
-  // ─────────────────────────────────────────────────────────────
+  // ── FIX 1: Stream helper — shared SSE reader ──────────────────────────────────
+  const readSSEStream = async (reader, onChunk, isActive) => {
+    const dec = new TextDecoder();
+    let lineBuffer = "";
+    let accumulated = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!isActive()) return accumulated;
+
+      lineBuffer += dec.decode(value, { stream: true });
+      const lines = lineBuffer.split("\n");
+      lineBuffer  = lines.pop(); // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (!raw || raw === "[DONE]") continue;
+        try {
+          const content = JSON.parse(raw).content;
+          if (content) { accumulated += content; onChunk(accumulated); }
+        } catch { /* skip malformed chunk */ }
+      }
+    }
+
+    // Flush remaining buffer
+    if (lineBuffer.startsWith("data: ")) {
+      const raw = lineBuffer.slice(6).trim();
+      if (raw && raw !== "[DONE]") {
+        try {
+          const content = JSON.parse(raw).content;
+          if (content) { accumulated += content; onChunk(accumulated); }
+        } catch (err) { swallowError(err); }
+      }
+    }
+
+    return accumulated;
+  };
+
+  // ── FIX 1: Auto-continuation — appends seamlessly to the last message ─────────
+  const fetchContinuation = useCallback(async (existingContent, origHist, depth, requestId) => {
+    if (depth >= 3) return; // max 3 auto-continuations
+
+    const isActive = () => requestIdRef.current === requestId && !abortRef.current?.signal.aborted;
+    if (!isActive()) return;
+
+    setIsContinuing(true);
+    setIsLoading(true);
+
+    const contPrompt = "Continue EXACTLY from where you stopped. Output ONLY the continuation — no intro, no repetition, start mid-sentence if needed. Make sure to complete all code blocks and sentences.";
+    const contHist   = [
+      ...origHist,
+      { role: "assistant", content: existingContent },
+      { role: "user",      content: contPrompt },
+    ];
+
+    const fd = new FormData();
+    fd.append("input",    contPrompt);
+    fd.append("model",    selectedModeRef.current);
+
+    const ctx = contHist.slice(-12).map(m => ({ role: m.role, content: m.content }));
+    const nowISO = new Date().toISOString().slice(0, 10);
+    ctx.unshift({
+      role: "system",
+      content: `Today: ${nowISO}. You are continuing a PREVIOUS response that was cut off. Output ONLY the continuation text starting from where you stopped. CRITICAL: Close any open code fences (```) and complete all sentences and lists before ending.`,
+    });
+    fd.append("messages", JSON.stringify(ctx));
+
+    try {
+      const res = await fetch(API + "/chat", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        body: fd,
+        signal: abortRef.current?.signal,
+      });
+      if (!isActive() || !res.ok) { setIsLoading(false); setIsContinuing(false); return; }
+
+      const reader = res.body.getReader();
+      let fullContent = existingContent;
+
+      await readSSEStream(reader, (accContinuation) => {
+        if (!isActive()) return;
+        fullContent = existingContent + accContinuation;
+        setMessages(prev => {
+          const u = [...prev];
+          u[u.length - 1] = { ...u[u.length - 1], content: fullContent };
+          return u;
+        });
+        setStreamingContent(fullContent);
+        if (!isScrolling.current) scrollToBottom();
+      }, isActive);
+
+      setStreamingContent("");
+      if (!isActive()) return;
+      setIsLoading(false);
+      setIsContinuing(false);
+
+      // Recurse if still truncated (and continuation added meaningful content)
+      const continuation = fullContent.slice(existingContent.length);
+      if (continuation.length > 80 && isLikelyTruncatedAnswer(fullContent)) {
+        await fetchContinuation(fullContent, origHist, depth + 1, requestId);
+      } else {
+        // Final message is clean — trigger follow-ups
+        generateFollowUps(fullContent, origHist[origHist.length - 1]?.content || "");
+      }
+    } catch (err) {
+      setIsLoading(false); setIsContinuing(false);
+      if (err.name !== "AbortError") swallowError(err);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToBottom, generateFollowUps]);
+
+  // ── MAIN AI CALL ──────────────────────────────────────────────────────────────
   const triggerAI = async (hist, fileData = null, ytContext = null) => {
     abortRef.current?.abort();
-    const ctrl = new AbortController(); abortRef.current = ctrl;
+    const ctrl      = new AbortController(); abortRef.current = ctrl;
     const requestId = ++requestIdRef.current;
-    const isRequestActive = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
+    const isActive  = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
+
     setIsLoading(true); setIsTyping(true); scrollToBottom(); stopSpeak();
-    setFollowUps([]);
+    setFollowUps([]); setIsContinuing(false);
 
     const userQuery    = hist[hist.length - 1]?.content || "";
-    const isYtMode     = selectedMode === "youtube";
-    const isWebMode    = selectedMode === "web_search";
-    const isDeepSearch = selectedMode === "deep_search";
-    const shouldSearch = isWebMode || isDeepSearch || (autoWebSearch && needsWebSearch(userQuery));
+    const curMode      = selectedModeRef.current;
+    const isYtMode     = curMode === "youtube";
+    const isWebMode    = curMode === "web_search";
+    const isDeepSearch = curMode === "deep_search";
+    const shouldSearch = isWebMode || isDeepSearch || (autoWebSearchRef.current && needsWebSearch(userQuery));
     const isFirstMsg   = hist.filter(m => m.role === "user").length === 1;
 
     let webContext = null;
@@ -1381,9 +1552,9 @@ export default function App() {
       setIsWebSearching(true);
       webContext = await Promise.race([
         (isDeepSearch ? fetchDeepSearchContext(userQuery) : fetchWebResults(userQuery)),
-        new Promise(resolve => setTimeout(() => resolve(null), isDeepSearch ? 5500 : 3500)),
+        new Promise(resolve => setTimeout(() => resolve(null), isDeepSearch ? 9000 : 6000)),
       ]);
-      if (!isRequestActive()) return;
+      if (!isActive()) return;
       setIsWebSearching(false);
     }
 
@@ -1392,7 +1563,7 @@ export default function App() {
 
     const fd = new FormData();
     fd.append("input", userQuery);
-    fd.append("model", (isYtMode || isWebMode || isDeepSearch) ? "fast_chat" : selectedMode);
+    fd.append("model", (isYtMode || isWebMode || isDeepSearch) ? "fast_chat" : curMode);
 
     const ctx             = hist.slice(-14).map(m => ({ role: m.role, content: m.content }));
     const now             = new Date();
@@ -1400,26 +1571,35 @@ export default function App() {
     const nowISO          = now.toISOString().slice(0, 10);
     const currentMemories = userInfo?.email ? getMemories(userInfo.email) : [];
 
+    // ── FIX 2D: Improved system prompt ──────────────────────────────────────────
     let sysContent = [
       `TODAY IS: ${nowStr} (${nowISO}). Current year: ${now.getFullYear()}.`,
       `NEVER say an event "hasn't happened yet" if it's plausible given today's date.`,
       currentMemories.length ? `USER CONTEXT:\n${currentMemories.map(m => `• ${m}`).join("\n")}` : "",
-      systemPrompt || "",
+      systemPromptRef.current || "",
     ].filter(Boolean).join("\n\n");
 
-    if (selectedMode === "translator") sysContent = "You are a professional translator. Detect the language and translate accurately. Provide both literal and natural translations. Explain idiomatic differences when relevant.\n\n" + sysContent;
-    if (selectedMode === "interviewer") sysContent = "You are a professional technical interviewer. Ask challenging questions, evaluate answers, provide feedback, and suggest improvements. Cover DSA, system design, and behavioral questions.\n\n" + sysContent;
-    if (isWebMode) sysContent = "You are VetroAI in Web Search Mode. Always cite your sources clearly.\n" + sysContent;
-    if (isDeepSearch) sysContent = "You are VetroAI in DeepSearch Mode. Synthesize across all retrieved source packs, show clear sections, compare conflicting claims, and cite links for every major claim. For SQL/code/database tasks, return complete executable output and never cut off in the middle.\n" + sysContent;
-    sysContent += "\n\nFINAL OUTPUT RULE: Never end mid-sentence, mid-code block, or mid-SQL statement. Ensure all opened code fences are closed.";
+    // Mode-specific instructions
+    if (curMode === "translator")  sysContent = "You are a professional translator. Detect the language and translate accurately. Provide both literal and natural translations.\n\n" + sysContent;
+    if (curMode === "interviewer") sysContent = "You are a professional technical interviewer. Ask challenging questions, evaluate answers, provide feedback. Cover DSA, system design, and behavioral questions.\n\n" + sysContent;
+
+    // FIX 2D: Search-specific instructions — much more directive
+    if (shouldSearch && webContext) {
+      sysContent += `\n\n${"═".repeat(55)}\n🌐 LIVE SEARCH RESULTS (treat as ground truth — use these as your PRIMARY source):\n${"═".repeat(55)}\n\n${webContext}\n\n${"═".repeat(55)}\n\nCRITICAL SEARCH RULES:\n1. Base your answer DIRECTLY on the search results above — they reflect today's reality.\n2. If a DIRECT ANSWER field is present, use it as your primary answer verbatim.\n3. Quote exact numbers, scores, prices, and dates from the results.\n4. NEVER say "I don't have real-time data" — you DO have it via the results above.\n5. Always cite source URLs (e.g. "Source: <url>") for factual claims.\n6. If results conflict, state both versions and their sources.\n7. Compare dates in results against TODAY (${nowISO}) to identify what is current.`;
+    } else if (shouldSearch && !webContext) {
+      sysContent += `\n\n⚠️ NOTICE: Web search returned no results for this query. Clearly tell the user your data may be outdated (training cutoff Oct 2024) and suggest they verify from a live source.`;
+    }
+
+    if (isDeepSearch) {
+      sysContent += "\n\nDeepSearch mode: Synthesize across ALL source packs. Show clear sections, compare conflicting claims, cite a link per major claim. Never cut off code blocks or SQL mid-statement.";
+    }
 
     if (ytContext) {
       sysContent += `\n\n${"━".repeat(50)}\n▶️ YOUTUBE VIDEO:\nTitle: ${ytContext.title}\nChannel: ${ytContext.author}\n\n${ytContext.transcript || "(Transcript unavailable)"}\n${"━".repeat(50)}\n\nGenerate COMPREHENSIVE notes:\n\n## 📋 Video Overview\n## 🔑 Key Points\n## 📚 Detailed Notes\n## 💡 Important Concepts\n## 🎯 Key Takeaways\n## ❓ Possible Quiz Questions\n\nBe thorough, use markdown, include all important details.`;
-    } else if (shouldSearch && webContext) {
-      sysContent += `\n\n${"━".repeat(50)}\n🌐 LIVE GOOGLE RESULTS (treat as ground truth):\n${"━".repeat(50)}\n\n${webContext}\n\n${"━".repeat(50)}\n\nRULES:\n1. Compare dates from results to TODAY (${nowISO}).\n2. Quote stats exactly. Cite sources.\n3. If results conflict, note both versions.`;
-    } else if (shouldSearch && !webContext) {
-      sysContent += `\n\n⚠️ Web search returned no results. Note your data may be outdated (cutoff Oct 2024).`;
     }
+
+    // FIX 1: Stronger anti-truncation rule
+    sysContent += "\n\n⚡ OUTPUT COMPLETENESS RULE: You MUST finish your entire response in one go. Never end mid-sentence, mid-code-block, mid-SQL statement, or mid-list. Every opened ``` MUST be closed with ```. If your answer is very long, prioritize completing it fully over covering every subtopic.";
 
     if (sysContent.trim()) ctx.unshift({ role: "system", content: sysContent });
     fd.append("messages", JSON.stringify(ctx));
@@ -1432,17 +1612,15 @@ export default function App() {
         body: fd,
         signal: ctrl.signal,
       });
-      if (!isRequestActive()) return;
+      if (!isActive()) return;
       if (res.status === 401) { logout(); return; }
-      if (!res.ok) { throw new Error(`Server error: ${res.status}`); }
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
 
       const reader = res.body.getReader();
-      const dec    = new TextDecoder();
-      let bot      = "";
       const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
       setIsTyping(false);
-      if (!isRequestActive()) return;
+      if (!isActive()) return;
       setMessages(prev => [...prev, {
         role: "assistant", content: "", timestamp: ts,
         usedWebSearch: shouldSearch && !!webContext,
@@ -1450,75 +1628,40 @@ export default function App() {
         ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
       }]);
 
-      // ── FIX: Buffer partial SSE lines so split chunks don't silently drop content ──
-      let lineBuffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!isRequestActive()) return;
-
-        // Append decoded chunk to buffer — stream:true tells the decoder more data is coming
-        lineBuffer += dec.decode(value, { stream: true });
-
-        // Split on newlines but keep the last incomplete segment in the buffer
-        const lines = lineBuffer.split("\n");
-        lineBuffer  = lines.pop(); // last item may be incomplete — save it
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw || raw === "[DONE]") continue;
-          try {
-            const content = JSON.parse(raw).content;
-            if (content) {
-              bot += content;
-              if (!isRequestActive()) return;
-              setMessages(prev => {
-                const u = [...prev];
-                u[u.length - 1] = { ...u[u.length - 1], content: bot };
-                return u;
-              });
-              setStreamingContent(bot);
-              if (!isScrolling.current) scrollToBottom();
-            }
-          } catch {
-            // Silently skip malformed chunks — they are rare and recoverable
-          }
-        }
-      }
-
-      // Flush any remaining buffered data after stream ends
-      if (lineBuffer.startsWith("data: ")) {
-        const raw = lineBuffer.slice(6).trim();
-        if (raw && raw !== "[DONE]") {
-          try {
-            const content = JSON.parse(raw).content;
-            if (content) {
-              bot += content;
-              if (!isRequestActive()) return;
-              setMessages(prev => {
-                const u = [...prev];
-                u[u.length - 1] = { ...u[u.length - 1], content: bot };
-                return u;
-              });
-            }
-          } catch (err) { swallowError(err); }
-        }
-      }
+      // Use the shared SSE reader
+      const bot = await readSSEStream(reader, (acc) => {
+        if (!isActive()) return;
+        setMessages(prev => {
+          const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+        });
+        setStreamingContent(acc);
+        if (!isScrolling.current) scrollToBottom();
+      }, isActive);
 
       setStreamingContent("");
-      if (!isRequestActive()) return;
-      setIsLoading(false);
-      if (voiceRef.current || autoSpeak) speak(bot);
-      if (isFirstMsg) updateSessionTitle(userQuery);
-      generateFollowUps(bot, userQuery);
+      if (!isActive()) return;
+
+      // ── FIX 1: Auto-continuation if response was truncated ─────────────────────
+      if (bot.length > 150 && isLikelyTruncatedAnswer(bot)) {
+        // Don't set isLoading(false) yet — fetchContinuation will manage it
+        await fetchContinuation(bot, hist, 0, requestId);
+      } else {
+        setIsLoading(false);
+        if (voiceRef.current || autoSpeak) speak(bot);
+        if (isFirstMsg) updateSessionTitle(userQuery);
+        generateFollowUps(bot, userQuery);
+      }
 
     } catch (err) {
-      setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false); setStreamingContent("");
+      setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false);
+      setStreamingContent(""); setIsContinuing(false);
       if (err.name !== "AbortError") {
         addToast("⚠️ Error connecting to server. Please try again.", "error");
-        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ I couldn't connect to the server. Please check your connection and try again.", timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+        setMessages(prev => [...prev, {
+          role: "assistant",
+          content: "⚠️ I couldn't connect to the server. Please check your connection and try again.",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        }]);
       }
     } finally { setSelFile(null); setFilePreview(null); }
   };
@@ -1530,8 +1673,7 @@ export default function App() {
     const hist = [...msgsRef.current, { role: "user", content: txt, timestamp: ts }];
     setMessages(hist); setInput(""); triggerAI(hist);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMode, autoWebSearch, systemPrompt]);
-
+  }, []);
   useEffect(() => { submitVoiceRef.current = submitVoice; }, [submitVoice]);
 
   const sendMessage = async (e, prefill) => {
@@ -1591,13 +1733,15 @@ export default function App() {
     triggerAI(hist, selFile);
   };
 
-  const handleKeyDown  = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isLoading) sendMessage(); } };
-  const submitEdit     = idx => {
+  const handleKeyDown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isLoading) sendMessage(); } };
+
+  const submitEdit = idx => {
     if (!editInput.trim()) return; stopSpeak();
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const hist = [...messages.slice(0, idx), { role: "user", content: editInput, timestamp: ts }];
     setMessages(hist); setEditIdx(null); triggerAI(hist);
   };
+
   const handleRegen = idx => {
     if (idx === 0) return;
     const hist = messages.slice(0, idx);
@@ -1609,6 +1753,8 @@ export default function App() {
     setMsgFeedback(prev => ({ ...prev, [idx]: type }));
     addToast(type === "up" ? "👍 Thanks for the feedback!" : "👎 Thanks! We'll improve.", "success", 2000);
   };
+
+  // Manual "continue" — kept as fallback for edge cases
   const requestContinuation = (idx) => {
     const upto = messages.slice(0, idx + 1);
     const prompt = "Your previous answer was cut off. Continue exactly from where you stopped. Return only the remaining part with no repetition, and ensure all SQL/code blocks are complete.";
@@ -1630,7 +1776,7 @@ export default function App() {
   const isEmpty     = !input.trim() && !selFile;
   const avatarEl    = <span>{profileData.avatar}</span>;
 
-  // ── AUTH PAGE ──────────────────────────────────────────────────
+  // ── AUTH PAGE ──────────────────────────────────────────────────────────────────
   if (!user) return (
     <div className="auth-page">
       <div className="auth-glow" />
@@ -1639,14 +1785,13 @@ export default function App() {
           <div className="auth-logo-mark">V</div>
           <div className="auth-logo-text">
             <span className="logo-name">VetroAI</span>
-            <span className="logo-ver">v2.1</span>
+            <span className="logo-ver">v2.2</span>
           </div>
         </div>
         <div className="auth-hero">
           <h2 className="auth-headline">{authMode === "login" ? "Welcome back." : "Create account."}</h2>
           <p className="auth-sub">Your intelligent AI assistant — powered by Mistral & live web search.</p>
         </div>
-
         <form className="auth-form" onSubmit={handleAuthSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {authMode === "signup" && (
             <input className="field-input" type="text" placeholder="Your name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
@@ -1665,16 +1810,14 @@ export default function App() {
             {authLoading ? <><div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
           </button>
         </form>
-
         <p style={{ textAlign: "center", fontSize: "0.83rem", color: "var(--ink-3)", marginTop: 12 }}>
           {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
           <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
             {authMode === "login" ? "Sign up free" : "Sign in"}
           </button>
         </p>
-
         <div className="auth-features" style={{ marginTop: 24 }}>
-          {[["▶️","YouTube notes"], ["🌐","Live web search"], ["🎨","AI image generation"], ["🧠","Memory across chats"], ["🧮","Calculator"], ["⏱️","Focus timer"]].map(([icon, label]) => (
+          {[["▶️","YouTube notes"],["🌐","Live web search"],["🎨","AI image generation"],["🧠","Memory across chats"],["🧮","Calculator"],["⏱️","Focus timer"]].map(([icon, label]) => (
             <div key={label} className="auth-feat"><span>{icon}</span><span>{label}</span></div>
           ))}
         </div>
@@ -1683,7 +1826,7 @@ export default function App() {
     </div>
   );
 
-  // ── MAIN UI ───────────────────────────────────────────────────
+  // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
     <div className="shell">
       <Toast toasts={toasts} />
@@ -1765,7 +1908,6 @@ export default function App() {
               ))}
             </>
           )}
-
           {dateOrder.map(group => groupedSessions[group]?.length > 0 && (
             <React.Fragment key={group}>
               <div className="hist-label">{group}</div>
@@ -1780,7 +1922,6 @@ export default function App() {
               ))}
             </React.Fragment>
           ))}
-
           {sessions.length === 0 && (
             <div className="hist-empty"><span>💬</span><p>No conversations yet</p></div>
           )}
@@ -1832,11 +1973,17 @@ export default function App() {
             <div className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`}>
               {MODES.find(m => m.id === selectedMode)?.name}
               {(isWebMode || isDeepSearch) && <span className="web-live-dot" />}
-              {isYtMode  && <span className="web-live-dot" style={{ background: "#ff0000" }} />}
+              {isYtMode && <span className="web-live-dot" style={{ background: "#ff0000" }} />}
             </div>
             {autoWebSearch && !isWebMode && !isDeepSearch && !isYtMode && (
               <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, opacity: 0.7 }}>
                 <GlobeIcon /> Auto
+              </div>
+            )}
+            {/* FIX 1: Show "Expanding answer…" indicator during auto-continuation */}
+            {isContinuing && (
+              <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, color: "var(--accent)", background: "rgba(var(--accent-rgb),0.1)" }}>
+                <WebSpinIcon /> Expanding answer…
               </div>
             )}
           </div>
@@ -1857,7 +2004,7 @@ export default function App() {
         {(isWebSearching || isYtFetching) && (
           <div className="web-searching-bar" style={isYtFetching ? { background: "rgba(255,0,0,0.06)", borderColor: "rgba(255,0,0,0.15)" } : {}}>
             <WebSpinIcon />
-            <span>{isYtFetching ? t.ytAnalyzing : "Searching the web…"}</span>
+            <span>{isYtFetching ? t.ytAnalyzing : "Searching web + fetching page content…"}</span>
             <div className="web-search-dots"><span /><span /><span /></div>
           </div>
         )}
@@ -1890,7 +2037,7 @@ export default function App() {
               {systemPrompt && <div className="sys-badge"><BotIcon />{t.systemPromptBadge}</div>}
               {isWebMode && (
                 <div className="sys-badge" style={{ background: "rgba(59,130,246,0.1)", borderColor: "rgba(59,130,246,0.25)", color: "#3b82f6" }}>
-                  <GlobeIcon /> Web Search Mode — Live results enabled
+                  <GlobeIcon /> Web Search Mode — Live results + page content fetching
                 </div>
               )}
               {isDeepSearch && (
@@ -1905,7 +2052,7 @@ export default function App() {
               )}
               <div className="welcome-cards">
                 {[
-                  { icon: "▶️", label: "YouTube Notes", sub: "Paste any YouTube URL", action: () => { setSelectedMode("youtube"); } },
+                  { icon: "▶️", label: "YouTube Notes", sub: "Paste any YouTube URL", action: () => setSelectedMode("youtube") },
                   { icon: "🎨", label: "Image Generation", sub: "Create AI images free", action: () => setInput("Generate an image of ") },
                   { icon: "🌐", label: "Live Web Search", sub: "Real-time Google results", action: () => { setAutoWebSearch(true); setInput("Latest news today"); } },
                   { icon: "🧠", label: "DeepSearch", sub: "Multi-query deep research", action: () => { setSelectedMode("deep_search"); setInput("Analyze latest AI model trends with sources"); } },
@@ -1926,8 +2073,8 @@ export default function App() {
                   : isDeepSearch
                     ? ["Deep compare AI agent frameworks with citations", "Analyze market outlook from multiple sources", "Research best laptop for coding under budget", "Summarize latest tech policy changes with links"]
                     : isWebMode
-                    ? ["What's trending in tech today?", "Latest IPL scores", "Current stock market", "Recent AI news"]
-                    : (t.suggestions || [])
+                      ? ["What's trending in tech today?", "Latest IPL scores", "Current stock market", "Recent AI news"]
+                      : (t.suggestions || [])
                 ).slice(0, 6).map((s, i) => (
                   <button key={i} className="sug" style={{ "--d": `${i * 0.06}s` }} onClick={() => sendMessage(null, s)}>{s}</button>
                 ))}
@@ -2019,8 +2166,9 @@ export default function App() {
                             <button onClick={() => speak(msg.content)} title={t.readAloud}><SpeakIcon /></button>
                             <button onClick={() => { navigator.clipboard.writeText(msg.content); addToast("Copied!", "success", 1500); }} title={t.copy}><CopyIcon /></button>
                             <button onClick={() => handleRegen(idx)} title={t.regen}><ReloadIcon /></button>
+                            {/* FIX 1: Keep manual continue as fallback */}
                             {isLikelyTruncatedAnswer(msg.content) && (
-                              <button onClick={() => requestContinuation(idx)} title="Continue full answer">⤵️</button>
+                              <button onClick={() => requestContinuation(idx)} title="Manually continue answer" style={{ color: "var(--accent)" }}>⤵️</button>
                             )}
                             <button onClick={() => handleFeedback(idx, "up")} title="Good response" style={{ color: feedback === "up" ? "#10b981" : undefined }}><ThumbsUpIcon /></button>
                             <button onClick={() => handleFeedback(idx, "down")} title="Bad response" style={{ color: feedback === "down" ? "#e05454" : undefined }}><ThumbsDnIcon /></button>
@@ -2052,7 +2200,7 @@ export default function App() {
             <div className="msg assistant">
               <div className="msg-av bot-av">V</div>
               <div className="msg-body">
-                <TypingIndicator text={isWebSearching ? "Searching web…" : isYtFetching ? "Analyzing video…" : ""} />
+                <TypingIndicator text={isWebSearching ? "Searching + fetching content…" : isYtFetching ? "Analyzing video…" : ""} />
               </div>
             </div>
           )}
@@ -2078,7 +2226,7 @@ export default function App() {
           )}
           {isWebMode && (
             <div className="sys-strip" style={{ background: "rgba(59,130,246,0.08)", borderColor: "rgba(59,130,246,0.2)", color: "#3b82f6" }}>
-              <GlobeIcon /><span>Web Search Mode — fetching live results</span>
+              <GlobeIcon /><span>Web Search Mode — fetching live results + page content for accuracy</span>
             </div>
           )}
           {memories.length > 0 && (
@@ -2114,10 +2262,10 @@ export default function App() {
             <textarea ref={textareaRef}
               placeholder={
                 isListening && !isVoiceOpen ? t.listening :
-                isYtMode  ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
+                isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
                 isDeepSearch ? "DeepSearch: ask a research question (I will query multiple angles)..." :
-                isWebMode ? "Search the web with AI…" :
-                            'Message VetroAI… (try "generate an image of…")'
+                isWebMode    ? "Search the web with AI — I fetch real page content…" :
+                               'Message VetroAI… (try "generate an image of…")'
               }
               value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown} disabled={isLoading} rows={1} />
@@ -2134,10 +2282,10 @@ export default function App() {
           </form>
           <p className="input-note">
             VetroAI can make mistakes.&nbsp;
-            {isYtMode  ? "YouTube mode uses video transcripts — accuracy depends on transcript availability." :
-             isDeepSearch ? "DeepSearch mode combines multiple web queries; cross-check cited sources for critical decisions." :
-             isWebMode ? "Web mode uses live data — verify important info." :
-                         "Please verify important information."}
+            {isYtMode     ? "YouTube mode uses video transcripts — accuracy depends on transcript availability." :
+             isDeepSearch ? "DeepSearch combines multiple web queries; cross-check cited sources for critical decisions." :
+             isWebMode    ? "Web mode fetches live data and page content — verify important info." :
+                            "Please verify important information."}
           </p>
         </div>
       </main>
