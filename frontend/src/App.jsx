@@ -18,6 +18,16 @@ const TODAY_STR = new Date().toLocaleDateString("en-IN", {
 const swallowError = () => {};
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const MAX_FILE_SIZE_MB = 25;
+const isLikelyTruncatedAnswer = (text = "") => {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  const openCodeFences = (t.match(/```/g) || []).length;
+  if (openCodeFences % 2 !== 0) return true;
+  if (/(INSERT INTO|VALUES|CREATE TABLE|SELECT)\s*$/i.test(t)) return true;
+  if (/[([,=:+-]\s*$/.test(t)) return true;
+  if (/(\bsee this is\b|\bcontinue\b|\.\.\.)$/i.test(t)) return true;
+  return false;
+};
 
 // ─── YOUTUBE HELPERS ──────────────────────────────────────────────────────────
 const YOUTUBE_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:(?:youtube\.com\/watch\?v=)|(?:youtu\.be\/)|(?:youtube\.com\/embed\/)|(?:youtube\.com\/shorts\/))([a-zA-Z0-9_-]{11})/;
@@ -1400,7 +1410,8 @@ export default function App() {
     if (selectedMode === "translator") sysContent = "You are a professional translator. Detect the language and translate accurately. Provide both literal and natural translations. Explain idiomatic differences when relevant.\n\n" + sysContent;
     if (selectedMode === "interviewer") sysContent = "You are a professional technical interviewer. Ask challenging questions, evaluate answers, provide feedback, and suggest improvements. Cover DSA, system design, and behavioral questions.\n\n" + sysContent;
     if (isWebMode) sysContent = "You are VetroAI in Web Search Mode. Always cite your sources clearly.\n" + sysContent;
-    if (isDeepSearch) sysContent = "You are VetroAI in DeepSearch Mode. Synthesize across all retrieved source packs, show clear sections, compare conflicting claims, and cite links for every major claim.\n" + sysContent;
+    if (isDeepSearch) sysContent = "You are VetroAI in DeepSearch Mode. Synthesize across all retrieved source packs, show clear sections, compare conflicting claims, and cite links for every major claim. For SQL/code/database tasks, return complete executable output and never cut off in the middle.\n" + sysContent;
+    sysContent += "\n\nFINAL OUTPUT RULE: Never end mid-sentence, mid-code block, or mid-SQL statement. Ensure all opened code fences are closed.";
 
     if (ytContext) {
       sysContent += `\n\n${"━".repeat(50)}\n▶️ YOUTUBE VIDEO:\nTitle: ${ytContext.title}\nChannel: ${ytContext.author}\n\n${ytContext.transcript || "(Transcript unavailable)"}\n${"━".repeat(50)}\n\nGenerate COMPREHENSIVE notes:\n\n## 📋 Video Overview\n## 🔑 Key Points\n## 📚 Detailed Notes\n## 💡 Important Concepts\n## 🎯 Key Takeaways\n## ❓ Possible Quiz Questions\n\nBe thorough, use markdown, include all important details.`;
@@ -1597,6 +1608,14 @@ export default function App() {
   const handleFeedback = (idx, type) => {
     setMsgFeedback(prev => ({ ...prev, [idx]: type }));
     addToast(type === "up" ? "👍 Thanks for the feedback!" : "👎 Thanks! We'll improve.", "success", 2000);
+  };
+  const requestContinuation = (idx) => {
+    const upto = messages.slice(0, idx + 1);
+    const prompt = "Your previous answer was cut off. Continue exactly from where you stopped. Return only the remaining part with no repetition, and ensure all SQL/code blocks are complete.";
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const hist = [...upto, { role: "user", content: prompt, timestamp: ts }];
+    setMessages(hist);
+    triggerAI(hist);
   };
 
   const addRxn    = (i, r) => setReactions(p => ({ ...p, [i]: [...(p[i] || []).filter(x => x !== r), r] }));
@@ -2000,6 +2019,9 @@ export default function App() {
                             <button onClick={() => speak(msg.content)} title={t.readAloud}><SpeakIcon /></button>
                             <button onClick={() => { navigator.clipboard.writeText(msg.content); addToast("Copied!", "success", 1500); }} title={t.copy}><CopyIcon /></button>
                             <button onClick={() => handleRegen(idx)} title={t.regen}><ReloadIcon /></button>
+                            {isLikelyTruncatedAnswer(msg.content) && (
+                              <button onClick={() => requestContinuation(idx)} title="Continue full answer">⤵️</button>
+                            )}
                             <button onClick={() => handleFeedback(idx, "up")} title="Good response" style={{ color: feedback === "up" ? "#10b981" : undefined }}><ThumbsUpIcon /></button>
                             <button onClick={() => handleFeedback(idx, "down")} title="Bad response" style={{ color: feedback === "down" ? "#e05454" : undefined }}><ThumbsDnIcon /></button>
                           </>
