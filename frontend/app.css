@@ -2935,3 +2935,104 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   .input-area{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
   @media(max-width:768px){.input-area{padding-bottom:calc(12px + env(safe-area-inset-bottom))}}
 }
+
+/* ═══════════════════════════════════
+   UX POLISH + ACCESSIBILITY LAYER
+═══════════════════════════════════ */
+:root {
+  --focus-ring: rgba(231,111,81,0.34);
+}
+[data-theme="dark"] {
+  --focus-ring: rgba(231,111,81,0.5);
+}
+
+html {
+  scroll-behavior: smooth;
+  text-size-adjust: 100%;
+}
+
+::selection {
+  background: rgba(231,111,81,0.22);
+  color: var(--ink);
+}
+
+/* Consistent visible focus only for keyboard users */
+:where(
+  button,
+  [role="button"],
+  a,
+  input,
+  textarea,
+  select,
+  .icon-btn,
+  .new-btn,
+  .send-btn,
+  .stop-btn,
+  .attach-btn,
+  .btn-primary,
+  .btn-ghost,
+  .sug,
+  .welcome-card,
+  .followup-chip,
+  .hist-item
+):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Better readability in message content */
+.bubble {
+  text-wrap: pretty;
+}
+.bubble code,
+.bubble pre,
+.field-input,
+.field-textarea,
+.input-box textarea {
+  font-variant-ligatures: none;
+}
+.bubble p,
+.bubble li,
+.bubble blockquote {
+  overflow-wrap: anywhere;
+}
+
+/* Improve tap targets on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  .icon-btn,
+  .attach-btn,
+  .mic-btn,
+  .send-btn,
+  .stop-btn,
+  .hist-actions button,
+  .act-btns button {
+    min-width: 38px;
+    min-height: 38px;
+  }
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .welcome-avatar,
+  .vorb,
+  .vring.on,
+  .web-live-dot,
+  .typing span {
+    animation: none !important;
+  }
+}
+
+/* Make scrollbars usable in Firefox too */
+.history,
+.feed,
+.modal-body,
+.input-box textarea {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-5) transparent;
+}

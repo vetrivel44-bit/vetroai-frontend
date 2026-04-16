@@ -299,6 +299,7 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
   let streamStarted = false;
   let retryCount    = 0;
   const maxRetries  = 3;
+  let clientDisconnected = false;
 
   // ── Helper: start SSE headers once ──
   const startSSE = () => {
@@ -308,6 +309,7 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
     res.setHeader("Connection",        "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.setHeader("Transfer-Encoding", "chunked");
+    res.flushHeaders?.();
     streamStarted = true;
   };
 
@@ -319,6 +321,11 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
     }, 15_000);
   };
   const stopKeepalive = () => { if (keepaliveInterval) clearInterval(keepaliveInterval); };
+
+  req.on("close", () => {
+    clientDisconnected = true;
+    stopKeepalive();
+  });
 
   const attemptChat = async () => {
     try {
@@ -367,7 +374,7 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
 
       // ── Detect if this is a code-heavy request ──
       const isCodeRequest = /\b(write|create|build|make|implement|generate|code|program|script|function|class|component|app|application|api|server|full|complete|entire|whole)\b/i.test(userPrompt);
-      const maxToks = isCodeRequest ? 8192 : 4096;
+      const maxToks = 8192;
 
       // ── Inject system prompt if not present ──
       if (!messages.find(m => m.role === "system")) {
@@ -377,9 +384,10 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
       // ── Add user message ──
       if (userPrompt) messages.push({ role: "user", content: userPrompt });
 
-      // ── Trim context window (keep system + last 24 messages) ──
+      // ── Trim context window (keep fewer turns for code-heavy requests so output can be longer) ──
       const systemMsgs = messages.filter(m => m.role === "system");
-      const nonSystem  = messages.filter(m => m.role !== "system").slice(-24);
+      const keepTurns  = isCodeRequest ? 10 : 24;
+      const nonSystem  = messages.filter(m => m.role !== "system").slice(-keepTurns);
       messages = [...systemMsgs, ...nonSystem];
 
       // ── Start SSE + keepalive ──
@@ -389,47 +397,75 @@ app.post("/chat", authMiddleware, upload.single("file"), async (req, res) => {
       const hasImage   = messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === "image_url"));
       const modelToUse = hasImage ? "pixtral-12b-2409" : "mistral-large-latest";
 
-      const stream = await withRetry(
-        () => mistralQueue.add(() => mistral.chat.stream({
-          model:     modelToUse,
-          messages,
-          maxTokens: maxToks,
-          temperature: selectedMode === "creative" ? 0.85 : selectedMode === "fast_chat" ? 0.3 : 0.7,
-        })),
-        maxRetries,
-        (attempt, delay, isRateLimit) => {
-          retryCount = attempt;
-          res.write(`data: ${JSON.stringify({ content: `\n\n⏳ ${isRateLimit ? "Rate limited" : "Server error"}, retrying (${attempt}/${maxRetries})...\n\n` })}\n\n`);
-        }
-      );
+      // Auto-continue if model stops due to token-length finish reason.
+      const maxContinuations = isCodeRequest ? 4 : 2;
+      let continuationCount = 0;
+      let fullAssistantText = "";
+      let streamMessages = [...messages];
 
-      // ── FIX: Stream with proper error handling and no hard char cap ──
-      let charsSent  = 0;
-      const MAX_OUT  = 120_000; // Raised — enough for very long code responses
+      while (!clientDisconnected) {
+        let stoppedByLength = false;
+        let streamFailed = false;
 
-      try {
-        for await (const chunk of stream) {
-          const content = chunk.data.choices[0]?.delta?.content || "";
-          if (content) {
-            charsSent += content.length;
-            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        const stream = await withRetry(
+          () => mistralQueue.add(() => mistral.chat.stream({
+            model:     modelToUse,
+            messages: streamMessages,
+            maxTokens: maxToks,
+            temperature: selectedMode === "creative" ? 0.85 : selectedMode === "fast_chat" ? 0.3 : 0.7,
+          })),
+          maxRetries,
+          (attempt, delay, isRateLimit) => {
+            retryCount = attempt;
+            res.write(`data: ${JSON.stringify({ content: `\n\n⏳ ${isRateLimit ? "Rate limited" : "Server error"}, retrying (${attempt}/${maxRetries})...\n\n` })}\n\n`);
+          }
+        );
 
-            // Only stop if truly massive — and warn the user
-            if (charsSent >= MAX_OUT) {
-              res.write(`data: ${JSON.stringify({ content: "\n\n---\n*[Response very long — ask me to continue if needed]*" })}\n\n`);
-              break;
+        try {
+          for await (const chunk of stream) {
+            if (clientDisconnected) break;
+            const choice = chunk?.data?.choices?.[0];
+            const content = choice?.delta?.content || "";
+            if (content) {
+              fullAssistantText += content;
+              res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            }
+
+            const finishReason = choice?.finishReason || choice?.finish_reason || "";
+            if (finishReason === "length" || finishReason === "max_tokens") {
+              stoppedByLength = true;
             }
           }
+        } catch (streamErr) {
+          streamFailed = true;
+          // Stream read error mid-way — send a recoverable message instead of silently dying
+          console.error("Stream read error:", streamErr.message);
+          if (!clientDisconnected) {
+            res.write(`data: ${JSON.stringify({ content: "\n\n⚠️ *Stream interrupted. The response above is what was received. Ask me to continue if needed.*" })}\n\n`);
+          }
         }
-      } catch (streamErr) {
-        // Stream read error mid-way — send a recoverable message instead of silently dying
-        console.error("Stream read error:", streamErr.message);
-        res.write(`data: ${JSON.stringify({ content: "\n\n⚠️ *Stream interrupted. The response above is what was received. Ask me to continue if needed.*" })}\n\n`);
+
+        if (clientDisconnected || streamFailed) break;
+        if (!(stoppedByLength && continuationCount < maxContinuations)) break;
+
+        continuationCount++;
+        streamMessages = [
+          ...messages.slice(-8),
+          { role: "assistant", content: fullAssistantText.slice(-12000) },
+          {
+            role: "user",
+            content: isCodeRequest
+              ? "Continue exactly from where you stopped. Do not repeat any previous text. Complete the remaining code fully, including all missing lines."
+              : "Continue exactly from where you stopped. Do not repeat any previous text. Finish the answer completely.",
+          },
+        ];
       }
 
       stopKeepalive();
-      res.write("data: [DONE]\n\n");
-      res.end();
+      if (!clientDisconnected) {
+        res.write("data: [DONE]\n\n");
+        res.end();
+      }
 
     } catch (err) {
       stopKeepalive();
