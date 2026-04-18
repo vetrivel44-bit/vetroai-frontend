@@ -56,7 +56,7 @@ async function signup(req, res) {
   return successResponse(
     res,
     "Signup successful",
-    { user, ...tokens },
+    { user: user.toJSON(), ...tokens },
     201
   );
 }

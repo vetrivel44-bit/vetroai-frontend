@@ -1147,24 +1147,84 @@ export default function App() {
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError(""); setAuthLoading(true);
+    const applyAuthPayload = (payload) => {
+      const accessToken = payload?.accessToken;
+      if (!accessToken) {
+        setAuthError("⚠️ Invalid auth response from server.");
+        setAuthLoading(false);
+        return false;
+      }
+      localStorage.setItem("token", accessToken);
+      if (payload.refreshToken) localStorage.setItem("refreshToken", payload.refreshToken);
+      const info = {
+        name: payload.user?.name || authName || "",
+        email: payload.user?.email || authEmail,
+      };
+      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+      setUser(accessToken);
+      setUserInfo(info);
+      return true;
+    };
+    const readApiError = (data) => {
+      let msg = data?.message || data?.error || "Something went wrong";
+      if (Array.isArray(data?.data) && data.data.length) {
+        const joined = data.data.map((d) => d?.message || d).filter(Boolean).join(" · ");
+        if (joined) msg = joined;
+      }
+      return msg;
+    };
+    if (authMode === "signup") {
+      const name = authName?.trim() || "";
+      if (name.length < 2) {
+        setAuthError("Name must be at least 2 characters.");
+        setAuthLoading(false);
+        return;
+      }
+      const p = authPassword;
+      if (p.length < 8) {
+        setAuthError("Password must be at least 8 characters.");
+        setAuthLoading(false);
+        return;
+      }
+      if (!/[A-Z]/.test(p)) {
+        setAuthError("Password must include at least one uppercase letter.");
+        setAuthLoading(false);
+        return;
+      }
+      if (!/[0-9]/.test(p)) {
+        setAuthError("Password must include at least one number.");
+        setAuthLoading(false);
+        return;
+      }
+    }
     try {
       const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
       const body = authMode === "login"
         ? { email: authEmail, password: authPassword }
-        : { email: authEmail, password: authPassword, name: authName };
+        : { email: authEmail, password: authPassword, name: authName.trim() };
       const res  = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (!res.ok || data.success === false) { setAuthError(data.message || data.error || "Something went wrong"); setAuthLoading(false); return; }
-      if (authMode === "signup") { setAuthMode("login"); setAuthError("✅ Account created! Please sign in."); setAuthLoading(false); return; }
+      if (!res.ok || data.success === false) {
+        setAuthError(readApiError(data));
+        setAuthLoading(false);
+        return;
+      }
       const payload = data?.data || {};
-      const accessToken = payload.accessToken;
-      if (!accessToken) { setAuthError("⚠️ Invalid auth response from server."); setAuthLoading(false); return; }
-      localStorage.setItem("token", accessToken);
-      if (payload.refreshToken) localStorage.setItem("refreshToken", payload.refreshToken);
-      const info = { name: payload.user?.name || authName || "", email: payload.user?.email || authEmail };
-      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-      setUser(accessToken); setUserInfo(info);
-    } catch { setAuthError("⚠️ Connection failed. Please try again."); }
+      if (authMode === "signup") {
+        if (payload.accessToken) {
+          applyAuthPayload(payload);
+          setAuthLoading(false);
+          return;
+        }
+        setAuthMode("login");
+        setAuthError("✅ Account created! Please sign in.");
+        setAuthLoading(false);
+        return;
+      }
+      applyAuthPayload(payload);
+    } catch {
+      setAuthError("⚠️ Connection failed. Please try again.");
+    }
     setAuthLoading(false);
   };
 
@@ -1849,7 +1909,7 @@ export default function App() {
           )}
           <input className="field-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
           <div style={{ position: "relative" }}>
-            <input className="field-input" type={showPass ? "text" : "password"} placeholder="Password (min 6 chars)" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} style={{ paddingRight: 44 }} />
+            <input className="field-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password: 8+ chars, 1 uppercase, 1 number" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
             <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.85rem" }}>
               {showPass ? "🙈" : "👁️"}
             </button>

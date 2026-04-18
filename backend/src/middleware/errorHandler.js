@@ -9,11 +9,12 @@ function notFoundHandler(req, res) {
 function errorHandler(err, req, res, _next) {
   if (res.headersSent) return;
 
-  const statusCode = err.statusCode || 500;
+  let statusCode = err.statusCode || 500;
   let message = err.message || "Internal server error";
   let details = err.details || null;
 
   if (err instanceof ZodError) {
+    statusCode = 400;
     message = "Validation failed";
     details = err.issues.map((issue) => ({
       field: issue.path.join("."),
