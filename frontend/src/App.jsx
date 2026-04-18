@@ -10,7 +10,7 @@ import "./App.css";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const API = import.meta.env.VITE_API_URL || "https://ai-chatbot-backend-gvvz.onrender.com";
-const SERPER_API_KEY = "19caba58c08177639d61cabf7e5430278044545f";
+const SERPER_API_KEY = import.meta.env.VITE_SERPER_API_KEY || "";
 
 const TODAY_STR = new Date().toLocaleDateString("en-IN", {
   weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -318,6 +318,12 @@ const fetchWebResults = async (query) => {
   const ddgHit = await fetchDDGInstant(query);
   if (ddgHit) snippets.push(ddgHit);
 
+  if (!SERPER_API_KEY) {
+    if (!snippets.length) return null;
+    snippets.unshift(`**Search Date**: ${TODAY_STR} | **Query**: "${query}"`);
+    return snippets.join("\n\n---\n\n");
+  }
+
   try {
     const res = await fetch("https://google.serper.dev/search", {
       method: "POST",
@@ -398,7 +404,7 @@ const fetchWebResults = async (query) => {
 
 const buildDeepSearchQueries = (query) => [
   query.trim(),
-  `${query.trim()} latest 2025`,
+  `${query.trim()} latest 2026`,
   `${query.trim()} statistics data analysis`,
   `${query.trim()} expert review site:reddit.com OR site:news.ycombinator.com`,
 ].filter(Boolean);
@@ -707,14 +713,20 @@ function Toast({ toasts }) {
   );
 }
 
-function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo }) {
+function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved }) {
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"🧑"}');
   const [tab, setTab]     = useState("profile");
   const [name, setName]   = useState(userInfo?.name || init.name || "");
   const [avatar, setAvatar] = useState(init.avatar || "🧑");
   const [ok, setOk]       = useState(false);
-  const save = () => { localStorage.setItem(PKEY, JSON.stringify({ name, avatar })); setOk(true); setTimeout(() => setOk(false), 2000); };
+  const save = () => {
+    const data = { name, avatar };
+    localStorage.setItem(PKEY, JSON.stringify(data));
+    onProfileSaved?.(data);
+    setOk(true);
+    setTimeout(() => setOk(false), 2000);
+  };
 
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1010,6 +1022,9 @@ export default function App() {
   const [editIdx, setEditIdx]               = useState(null);
   const [editInput, setEditInput]           = useState("");
   const [selectedMode, setSelectedMode]     = useState(MODES[0].id);
+  const isYtMode     = selectedMode === "youtube";
+  const isWebMode    = selectedMode === "web_search";
+  const isDeepSearch = selectedMode === "deep_search";
   const [selFile, setSelFile]               = useState(null);
   const [filePreview, setFilePreview]       = useState(null);
   const [isLoading, setIsLoading]           = useState(false);
@@ -1028,6 +1043,30 @@ export default function App() {
   // ── Web search ────────────────────────────────────────────────────────────────
   const [isWebSearching, setIsWebSearching] = useState(false);
   const [autoWebSearch, setAutoWebSearch]   = useState(true);
+  const currentMode = MODES.find(m => m.id === selectedMode) || MODES[0];
+
+  const suggestionOptions = isYtMode
+    ? [
+        "Paste a YouTube URL below for instant notes",
+        "Summarize any lecture video",
+        "Extract key points from tutorials",
+        "Study notes from educational videos",
+      ]
+    : isDeepSearch
+      ? [
+        "Deep compare AI agent frameworks with citations",
+        "Analyze market outlook from multiple sources",
+        "Research best laptop for coding under budget",
+        "Summarize latest tech policy changes with links",
+      ]
+      : isWebMode
+        ? [
+          "What's trending in tech today?",
+          "Latest IPL scores",
+          "Current stock market",
+          "Recent AI news",
+        ]
+        : (currentMode.suggestions || []);
 
   // ── YouTube ───────────────────────────────────────────────────────────────────
   const [isYtFetching, setIsYtFetching]     = useState(false);
@@ -1144,16 +1183,29 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (messages.length > 0 && user) {
-      try {
-        let id = currentSessionId; let list = [...sessions];
-        const title = (messages[0]?.content || "Chat").substring(0, 36) + "…";
-        if (!id) { id = Date.now().toString(); setCurrentSessionId(id); list.unshift({ id, title, messages }); }
-        else { const i = list.findIndex(s => s.id === id); if (i !== -1) list[i].messages = messages; }
-        setSessions(list); localStorage.setItem("vetroai_sessions_" + user, JSON.stringify(list));
-      } catch (err) { swallowError(err); }
-    }
-  }, [messages, currentSessionId, sessions, user]);
+    if (messages.length === 0 || !user) return;
+    try {
+      const title = `${(messages[0]?.content || "Chat").slice(0, 36)}…`;
+      if (!currentSessionId) {
+        const id = Date.now().toString();
+        setCurrentSessionId(id);
+        setSessions((prev) => {
+          const list = [{ id, title, messages }, ...prev];
+          try { localStorage.setItem("vetroai_sessions_" + user, JSON.stringify(list)); } catch (err) { swallowError(err); }
+          return list;
+        });
+        return;
+      }
+      setSessions((prev) => {
+        const list = [...prev];
+        const i = list.findIndex((s) => s.id === currentSessionId);
+        if (i !== -1) list[i] = { ...list[i], messages };
+        else list.unshift({ id: currentSessionId, title, messages });
+        try { localStorage.setItem("vetroai_sessions_" + user, JSON.stringify(list)); } catch (err) { swallowError(err); }
+        return list;
+      });
+    } catch (err) { swallowError(err); }
+  }, [messages, currentSessionId, user]);
 
   const updateSessionTitle = useCallback(async (firstMsg) => {
     if (!firstMsg || !currentSessionId) return;
@@ -1481,7 +1533,7 @@ export default function App() {
     const nowISO = new Date().toISOString().slice(0, 10);
     ctx.unshift({
       role: "system",
-      content: `Today: ${nowISO}. You are continuing a PREVIOUS response that was cut off. Output ONLY the continuation text starting from where you stopped. CRITICAL: Close any open code fences (```) and complete all sentences and lists before ending.`,
+      content: `Today: ${nowISO}. You are continuing a PREVIOUS response that was cut off. Output ONLY the continuation text starting from where you stopped. CRITICAL: Close any open code fences (\`\`\`) and complete all sentences and lists before ending.`,
     });
     fd.append("messages", JSON.stringify(ctx));
 
@@ -1526,7 +1578,6 @@ export default function App() {
       setIsLoading(false); setIsContinuing(false);
       if (err.name !== "AbortError") swallowError(err);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToBottom, generateFollowUps]);
 
   // ── MAIN AI CALL ──────────────────────────────────────────────────────────────
@@ -1706,9 +1757,10 @@ export default function App() {
     if (videoId) {
       const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const userMsg = { role: "user", content: text, timestamp: ts, ytVideoId: videoId };
+      const hist      = [...messages, userMsg];
       const info    = await fetchYouTubeInfo(videoId);
       setYtVideoData(prev => ({ ...prev, [videoId]: info }));
-      setMessages(prev => [...prev, userMsg]);
+      setMessages(hist);
       setInput("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       const wantsNotes = isYtMode || /\b(notes|summarize|summary|analyze|explain|key points|study)\b/i.test(text);
@@ -1719,9 +1771,8 @@ export default function App() {
         if (transcript) transcriptCacheRef.current.set(videoId, transcript);
       }
       setIsYtFetching(false);
-      const hist      = [...messages, userMsg];
       const ytContext = { videoId, title: info?.title || "YouTube Video", author: info?.author || "", transcript: transcript ? transcript.slice(0, 8000) : null, wantsNotes };
-      if (messages.length === 0) updateSessionTitle(text);
+      if (hist.length === 1) updateSessionTitle(text);
       triggerAI(hist, null, ytContext);
       return;
     }
@@ -1767,10 +1818,10 @@ export default function App() {
   const addRxn    = (i, r) => setReactions(p => ({ ...p, [i]: [...(p[i] || []).filter(x => x !== r), r] }));
   const removeRxn = (i, r) => setReactions(p => ({ ...p, [i]: (p[i] || []).filter(x => x !== r) }));
 
-  const profileData = useMemo(() => JSON.parse(localStorage.getItem("vetroai_profile") || '{"name":"","avatar":"🧑"}'), []);
-  const isWebMode    = selectedMode === "web_search";
-  const isDeepSearch = selectedMode === "deep_search";
-  const isYtMode     = selectedMode === "youtube";
+  const [profileData, setProfileData] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("vetroai_profile") || '{"name":"","avatar":"🧑"}'); }
+    catch { return { name: "", avatar: "🧑" }; }
+  });
   const charCount   = input.length;
   const tokenEst    = Math.ceil(charCount / 4);
   const isEmpty     = !input.trim() && !selFile;
@@ -1831,7 +1882,7 @@ export default function App() {
     <div className="shell">
       <Toast toasts={toasts} />
 
-      {showProfile   && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} />}
+      {showProfile   && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} onProfileSaved={setProfileData} />}
       {showSysPrompt && <SysPromptModal onClose={() => setShowSysPrompt(false)} t={t} value={systemPrompt} setValue={setSystemPrompt} />}
       {showShare     && messages.length > 0 && <ShareModal onClose={() => setShowShare(false)} t={t} messages={messages} />}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={msg => setInput(msg.content)} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
@@ -2068,14 +2119,7 @@ export default function App() {
                 ))}
               </div>
               <div className="suggestions">
-                {(isYtMode
-                  ? ["Paste a YouTube URL below for instant notes", "Summarize any lecture video", "Extract key points from tutorials", "Study notes from educational videos"]
-                  : isDeepSearch
-                    ? ["Deep compare AI agent frameworks with citations", "Analyze market outlook from multiple sources", "Research best laptop for coding under budget", "Summarize latest tech policy changes with links"]
-                    : isWebMode
-                      ? ["What's trending in tech today?", "Latest IPL scores", "Current stock market", "Recent AI news"]
-                      : (t.suggestions || [])
-                ).slice(0, 6).map((s, i) => (
+                {suggestionOptions.slice(0, 6).map((s, i) => (
                   <button key={i} className="sug" style={{ "--d": `${i * 0.06}s` }} onClick={() => sendMessage(null, s)}>{s}</button>
                 ))}
               </div>
