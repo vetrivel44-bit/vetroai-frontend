@@ -11,6 +11,7 @@ import "./App.css";
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const API = import.meta.env.VITE_API_URL || "https://ai-chatbot-backend-gvvz.onrender.com";
 const SERPER_API_KEY = import.meta.env.VITE_SERPER_API_KEY || "";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 const TODAY_STR = new Date().toLocaleDateString("en-IN", {
   weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -562,19 +563,23 @@ const LANGS = {
   }},
 };
 
-const MODES = [
-  { id: "vtu_academic", name: "🎓 Academic" },
-  { id: "debugger",     name: "🐛 Debugger" },
-  { id: "astrology",    name: "🔮 Astrologer" },
-  { id: "fast_chat",    name: "⚡ Fast Chat" },
-  { id: "creative",     name: "✨ Creative" },
-  { id: "analyst",      name: "📊 Analyst" },
-  { id: "web_search",   name: "🌐 Web Search" },
-  { id: "deep_search",  name: "🧠 DeepSearch" },
-  { id: "youtube",      name: "▶️ YouTube" },
-  { id: "translator",   name: "🌍 Translator" },
-  { id: "interviewer",  name: "💼 Interviewer" },
+const AI_MODELS = [
+  { id: "fast_chat",   name: "VetroAI Flash",   provider: "Mistral",   icon: "⚡", ctx: "32K", tags: ["Fast","General"], desc: "Fastest responses for everyday questions",     color: "#f59e0b" },
+  { id: "vtu_academic",name: "Academic Pro",     provider: "Mistral",   icon: "🎓", ctx: "32K", tags: ["Study","Exam"],   desc: "Optimised for academic help & exam prep",      color: "#3b82f6" },
+  { id: "debugger",    name: "Code Expert",      provider: "Mistral",   icon: "🐛", ctx: "32K", tags: ["Code","Debug"],   desc: "Expert code analysis, debugging & review",    color: "#10b981" },
+  { id: "creative",    name: "Creative Studio",  provider: "Mistral",   icon: "✨", ctx: "32K", tags: ["Writing","Art"],  desc: "Creative writing, storytelling & ideation",   color: "#ec4899" },
+  { id: "analyst",     name: "Data Analyst",     provider: "Mixtral",   icon: "📊", ctx: "64K", tags: ["Data","Reports"], desc: "Deep data analysis & structured reports",     color: "#8b5cf6" },
+  { id: "web_search",  name: "Web Search",       provider: "Live",      icon: "🌐", ctx: "Live",tags: ["Real-time","News"],"desc": "Live Google search with page content fetch", color: "#06b6d4" },
+  { id: "deep_search", name: "DeepSearch",       provider: "Multi",     icon: "🧠", ctx: "Live",tags: ["Research","Deep"], desc: "Multi-query research with citations",         color: "#6366f1" },
+  { id: "youtube",     name: "YouTube Analyst",  provider: "Video",     icon: "▶️", ctx: "Video",tags: ["Video","Notes"],  desc: "Instant notes from any YouTube video",        color: "#ef4444" },
+  { id: "translator",  name: "Translator",       provider: "Mistral",   icon: "🌍", ctx: "32K", tags: ["Language","Multi"],desc: "Professional multi-language translator",      color: "#14b8a6" },
+  { id: "interviewer", name: "Interview Coach",  provider: "Mistral",   icon: "💼", ctx: "32K", tags: ["Career","DSA"],   desc: "Mock interviews, DSA & system design",        color: "#f97316" },
+  { id: "astrology",   name: "Astrologer",       provider: "Mistral",   icon: "🔮", ctx: "32K", tags: ["Fun","Spiritual"],"desc": "Vedic astrology & cosmic guidance",          color: "#a855f7" },
 ];
+
+// Keep MODES alias for any legacy references
+const MODES = AI_MODELS.map(m => ({ id: m.id, name: `${m.icon} ${m.name}` }));
+
 
 const AVATARS = ["🧑","🤖","🦊","🐼","🐸","🦁","🐯","🦅","🌟","🔥","💎","🚀","🌈","🎨","🦋","🐉","🌙","⚡","🧠","🎯","🦄","🌊","🪐","🎭","🏔️"];
 const SYSTEM_PRESETS = [
@@ -1287,6 +1292,64 @@ const NoteIcon = () => <Ic size={14} d={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 
 const PlayIcon = () => <Ic size={14} d={<><polygon points="5 3 19 12 5 21 5 3" /></>} />;
 const ChartIcon = () => <Ic size={14} d={<><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>} />;
 
+
+// ─── MODEL PICKER MODAL ───────────────────────────────────────────────────────
+function ModelPickerModal({ current, onSelect, onClose }) {
+  const [search, setSearch] = useState("");
+  const filtered = AI_MODELS.filter(m =>
+    m.name.toLowerCase().includes(search.toLowerCase()) ||
+    m.desc.toLowerCase().includes(search.toLowerCase()) ||
+    m.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
+  );
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal model-picker-modal">
+        <div className="modal-topbar" style={{ padding: "20px 20px 12px" }}>
+          <div style={{ flex: 1 }}>
+            <h3 className="modal-title" style={{ fontSize: "1.05rem" }}>🤖 Choose Model</h3>
+            <p style={{ fontSize: "0.76rem", color: "var(--ink-3)", marginTop: 2 }}>Select the AI mode that fits your task</p>
+          </div>
+          <button className="modal-x" onClick={onClose}><XIcon /></button>
+        </div>
+        <div style={{ padding: "0 20px 12px" }}>
+          <div className="model-search-box">
+            <SearchIcon />
+            <input placeholder="Search models…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+          </div>
+        </div>
+        <div className="model-picker-grid">
+          {filtered.map(m => (
+            <div
+              key={m.id}
+              className={`model-card${current === m.id ? " active" : ""}`}
+              style={{ "--mc": m.color }}
+              onClick={() => { onSelect(m.id); onClose(); }}
+            >
+              <div className="model-card-top">
+                <span className="model-card-icon">{m.icon}</span>
+                <div className="model-card-info">
+                  <span className="model-card-name">{m.name}</span>
+                  <span className="model-card-provider">{m.provider} · {m.ctx} ctx</span>
+                </div>
+                {current === m.id && <span className="model-card-check"><CheckIcon /></span>}
+              </div>
+              <p className="model-card-desc">{m.desc}</p>
+              <div className="model-card-tags">
+                {m.tags.map(tag => <span key={tag} className="model-tag">{tag}</span>)}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="hist-empty" style={{ gridColumn: "1/-1" }}>
+              <span>🔍</span><p>No models match "{search}"</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
@@ -1310,6 +1373,40 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [showPass, setShowPass]   = useState(false);
+
+  // Google login
+  const handleGoogleLogin = useCallback((credentialResponse) => {
+    try {
+      const payload = JSON.parse(atob(credentialResponse.credential.split(".")[1]));
+      const token = credentialResponse.credential;
+      const info = { name: payload.name, email: payload.email, picture: payload.picture };
+      localStorage.setItem("token", token);
+      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+      setUser(token);
+      setUserInfo(info);
+      addToast(`Welcome, ${payload.name}! 🎉`, "success", 3000);
+    } catch { addToast("Google login failed. Please try again.", "error"); }
+  }, []);
+
+  // Load Google GSI script
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    const existing = document.getElementById("google-gsi");
+    if (existing) return;
+    const script = document.createElement("script");
+    script.id = "google-gsi";
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      window.google?.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleLogin,
+        auto_select: false,
+      });
+    };
+    document.head.appendChild(script);
+  }, [handleGoogleLogin]);
 
   // ── Toast ─────────────────────────────────────────────────────────────────────
   const [toasts, setToasts] = useState([]);
@@ -1404,6 +1501,7 @@ export default function App() {
   const [showScratchpad, setShowScratchpad] = useState(false);
   const [showPlayground, setShowPlayground] = useState(false);
   const [showStats, setShowStats]           = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const [systemPrompt, setSystemPrompt]     = useState(() => localStorage.getItem("vetroai_sysprompt") || "");
 
   // ── Search ────────────────────────────────────────────────────────────────────
@@ -2215,53 +2313,83 @@ export default function App() {
 
   // ── AUTH PAGE ──────────────────────────────────────────────────────────────────
   if (!user) return (
-    <div className="auth-page">
-      <div className="auth-glow" />
-      <div className="auth-box">
-        <div className="auth-logo">
-          <div className="auth-logo-mark">V</div>
-          <div className="auth-logo-text">
-            <span className="logo-name">VetroAI</span>
-            <span className="logo-ver">v2.2</span>
+    <div className="auth-page-v3">
+      {/* Hero side */}
+      <div className="auth-hero-side">
+        <div className="auth-hero-orb orb1" />
+        <div className="auth-hero-orb orb2" />
+        <div className="auth-hero-orb orb3" />
+        <div className="auth-hero-content">
+          <div className="auth-hero-logo">
+            <div className="auth-logo-mark" style={{ width: 52, height: 52, borderRadius: 16, fontSize: "1.5rem" }}>V</div>
+            <div>
+              <div className="logo-name" style={{ fontSize: "1.5rem" }}>VetroAI</div>
+              <div className="logo-ver">v2.3 · Powered by Mistral</div>
+            </div>
+          </div>
+          <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
+          <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, session booking and more — all in one place.</p>
+          <div className="auth-hero-features">
+            {[["⚡","Instant answers"],["🌐","Live web search"],["▶️","YouTube notes"],["📅","Session booking"],["🎨","AI image gen"],["🧠","Memory across chats"]].map(([ic,lb]) => (
+              <div key={lb} className="auth-hero-feat"><span>{ic}</span>{lb}</div>
+            ))}
           </div>
         </div>
-        <div className="auth-hero">
-          <h2 className="auth-headline">{authMode === "login" ? "Welcome back." : "Create account."}</h2>
-          <p className="auth-sub">Your intelligent AI assistant — powered by Mistral & live web search.</p>
-        </div>
-        <form className="auth-form" onSubmit={handleAuthSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {authMode === "signup" && (
-            <input className="field-input" type="text" placeholder="Your name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
-          )}
-          <input className="field-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
-          <div style={{ position: "relative" }}>
-            <input className="field-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password: 8+ chars, 1 uppercase, 1 number" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
-            <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.85rem" }}>
-              {showPass ? "🙈" : "👁️"}
+      </div>
+
+      {/* Form side */}
+      <div className="auth-form-side">
+        <div className="auth-form-card">
+          <div className="auth-form-header">
+            <h2 className="auth-form-title">{authMode === "login" ? "Welcome back 👋" : "Join VetroAI 🚀"}</h2>
+            <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Create a free account in seconds."}</p>
+          </div>
+
+          {/* Google Sign In */}
+          {GOOGLE_CLIENT_ID ? (
+            <>
+              <div
+                className="google-sign-in-btn"
+                onClick={() => {
+                  window.google?.accounts.id.prompt();
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/><path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z"/><path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.31z"/></svg>
+                Continue with Google
+              </div>
+              <div className="auth-divider-row"><span /><em>or</em><span /></div>
+            </>
+          ) : null}
+
+          <form onSubmit={handleAuthSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {authMode === "signup" && (
+              <input className="auth-input" type="text" placeholder="Full name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
+            )}
+            <input className="auth-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
+            <div style={{ position: "relative" }}>
+              <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
+              <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)" }}>{showPass ? "🙈" : "👁️"}</button>
+            </div>
+            {authError && (
+              <div style={{ fontSize: "0.82rem", color: authError.includes("✅") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("✅") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("✅") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
+            )}
+            <button className="auth-submit-btn" type="submit" disabled={authLoading}>
+              {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
             </button>
-          </div>
-          {authError && (
-            <p style={{ fontSize: "0.82rem", color: authError.includes("✅") ? "#10b981" : "#e76f51", textAlign: "center", margin: "4px 0", padding: "8px", background: authError.includes("✅") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 8 }}>{authError}</p>
-          )}
-          <button className="btn-primary" type="submit" disabled={authLoading} style={{ width: "100%", justifyContent: "center", padding: "12px", marginTop: 4 }}>
-            {authLoading ? <><div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
-          </button>
-        </form>
-        <p style={{ textAlign: "center", fontSize: "0.83rem", color: "var(--ink-3)", marginTop: 12 }}>
-          {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
-            {authMode === "login" ? "Sign up free" : "Sign in"}
-          </button>
-        </p>
-        <div className="auth-features" style={{ marginTop: 24 }}>
-          {[["▶️","YouTube notes"],["🌐","Live web search"],["🎨","AI image generation"],["🧠","Memory across chats"],["🧮","Calculator"],["⏱️","Focus timer"]].map(([icon, label]) => (
-            <div key={label} className="auth-feat"><span>{icon}</span><span>{label}</span></div>
-          ))}
+          </form>
+
+          <p className="auth-switch-text">
+            {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
+            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
+              {authMode === "login" ? "Sign up free" : "Sign in"}
+            </button>
+          </p>
+          <p style={{ fontSize: "0.68rem", color: "var(--ink-5)", textAlign: "center", marginTop: 4 }}>By continuing you agree to use VetroAI responsibly.</p>
         </div>
-        <p className="auth-terms">By signing in, you agree to use VetroAI responsibly.</p>
       </div>
     </div>
   );
+
 
   // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
@@ -2275,6 +2403,7 @@ export default function App() {
       {showMemory    && <MemoryPanel memories={memories} onClear={clearAllMemory} onRemove={removeMemoryItem} onClose={() => setShowMemory(false)} t={t} />}
       {showCalc      && <CalcWidget onClose={() => setShowCalc(false)} />}
       {showTimer     && <FocusTimer onClose={() => setShowTimer(false)} />}
+      {showModelPicker && <ModelPickerModal current={selectedMode} onSelect={setSelectedMode} onClose={() => setShowModelPicker(false)} />}
       {showBooking   && <BookingWidget onClose={() => setShowBooking(false)} onBooked={(b) => addToast(`✅ Booked: ${b.service.name} — ${b.id}`, "success", 4000)} />}
       {showBookingHistory && <BookingHistory onClose={() => setShowBookingHistory(false)} />}
       {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
@@ -2410,13 +2539,14 @@ export default function App() {
             <div className={`toggle-pill${autoWebSearch ? " on" : ""}`}><div className="toggle-thumb" /></div>
           </div>
 
-          <div className="mode-row">
-            <BotIcon />
-            <select value={selectedMode} onChange={e => setSelectedMode(e.target.value)}>
-              {MODES.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
+          <button className="model-picker-btn" onClick={() => setShowModelPicker(true)}>
+            <span style={{ fontSize: "1.1rem" }}>{AI_MODELS.find(m => m.id === selectedMode)?.icon || "🤖"}</span>
+            <div style={{ flex: 1, textAlign: "left" }}>
+              <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.name || "Select Model"}</div>
+              <div style={{ fontSize: "0.68rem", color: "var(--ink-4)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.provider}</div>
+            </div>
             <ChevDown />
-          </div>
+          </button>
           <button className="signout-btn" onClick={logout}>{t.logout}</button>
         </div>
       </aside>

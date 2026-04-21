@@ -3004,3 +3004,152 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   .input-area{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
   @media(max-width:768px){.input-area{padding-bottom:calc(12px + env(safe-area-inset-bottom))}}
 }
+
+/* ═══════════════════════════════════════════════════
+   AUTH PAGE v3 — Two-panel premium layout
+═══════════════════════════════════════════════════ */
+.auth-page-v3{
+  min-height:100dvh;display:flex;overflow:hidden;
+  background:var(--bg);
+}
+
+/* ── Hero side (left) ── */
+.auth-hero-side{
+  flex:1;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#1C1917 0%,#292320 60%,#1a1410 100%);
+  display:flex;align-items:center;justify-content:center;padding:60px 48px;
+}
+[data-theme="light"] .auth-hero-side{
+  background:linear-gradient(135deg,#1C1917 0%,#2d2320 60%,#1C1917 100%);
+}
+.auth-hero-orb{position:absolute;border-radius:50%;filter:blur(80px);pointer-events:none}
+.orb1{width:320px;height:320px;background:radial-gradient(circle,rgba(231,111,81,0.35),transparent 70%);top:-60px;left:-60px;animation:orbFloat 8s ease-in-out infinite}
+.orb2{width:260px;height:260px;background:radial-gradient(circle,rgba(99,102,241,0.25),transparent 70%);bottom:-40px;right:-40px;animation:orbFloat 10s ease-in-out infinite 2s}
+.orb3{width:180px;height:180px;background:radial-gradient(circle,rgba(16,185,129,0.2),transparent 70%);top:50%;left:55%;animation:orbFloat 7s ease-in-out infinite 4s}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(20px,-20px) scale(1.08)}}
+
+.auth-hero-content{position:relative;z-index:1;max-width:420px;width:100%}
+.auth-hero-logo{display:flex;align-items:center;gap:14px;margin-bottom:40px}
+.auth-hero-headline{font-size:clamp(2rem,4vw,3.2rem);font-weight:800;color:#fff;letter-spacing:-1.5px;line-height:1.1;margin-bottom:16px}
+.auth-hero-sub{font-size:1rem;color:rgba(255,255,255,0.55);line-height:1.7;margin-bottom:36px;max-width:360px}
+.auth-hero-features{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.auth-hero-feat{
+  display:flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:10px;padding:10px 14px;
+  font-size:0.82rem;color:rgba(255,255,255,0.7);font-weight:500;
+  transition:all 0.2s;
+}
+.auth-hero-feat:hover{background:rgba(255,255,255,0.09);color:#fff}
+.auth-hero-feat span{font-size:1.1rem}
+
+/* ── Form side (right) ── */
+.auth-form-side{
+  width:min(480px,100%);display:flex;align-items:center;justify-content:center;
+  padding:40px 32px;background:var(--bg);flex-shrink:0;
+}
+.auth-form-card{width:100%;max-width:400px;display:flex;flex-direction:column;gap:20px;animation:fadeUp 0.4s ease}
+.auth-form-header{margin-bottom:4px}
+.auth-form-title{font-size:1.6rem;font-weight:800;color:var(--ink);letter-spacing:-0.6px;margin-bottom:6px}
+.auth-form-sub{font-size:0.88rem;color:var(--ink-3)}
+
+/* Google button */
+.google-sign-in-btn{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  width:100%;padding:13px;border-radius:var(--r-full);
+  background:var(--bg-elevated);border:1.5px solid var(--border-med);
+  color:var(--ink);font-size:0.9rem;font-weight:600;font-family:var(--font);
+  cursor:pointer;transition:all var(--tr);box-shadow:var(--shadow-xs);
+}
+.google-sign-in-btn:hover{background:var(--bg-hover);border-color:var(--border-str);box-shadow:var(--shadow-sm);transform:translateY(-1px)}
+.auth-divider-row{display:flex;align-items:center;gap:12px}
+.auth-divider-row span{flex:1;height:1px;background:var(--border)}
+.auth-divider-row em{font-size:0.75rem;color:var(--ink-4);font-style:normal;white-space:nowrap}
+
+/* Auth inputs */
+.auth-input{
+  width:100%;padding:13px 16px;border-radius:var(--r-md);
+  border:1.5px solid var(--border-med);background:var(--bg-hover);
+  color:var(--ink);font-size:0.92rem;font-family:var(--font);
+  transition:all var(--tr);
+}
+.auth-input::placeholder{color:var(--ink-4)}
+.auth-input:focus{background:var(--bg-elevated);border-color:var(--accent);box-shadow:0 0 0 3px rgba(231,111,81,0.12)}
+
+/* Submit button */
+.auth-submit-btn{
+  width:100%;padding:14px;border-radius:var(--r-full);border:none;
+  font-weight:700;font-size:0.92rem;font-family:var(--font);
+  background:linear-gradient(135deg,var(--ink) 0%,#3a3330 100%);
+  color:var(--bg);display:flex;align-items:center;justify-content:center;gap:8px;
+  min-height:48px;cursor:pointer;
+  transition:all var(--tr);box-shadow:var(--shadow-sm);
+}
+.auth-submit-btn:hover{opacity:0.88;transform:translateY(-1px);box-shadow:var(--shadow-md)}
+.auth-submit-btn:disabled{opacity:0.55;cursor:not-allowed;transform:none}
+.auth-spin{width:18px;height:18px;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:spinEl 0.8s linear infinite}
+.auth-switch-text{font-size:0.84rem;color:var(--ink-3);text-align:center}
+
+/* Responsive: stack on mobile */
+@media(max-width:768px){
+  .auth-hero-side{display:none}
+  .auth-form-side{width:100%;padding:28px 20px;background:var(--bg)}
+  .auth-form-card{max-width:100%}
+}
+
+/* ═══════════════════════════════════════════════════
+   MODEL PICKER MODAL
+═══════════════════════════════════════════════════ */
+.model-picker-modal{max-width:640px;max-height:82vh;display:flex;flex-direction:column}
+.model-search-box{
+  display:flex;align-items:center;gap:10px;
+  background:var(--bg-hover);border:1.5px solid var(--border-med);
+  border-radius:var(--r-md);padding:10px 14px;
+  transition:all var(--tr);
+}
+.model-search-box:focus-within{background:var(--bg-elevated);border-color:var(--border-str);box-shadow:0 0 0 3px rgba(231,111,81,0.08)}
+.model-search-box input{flex:1;background:transparent;color:var(--ink);font-size:0.9rem;font-family:var(--font)}
+.model-search-box input::placeholder{color:var(--ink-4)}
+
+.model-picker-grid{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:8px;
+  padding:0 20px 20px;overflow-y:auto;flex:1;
+}
+.model-picker-grid::-webkit-scrollbar{width:4px}
+.model-picker-grid::-webkit-scrollbar-thumb{background:var(--ink-5);border-radius:4px}
+
+.model-card{
+  background:var(--bg-hover);border:2px solid var(--border);
+  border-radius:var(--r-md);padding:14px;cursor:pointer;
+  transition:all var(--tr-spring);display:flex;flex-direction:column;gap:6px;
+  position:relative;overflow:hidden;
+}
+.model-card::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,color-mix(in srgb, var(--mc) 5%, transparent),transparent 60%);opacity:0;transition:opacity var(--tr)}
+.model-card:hover{border-color:var(--mc,var(--border-str));transform:translateY(-2px);box-shadow:var(--shadow-sm)}
+.model-card:hover::before{opacity:1}
+.model-card.active{border-color:var(--mc,var(--accent));background:color-mix(in srgb, var(--mc,var(--accent)) 6%, var(--bg-hover))}
+.model-card.active::before{opacity:1}
+
+.model-card-top{display:flex;align-items:flex-start;gap:10px}
+.model-card-icon{font-size:1.6rem;flex-shrink:0;line-height:1}
+.model-card-info{flex:1;min-width:0}
+.model-card-name{display:block;font-weight:700;font-size:0.88rem;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-card-provider{display:block;font-size:0.7rem;color:var(--ink-4);margin-top:1px;font-family:var(--mono)}
+.model-card-check{width:20px;height:20px;border-radius:50%;background:var(--mc,var(--accent));color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;animation:popIn 0.2s ease}
+.model-card-desc{font-size:0.76rem;color:var(--ink-3);line-height:1.45;margin:0}
+.model-card-tags{display:flex;gap:4px;flex-wrap:wrap}
+.model-tag{font-size:0.65rem;font-weight:600;padding:2px 7px;border-radius:var(--r-full);background:color-mix(in srgb, var(--mc,var(--accent)) 10%, var(--bg));color:var(--mc,var(--accent));border:1px solid color-mix(in srgb, var(--mc,var(--accent)) 20%, transparent);letter-spacing:0.2px}
+
+@media(max-width:600px){.model-picker-grid{grid-template-columns:1fr}}
+
+/* ═══════════════════════════════════════════════════
+   MODEL PICKER BUTTON (sidebar)
+═══════════════════════════════════════════════════ */
+.model-picker-btn{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:10px 14px;border-radius:var(--r-md);border:1.5px solid var(--border-med);
+  background:var(--bg-elevated);cursor:pointer;text-align:left;
+  transition:all var(--tr);font-family:var(--font);
+}
+.model-picker-btn:hover{background:var(--bg-hover);border-color:var(--border-str);box-shadow:var(--shadow-xs)}
