@@ -976,6 +976,317 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
   );
 }
 
+// ─── BOOKING SYSTEM ──────────────────────────────────────────────────────────
+const BOOKING_SERVICES = [
+  { id: "tutoring", icon: "🎓", name: "Tutoring", desc: "1-on-1 academic help", price: "₹299/hr", color: "#3b82f6" },
+  { id: "code_review", icon: "🐛", name: "Code Review", desc: "Expert code analysis", price: "₹499/hr", color: "#10b981" },
+  { id: "career", icon: "💼", name: "Career Counseling", desc: "Career path guidance", price: "₹399/hr", color: "#8b5cf6" },
+  { id: "project", icon: "🚀", name: "Project Help", desc: "Build projects together", price: "₹599/hr", color: "#f59e0b" },
+  { id: "study", icon: "📚", name: "Study Session", desc: "Group study planning", price: "₹199/hr", color: "#ec4899" },
+  { id: "interview", icon: "🎯", name: "Mock Interview", desc: "Practice interviews", price: "₹449/hr", color: "#ef4444" },
+];
+
+const getBookings = () => { try { return JSON.parse(localStorage.getItem("vetroai_bookings") || "[]"); } catch { return []; } };
+const saveBookings = (b) => localStorage.setItem("vetroai_bookings", JSON.stringify(b));
+
+const BOOKING_DETECT = /\b(book|schedule|reserve|appointment|session|slot)\b.{0,40}\b(tutor|code|review|career|project|study|interview|help|session|class)\b/i;
+const detectBookingIntent = (text) => BOOKING_DETECT.test(text);
+
+function BookingWidget({ onClose, onBooked }) {
+  const [step, setStep] = useState(0);
+  const [service, setService] = useState(null);
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [duration, setDuration] = useState("60");
+  const [priority, setPriority] = useState("normal");
+  const [notes, setNotes] = useState("");
+  const [confirmed, setConfirmed] = useState(null);
+
+  const minDate = new Date().toISOString().split("T")[0];
+
+  const handleBook = () => {
+    const booking = {
+      id: `BK-${Date.now().toString(36).toUpperCase()}`,
+      service, date, time, duration: parseInt(duration),
+      priority, notes, status: "upcoming",
+      createdAt: new Date().toISOString(),
+    };
+    const all = getBookings();
+    all.unshift(booking);
+    saveBookings(all);
+    setConfirmed(booking);
+    onBooked?.(booking);
+  };
+
+  if (confirmed) return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 420 }}>
+        <div className="modal-body" style={{ alignItems: "center", textAlign: "center", padding: 36 }}>
+          <div className="booking-success-icon">✅</div>
+          <h3 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--ink)", margin: "12px 0 6px" }}>Booking Confirmed!</h3>
+          <p style={{ color: "var(--ink-3)", fontSize: "0.88rem", marginBottom: 16 }}>Your session has been scheduled successfully.</p>
+          <div className="booking-confirm-card">
+            <div className="booking-confirm-row"><span>ID</span><strong>{confirmed.id}</strong></div>
+            <div className="booking-confirm-row"><span>Service</span><strong>{confirmed.service.icon} {confirmed.service.name}</strong></div>
+            <div className="booking-confirm-row"><span>Date</span><strong>{new Date(confirmed.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</strong></div>
+            <div className="booking-confirm-row"><span>Time</span><strong>{confirmed.time}</strong></div>
+            <div className="booking-confirm-row"><span>Duration</span><strong>{confirmed.duration} min</strong></div>
+            {confirmed.priority === "urgent" && <div className="booking-confirm-row"><span>Priority</span><strong style={{ color: "#ef4444" }}>🔴 Urgent</strong></div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <button className="btn-ghost" onClick={() => { const ics = `BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:VetroAI - ${confirmed.service.name}\nDTSTART:${confirmed.date.replace(/-/g,"")}T${confirmed.time.replace(":","")}00\nDURATION:PT${confirmed.duration}M\nDESCRIPTION:${confirmed.notes || "VetroAI Session"}\nEND:VEVENT\nEND:VCALENDAR`; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([ics],{type:"text/calendar"})); a.download=`vetroai-${confirmed.id}.ics`; a.click(); }}>📅 Add to Calendar</button>
+            <button className="btn-primary" onClick={onClose}>Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">📅 Book a Session</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="booking-steps">
+              {[0, 1, 2].map(s => <div key={s} className={`booking-step-dot${step >= s ? " active" : ""}`} />)}
+            </div>
+            <button className="modal-x" onClick={onClose}><XIcon /></button>
+          </div>
+        </div>
+        <div className="modal-body">
+          {step === 0 && (
+            <div className="field-group">
+              <label className="field-label">Choose Service</label>
+              <div className="booking-services-grid">
+                {BOOKING_SERVICES.map(s => (
+                  <div key={s.id} className={`booking-service-card${service?.id === s.id ? " selected" : ""}`} style={{ "--svc-color": s.color }} onClick={() => setService(s)}>
+                    <span className="booking-svc-icon">{s.icon}</span>
+                    <span className="booking-svc-name">{s.name}</span>
+                    <span className="booking-svc-desc">{s.desc}</span>
+                    <span className="booking-svc-price">{s.price}</span>
+                    {service?.id === s.id && <span className="booking-svc-check"><CheckIcon /></span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {step === 1 && (
+            <>
+              <div className="field-group">
+                <label className="field-label">Date</label>
+                <input className="field-input" type="date" min={minDate} value={date} onChange={e => setDate(e.target.value)} />
+              </div>
+              <div className="field-group">
+                <label className="field-label">Time</label>
+                <input className="field-input" type="time" value={time} onChange={e => setTime(e.target.value)} />
+              </div>
+              <div className="field-group">
+                <label className="field-label">Duration</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {["30", "60", "90", "120"].map(d => (
+                    <button key={d} className={`booking-dur-btn${duration === d ? " active" : ""}`} onClick={() => setDuration(d)}>{d} min</button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <div className="field-group">
+                <label className="field-label">Priority</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className={`booking-dur-btn${priority === "normal" ? " active" : ""}`} onClick={() => setPriority("normal")}>🟢 Normal</button>
+                  <button className={`booking-dur-btn${priority === "urgent" ? " active" : ""}`} onClick={() => setPriority("urgent")} style={priority === "urgent" ? { borderColor: "#ef4444", background: "rgba(239,68,68,0.08)", color: "#ef4444" } : {}}>🔴 Urgent</button>
+                </div>
+              </div>
+              <div className="field-group">
+                <label className="field-label">Notes (optional)</label>
+                <textarea className="field-textarea" placeholder="Any specific topics or requirements…" value={notes} onChange={e => setNotes(e.target.value)} style={{ minHeight: 60 }} />
+              </div>
+              <div className="booking-summary">
+                <div className="booking-confirm-row"><span>Service</span><strong>{service?.icon} {service?.name}</strong></div>
+                <div className="booking-confirm-row"><span>When</span><strong>{date && new Date(date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })} at {time}</strong></div>
+                <div className="booking-confirm-row"><span>Duration</span><strong>{duration} min</strong></div>
+                <div className="booking-confirm-row"><span>Price</span><strong>{service?.price}</strong></div>
+              </div>
+            </>
+          )}
+          <div className="modal-footer">
+            {step > 0 && <button className="btn-ghost" onClick={() => setStep(s => s - 1)}>← Back</button>}
+            {step < 2 ? (
+              <button className="btn-primary" disabled={step === 0 ? !service : !date || !time} onClick={() => setStep(s => s + 1)}>Next →</button>
+            ) : (
+              <button className="btn-primary" onClick={handleBook} style={{ background: "var(--accent)" }}>✓ Confirm Booking</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BookingHistory({ onClose }) {
+  const [bookings, setBookings] = useState(getBookings);
+  const [filter, setFilter] = useState("all");
+  const cancel = (id) => {
+    const updated = bookings.map(b => b.id === id ? { ...b, status: "cancelled" } : b);
+    setBookings(updated); saveBookings(updated);
+  };
+  const filtered = filter === "all" ? bookings : bookings.filter(b => b.status === filter);
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">📋 My Bookings ({bookings.length})</h3>
+          <button className="modal-x" onClick={onClose}><XIcon /></button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["all", "upcoming", "completed", "cancelled"].map(f => (
+              <button key={f} className={`booking-dur-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)} style={{ fontSize: "0.76rem", textTransform: "capitalize" }}>{f}</button>
+            ))}
+          </div>
+          {filtered.length === 0 ? (
+            <div className="hist-empty"><span>📅</span><p>No {filter !== "all" ? filter : ""} bookings yet</p></div>
+          ) : filtered.map(b => (
+            <div key={b.id} className="booking-hist-card">
+              <div className="booking-hist-top">
+                <span className="booking-hist-icon">{b.service?.icon || "📅"}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--ink)" }}>{b.service?.name || "Session"}</div>
+                  <div style={{ fontSize: "0.76rem", color: "var(--ink-3)" }}>{b.id} · {b.duration}min</div>
+                </div>
+                <span className={`booking-status ${b.status}`}>{b.status}</span>
+              </div>
+              <div style={{ display: "flex", gap: 12, fontSize: "0.8rem", color: "var(--ink-2)", padding: "6px 0" }}>
+                <span>📅 {b.date && new Date(b.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+                <span>⏰ {b.time}</span>
+                {b.priority === "urgent" && <span style={{ color: "#ef4444" }}>🔴 Urgent</span>}
+              </div>
+              {b.status === "upcoming" && (
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  <button className="btn-ghost sm" onClick={() => cancel(b.id)} style={{ fontSize: "0.74rem", padding: "4px 10px" }}>Cancel</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCRATCHPAD ──────────────────────────────────────────────────────────────
+function ScratchpadWidget({ onClose }) {
+  const [text, setText] = useState(() => localStorage.getItem("vetroai_scratchpad") || "");
+  const [preview, setPreview] = useState(false);
+  useEffect(() => { localStorage.setItem("vetroai_scratchpad", text); }, [text]);
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">📝 Scratchpad</h3>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className={`btn-ghost sm${preview ? "" : " active"}`} style={{ fontSize: "0.74rem", padding: "4px 10px" }} onClick={() => setPreview(false)}>Edit</button>
+            <button className={`btn-ghost sm${preview ? " active" : ""}`} style={{ fontSize: "0.74rem", padding: "4px 10px" }} onClick={() => setPreview(true)}>Preview</button>
+            <button className="modal-x" onClick={onClose}><XIcon /></button>
+          </div>
+        </div>
+        <div className="modal-body">
+          {preview ? (
+            <div className="bubble" style={{ background: "var(--bg-hover)", padding: 16, borderRadius: 12, minHeight: 200 }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text || "*Nothing here yet…*"}</ReactMarkdown>
+            </div>
+          ) : (
+            <textarea className="field-textarea" value={text} onChange={e => setText(e.target.value)}
+              placeholder="Jot down notes, ideas, code snippets…&#10;Supports **markdown** formatting."
+              style={{ minHeight: 240, fontFamily: "var(--mono)", fontSize: "0.85rem" }} />
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "0.72rem", color: "var(--ink-4)" }}>{text.length} chars · Auto-saved</span>
+            <button className="btn-ghost sm" onClick={() => { setText(""); }} style={{ fontSize: "0.74rem" }}>Clear</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CODE PLAYGROUND ─────────────────────────────────────────────────────────
+function CodePlayground({ onClose }) {
+  const [html, setHtml] = useState(localStorage.getItem("vetroai_playground_html") || '<h1 style="color:#E76F51">Hello VetroAI!</h1>\n<p>Edit me and see live preview ↓</p>');
+  const [output, setOutput] = useState("");
+  useEffect(() => { localStorage.setItem("vetroai_playground_html", html); }, [html]);
+  const run = () => setOutput(html);
+  useEffect(() => { run(); }, []);
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 640 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">🧪 Code Playground</h3>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="btn-primary sm" onClick={run} style={{ fontSize: "0.76rem" }}>▶ Run</button>
+            <button className="modal-x" onClick={onClose}><XIcon /></button>
+          </div>
+        </div>
+        <div className="modal-body" style={{ gap: 10 }}>
+          <textarea className="field-textarea" value={html} onChange={e => setHtml(e.target.value)}
+            style={{ minHeight: 140, fontFamily: "var(--mono)", fontSize: "0.82rem" }}
+            placeholder="Write HTML/CSS/JS here…" />
+          <div className="field-label">Preview</div>
+          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid var(--border)", overflow: "hidden", minHeight: 140 }}>
+            <iframe title="preview" srcDoc={output} sandbox="allow-scripts" style={{ width: "100%", height: 200, border: "none", display: "block" }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── STATS PANEL ─────────────────────────────────────────────────────────────
+function StatsPanel({ onClose, sessions, bookings }) {
+  const totalMsgs = sessions.reduce((a, s) => a + (s.messages?.length || 0), 0);
+  const userMsgs = sessions.reduce((a, s) => a + (s.messages?.filter(m => m.role === "user").length || 0), 0);
+  const botMsgs = totalMsgs - userMsgs;
+  const totalBookings = bookings.length;
+  const stats = [
+    { icon: "💬", label: "Total Messages", value: totalMsgs },
+    { icon: "👤", label: "You Sent", value: userMsgs },
+    { icon: "🤖", label: "AI Replies", value: botMsgs },
+    { icon: "📂", label: "Conversations", value: sessions.length },
+    { icon: "📅", label: "Total Bookings", value: totalBookings },
+    { icon: "⭐", label: "Active Bookings", value: bookings.filter(b => b.status === "upcoming").length },
+  ];
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 420 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">📊 Your Stats</h3>
+          <button className="modal-x" onClick={onClose}><XIcon /></button>
+        </div>
+        <div className="modal-body">
+          <div className="stats-grid">
+            {stats.map(s => (
+              <div key={s.label} className="stat-card">
+                <span className="stat-icon">{s.icon}</span>
+                <span className="stat-value">{s.value.toLocaleString()}</span>
+                <span className="stat-label">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ICONS (new) ─────────────────────────────────────────────────────────────
+const CalendarIcon = () => <Ic size={14} d={<><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>} />;
+const NoteIcon = () => <Ic size={14} d={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>} />;
+const PlayIcon = () => <Ic size={14} d={<><polygon points="5 3 19 12 5 21 5 3" /></>} />;
+const ChartIcon = () => <Ic size={14} d={<><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>} />;
+
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
@@ -1088,6 +1399,11 @@ export default function App() {
   const [showShare, setShowShare]           = useState(false);
   const [showCalc, setShowCalc]             = useState(false);
   const [showTimer, setShowTimer]           = useState(false);
+  const [showBooking, setShowBooking]       = useState(false);
+  const [showBookingHistory, setShowBookingHistory] = useState(false);
+  const [showScratchpad, setShowScratchpad] = useState(false);
+  const [showPlayground, setShowPlayground] = useState(false);
+  const [showStats, setShowStats]           = useState(false);
   const [systemPrompt, setSystemPrompt]     = useState(() => localStorage.getItem("vetroai_sysprompt") || "");
 
   // ── Search ────────────────────────────────────────────────────────────────────
@@ -1138,10 +1454,10 @@ export default function App() {
   }, [input]);
 
   useEffect(() => {
-    const anyModal = isSidebarOpen || showProfile || showSysPrompt || showShare || showBookmarks || showMemory || showCalc || showTimer || !!confirmDelete;
+    const anyModal = isSidebarOpen || showProfile || showSysPrompt || showShare || showBookmarks || showMemory || showCalc || showTimer || showBooking || showBookingHistory || showScratchpad || showPlayground || showStats || !!confirmDelete;
     document.body.style.overflow = anyModal ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
-  }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showMemory, showCalc, showTimer, confirmDelete]);
+  }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showMemory, showCalc, showTimer, showBooking, showBookingHistory, showScratchpad, showPlayground, showStats, confirmDelete]);
 
   // ── Auth submit ───────────────────────────────────────────────────────────────
   const handleAuthSubmit = async (e) => {
@@ -1676,7 +1992,7 @@ export default function App() {
     fd.append("input", userQuery);
     fd.append("model", (isYtMode || isWebMode || isDeepSearch) ? "fast_chat" : curMode);
 
-    const ctx             = hist.slice(-14).map(m => ({ role: m.role, content: m.content }));
+    const ctx             = hist.slice(-10).map(m => ({ role: m.role, content: m.content?.slice(0, 4000) }));
     const now             = new Date();
     const nowStr          = now.toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
     const nowISO          = now.toISOString().slice(0, 10);
@@ -1792,6 +2108,16 @@ export default function App() {
     const text = (prefill || input).trim();
     if (!text && !selFile) return;
     if (isListening) recogRef.current?.stop();
+
+    // Booking intent intercept
+    if (detectBookingIntent(text) && !selFile) {
+      setShowBooking(true);
+      const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setMessages(prev => [...prev, { role: "user", content: text, timestamp: ts }, { role: "assistant", content: "I'd love to help you book a session! 📅 I've opened the booking panel for you — select your preferred service, date, and time.", timestamp: ts }]);
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
 
     // Image generation intercept
     const imgPrompt = detectImagePrompt(text);
@@ -1949,6 +2275,11 @@ export default function App() {
       {showMemory    && <MemoryPanel memories={memories} onClear={clearAllMemory} onRemove={removeMemoryItem} onClose={() => setShowMemory(false)} t={t} />}
       {showCalc      && <CalcWidget onClose={() => setShowCalc(false)} />}
       {showTimer     && <FocusTimer onClose={() => setShowTimer(false)} />}
+      {showBooking   && <BookingWidget onClose={() => setShowBooking(false)} onBooked={(b) => addToast(`✅ Booked: ${b.service.name} — ${b.id}`, "success", 4000)} />}
+      {showBookingHistory && <BookingHistory onClose={() => setShowBookingHistory(false)} />}
+      {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
+      {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
+      {showStats     && <StatsPanel onClose={() => setShowStats(false)} sessions={sessions} bookings={getBookings()} />}
       {confirmDelete && <ConfirmDialog message={confirmDelete.message} onConfirm={confirmDeleteSession} onCancel={() => setConfirmDelete(null)} />}
 
       {/* VOICE */}
@@ -2058,6 +2389,20 @@ export default function App() {
               <TimerIcon /><span>Timer</span>
             </button>
           </div>
+          <div className="sb-quick-row">
+            <button className="sb-quick-btn" onClick={() => setShowBooking(true)} title="Book Session" style={{ color: "var(--accent)" }}>
+              <CalendarIcon /><span>Book</span>
+            </button>
+            <button className="sb-quick-btn" onClick={() => setShowBookingHistory(true)} title="My Bookings">
+              <CalendarIcon /><span>History</span>
+            </button>
+            <button className="sb-quick-btn" onClick={() => setShowScratchpad(true)} title="Scratchpad">
+              <NoteIcon /><span>Notes</span>
+            </button>
+            <button className="sb-quick-btn" onClick={() => setShowStats(true)} title="Stats">
+              <ChartIcon /><span>Stats</span>
+            </button>
+          </div>
 
           <div className="mode-row" style={{ cursor: "pointer" }} onClick={() => setAutoWebSearch(v => !v)}>
             <GlobeIcon />
@@ -2163,13 +2508,15 @@ export default function App() {
               )}
               <div className="welcome-cards">
                 {[
+                  { icon: "📅", label: "Book a Session", sub: "Schedule tutoring & more", action: () => setShowBooking(true) },
                   { icon: "▶️", label: "YouTube Notes", sub: "Paste any YouTube URL", action: () => setSelectedMode("youtube") },
                   { icon: "🎨", label: "Image Generation", sub: "Create AI images free", action: () => setInput("Generate an image of ") },
                   { icon: "🌐", label: "Live Web Search", sub: "Real-time Google results", action: () => { setAutoWebSearch(true); setInput("Latest news today"); } },
                   { icon: "🧠", label: "DeepSearch", sub: "Multi-query deep research", action: () => { setSelectedMode("deep_search"); setInput("Analyze latest AI model trends with sources"); } },
                   { icon: "🐛", label: "Code Debugger", sub: "Fix bugs instantly", action: () => setSelectedMode("debugger") },
-                  { icon: "🧮", label: "Calculator", sub: "Math with history", action: () => setShowCalc(true) },
-                  { icon: "⏱️", label: "Focus Timer", sub: "Pomodoro technique", action: () => setShowTimer(true) },
+                  { icon: "🧪", label: "Code Playground", sub: "Run code live", action: () => setShowPlayground(true) },
+                  { icon: "📝", label: "Scratchpad", sub: "Quick notes & ideas", action: () => setShowScratchpad(true) },
+                  { icon: "📊", label: "Your Stats", sub: "Chat analytics", action: () => setShowStats(true) },
                 ].map(({ icon, label, sub, action }) => (
                   <div key={label} className="welcome-card" onClick={action}>
                     <span className="wcard-icon">{icon}</span>

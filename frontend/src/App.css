@@ -2929,6 +2929,77 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   .welcome-cards{grid-template-columns:1fr}
   .followup-chip{max-width:100%}
 }
+
+/* ═══════════════════════════════════
+   BOOKING SYSTEM
+═══════════════════════════════════ */
+.booking-services-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.booking-service-card{position:relative;background:var(--bg-hover);border:2px solid var(--border);border-radius:var(--r-md);padding:14px;cursor:pointer;transition:all var(--tr-spring);display:flex;flex-direction:column;gap:4px;overflow:hidden}
+.booking-service-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--svc-color);opacity:0;transition:opacity var(--tr)}
+.booking-service-card:hover{border-color:var(--border-str);transform:translateY(-2px);box-shadow:var(--shadow-sm)}
+.booking-service-card:hover::before{opacity:1}
+.booking-service-card.selected{border-color:var(--svc-color);background:color-mix(in srgb, var(--svc-color) 6%, var(--bg-hover))}
+.booking-service-card.selected::before{opacity:1}
+.booking-svc-icon{font-size:1.5rem;margin-bottom:2px}
+.booking-svc-name{font-weight:600;font-size:0.88rem;color:var(--ink)}
+.booking-svc-desc{font-size:0.74rem;color:var(--ink-3)}
+.booking-svc-price{font-size:0.78rem;font-weight:700;color:var(--svc-color);margin-top:2px}
+.booking-svc-check{position:absolute;top:8px;right:8px;background:var(--svc-color);color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;animation:popIn 0.2s ease}
+.booking-steps{display:flex;gap:5px;align-items:center}
+.booking-step-dot{width:8px;height:8px;border-radius:50%;background:var(--ink-5);transition:all var(--tr-spring)}
+.booking-step-dot.active{background:var(--accent);transform:scale(1.2)}
+.booking-dur-btn{flex:1;padding:9px 14px;border-radius:var(--r-md);border:1px solid var(--border-med);background:var(--bg-hover);color:var(--ink-2);font-size:0.84rem;font-weight:500;font-family:var(--font);cursor:pointer;transition:all var(--tr)}
+.booking-dur-btn:hover{background:var(--bg-active);color:var(--ink);border-color:var(--border-str)}
+.booking-dur-btn.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.booking-confirm-card{background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 16px;width:100%;text-align:left}
+.booking-confirm-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.84rem}
+.booking-confirm-row:last-child{border-bottom:none}
+.booking-confirm-row span{color:var(--ink-3)}
+.booking-confirm-row strong{color:var(--ink);font-weight:600}
+.booking-summary{background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px}
+.booking-success-icon{font-size:3rem;animation:popIn 0.3s ease}
+.booking-hist-card{background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;transition:all var(--tr)}
+.booking-hist-card:hover{border-color:var(--border-str);box-shadow:var(--shadow-xs)}
+.booking-hist-top{display:flex;align-items:center;gap:10px}
+.booking-hist-icon{font-size:1.4rem}
+.booking-status{font-size:0.68rem;font-weight:700;padding:3px 8px;border-radius:var(--r-full);text-transform:uppercase;letter-spacing:0.5px}
+.booking-status.upcoming{background:rgba(59,130,246,0.1);color:#3b82f6;border:1px solid rgba(59,130,246,0.2)}
+.booking-status.completed{background:rgba(16,185,129,0.1);color:#10b981;border:1px solid rgba(16,185,129,0.2)}
+.booking-status.cancelled{background:rgba(224,84,84,0.08);color:#e05454;border:1px solid rgba(224,84,84,0.15)}
+
+/* ═══════════════════════════════════
+   STATS PANEL
+═══════════════════════════════════ */
+.stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat-card{background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;display:flex;flex-direction:column;align-items:center;gap:4px;transition:all var(--tr);animation:chipIn 0.35s ease var(--d,0s) both}
+.stat-card:nth-child(1){--d:0s}.stat-card:nth-child(2){--d:0.05s}.stat-card:nth-child(3){--d:0.1s}.stat-card:nth-child(4){--d:0.15s}.stat-card:nth-child(5){--d:0.2s}.stat-card:nth-child(6){--d:0.25s}
+.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-sm);border-color:var(--border-str)}
+.stat-icon{font-size:1.6rem}
+.stat-value{font-size:1.6rem;font-weight:800;color:var(--ink);letter-spacing:-0.5px;font-family:var(--mono)}
+.stat-label{font-size:0.72rem;color:var(--ink-3);font-weight:500;text-transform:uppercase;letter-spacing:0.3px}
+
+/* ═══════════════════════════════════
+   SIDEBAR QUICK ROW EXTRA
+═══════════════════════════════════ */
+.sb-quick-row{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.sb-quick-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border-radius:var(--r-sm);background:transparent;color:var(--ink-3);font-size:0.68rem;font-weight:500;font-family:var(--font);transition:all var(--tr);border:1px solid transparent;position:relative}
+.sb-quick-btn:hover{background:var(--bg-hover);color:var(--ink);border-color:var(--border)}
+.sb-badge{position:absolute;top:2px;right:4px;background:var(--accent);color:#fff;font-size:0.55rem;font-weight:700;padding:1px 4px;border-radius:var(--r-full);min-width:14px;text-align:center}
+
+/* ═══════════════════════════════════
+   RESPONSIVE EXTRAS
+═══════════════════════════════════ */
+@media(max-width:768px){
+  .booking-services-grid{grid-template-columns:1fr}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .sb-quick-row{grid-template-columns:repeat(4,1fr);gap:2px}
+  .sb-quick-btn{font-size:0.64rem;padding:6px 2px}
+}
+@media(max-width:480px){
+  .stats-grid{grid-template-columns:1fr 1fr}
+  .booking-services-grid{grid-template-columns:1fr}
+}
+
 @supports(padding:env(safe-area-inset-bottom)){
   .input-area{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
   @media(max-width:768px){.input-area{padding-bottom:calc(12px + env(safe-area-inset-bottom))}}
