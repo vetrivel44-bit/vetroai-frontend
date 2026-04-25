@@ -9,6 +9,7 @@ if (!config.groqApiKey) {
   logger.warn("chatController.init", { note: "GROQ_API_KEY not set — chat requests will fail." });
 }
 const groq = config.groqApiKey ? new Groq({ apiKey: config.groqApiKey }) : null;
+const mistralAvailable = Boolean(config.mistralApiKey);
 
 const MODEL_ALIASES = {
   fast_chat:    "llama-3.1-8b-instant",
@@ -100,6 +101,34 @@ async function withRetry(operation, retries = 1) {
   throw lastErr;
 }
 
+async function callMistralChat({ messages, temperature, maxTokens, model }) {
+  if (!mistralAvailable) throw new Error("Mistral API key not configured.");
+  const endpoint = "https://api.mistral.ai/v1/chat/completions";
+  const body = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    stream: false,
+  };
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.mistralApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    const err = new Error(`Mistral service error: ${res.status} ${detail}`);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
+}
+
 // ── MAIN CHAT HANDLER ─────────────────────────────────────────────────────────
 async function chat(req, res) {
   const startedAt = Date.now();
@@ -125,10 +154,10 @@ async function chat(req, res) {
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
 
-  // Check Groq availability
-  if (!groq) {
+  // Check AI availability
+  if (!groq && !mistralAvailable) {
     cleanup();
-    sseWrite(res, { content: "⚠️ AI service not configured. Please set GROQ_API_KEY in the backend .env file and restart the server." });
+    sseWrite(res, { content: "⚠️ AI service not configured. Please set GROQ_API_KEY or MISTRAL_API_KEY in the backend .env file and restart the server." });
     res.write("data: [DONE]\n\n");
     res.end();
     return;
@@ -167,6 +196,24 @@ async function chat(req, res) {
       reqId, model, streamChunks: tokenCount, latencyMs: Date.now() - startedAt,
     });
   } catch (err) {
+    if (mistralAvailable) {
+      try {
+        const fallbackModel = config.mistralModel || model;
+        const fallbackTemp = Number.isFinite(temperature) ? temperature : config.mistralTemperature;
+        const fallbackMax = Number.isFinite(maxTokens) ? maxTokens : config.mistralMaxTokens;
+        const output = await callMistralChat({ messages, temperature: fallbackTemp, maxTokens: fallbackMax, model: fallbackModel });
+        sseWrite(res, { content: output });
+        res.write("data: [DONE]\n\n");
+        res.end();
+        cleanup();
+        logger.info("chat.request.completed", {
+          reqId, model: fallbackModel, provider: "Mistral", latencyMs: Date.now() - startedAt,
+        });
+        return;
+      } catch (merr) {
+        logger.error("chat.request.failed.mistral", { reqId, model: config.mistralModel, message: merr.message, status: merr.status });
+      }
+    }
     cleanup();
     logger.error("chat.request.failed", { reqId, model, message: err.message, status: err.status });
 
@@ -192,9 +239,18 @@ async function generateTitle(req, res) {
   const firstMessage = String(req.body?.firstMessage || "").trim();
   if (!firstMessage) throw new ApiError(400, "firstMessage is required");
 
-  if (!groq) {
-    const words = firstMessage.slice(0, 60).split(/\s+/).slice(0, 6).join(" ");
-    return successResponse(res, "Title generated", { title: words + "…" });
+  if (!groq && mistralAvailable) {
+    const completion = await callMistralChat({
+      model: config.mistralModel,
+      messages: [
+        { role: "system", content: "Generate a short chat title with max 6 words. Include a relevant emoji at start. Return plain text only." },
+        { role: "user", content: firstMessage.slice(0, 400) },
+      ],
+      temperature: config.mistralTemperature,
+      maxTokens: 28,
+    });
+    const title = completion.trim().replace(/^["']|["']$/g, "").slice(0, 64) || "New Chat";
+    return successResponse(res, "Title generated", { title });
   }
 
   const completion = await withRetry(
@@ -218,14 +274,24 @@ async function followUps(req, res) {
   const userQuery = String(req.body?.userQuery || "").trim();
   if (!lastMessage) throw new ApiError(400, "lastMessage is required");
 
-  if (!groq) {
-    const fallbacks = [
-      "Can you explain this in simpler terms?",
-      "What are the practical applications?",
-      "Give me an example of this",
-      "What should I learn next?",
-    ];
-    return successResponse(res, "Follow-ups generated", { suggestions: fallbacks });
+  if (!groq && mistralAvailable) {
+    const completion = await callMistralChat({
+      model: config.mistralModel,
+      messages: [
+        { role: "system", content: "Return exactly 4 concise follow-up questions as a JSON array of strings. No markdown, no extra keys." },
+        { role: "user", content: `Original query: ${userQuery}\n\nAssistant answer: ${lastMessage.slice(0, 1400)}` },
+      ],
+      temperature: config.mistralTemperature,
+      maxTokens: 120,
+    });
+    let suggestions = [];
+    try {
+      const parsed = JSON.parse(completion);
+      if (Array.isArray(parsed)) suggestions = parsed.filter((x) => typeof x === "string").slice(0, 4);
+    } catch {
+      suggestions = completion.split(/\n+/).map((l) => l.replace(/^[\-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
+    }
+    return successResponse(res, "Follow-ups generated", { suggestions });
   }
 
   const completion = await withRetry(

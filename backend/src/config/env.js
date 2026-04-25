@@ -26,6 +26,10 @@ module.exports = {
     groqModel:           getEnv("GROQ_MODEL",            "llama-3.3-70b-versatile"),
     groqTemperature:     Number(getEnv("GROQ_TEMPERATURE", "0.7")),
     groqMaxTokens:       Number(getEnv("GROQ_MAX_TOKENS",  "16384")),
+    mistralApiKey:       getEnv("MISTRAL_API_KEY",       ""),
+    mistralModel:        getEnv("MISTRAL_MODEL",        "mistral-1"),
+    mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),
+    mistralMaxTokens:    Number(getEnv("MISTRAL_MAX_TOKENS",  "8192")),
     enableCloudSessions: getEnv("ENABLE_CLOUD_SESSIONS", "false") === "true",
   },
 };
