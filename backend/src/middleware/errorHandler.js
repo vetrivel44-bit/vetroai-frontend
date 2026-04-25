@@ -1,4 +1,5 @@
 const { ZodError } = require("zod");
+const multer = require("multer");
 const { errorResponse } = require("../utils/response");
 const logger = require("../utils/logger");
 
@@ -20,6 +21,11 @@ function errorHandler(err, req, res, _next) {
       field: issue.path.join("."),
       message: issue.message,
     }));
+  }
+
+  if (err instanceof multer.MulterError) {
+    statusCode = 400;
+    message = err.code === "LIMIT_FILE_SIZE" ? "Uploaded file is too large" : "Invalid file upload";
   }
 
   logger.error("request.error", {

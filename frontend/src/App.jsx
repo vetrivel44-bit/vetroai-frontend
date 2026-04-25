@@ -9,9 +9,10 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const API = import.meta.env.VITE_API_URL || "https://ai-chatbot-backend-gvvz.onrender.com";
+const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const SERPER_API_KEY = import.meta.env.VITE_SERPER_API_KEY || "";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+const VITE_GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
 
 const TODAY_STR = new Date().toLocaleDateString("en-IN", {
   weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -19,6 +20,109 @@ const TODAY_STR = new Date().toLocaleDateString("en-IN", {
 const swallowError = () => {};
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const MAX_FILE_SIZE_MB = 25;
+
+// ─── DIRECT BROWSER AI (Pollinations.ai — Free, No Key) ─────────────────────
+// Used when backend is unavailable. Uses their OpenAI-compatible endpoint.
+const callPollinationsAI = async (messages, onChunk, signal) => {
+  // Try the new v1 endpoint first
+  const body = JSON.stringify({
+    model: "openai-large",
+    messages,
+    stream: true,
+    private: true,
+    temperature: 0.7,
+  });
+  const res = await fetch("https://text.pollinations.ai/openai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+    body,
+    signal,
+  });
+  if (!res.ok) {
+    // Fallback: use the simple GET endpoint (returns plain text, not streamed)
+    const prompt = messages[messages.length - 1]?.content || "";
+    const sysMsg = messages.find(m => m.role === "system")?.content || "";
+    const combined = sysMsg ? `${sysMsg}\n\nUser: ${prompt}` : prompt;
+    const url = `https://text.pollinations.ai/${encodeURIComponent(combined.slice(0, 2000))}?model=openai-large&private=true`;
+    const r2 = await fetch(url, { signal });
+    if (!r2.ok) throw new Error(`Pollinations error: ${r2.status}`);
+    const text = await r2.text();
+    onChunk(text);
+    return;
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const raw = line.slice(6).trim();
+      if (!raw || raw === "[DONE]") continue;
+      try {
+        const content = JSON.parse(raw)?.choices?.[0]?.delta?.content;
+        if (content) onChunk(content);
+      } catch { /* skip malformed */ }
+    }
+  }
+};
+
+
+// ─── PDF TEXT EXTRACTION (client-side, no library needed) ─────────────────────
+const extractPdfText = async (file) => {
+  // Use PDF.js via CDN
+  if (!window.pdfjsLib) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+  const buf = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(" ") + "\n";
+  }
+  return text.trim().slice(0, 15000);
+};
+
+// ─── SOURCE CARDS EXTRACTION (Perplexity-style) ───────────────────────────────
+const extractSourceUrls = (text) => {
+  if (!text) return [];
+  const urlRx = /https?:\/\/[^\s)\]>"]+/g;
+  const found = [...new Set(text.match(urlRx) || [])];
+  return found.slice(0, 8).map((url) => {
+    try { const u = new URL(url); return { url, domain: u.hostname.replace("www.", "") }; }
+    catch { return { url, domain: url.slice(0, 30) }; }
+  });
+};
+
+// ─── CUSTOM AI PERSONAS ────────────────────────────────────────────────────────
+const DEFAULT_PERSONAS = [
+  { id: "default",  name: "VetroAI",          avatar: "🤖", color: "#7c3aed", prompt: "" },
+  { id: "teacher",  name: "Professor",         avatar: "🎓", color: "#3b82f6", prompt: "You are a patient, encouraging professor. Break down complex topics with examples. Always check for understanding." },
+  { id: "coder",    name: "Senior Dev",        avatar: "💻", color: "#10b981", prompt: "You are a senior software engineer with 15 years of experience. Write clean, efficient, production-ready code. Explain trade-offs." },
+  { id: "coach",    name: "Life Coach",        avatar: "🌟", color: "#f59e0b", prompt: "You are an empathetic life coach. Help users set goals, overcome challenges, and think positively. Be supportive and actionable." },
+  { id: "socrates", name: "Socratic Tutor",    avatar: "🧠", color: "#ec4899", prompt: "You are a Socratic tutor. Never give direct answers — guide students to discover answers themselves through thoughtful questions." },
+  { id: "creative", name: "Creative Director", avatar: "🎨", color: "#ef4444", prompt: "You are a creative director and writer. Think outside the box. Your responses are vivid, imaginative, and full of originality." },
+];
+const getCustomPersonas = () => { try { return JSON.parse(localStorage.getItem("vetroai_personas") || "[]"); } catch { return []; } };
+const saveCustomPersonas = (p) => localStorage.setItem("vetroai_personas", JSON.stringify(p));
+
+// ─── CONTEXT WINDOW ESTIMATOR ─────────────────────────────────────────────────
+const estimateTokens = (messages) => {
+  const chars = messages.reduce((a, m) => a + (m.content?.length || 0), 0);
+  return Math.ceil(chars / 4);
+};
 
 // ── FIX 1: Improved truncation detection ──────────────────────────────────────
 const isLikelyTruncatedAnswer = (text = "") => {
@@ -564,17 +668,19 @@ const LANGS = {
 };
 
 const AI_MODELS = [
-  { id: "fast_chat",   name: "VetroAI Flash",   provider: "Mistral",   icon: "⚡", ctx: "32K", tags: ["Fast","General"], desc: "Fastest responses for everyday questions",     color: "#f59e0b" },
-  { id: "vtu_academic",name: "Academic Pro",     provider: "Mistral",   icon: "🎓", ctx: "32K", tags: ["Study","Exam"],   desc: "Optimised for academic help & exam prep",      color: "#3b82f6" },
-  { id: "debugger",    name: "Code Expert",      provider: "Mistral",   icon: "🐛", ctx: "32K", tags: ["Code","Debug"],   desc: "Expert code analysis, debugging & review",    color: "#10b981" },
-  { id: "creative",    name: "Creative Studio",  provider: "Mistral",   icon: "✨", ctx: "32K", tags: ["Writing","Art"],  desc: "Creative writing, storytelling & ideation",   color: "#ec4899" },
-  { id: "analyst",     name: "Data Analyst",     provider: "Mixtral",   icon: "📊", ctx: "64K", tags: ["Data","Reports"], desc: "Deep data analysis & structured reports",     color: "#8b5cf6" },
+  { id: "fast_chat",   name: "VetroAI Flash",   provider: "Groq",      icon: "⚡", ctx: "32K", tags: ["Fast","General"], desc: "Fastest responses for everyday questions",     color: "#f59e0b" },
+  { id: "vtu_academic",name: "Academic Pro",     provider: "Groq",      icon: "🎓", ctx: "32K", tags: ["Study","Exam"],   desc: "Optimized for academic help and exam prep",   color: "#3b82f6" },
+  { id: "debugger",    name: "Code Expert",      provider: "Groq",      icon: "🐛", ctx: "32K", tags: ["Code","Debug"],   desc: "Expert code analysis, debugging and review",  color: "#10b981" },
+  { id: "creative",    name: "Creative Studio",  provider: "Groq",      icon: "✨", ctx: "32K", tags: ["Writing","Art"],  desc: "Creative writing, storytelling and ideation", color: "#ec4899" },
+  { id: "analyst",     name: "Data Analyst",     provider: "Groq",      icon: "📊", ctx: "64K", tags: ["Data","Reports"], desc: "Deep data analysis and structured reports",   color: "#8b5cf6" },
   { id: "web_search",  name: "Web Search",       provider: "Live",      icon: "🌐", ctx: "Live",tags: ["Real-time","News"],"desc": "Live Google search with page content fetch", color: "#06b6d4" },
   { id: "deep_search", name: "DeepSearch",       provider: "Multi",     icon: "🧠", ctx: "Live",tags: ["Research","Deep"], desc: "Multi-query research with citations",         color: "#6366f1" },
   { id: "youtube",     name: "YouTube Analyst",  provider: "Video",     icon: "▶️", ctx: "Video",tags: ["Video","Notes"],  desc: "Instant notes from any YouTube video",        color: "#ef4444" },
-  { id: "translator",  name: "Translator",       provider: "Mistral",   icon: "🌍", ctx: "32K", tags: ["Language","Multi"],desc: "Professional multi-language translator",      color: "#14b8a6" },
-  { id: "interviewer", name: "Interview Coach",  provider: "Mistral",   icon: "💼", ctx: "32K", tags: ["Career","DSA"],   desc: "Mock interviews, DSA & system design",        color: "#f97316" },
-  { id: "astrology",   name: "Astrologer",       provider: "Mistral",   icon: "🔮", ctx: "32K", tags: ["Fun","Spiritual"],"desc": "Vedic astrology & cosmic guidance",          color: "#a855f7" },
+  { id: "translator",  name: "Translator",       provider: "Groq",      icon: "🌍", ctx: "32K", tags: ["Language","Multi"],desc: "Professional multi-language translator",      color: "#14b8a6" },
+  { id: "interviewer", name: "Interview Coach",  provider: "Groq",      icon: "💼", ctx: "32K", tags: ["Career","DSA"],   desc: "Mock interviews, DSA and system design",      color: "#f97316" },
+  { id: "astrology",   name: "Astrologer",       provider: "Groq",      icon: "🔮", ctx: "32K", tags: ["Fun","Spiritual"],"desc": "Vedic astrology and cosmic guidance",        color: "#a855f7" },
+  { id: "vision",      name: "Vision Analyzer",  provider: "Groq",      icon: "👁️", ctx: "8K",  tags: ["Vision","Image"],  desc: "Analyze images, screenshots, and diagrams",  color: "#0ea5e9" },
+  { id: "persona",     name: "Custom Persona",   provider: "Groq",      icon: "🎭", ctx: "32K", tags: ["Custom","Role"],   desc: "Chat with a custom AI personality you define",color: "#d946ef" },
 ];
 
 // Keep MODES alias for any legacy references
@@ -1293,7 +1399,188 @@ const PlayIcon = () => <Ic size={14} d={<><polygon points="5 3 19 12 5 21 5 3" /
 const ChartIcon = () => <Ic size={14} d={<><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>} />;
 
 
+
+// ─── ARTIFACTS / CANVAS PANEL (Claude-style) ──────────────────────────────────
+function ArtifactsPanel({ code, language, onClose }) {
+  const [tab, setTab] = useState("code");
+  const [copied, setCopied] = useState(false);
+  const [output, setOutput] = useState("");
+  const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const run  = () => setOutput(code);
+  return (
+    <div className="artifacts-panel">
+      <div className="artifacts-header">
+        <div className="artifacts-tabs">
+          <button className={`atab${tab === "code" ? " active" : ""}`} onClick={() => setTab("code")}>📄 Code</button>
+          {(language === "html" || language === "javascript" || language === "js") && (
+            <button className={`atab${tab === "preview" ? " active" : ""}`} onClick={() => { setTab("preview"); run(); }}>▶ Preview</button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="atab" onClick={copy} style={{ color: copied ? "var(--success)" : undefined }}>{copied ? "✓ Copied" : "Copy"}</button>
+          <button className="atab" onClick={onClose}>✕</button>
+        </div>
+      </div>
+      {tab === "code" && (
+        <SyntaxHighlighter style={vscDarkPlus} language={language || "text"} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
+          {code}
+        </SyntaxHighlighter>
+      )}
+      {tab === "preview" && (
+        <iframe title="artifact-preview" srcDoc={output} sandbox="allow-scripts allow-same-origin" style={{ flex: 1, border: "none", background: "#fff", borderRadius: "0 0 12px 12px", minHeight: 400 }} />
+      )}
+    </div>
+  );
+}
+
+// ─── SOURCE CARDS (Perplexity-style) ──────────────────────────────────────────
+function SourceCards({ sources }) {
+  if (!sources?.length) return null;
+  return (
+    <div className="source-cards">
+      <div className="source-cards-label">🔗 Sources</div>
+      <div className="source-cards-row">
+        {sources.map((s, i) => (
+          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="source-card">
+            <span className="source-num">{i + 1}</span>
+            <span className="source-domain">{s.domain}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── PERSONA SWITCHER (Quick-pick AI personality) ─────────────────────────────
+function PersonaSwitcher({ currentPersonaId, onSelect, onClose, onCreateNew }) {
+  const [tab, setTab] = useState("preset");
+  const [name, setName] = useState("");
+  const [avatar, setAvatar] = useState("🤖");
+  const [prompt, setPrompt] = useState("");
+  const custom = getCustomPersonas();
+
+  const save = () => {
+    if (!name.trim() || !prompt.trim()) return;
+    const id = `custom_${Date.now()}`;
+    const all = [...custom, { id, name: name.trim(), avatar, prompt: prompt.trim(), color: "#7c3aed" }];
+    saveCustomPersonas(all);
+    onSelect({ id, name: name.trim(), avatar, prompt: prompt.trim(), color: "#7c3aed" });
+    onClose();
+  };
+
+  const allPersonas = [...DEFAULT_PERSONAS, ...custom];
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">🎭 AI Persona</h3>
+          <button className="modal-x" onClick={onClose}><XIcon /></button>
+        </div>
+        <div className="modal-body" style={{ gap: 0 }}>
+          <div style={{ display: "flex", gap: 8, padding: "0 0 16px" }}>
+            <button className={`booking-dur-btn${tab === "preset" ? " active" : ""}`} onClick={() => setTab("preset")}>Presets</button>
+            <button className={`booking-dur-btn${tab === "create" ? " active" : ""}`} onClick={() => setTab("create")}>+ Create New</button>
+          </div>
+          {tab === "preset" && (
+            <div className="persona-grid">
+              {allPersonas.map(p => (
+                <div key={p.id} className={`persona-card${currentPersonaId === p.id ? " active" : ""}`} style={{ "--pc": p.color }} onClick={() => { onSelect(p); onClose(); }}>
+                  <span className="persona-avatar">{p.avatar}</span>
+                  <span className="persona-name">{p.name}</span>
+                  {currentPersonaId === p.id && <span className="persona-check"><CheckIcon /></span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {tab === "create" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="field-group">
+                <label className="field-label">Name</label>
+                <input className="field-input" placeholder="My Custom AI…" value={name} onChange={e => setName(e.target.value)} />
+              </div>
+              <div className="field-group">
+                <label className="field-label">Avatar</label>
+                <div className="av-grid" style={{ gridTemplateColumns: "repeat(8, 1fr)" }}>
+                  {["🤖","🦊","🐼","🦁","🌟","🔥","💎","🚀","🌈","🎨","🦋","🐉","🌙","⚡","🧠","🎯"].map(a => (
+                    <button key={a} className={`av-opt${avatar === a ? " sel" : ""}`} onClick={() => setAvatar(a)}>{a}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="field-group">
+                <label className="field-label">System Prompt</label>
+                <textarea className="field-textarea" placeholder="You are a helpful AI that…" value={prompt} onChange={e => setPrompt(e.target.value)} style={{ minHeight: 80 }} />
+              </div>
+              <div className="modal-footer">
+                <button className="btn-ghost" onClick={onClose}>Cancel</button>
+                <button className="btn-primary" onClick={save} disabled={!name.trim() || !prompt.trim()}>Save Persona</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CONTEXT WINDOW BAR ────────────────────────────────────────────────────────
+function ContextWindowBar({ messages, maxCtx = 32000 }) {
+  const used = estimateTokens(messages);
+  const pct  = Math.min((used / maxCtx) * 100, 100);
+  const color = pct > 85 ? "#ef4444" : pct > 60 ? "#f59e0b" : "var(--accent)";
+  return (
+    <div className="ctx-bar" title={`~${used.toLocaleString()} / ${maxCtx.toLocaleString()} tokens used`}>
+      <div className="ctx-bar-fill" style={{ width: `${pct}%`, background: color }} />
+      <span className="ctx-bar-label">{used.toLocaleString()} tokens</span>
+    </div>
+  );
+}
+
+// ─── CONVERSATION SUMMARY (Gemini-style one-click TL;DR) ─────────────────────
+function SummaryPanel({ messages, onClose, addToast }) {
+  const [summary, setSummary] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const userMsgs = messages.filter(m => m.role === "user").map(m => m.content).join("\n").slice(0, 3000);
+    const ctrl = new AbortController();
+    const chunks = [];
+    callPollinationsAI(
+      [
+        { role: "system", content: "Create a concise TL;DR summary of this conversation. Use bullet points. Max 150 words." },
+        { role: "user", content: userMsgs },
+      ],
+      (chunk) => { chunks.push(chunk); setSummary(chunks.join("")); },
+      ctrl.signal
+    ).catch(() => setSummary("Unable to generate summary.")).finally(() => setLoading(false));
+    return () => ctrl.abort();
+  }, [messages]);
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal-topbar">
+          <h3 className="modal-title">📋 Conversation Summary</h3>
+          <button className="modal-x" onClick={onClose}><XIcon /></button>
+        </div>
+        <div className="modal-body">
+          {loading && <TypingIndicator text="Summarizing…" />}
+          <div className="bubble" style={{ background: "var(--bg-hover)", padding: 16, borderRadius: 12 }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary || "…"}</ReactMarkdown>
+          </div>
+          <div className="modal-footer">
+            <button className="btn-ghost" onClick={() => { navigator.clipboard.writeText(summary); addToast("Summary copied!", "success", 2000); }}>
+              <CopyIcon /> Copy
+            </button>
+            <button className="btn-primary" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── MODEL PICKER MODAL ───────────────────────────────────────────────────────
+
 function ModelPickerModal({ current, onSelect, onClose }) {
   const [search, setSearch] = useState("");
   const filtered = AI_MODELS.filter(m =>
@@ -1437,6 +1724,10 @@ export default function App() {
   const [filePreview, setFilePreview]       = useState(null);
   const [isLoading, setIsLoading]           = useState(false);
   const [isTyping, setIsTyping]             = useState(false);
+  const [temperature, setTemperature]       = useState(0.7);
+  const [maxTokens, setMaxTokens]           = useState(1400);
+  const [safeMode, setSafeMode]             = useState(true);
+  const [lockModelPerChat, setLockModelPerChat] = useState(false);
   const [showScrollDn, setShowScrollDn]     = useState(false);
   const [reactions, setReactions]           = useState({});
   const [msgFeedback, setMsgFeedback]       = useState({});
@@ -1503,6 +1794,22 @@ export default function App() {
   const [showStats, setShowStats]           = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [systemPrompt, setSystemPrompt]     = useState(() => localStorage.getItem("vetroai_sysprompt") || "");
+
+  // ── NEW FEATURES ──────────────────────────────────────────────────────────────────────
+  // Artifacts/Canvas panel
+  const [artifactCode, setArtifactCode]     = useState(null);
+  const [artifactLang, setArtifactLang]     = useState("text");
+  // Persona
+  const [activePersona, setActivePersona]   = useState(DEFAULT_PERSONAS[0]);
+  const [showPersona, setShowPersona]       = useState(false);
+  // Summary
+  const [showSummary, setShowSummary]       = useState(false);
+  // Source cards per message idx
+  const [msgSources, setMsgSources]         = useState({});
+  // PDF loading
+  const [isPdfLoading, setIsPdfLoading]     = useState(false);
+  // Backend available flag
+  const [backendAvailable, setBackendAvailable] = useState(true);
 
   // ── Search ────────────────────────────────────────────────────────────────────
   const [chatSearchOpen, setChatSearchOpen]     = useState(false);
@@ -1946,13 +2253,33 @@ export default function App() {
     else { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } }
   };
 
-  const handleFileChange = e => {
+  const handleFileChange = async e => {
     const f = e.target.files[0]; if (!f) return;
     if (f.size > MAX_FILE_SIZE_MB * 1024 * 1024) { addToast(`⚠️ File too large (max ${MAX_FILE_SIZE_MB}MB)`, "error"); return; }
+    // PDF handling — extract text client-side
+    if (f.type === "application/pdf" || f.name.endsWith(".pdf")) {
+      setIsPdfLoading(true);
+      addToast("📄 Parsing PDF…", "info", 2000);
+      try {
+        const text = await extractPdfText(f);
+        // Create a synthetic text file with PDF content
+        const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
+        const textFile = new File([textBlob], f.name.replace(".pdf", ".txt"), { type: "text/plain" });
+        setSelFile(textFile);
+        setFilePreview(null);
+        addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
+      } catch (err) {
+        addToast("⚠️ Could not parse PDF. Try a text file.", "error");
+      } finally {
+        setIsPdfLoading(false);
+      }
+      return;
+    }
     setSelFile(f);
     if (f.type.startsWith("image/")) { const r = new FileReader(); r.onloadend = () => setFilePreview(r.result); r.readAsDataURL(f); }
     else { setFilePreview(null); addToast(`📎 ${f.name} attached`, "success", 2000); }
   };
+
 
   const stopGeneration = () => {
     requestIdRef.current += 1;
@@ -2029,6 +2356,9 @@ export default function App() {
     const fd = new FormData();
     fd.append("input",    contPrompt);
     fd.append("model",    selectedModeRef.current);
+    fd.append("temperature", String(temperature));
+    fd.append("maxTokens", String(maxTokens));
+    fd.append("safeMode", safeMode ? "true" : "false");
 
     const ctx = contHist.slice(-12).map(m => ({ role: m.role, content: m.content }));
     const nowISO = new Date().toISOString().slice(0, 10);
@@ -2045,7 +2375,12 @@ export default function App() {
         body: fd,
         signal: abortRef.current?.signal,
       });
-      if (!isActive() || !res.ok) { setIsLoading(false); setIsContinuing(false); return; }
+      if (!isActive() || !res.ok) {
+        setIsLoading(false);
+        setIsContinuing(false);
+        addToast("Unable to continue answer. Please retry.", "error");
+        return;
+      }
 
       const reader = res.body.getReader();
       let fullContent = existingContent;
@@ -2079,7 +2414,7 @@ export default function App() {
       setIsLoading(false); setIsContinuing(false);
       if (err.name !== "AbortError") swallowError(err);
     }
-  }, [scrollToBottom, generateFollowUps]);
+  }, [scrollToBottom, generateFollowUps, temperature, maxTokens, safeMode, addToast]);
 
   // ── MAIN AI CALL ──────────────────────────────────────────────────────────────
   const triggerAI = async (hist, fileData = null, ytContext = null) => {
@@ -2116,6 +2451,9 @@ export default function App() {
     const fd = new FormData();
     fd.append("input", userQuery);
     fd.append("model", (isYtMode || isWebMode || isDeepSearch) ? "fast_chat" : curMode);
+    fd.append("temperature", String(temperature));
+    fd.append("maxTokens", String(maxTokens));
+    fd.append("safeMode", safeMode ? "true" : "false");
 
     const ctx             = hist.slice(-10).map(m => ({ role: m.role, content: m.content?.slice(0, 4000) }));
     const now             = new Date();
@@ -2128,6 +2466,8 @@ export default function App() {
       `TODAY IS: ${nowStr} (${nowISO}). Current year: ${now.getFullYear()}.`,
       `NEVER say an event "hasn't happened yet" if it's plausible given today's date.`,
       currentMemories.length ? `USER CONTEXT:\n${currentMemories.map(m => `• ${m}`).join("\n")}` : "",
+      // Active persona prompt
+      activePersona?.prompt || "",
       systemPromptRef.current || "",
     ].filter(Boolean).join("\n\n");
 
@@ -2166,7 +2506,15 @@ export default function App() {
       });
       if (!isActive()) return;
       if (res.status === 401) { logout(); return; }
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      if (!res.ok) {
+        let message = `Server error: ${res.status}`;
+        try {
+          const data = await res.json();
+          const detail = Array.isArray(data?.data) ? data.data.map((d) => d?.message || d).join(" · ") : "";
+          message = detail || data?.message || message;
+        } catch { /* ignore parse errors */ }
+        throw new Error(message);
+      }
 
       const reader = res.body.getReader();
       const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -2207,13 +2555,44 @@ export default function App() {
     } catch (err) {
       setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false);
       setStreamingContent(""); setIsContinuing(false);
-      if (err.name !== "AbortError") {
-        addToast("⚠️ Error connecting to server. Please try again.", "error");
-        setMessages(prev => [...prev, {
-          role: "assistant",
-          content: "⚠️ I couldn't connect to the server. Please check your connection and try again.",
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        }]);
+      if (err.name === "AbortError") { setSelFile(null); setFilePreview(null); return; }
+
+      // ── BACKEND FAILED → Fall back to direct Pollinations.ai (free, no key) ────────
+      setBackendAvailable(false);
+      addToast("🌐 Backend offline — switching to direct AI mode (Pollinations.ai)", "info", 4000);
+      setIsTyping(true);
+      const ts2 = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setMessages(prev => [...prev, { role: "assistant", content: "", timestamp: ts2, isDirectMode: true }]);
+      try {
+        const directCtx = hist.slice(-10).map(m => ({ role: m.role, content: (m.content || "").slice(0, 4000) }));
+        if (sysContent.trim()) directCtx.unshift({ role: "system", content: sysContent });
+        const chunks2 = [];
+        await callPollinationsAI(
+          directCtx,
+          (chunk) => {
+            if (!isActive()) return;
+            chunks2.push(chunk);
+            const acc = chunks2.join("");
+            setMessages(prev => { const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u; });
+            setStreamingContent(acc);
+            if (!isScrolling.current) scrollToBottom();
+          },
+          ctrl.signal
+        );
+        setStreamingContent("");
+        setIsTyping(false);
+        setIsLoading(false);
+        const finalBot = chunks2.join("");
+        if (isFirstMsg) updateSessionTitle(userQuery);
+        generateFollowUps(finalBot, userQuery);
+        const codeMatch = finalBot.match(/```(\w+)?\n([\s\S]{200,})```/);
+        if (codeMatch) { setArtifactCode(codeMatch[2]); setArtifactLang(codeMatch[1] || "text"); }
+      } catch (e2) {
+        setIsTyping(false);
+        if (e2.name !== "AbortError") {
+          addToast("⚠️ AI service unavailable. Check your internet and try again.", "error");
+          setMessages(prev => [...prev, { role: "assistant", content: "⚠️ Both backend and direct AI are unavailable. Please check your internet connection.", timestamp: ts2 }]);
+        }
       }
     } finally { setSelFile(null); setFilePreview(null); }
   };
@@ -2430,13 +2809,23 @@ export default function App() {
       {showMemory    && <MemoryPanel memories={memories} onClear={clearAllMemory} onRemove={removeMemoryItem} onClose={() => setShowMemory(false)} t={t} />}
       {showCalc      && <CalcWidget onClose={() => setShowCalc(false)} />}
       {showTimer     && <FocusTimer onClose={() => setShowTimer(false)} />}
-      {showModelPicker && <ModelPickerModal current={selectedMode} onSelect={setSelectedMode} onClose={() => setShowModelPicker(false)} />}
+      {showModelPicker && <ModelPickerModal current={selectedMode} onSelect={(next) => {
+        if (lockModelPerChat && messages.length > 0) {
+          addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
+          return;
+        }
+        setSelectedMode(next);
+      }} onClose={() => setShowModelPicker(false)} />}
       {showBooking   && <BookingWidget onClose={() => setShowBooking(false)} onBooked={(b) => addToast(`✅ Booked: ${b.service.name} — ${b.id}`, "success", 4000)} />}
       {showBookingHistory && <BookingHistory onClose={() => setShowBookingHistory(false)} />}
       {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
       {showStats     && <StatsPanel onClose={() => setShowStats(false)} sessions={sessions} bookings={getBookings()} />}
       {confirmDelete && <ConfirmDialog message={confirmDelete.message} onConfirm={confirmDeleteSession} onCancel={() => setConfirmDelete(null)} />}
+      {/* NEW FEATURES */}
+      {showPersona   && <PersonaSwitcher currentPersonaId={activePersona?.id} onSelect={setActivePersona} onClose={() => setShowPersona(false)} />}
+      {showSummary   && messages.length > 0 && <SummaryPanel messages={messages} onClose={() => setShowSummary(false)} addToast={addToast} />}
+      {artifactCode  && <ArtifactsPanel code={artifactCode} language={artifactLang} onClose={() => setArtifactCode(null)} />}
 
       {/* VOICE */}
       {isVoiceOpen && (
@@ -2565,6 +2954,44 @@ export default function App() {
             <span style={{ flex: 1, fontSize: "0.82rem", color: "var(--ink)" }}>Auto Web Search</span>
             <div className={`toggle-pill${autoWebSearch ? " on" : ""}`}><div className="toggle-thumb" /></div>
           </div>
+          <div className="mode-row" style={{ cursor: "pointer" }} onClick={() => setSafeMode(v => !v)}>
+            <BotIcon />
+            <span style={{ flex: 1, fontSize: "0.82rem", color: "var(--ink)" }}>Safe Mode</span>
+            <div className={`toggle-pill${safeMode ? " on" : ""}`}><div className="toggle-thumb" /></div>
+          </div>
+          <div className="mode-row" style={{ cursor: "pointer" }} onClick={() => setLockModelPerChat(v => !v)}>
+            <PinIcon />
+            <span style={{ flex: 1, fontSize: "0.82rem", color: "var(--ink)" }}>Lock model per chat</span>
+            <div className={`toggle-pill${lockModelPerChat ? " on" : ""}`}><div className="toggle-thumb" /></div>
+          </div>
+          <div className="gen-controls">
+            <div className="gen-control-row">
+              <label htmlFor="temp-slider">Temperature</label>
+              <span>{temperature.toFixed(1)}</span>
+            </div>
+            <input
+              id="temp-slider"
+              type="range"
+              min="0"
+              max="1.2"
+              step="0.1"
+              value={temperature}
+              onChange={(e) => setTemperature(Number(e.target.value))}
+            />
+            <div className="gen-control-row">
+              <label htmlFor="max-token-slider">Max Tokens</label>
+              <span>{maxTokens}</span>
+            </div>
+            <input
+              id="max-token-slider"
+              type="range"
+              min="300"
+              max="2600"
+              step="100"
+              value={maxTokens}
+              onChange={(e) => setMaxTokens(Number(e.target.value))}
+            />
+          </div>
 
           <button className="model-picker-btn" onClick={() => setShowModelPicker(true)}>
             <span style={{ fontSize: "1.1rem" }}>{AI_MODELS.find(m => m.id === selectedMode)?.icon || "🤖"}</span>
@@ -2601,6 +3028,12 @@ export default function App() {
             )}
           </div>
           <div className="ch-right">
+            <button className="icon-btn" onClick={() => setShowPersona(true)} title="AI Persona" style={{ color: activePersona?.id !== "default" ? "var(--accent)" : undefined }}>
+              <span style={{ fontSize: "1rem" }}>{activePersona?.avatar || "🤖"}</span>
+            </button>
+            {messages.length > 1 && (
+              <button className="icon-btn" onClick={() => setShowSummary(true)} title="Summarize conversation">📌</button>
+            )}
             <button className="icon-btn" onClick={() => setShowCalc(true)} title="Calculator"><CalcIcon /></button>
             <button className="icon-btn" onClick={() => setShowTimer(true)} title="Focus Timer"><TimerIcon /></button>
             <button className="icon-btn" onClick={() => setChatSearchOpen(v => !v)} title="Search (Ctrl+F)"><SearchIcon /></button>
@@ -2726,6 +3159,9 @@ export default function App() {
                       {msg.role === "assistant" && msg.usedWebSearch && (
                         <div className="web-search-badge used"><GlobeIcon /> {t.webSearched}</div>
                       )}
+                      {msg.role === "assistant" && msg.usedWebSearch && (
+                        <SourceCards sources={extractSourceUrls(msg.content)} />
+                      )}
                       {msg.role === "assistant" && msg.usedYoutube && (
                         <div className="web-search-badge" style={{ color: "#ff0000", background: "rgba(255,0,0,0.06)", borderColor: "rgba(255,0,0,0.18)" }}>
                           <YTIcon /> {msg.ytInfo?.title ? `Notes: ${msg.ytInfo.title.slice(0, 40)}` : t.ytNotes}
@@ -2808,7 +3244,9 @@ export default function App() {
             <div className="msg assistant">
               <div className="msg-av bot-av">V</div>
               <div className="msg-body">
-                <TypingIndicator text={isWebSearching ? "Searching + fetching content…" : isYtFetching ? "Analyzing video…" : ""} />
+                <div className="typing-wrap">
+                  <TypingIndicator text={isWebSearching ? "Searching + fetching content…" : isYtFetching ? "Analyzing video…" : ""} />
+                </div>
               </div>
             </div>
           )}
@@ -2853,7 +3291,7 @@ export default function App() {
             </div>
           )}
           <form className="input-box" onSubmit={sendMessage}>
-            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept="image/*,application/pdf,.txt,.csv,.js,.py,.jsx,.ts,.tsx,.json,.md" />
+            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" />
             {filePreview && (
               <div className="file-prev">
                 <img src={filePreview} alt="" />
@@ -2889,12 +3327,16 @@ export default function App() {
             </div>
           </form>
           <p className="input-note">
+            {!backendAvailable && <span style={{ color: "var(--accent)", fontWeight: 600 }}>🌐 Direct AI Mode · </span>}
+            {isPdfLoading && <span style={{ color: "#3b82f6", fontWeight: 600 }}>📄 Parsing PDF… · </span>}
             VetroAI can make mistakes.&nbsp;
             {isYtMode     ? "YouTube mode uses video transcripts — accuracy depends on transcript availability." :
              isDeepSearch ? "DeepSearch combines multiple web queries; cross-check cited sources for critical decisions." :
              isWebMode    ? "Web mode fetches live data and page content — verify important info." :
                             "Please verify important information."}
           </p>
+          {messages.length > 0 && <ContextWindowBar messages={messages} />}
+
         </div>
       </main>
     </div>
