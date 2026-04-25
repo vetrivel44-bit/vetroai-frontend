@@ -1789,6 +1789,20 @@ export default function App() {
   // Backend available flag
   const [backendAvailable, setBackendAvailable] = useState(true);
 
+  const checkBackendHealth = useCallback(async () => {
+    try {
+      const res = await fetch(API + "/health", { method: "GET", cache: "no-store" });
+      if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+      setBackendAvailable(true);
+      return true;
+    } catch (err) {
+      setBackendAvailable(false);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => { checkBackendHealth(); }, [checkBackendHealth]);
+
   // ── Search ────────────────────────────────────────────────────────────────────
   const [chatSearchOpen, setChatSearchOpen]     = useState(false);
   const [chatSearchQuery, setChatSearchQuery]   = useState("");
@@ -2483,6 +2497,7 @@ export default function App() {
         signal: ctrl.signal,
       });
       if (!isActive()) return;
+      setBackendAvailable(true);
       // if (res.status === 401) { logout(); return; }
       if (!res.ok) {
         let message = `Server error: ${res.status}`;

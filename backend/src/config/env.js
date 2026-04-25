@@ -21,7 +21,7 @@ module.exports = {
     jwtAccessExpiresIn:  getEnv("JWT_ACCESS_EXPIRES_IN", "15m"),
     jwtRefreshExpiresIn: getEnv("JWT_REFRESH_EXPIRES_IN","7d"),
     bcryptSaltRounds:    Number(getEnv("BCRYPT_SALT_ROUNDS", "12")),
-    corsOrigin:          getEnv("CORS_ORIGIN",           "http://localhost:5173,http://localhost:5174"),
+    corsOrigin:          getEnv("CORS_ORIGIN",           "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"),
     groqApiKey:          getEnv("GROQ_API_KEY",          ""),   // optional — Pollinations.ai fallback used if empty
     groqModel:           getEnv("GROQ_MODEL",            "llama-3.3-70b-versatile"),
     groqTemperature:     Number(getEnv("GROQ_TEMPERATURE", "0.7")),
