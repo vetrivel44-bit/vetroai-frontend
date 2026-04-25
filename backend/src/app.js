@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
-const authRoutes = require("./routes/authRoutes");
+// const authRoutes = require("./routes/authRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const { config } = require("./config/env");
 const logger = require("./utils/logger");
@@ -35,7 +35,7 @@ app.get("/health", (_req, res) =>
   })
 );
 
-app.use("/api/auth", authRoutes);
+// app.use("/api/auth", authRoutes);
 app.use("/", chatRoutes);
 
 app.use(notFoundHandler);

@@ -21,36 +21,28 @@ const swallowError = () => {};
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const MAX_FILE_SIZE_MB = 25;
 
-// ─── DIRECT BROWSER AI (Pollinations.ai — Free, No Key) ─────────────────────
-// Used when backend is unavailable. Uses their OpenAI-compatible endpoint.
+// ─── DIRECT BROWSER AI (Pollinations.ai — Emergency fallback only) ──────────
+// Only used if the backend server is completely unreachable (network down).
 const callPollinationsAI = async (messages, onChunk, signal) => {
-  // Pollinations anonymous model (works without any API key)
-  const POLL_MODEL = "openai"; // use "openai" not "openai-large" for anonymous requests
   const body = JSON.stringify({
-    model: POLL_MODEL,
+    model: "openai-large",
     messages,
     stream: true,
     private: true,
     temperature: 0.7,
   });
-  const res = await fetch("https://text.pollinations.ai/openai", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
-    body,
-    signal,
-  });
-  if (!res.ok) {
-    // Fallback: use the simple GET endpoint (returns plain text, not streamed)
-    const prompt = messages[messages.length - 1]?.content || "";
-    const sysMsg = messages.find(m => m.role === "system")?.content || "";
-    const combined = (sysMsg ? sysMsg.slice(0, 500) + "\n\n" : "") + prompt;
-    const url = `https://text.pollinations.ai/${encodeURIComponent(combined.slice(0, 1500))}?model=openai&private=true`;
-    const r2 = await fetch(url, { signal });
-    if (!r2.ok) throw new Error(`Pollinations error: ${r2.status}`);
-    const text = await r2.text();
-    onChunk(text);
-    return;
+  let res;
+  try {
+    res = await fetch("https://text.pollinations.ai/openai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+      body,
+      signal,
+    });
+  } catch (err) {
+    throw new Error(`Cannot reach AI service: ${err.message}`);
   }
+  if (!res.ok) throw new Error(`AI service error: ${res.status}`);
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -71,6 +63,7 @@ const callPollinationsAI = async (messages, onChunk, signal) => {
     }
   }
 };
+
 
 
 // ─── PDF TEXT EXTRACTION (client-side, no library needed) ─────────────────────
@@ -125,38 +118,22 @@ const estimateTokens = (messages) => {
   return Math.ceil(chars / 4);
 };
 
-// ── FIX 1: Improved truncation detection ──────────────────────────────────────
+// Strict truncation detection — only fire for definite structural breaks
 const isLikelyTruncatedAnswer = (text = "") => {
   const t = String(text || "").trim();
-  if (!t || t.length < 100) return false;
+  // Require a substantial response before checking
+  if (!t || t.length < 300) return false;
 
-  // Unclosed code fences
+  // Unclosed code fences — most reliable signal
   const fences = (t.match(/```/g) || []).length;
   if (fences % 2 !== 0) return true;
 
-  // Unclosed parentheses/brackets (rough heuristic)
-  const opens  = (t.match(/[([{]/g) || []).length;
-  const closes = (t.match(/[)\]}]/g) || []).length;
-  if (opens > closes + 4) return true;
+  // Trailing operator that clearly indicates code was cut mid-statement
+  if (/[([{,=]\s*$/.test(t)) return true;
 
-  // SQL / code patterns mid-statement
-  if (/(INSERT INTO|VALUES|CREATE TABLE|SELECT|FROM|WHERE|JOIN|UPDATE|DELETE)\s*[\w"'(]*\s*$/i.test(t)) return true;
-
-  // Trailing operator / punctuation indicating more is coming
-  if (/[([{,=:+\-*|&\\]\s*$/.test(t)) return true;
-
-  // Last non-empty line looks like an incomplete sentence
+  // Mid-numbered-list cut: ends with just "N." or "N)" alone on a line
   const lines    = t.split("\n").map(l => l.trim()).filter(Boolean);
   const lastLine = lines[lines.length - 1] || "";
-  const words    = lastLine.split(/\s+/).filter(Boolean);
-  if (
-    words.length >= 4 &&
-    lastLine.length > 20 &&
-    !/[.!?:)\]}"'`*]$/.test(lastLine) &&
-    !/^\d+\.\s/.test(lastLine)          // not a list item ending mid-way
-  ) return true;
-
-  // Mid-numbered-list cut: ends with "N." or "N)" pattern
   if (/^\s*\d+[.)]\s*$/.test(lastLine)) return true;
 
   return false;
@@ -1726,7 +1703,7 @@ export default function App() {
   const [isLoading, setIsLoading]           = useState(false);
   const [isTyping, setIsTyping]             = useState(false);
   const [temperature, setTemperature]       = useState(0.7);
-  const [maxTokens, setMaxTokens]           = useState(1400);
+  const [maxTokens, setMaxTokens]           = useState(4096);
   const [safeMode, setSafeMode]             = useState(true);
   const [lockModelPerChat, setLockModelPerChat] = useState(false);
   const [showScrollDn, setShowScrollDn]     = useState(false);
@@ -2021,7 +1998,7 @@ export default function App() {
     try {
       const res  = await fetch(API + "/generate-title", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ firstMessage: firstMsg }),
       });
       const data = await res.json();
@@ -2105,7 +2082,7 @@ export default function App() {
     try {
       const res  = await fetch(API + "/follow-ups", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lastMessage: lastBotMsg.slice(0, 600), userQuery: userQuery?.slice(0, 150) || "" }),
       });
       const data = await res.json();
@@ -2372,7 +2349,7 @@ export default function App() {
     try {
       const res = await fetch(API + "/chat", {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: {},
         body: fd,
         signal: abortRef.current?.signal,
       });
@@ -2501,12 +2478,12 @@ export default function App() {
     try {
       const res = await fetch(API + "/chat", {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: {},
         body: fd,
         signal: ctrl.signal,
       });
       if (!isActive()) return;
-      if (res.status === 401) { logout(); return; }
+      // if (res.status === 401) { logout(); return; }
       if (!res.ok) {
         let message = `Server error: ${res.status}`;
         try {
@@ -2986,9 +2963,9 @@ export default function App() {
             <input
               id="max-token-slider"
               type="range"
-              min="300"
-              max="2600"
-              step="100"
+              min="1024"
+              max="8192"
+              step="256"
               value={maxTokens}
               onChange={(e) => setMaxTokens(Number(e.target.value))}
             />
@@ -3328,7 +3305,6 @@ export default function App() {
             </div>
           </form>
           <p className="input-note">
-            {!backendAvailable && <span style={{ color: "var(--accent)", fontWeight: 600 }}>🌐 Direct AI Mode · </span>}
             {isPdfLoading && <span style={{ color: "#3b82f6", fontWeight: 600 }}>📄 Parsing PDF… · </span>}
             VetroAI can make mistakes.&nbsp;
             {isYtMode     ? "YouTube mode uses video transcripts — accuracy depends on transcript availability." :
