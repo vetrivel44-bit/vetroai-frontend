@@ -25,11 +25,11 @@ const MODEL_ALIASES = {
   persona:      "llama-3.3-70b-versatile",
 };
 
-// Pollinations model mapping (free, no key required)
+// Pollinations model mapping (free, no key required) — use "openai" for anonymous
 const POLLINATIONS_MODEL_MAP = {
-  "llama-3.1-8b-instant":     "llama",
-  "llama-3.3-70b-versatile":  "llama",
-  "llama-3.2-11b-vision-preview": "llama",
+  "llama-3.1-8b-instant":         "openai",
+  "llama-3.3-70b-versatile":      "openai",
+  "llama-3.2-11b-vision-preview": "openai",
 };
 
 const SAFE_PATTERNS = [

@@ -24,9 +24,10 @@ const MAX_FILE_SIZE_MB = 25;
 // ─── DIRECT BROWSER AI (Pollinations.ai — Free, No Key) ─────────────────────
 // Used when backend is unavailable. Uses their OpenAI-compatible endpoint.
 const callPollinationsAI = async (messages, onChunk, signal) => {
-  // Try the new v1 endpoint first
+  // Pollinations anonymous model (works without any API key)
+  const POLL_MODEL = "openai"; // use "openai" not "openai-large" for anonymous requests
   const body = JSON.stringify({
-    model: "openai-large",
+    model: POLL_MODEL,
     messages,
     stream: true,
     private: true,
@@ -42,8 +43,8 @@ const callPollinationsAI = async (messages, onChunk, signal) => {
     // Fallback: use the simple GET endpoint (returns plain text, not streamed)
     const prompt = messages[messages.length - 1]?.content || "";
     const sysMsg = messages.find(m => m.role === "system")?.content || "";
-    const combined = sysMsg ? `${sysMsg}\n\nUser: ${prompt}` : prompt;
-    const url = `https://text.pollinations.ai/${encodeURIComponent(combined.slice(0, 2000))}?model=openai-large&private=true`;
+    const combined = (sysMsg ? sysMsg.slice(0, 500) + "\n\n" : "") + prompt;
+    const url = `https://text.pollinations.ai/${encodeURIComponent(combined.slice(0, 1500))}?model=openai&private=true`;
     const r2 = await fetch(url, { signal });
     if (!r2.ok) throw new Error(`Pollinations error: ${r2.status}`);
     const text = await r2.text();
