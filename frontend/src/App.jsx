@@ -25,7 +25,7 @@ const MAX_FILE_SIZE_MB = 25;
 // Only used if the backend server is completely unreachable (network down).
 const callPollinationsAI = async (messages, onChunk, signal) => {
   const body = JSON.stringify({
-    model: "openai-large",
+    model: "openai",
     messages,
     stream: true,
     private: true,
