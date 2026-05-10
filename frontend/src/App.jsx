@@ -676,8 +676,29 @@ const AI_MODELS = [
   { id: "persona",     name: "Custom Persona",   provider: "Groq",      icon: "🎭", ctx: "32K", tags: ["Custom","Role"],   desc: "Chat with a custom AI personality you define",color: "#d946ef" },
 ];
 
+const ModelIcon = ({ id, size = 16 }) => {
+  const m = AI_MODELS.find(x => x.id === id);
+  if (!m) return "🤖";
+  switch(id) {
+    case "fast_chat": return <Zap size={size} />;
+    case "vtu_academic": return <GraduationCap size={size} />;
+    case "debugger": return <Terminal size={size} />;
+    case "creative": return <Paintbrush size={size} />;
+    case "analyst": return <Calculator size={size} />;
+    case "web_search": return <Globe size={size} />;
+    case "deep_search": return <Brain size={size} />;
+    case "youtube": return <Play size={size} />;
+    case "translator": return <Globe size={size} />;
+    case "interviewer": return <Target size={size} />;
+    case "astrology": return <Star size={size} />;
+    case "vision": return <Bot size={size} />;
+    case "persona": return <Bot size={size} />;
+    default: return <span>{m.icon}</span>;
+  }
+};
+
 // Keep MODES alias for any legacy references
-const MODES = AI_MODELS.map(m => ({ id: m.id, name: `${m.icon} ${m.name}` }));
+const MODES = AI_MODELS.map(m => ({ id: m.id, name: m.name }));
 
 
 const AVATARS = ["🧑","🤖","🦊","🐼","🐸","🦁","🐯","🦅","🌟","🔥","💎","🚀","🌈","🎨","🦋","🐉","🌙","⚡","🧠","🎯","🦄","🌊","🪐","🎭","🏔️"];
@@ -1606,7 +1627,7 @@ function ModelPickerModal({ current, onSelect, onClose }) {
               onClick={() => { onSelect(m.id); onClose(); }}
             >
               <div className="model-card-top">
-                <span className="model-card-icon">{m.icon}</span>
+                <span className="model-card-icon"><ModelIcon id={m.id} size={20} /></span>
                 <div className="model-card-info">
                   <span className="model-card-name">{m.name}</span>
                   <span className="model-card-provider">{m.provider} · {m.ctx} ctx</span>
@@ -2801,7 +2822,7 @@ export default function App() {
           <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
           <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, session booking and more — all in one place.</p>
           <div className="auth-hero-features">
-            [[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Calendar size={16} />,"Session booking"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
+            {[[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Calendar size={16} />,"Session booking"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
               <div key={lb} className="auth-hero-feat"><span>{ic}</span>{lb}</div>
             ))}
           </div>
@@ -2939,6 +2960,16 @@ export default function App() {
 
         <button className="new-btn" onClick={newChat}><PlusIcon />{t.newChat}</button>
 
+        {/* Model Picker at the top */}
+        <button className="model-picker-btn top-picker" onClick={() => setShowModelPicker(true)} style={{ margin: "10px 16px", width: "calc(100% - 32px)", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", padding: "10px", borderRadius: "10px", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
+          <ModelIcon id={selectedMode} size={18} />
+          <div style={{ flex: 1, textAlign: "left" }}>
+            <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.name || "Select Model"}</div>
+            <div style={{ fontSize: "0.68rem", color: "var(--ink-4)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.provider}</div>
+          </div>
+          <ArrowDown size={14} />
+        </button>
+
         <div className="sb-search">
           <SearchIcon />
           <input placeholder={t.search} value={histSearch} onChange={e => setHistSearch(e.target.value)} />
@@ -2948,7 +2979,7 @@ export default function App() {
         <nav className="history">
           {pinnedSessions.length > 0 && (
             <>
-              <div className="hist-label">📌 {t.pinnedSection}</div>
+              <div className="hist-label" style={{ display: "flex", alignItems: "center", gap: 4 }}><PinIcon /> {t.pinnedSection}</div>
               {pinnedSessions.map(s => (
                 <div key={s.id} className={`hist-item${s.id === currentSessionId ? " active" : ""}`} onClick={() => loadSession(s.id)}>
                   <span className="hist-title">{s.title}</span>
@@ -2975,10 +3006,10 @@ export default function App() {
             </React.Fragment>
           ))}
           {sessions.length === 0 && (
-            <div className="hist-empty"><span>💬</span><p>No conversations yet</p></div>
+            <div className="hist-empty"><span><Bot size={16} /></span><p>No conversations yet</p></div>
           )}
           {sessions.length > 0 && histSearch && Object.values(groupedSessions).every(g => !g?.length) && pinnedSessions.length === 0 && (
-            <div className="hist-empty"><span>🔍</span><p>No matching chats</p></div>
+            <div className="hist-empty"><span><SearchIcon /></span><p>No matching chats</p></div>
           )}
         </nav>
 
@@ -3058,15 +3089,7 @@ export default function App() {
             />
           </div>
 
-          <button className="model-picker-btn" onClick={() => setShowModelPicker(true)}>
-            <span style={{ fontSize: "1.1rem" }}>{AI_MODELS.find(m => m.id === selectedMode)?.icon || "🤖"}</span>
-            <div style={{ flex: 1, textAlign: "left" }}>
-              <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.name || "Select Model"}</div>
-              <div style={{ fontSize: "0.68rem", color: "var(--ink-4)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.provider}</div>
-            </div>
-            <ChevDown />
-          </button>
-          <button className="signout-btn" onClick={logout}>{t.logout}</button>
+          <button className="signout-btn" onClick={logout} style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", width: "calc(100% - 32px)", margin: "10px 16px" }}><X size={14} />{t.logout}</button>
         </div>
       </aside>
 
@@ -3076,7 +3099,10 @@ export default function App() {
           <div className="ch-left">
             <button className="icon-btn mobile-only" onClick={() => setIsSidebarOpen(true)}><MenuIcon /></button>
             <div className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`}>
-              {MODES.find(m => m.id === selectedMode)?.name}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <ModelIcon id={selectedMode} size={14} />
+                <span>{AI_MODELS.find(m => m.id === selectedMode)?.name}</span>
+              </div>
               {(isWebMode || isDeepSearch) && <span className="web-live-dot" />}
               {isYtMode && <span className="web-live-dot" style={{ background: "#ff0000" }} />}
             </div>
