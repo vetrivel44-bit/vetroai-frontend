@@ -6,19 +6,12 @@ const { config } = require("../config/env");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
 
 // ── DB availability check ─────────────────────────────────────────────────────
-const mongoose = require("mongoose");
-let User, RefreshToken;
+let User, RefreshToken, dbAvailable = false;
 try {
   User = require("../models/User");
   RefreshToken = require("../models/RefreshToken");
-} catch {}
-
-function isDbAvailable() {
-  return mongoose.connection.readyState === 1;
-}
-
-const { OAuth2Client } = require("google-auth-library");
-const googleClient = new OAuth2Client(config.googleClientId);
+  dbAvailable = true;
+} catch { dbAvailable = false; }
 
 // ── In-memory user store (when MongoDB is unavailable) ───────────────────────
 const inMemoryUsers = new Map();
@@ -28,7 +21,7 @@ const DUMMY_HASH = "$2b$12$KIXm2iQv6OAqAwCQc.ByqO.8Qqw8/ai8FHpE8IKFQZM7Ta03j3Z62
 async function issueTokens(userId) {
   const accessToken  = signAccessToken(userId);
   const refreshToken = signRefreshToken(userId);
-  if (isDbAvailable()) {
+  if (dbAvailable) {
     try {
       await RefreshToken.create({ userId, tokenHash: require("crypto").createHash("sha256").update(refreshToken).digest("hex"), expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000) });
     } catch { /* DB unavailable, skip */ }
@@ -39,7 +32,7 @@ async function issueTokens(userId) {
 async function signup(req, res) {
   const { email, password, name } = req.validated.body;
 
-  if (isDbAvailable()) {
+  if (dbAvailable) {
     try {
       const existing = await User.findOne({ email });
       if (existing) throw new ApiError(409, "Email already registered");
@@ -68,7 +61,7 @@ async function signup(req, res) {
 async function login(req, res) {
   const { email, password } = req.validated.body;
 
-  if (isDbAvailable()) {
+  if (dbAvailable) {
     try {
       const user = await User.findOne({ email });
       if (user && user.lockUntil && user.lockUntil > new Date()) {
@@ -109,53 +102,6 @@ async function login(req, res) {
   return successResponse(res, "Login successful (offline mode)", { user: { id: stored.id, email, name: stored.name }, ...tokens });
 }
 
-async function googleLogin(req, res) {
-  const { token } = req.body;
-  if (!token) throw new ApiError(400, "Google token is required");
-
-  let payload;
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: config.googleClientId,
-    });
-    payload = ticket.getPayload();
-  } catch (err) {
-    throw new ApiError(401, "Invalid Google token");
-  }
-
-  const { email, name, picture } = payload;
-
-  if (isDbAvailable()) {
-    try {
-      let user = await User.findOne({ email });
-      if (!user) {
-        const randomPass = require("crypto").randomBytes(32).toString("hex");
-        const hashed = await bcrypt.hash(randomPass, 10);
-        user = await User.create({ email, name, password: hashed });
-      }
-      const tokens = await issueTokens(user.id);
-      logger.info("auth.google.success", { userId: user.id });
-      return successResponse(res, "Google login successful", { user: { id: user.id, email, name, picture }, ...tokens });
-    } catch (err) {
-      if (err instanceof ApiError) throw err;
-      logger.error("auth.google.db_error", { message: err.message });
-      // fallback to in-memory below
-    }
-  }
-
-  // In-memory fallback
-  let stored = inMemoryUsers.get(email);
-  if (!stored) {
-    const userId = `mem_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    inMemoryUsers.set(email, { id: userId, email, name, password: "google_oauth_no_password" });
-    stored = inMemoryUsers.get(email);
-  }
-  const tokens = await issueTokens(stored.id);
-  logger.info("auth.google.inmemory", { email });
-  return successResponse(res, "Google login successful (offline mode)", { user: { id: stored.id, email, name, picture }, ...tokens });
-}
-
 async function refreshToken(req, res) {
   const { refreshToken: inputToken } = req.validated.body;
   let decoded;
@@ -173,4 +119,4 @@ async function logoutAll(req, res) {
   return successResponse(res, "Logged out from all devices", null);
 }
 
-module.exports = { signup, login, googleLogin, refreshToken, logout, logoutAll };
+module.exports = { signup, login, refreshToken, logout, logoutAll };
