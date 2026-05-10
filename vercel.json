@@ -12,7 +12,7 @@
     }
   ],
   "routes": [
-    { "src": "^/(chat|generate-title|follow-ups|search|health|api/.*)$", "dest": "/backend/api/index.js" },
+    { "src": "^/(chat|generate-title|follow-ups|health)$", "dest": "/backend/api/index.js" },
     { "src": "^/(.*)$", "dest": "/frontend/$1" }
   ]
 }
