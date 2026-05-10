@@ -15,6 +15,7 @@ const router = express.Router();
 
 router.post("/signup", authLimiter, validate(signupSchema), asyncHandler(authController.signup));
 router.post("/login", authLimiter, validate(loginSchema), asyncHandler(authController.login));
+router.post("/google", asyncHandler(authController.googleLogin));
 router.post("/refresh-token", validate(refreshTokenSchema), asyncHandler(authController.refreshToken));
 router.post("/logout", validate(logoutSchema), asyncHandler(authController.logout));
 router.post("/logout-all", authMiddleware, asyncHandler(authController.logoutAll));

@@ -7,6 +7,10 @@ import "katex/dist/katex.min.css";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer } from "lucide-react";
+import StreamingResponse from "./components/structured/StreamingResponse";
+import DataChart from "./components/structured/DataChart";
+import LocationMap from "./components/structured/LocationMap";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -102,12 +106,12 @@ const extractSourceUrls = (text) => {
 
 // ─── CUSTOM AI PERSONAS ────────────────────────────────────────────────────────
 const DEFAULT_PERSONAS = [
-  { id: "default",  name: "VetroAI",          avatar: "🤖", color: "#7c3aed", prompt: "" },
-  { id: "teacher",  name: "Professor",         avatar: "🎓", color: "#3b82f6", prompt: "You are a patient, encouraging professor. Break down complex topics with examples. Always check for understanding." },
-  { id: "coder",    name: "Senior Dev",        avatar: "💻", color: "#10b981", prompt: "You are a senior software engineer with 15 years of experience. Write clean, efficient, production-ready code. Explain trade-offs." },
-  { id: "coach",    name: "Life Coach",        avatar: "🌟", color: "#f59e0b", prompt: "You are an empathetic life coach. Help users set goals, overcome challenges, and think positively. Be supportive and actionable." },
-  { id: "socrates", name: "Socratic Tutor",    avatar: "🧠", color: "#ec4899", prompt: "You are a Socratic tutor. Never give direct answers — guide students to discover answers themselves through thoughtful questions." },
-  { id: "creative", name: "Creative Director", avatar: "🎨", color: "#ef4444", prompt: "You are a creative director and writer. Think outside the box. Your responses are vivid, imaginative, and full of originality." },
+  { id: "default",  name: "VetroAI",          avatar: <Bot size={16} />, color: "#7c3aed", prompt: "" },
+  { id: "teacher",  name: "Professor",         avatar: <GraduationCap size={16} />, color: "#3b82f6", prompt: "You are a patient, encouraging professor. Break down complex topics with examples. Always check for understanding." },
+  { id: "coder",    name: "Senior Dev",        avatar: <Terminal size={16} />, color: "#10b981", prompt: "You are a senior software engineer with 15 years of experience. Write clean, efficient, production-ready code. Explain trade-offs." },
+  { id: "coach",    name: "Life Coach",        avatar: <Star size={16} />, color: "#f59e0b", prompt: "You are an empathetic life coach. Help users set goals, overcome challenges, and think positively. Be supportive and actionable." },
+  { id: "socrates", name: "Socratic Tutor",    avatar: <Brain size={16} />, color: "#ec4899", prompt: "You are a Socratic tutor. Never give direct answers — guide students to discover answers themselves through thoughtful questions." },
+  { id: "creative", name: "Creative Director", avatar: <Paintbrush size={16} />, color: "#ef4444", prompt: "You are a creative director and writer. Think outside the box. Your responses are vivid, imaginative, and full of originality." },
 ];
 const getCustomPersonas = () => { try { return JSON.parse(localStorage.getItem("vetroai_personas") || "[]"); } catch { return []; } };
 const saveCustomPersonas = (p) => localStorage.setItem("vetroai_personas", JSON.stringify(p));
@@ -245,8 +249,8 @@ function CalcWidget({ onClose }) {
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 320 }}>
         <div className="modal-topbar">
-          <h3 className="modal-title">🧮 Calculator</h3>
-          <button className="modal-x" onClick={onClose}>✕</button>
+          <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><Calculator size={18} /> Calculator</h3>
+          <button className="modal-x" onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} /></button>
         </div>
         <div className="modal-body">
           <div className="calc-display">
@@ -285,7 +289,11 @@ function FocusTimer({ onClose }) {
   const [sessions, setSessions] = useState(0);
   const tick = useRef(null);
 
-  const MODES_T = { focus: [25, "🎯 Focus"], short: [5, "☕ Short Break"], long: [15, "🌿 Long Break"] };
+  const MODES_T = { 
+    focus: [25, "Focus", <Target size={14} />], 
+    short: [5, "Short Break", <Coffee size={14} />], 
+    long: [15, "Long Break", <Leaf size={14} />] 
+  };
 
   const reset = (m) => { setMode(m); setRunning(false); clearInterval(tick.current); setMins(MODES_T[m][0]); setSecs(0); };
 
@@ -321,13 +329,15 @@ function FocusTimer({ onClose }) {
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 340 }}>
         <div className="modal-topbar">
-          <h3 className="modal-title">⏱️ Focus Timer</h3>
-          <button className="modal-x" onClick={onClose}>✕</button>
+          <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><Timer size={18} /> Focus Timer</h3>
+          <button className="modal-x" onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} /></button>
         </div>
         <div className="modal-body" style={{ alignItems: "center", display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-            {Object.entries(MODES_T).map(([k, [, label]]) => (
-              <button key={k} className={`btn-ghost${mode === k ? " active" : ""}`} style={{ fontSize: "0.72rem" }} onClick={() => reset(k)}>{label}</button>
+            {Object.entries(MODES_T).map(([k, [, label, icon]]) => (
+              <button key={k} className={`btn-ghost${mode === k ? " active" : ""}`} style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 4 }} onClick={() => reset(k)}>
+                {icon} {label}
+              </button>
             ))}
           </div>
           <svg width={140} height={140} viewBox="0 0 140 140">
@@ -342,10 +352,14 @@ function FocusTimer({ onClose }) {
               {MODES_T[mode][1]}
             </text>
           </svg>
-          {sessions > 0 && <p style={{ fontSize: "0.8rem", color: "var(--ink-3)" }}>✅ {sessions} session{sessions > 1 ? "s" : ""} completed today</p>}
+          {sessions > 0 && <p style={{ fontSize: "0.8rem", color: "var(--ink-3)", display: "flex", alignItems: "center", gap: 4 }}><Check size={14} style={{ color: "#10b981" }} /> {sessions} session{sessions > 1 ? "s" : ""} completed today</p>}
           <div style={{ display: "flex", gap: 12 }}>
-            <button className="btn-primary" onClick={() => setRunning(v => !v)}>{running ? "⏸ Pause" : "▶ Start"}</button>
-            <button className="btn-ghost" onClick={() => reset(mode)}>↺ Reset</button>
+            <button className="btn-primary" onClick={() => setRunning(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {running ? <Pause size={14} /> : <Play size={14} />} {running ? "Pause" : "Start"}
+            </button>
+            <button className="btn-ghost" onClick={() => reset(mode)} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <RotateCcw size={14} /> Reset
+            </button>
           </div>
         </div>
       </div>
@@ -361,6 +375,7 @@ const CURRENT_TRIGGERS = [
   /\b(stock|crypto|bitcoin|market|weather|election|war|match|game|ipl|cricket|football)\b/i,
   /\b(just (happened|announced|released|launched))\b/i,
   /\b(trending|viral|happening)\b/i,
+  /\b(compare|comparison|versus|vs|ranking|top|highest|lowest|trend|growth|decline|over time|history|historical|percentage|distribution|breakdown)\b/i,
 ];
 const needsWebSearch = (q) => CURRENT_TRIGGERS.some(rx => rx.test(q));
 
@@ -2463,13 +2478,70 @@ export default function App() {
       systemPromptRef.current || "",
     ].filter(Boolean).join("\n\n");
 
+    // Visualization Rules
+    sysContent += "\n\n## VISUALIZATION RULES\n" +
+      "Graphs should automatically appear in BOTH General Chat and Data Analysis Mode ONLY when the user query strongly indicates that visualization will improve understanding.\n\n" +
+      "### KEYWORDS/TRIGGERS THAT SHOULD GENERATE GRAPHS\n" +
+      "1. **Comparison** (compare, comparison, versus, vs, difference between, ranking, top, highest, lowest, better than, performance comparison) -> Use: `bar`, `horizontal-bar`, `radar`, `multi-series`\n" +
+      "2. **Trend / Time-Series** (trend, growth, decline, over time, history, historical, yearly, monthly, daily, timeline, progress, increase, decrease, analytics over time) -> Use: `line`, `area`, `timeline`\n" +
+      "3. **Percentage / Distribution** (percentage, distribution, share, market share, vote share, breakdown, allocation, composition, proportion, split) -> Use: `pie`, `donut`, `stacked-bar`\n" +
+      "4. **Multi-Metric Analysis** (benchmark, capabilities, strengths, weaknesses, score comparison, performance metrics, attribute comparison, analysis across categories) -> Use: `radar`, `multi-series`\n" +
+      "5. **Financial / Analytics** (revenue, stock, profit, sales, finance, earnings, analytics, dashboard, KPI, metrics, investment, market analysis) -> Use: `line`, `area`, `multi-series`\n" +
+      "6. **Election / Political** (seats, vote share, election prediction, constituency analysis, alliance comparison, political analysis) -> Use: `bar`, `stacked-bar`, `donut`\n" +
+      "7. **Timeline/Event** (roadmap, releases, launch history, milestones, events over time, chronological) -> Use: `timeline`\n" +
+      "8. **Directional / Cyclic** (seasonal pattern, cyclic, directional, wind direction, rotation analysis) -> Use: `polar`\n\n" +
+      "### DO NOT GENERATE GRAPHS IF\n" +
+      "- The answer is a simple factual question, casual conversation, definition, joke, greeting, coding without analytics, short answer, or involves only 1-2 simple values.\n" +
+      "- Examples: \"What is Python?\", \"Who is Elon Musk?\", \"Tell me a joke.\", \"What is the capital of India?\" -> Use plain text only.\n\n" +
+      "### INTELLIGENT DECISION RULE\n" +
+      "Before generating graphs, ask internally:\n" +
+      "1. Is there structured comparable data?\n" +
+      "2. Will visualization improve understanding?\n" +
+      "3. Is the dataset large enough?\n" +
+      "4. Which graph makes the answer easiest to understand?\n" +
+      "5. Will the graph remain readable?\n\n" +
+      "### CHART LIBRARY SELECTION RULES\n" +
+      "- Use `recharts` for standard/simple charts (Bar, Line, Area, Pie).\n" +
+      "- Use `apexcharts` for premium interactive dashboards and timeline charts.\n" +
+      "- Use `echarts` for large datasets (50+ points) or complex charts (Heatmaps, Treemaps).\n" +
+      "- Use `chartjs` for radar, polar area, and circular charts.\n\n" +
+      "CRITICAL: If the user's query matches any of the triggers above and contains structured data, you MUST include a JSON block with type 'chart' to render a graph. Do NOT skip it.\n\n" +
+      "Format the JSON EXACTLY as follows (include the 'library' field):\n" +
+      "```json\n" +
+      "{\n" +
+      "  \"type\": \"chart\",\n" +
+      "  \"chartType\": \"bar\",\n" +
+      "  \"library\": \"recharts\",\n" +
+      "  \"title\": \"Chart Title\",\n" +
+      "  \"data\": [\n" +
+      "    {\"label\": \"Label1\", \"value\": 100},\n" +
+      "    {\"label\": \"Label2\", \"value\": 150}\n" +
+      "  ]\n" +
+      "}\n" +
+      "```\n" +
+      "Be proactive in generating graphs. If the data contains 3 or more comparable values or a sequence, assume a graph WILL help and generate it. Only omit if the answer is purely conversational or a simple fact.\n\n" +
+      "### MAP GENERATION RULES\n" +
+      "If the user asks for a location, address, directions, or wants to see a place on a map, you MUST include a JSON block with type 'location' to render a Google Map. Do NOT skip it.\n\n" +
+      "Format the JSON EXACTLY as follows:\n" +
+      "```json\n" +
+      "{\n" +
+      "  \"type\": \"location\",\n" +
+      "  \"place\": \"Eiffel Tower, Paris\",\n" +
+      "  \"summary\": \"The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris.\",\n" +
+      "  \"details\": [\n" +
+      "    {\"label\": \"Height\", \"value\": \"330m\"},\n" +
+      "    {\"label\": \"Opened\", \"value\": \"1889\"}\n" +
+      "  ]\n" +
+      "}\n" +
+      "```\n";
+
     // Mode-specific instructions
     if (curMode === "translator")  sysContent = "You are a professional translator. Detect the language and translate accurately. Provide both literal and natural translations.\n\n" + sysContent;
     if (curMode === "interviewer") sysContent = "You are a professional technical interviewer. Ask challenging questions, evaluate answers, provide feedback. Cover DSA, system design, and behavioral questions.\n\n" + sysContent;
 
     // FIX 2D: Search-specific instructions — much more directive
     if (shouldSearch && webContext) {
-      sysContent += `\n\n${"═".repeat(55)}\n🌐 LIVE SEARCH RESULTS (treat as ground truth — use these as your PRIMARY source):\n${"═".repeat(55)}\n\n${webContext}\n\n${"═".repeat(55)}\n\nCRITICAL SEARCH RULES:\n1. Base your answer DIRECTLY on the search results above — they reflect today's reality.\n2. If a DIRECT ANSWER field is present, use it as your primary answer verbatim.\n3. Quote exact numbers, scores, prices, and dates from the results.\n4. NEVER say "I don't have real-time data" — you DO have it via the results above.\n5. Always cite source URLs (e.g. "Source: <url>") for factual claims.\n6. If results conflict, state both versions and their sources.\n7. Compare dates in results against TODAY (${nowISO}) to identify what is current.`;
+      sysContent += `\n\n${"═".repeat(55)}\n🌐 LIVE SEARCH RESULTS (treat as ground truth — use these as your PRIMARY source):\n${"═".repeat(55)}\n\n${webContext}\n\n${"═".repeat(55)}\n\nCRITICAL SEARCH RULES:\n1. Base your answer DIRECTLY on the search results above — they reflect today's reality.\n2. If a DIRECT ANSWER field is present, use it as your primary answer verbatim.\n3. Quote exact numbers, scores, prices, and dates from the results.\n4. NEVER say "I don't have real-time data" — you DO have it via the results above.\n5. Always cite source URLs (e.g. "Source: <url>") for factual claims.\n6. If results conflict, state both versions and their sources.\n7. Compare dates in results against TODAY (${nowISO}) to identify what is current.\n\n## WEB SEARCH + GRAPH INTEGRATION RULES\nIf you decide to generate a chart (based on the VISUALIZATION RULES), you MUST act as a web-data extraction layer and strictly follow these rules:\n1. **Never directly pass raw web-search text into charts**. You must parse, structure, validate, and normalize the data first.\n2. **AI-Powered Schema Generation**: Convert text claims into clean JSON datasets. E.g., "Bitcoin rose from $42,000 in Jan 2024 to $95,000 in Dec 2025" -> \`[{"label": "Jan 2024", "value": 42000}, {"label": "Dec 2025", "value": 95000}]\`.\n3. **Validation**: Ensure all data points have valid labels and numeric values. NEVER use "Unknown" as a label if you can avoid it. Never render empty or broken analytics.\n4. **Time-Series Extraction**: For trend charts, detect chronological order, parse month/year correctly, and sort dates automatically.\n5. **Source-Aware Parsing**: Extract meaningful structured datasets from news, Wikipedia, or financial snippets provided in the search results.`;
     } else if (shouldSearch && !webContext) {
       sysContent += `\n\n⚠️ NOTICE: Web search returned no results for this query. Clearly tell the user your data may be outdated (training cutoff Oct 2024) and suggest they verify from a live source.`;
     }
@@ -2729,7 +2801,7 @@ export default function App() {
           <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
           <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, session booking and more — all in one place.</p>
           <div className="auth-hero-features">
-            {[["⚡","Instant answers"],["🌐","Live web search"],["▶️","YouTube notes"],["📅","Session booking"],["🎨","AI image gen"],["🧠","Memory across chats"]].map(([ic,lb]) => (
+            [[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Calendar size={16} />,"Session booking"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
               <div key={lb} className="auth-hero-feat"><span>{ic}</span>{lb}</div>
             ))}
           </div>
@@ -3172,6 +3244,40 @@ export default function App() {
                           code({ inline, className, children }) {
                             const match = /language-(\w+)/.exec(className || "");
                             const str   = String(children).replace(/\n$/, "");
+                            
+                            if (!inline && match && match[1] === "json") {
+                              try {
+                                // Strip comments if any
+                                const cleanedStr = str.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+                                const data = JSON.parse(cleanedStr);
+                                if (data.type === "chart") {
+                                  return (
+                                    <div className="inline-chart-container" style={{ margin: "16px 0", width: "100%" }}>
+                                      <DataChart 
+                                        title={data.title} 
+                                        data={data.data} 
+                                        chartType={data.chartType} 
+                                        library={data.library || "recharts"} 
+                                      />
+                                    </div>
+                                  );
+                                } else if (data.type === "location" || data.type === "map") {
+                                  return (
+                                    <div className="inline-map-container" style={{ margin: "16px 0", width: "100%" }}>
+                                      <LocationMap 
+                                        place={data.place} 
+                                        summary={data.summary} 
+                                        coordinates={data.coordinates} 
+                                        details={data.details} 
+                                      />
+                                    </div>
+                                  );
+                                }
+                              } catch (e) {
+                                // Fall through to normal code block if parse fails
+                              }
+                            }
+                            
                             return !inline && match
                               ? <CodeBlock match={match} codeString={str} copyLabel={t.copy} />
                               : <code className="icode">{children}</code>;
@@ -3205,7 +3311,7 @@ export default function App() {
                             <button onClick={() => handleRegen(idx)} title={t.regen}><ReloadIcon /></button>
                             {/* FIX 1: Keep manual continue as fallback */}
                             {isLikelyTruncatedAnswer(msg.content) && (
-                              <button onClick={() => requestContinuation(idx)} title="Manually continue answer" style={{ color: "var(--accent)" }}>⤵️</button>
+                              <button onClick={() => requestContinuation(idx)} title="Manually continue answer" style={{ color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}><CornerDownRight size={14} /></button>
                             )}
                             <button onClick={() => handleFeedback(idx, "up")} title="Good response" style={{ color: feedback === "up" ? "#10b981" : undefined }}><ThumbsUpIcon /></button>
                             <button onClick={() => handleFeedback(idx, "down")} title="Bad response" style={{ color: feedback === "down" ? "#e05454" : undefined }}><ThumbsDnIcon /></button>
@@ -3247,7 +3353,7 @@ export default function App() {
         </div>
 
         {showScrollDn && (
-          <button className="scroll-btn" onClick={scrollToBottom} title="Scroll to bottom">↓</button>
+          <button className="scroll-btn" onClick={scrollToBottom} title="Scroll to bottom" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowDown size={16} /></button>
         )}
 
         {/* INPUT AREA */}
@@ -3255,7 +3361,7 @@ export default function App() {
           {systemPrompt && (
             <div className="sys-strip">
               <BotIcon /><span>{t.systemPromptBadge}: {systemPrompt.slice(0, 55)}{systemPrompt.length > 55 ? "…" : ""}</span>
-              <button onClick={() => setSystemPrompt("")}>✕</button>
+              <button onClick={() => setSystemPrompt("")} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} /></button>
             </div>
           )}
           {isYtMode && (
@@ -3293,11 +3399,11 @@ export default function App() {
             )}
             {selFile && !filePreview && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", background: "var(--bg-hover)", borderRadius: 8, fontSize: "0.78rem", color: "var(--ink-2)", flexShrink: 0, marginBottom: 4 }}>
-                📎 {selFile.name}
-                <button type="button" onClick={() => { setSelFile(null); setFilePreview(null); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", padding: 0, fontSize: "0.75rem" }}>✕</button>
+                <Paperclip size={14} style={{ flexShrink: 0 }} /> {selFile.name}
+                <button type="button" onClick={() => { setSelFile(null); setFilePreview(null); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", padding: 0, fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} /></button>
               </div>
             )}
-            <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()} title="Attach file">📎</button>
+            <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()} title="Attach file" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><Paperclip size={16} /></button>
             <textarea ref={textareaRef}
               placeholder={
                 isListening && !isVoiceOpen ? t.listening :

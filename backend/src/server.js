@@ -32,7 +32,8 @@ async function bootstrap() {
     logger.info("server.started", {
       port: config.port,
       env: config.nodeEnv,
-      groqKey: process.env.GROQ_API_KEY ? "✅ configured" : "⚠️ missing (using Pollinations.ai fallback)",
+      groqKey: process.env.GROQ_API_KEY ? "✅ configured" : "⚠️ missing",
+
       mongodb: "removed (offline mode)",
     });
   });
