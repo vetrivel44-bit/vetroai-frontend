@@ -168,7 +168,7 @@ or
           this.sendVetroEvent(res, "status", `Wait, ${currentProviderName} is busy. Trying ${nextProvider} instead...`);
           currentProviderName = nextProvider;
         } else {
-          this.sendVetroEvent(res, "error", "All available AI models are currently at capacity. Please try again in 30 seconds.");
+          this.sendVetroEvent(res, "error", `All available AI models are currently at capacity. Last error: ${err.message}`);
         }
       }
     }
