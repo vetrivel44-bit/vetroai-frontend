@@ -1,10 +1,10 @@
 {
   "name": "ai-chatbot-backend",
   "version": "1.0.0",
-  "main": "server.js",
-  "type": "module",
+  "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
