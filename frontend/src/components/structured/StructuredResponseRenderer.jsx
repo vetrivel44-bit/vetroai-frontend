@@ -1,6 +1,7 @@
 import HeroSummary from './HeroSummary';
 import HighlightAlert from './HighlightAlert';
 import ComparisonCards from './ComparisonCards';
+import ComparisonTable from './ComparisonTable';
 import MetricCards from './MetricCards';
 import StepTimeline from './StepTimeline';
 import CollapsibleDetails from './CollapsibleDetails';
@@ -96,7 +97,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
 
       // Check if it looks like our structured JSON
       const sub = text.slice(start, start + 300);
-      if (!sub.includes('"type"') || !/(onboarding|editor|results|location|gallery|chart)/.test(sub)) {
+      if (!sub.includes('"type"') || !/(onboarding|editor|results|location|gallery|chart|timeline|comparison_table)/.test(sub)) {
         bIndex = start + 1;
         continue;
       }
@@ -145,12 +146,29 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
           .replace(/,\s*}/g, '}')
           .replace(/,\s*\]/g, ']');
         const data = JSON.parse(cleanedContent);
-        if (data.type === 'location') {
-          sections.push({ type: 'location', place: data.place, summary: data.summary, coordinates: data.coordinates, details: data.details, delay: 0.4 });
+        if (data.type === 'location' || data.type === 'route') {
+          sections.push({ 
+            type: 'location', 
+            place: data.place || data.destination, 
+            summary: data.summary, 
+            coordinates: data.coordinates, 
+            points: data.points, 
+            details: data.details,
+            origin: data.origin,
+            destination: data.destination,
+            waypoints: data.waypoints,
+            routeData: data.routeData,
+            type: data.type === 'route' ? 'route' : 'location',
+            delay: 0.4 
+          });
         } else if (data.type === 'visual_gallery') {
           sections.push({ type: 'gallery', query: data.query, images: data.images, delay: 0.5 });
         } else if (data.type === 'chart') {
           sections.push({ type: 'chart', chartType: data.chartType || 'bar', library: data.library || 'recharts', title: data.title, data: data.data, delay: 0.5 });
+        } else if (data.type === 'timeline') {
+          sections.push({ type: 'timeline', title: data.title, steps: data.steps, delay: 0.5 });
+        } else if (data.type === 'comparison_table') {
+          sections.push({ type: 'comparison_table', title: data.title, options: data.options, features: data.features, delay: 0.5 });
         } else if (data.type === 'editor') {
           sections.push({ type: 'editor', language: data.language, questionNumber: data.questionNumber, totalQuestions: data.totalQuestions, signature: data.signature, delay: 0.5 });
         } else if (data.type === 'results') {
@@ -326,8 +344,11 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
       case 'metrics':
         component = <MetricCards {...commonProps} metrics={section.metrics} />;
         break;
+      case 'comparison_table':
+        component = <ComparisonTable {...commonProps} title={section.title} options={section.options} features={section.features} />;
+        break;
       case 'timeline':
-        component = <StepTimeline {...commonProps} steps={section.steps} />;
+        component = <StepTimeline {...commonProps} title={section.title} steps={section.steps} />;
         break;
       case 'architecture':
         component = <ArchitectureDiagram {...commonProps} title={section.title} nodes={section.nodes} connections={section.connections} />;

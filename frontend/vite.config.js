@@ -8,8 +8,18 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: Number(env.VITE_PORT) || 5173,
-      strictPort: true, // Crucial for Google Login (Authorized Origins)
+      strictPort: true,
       host: true,
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:3000',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
+    },
+    optimizeDeps: {
+      include: ['leaflet', 'react-leaflet']
     }
   }
 })

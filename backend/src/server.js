@@ -28,7 +28,7 @@ async function bootstrap() {
   //   }
   // }
 
-  app.listen(config.port, () => {
+  app.listen(config.port, "0.0.0.0", () => {
     logger.info("server.started", {
       port: config.port,
       env: config.nodeEnv,

@@ -7,13 +7,15 @@ import "katex/dist/katex.min.css";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search } from "lucide-react";
 import StreamingResponse from "./components/structured/StreamingResponse";
+import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 import DataChart from "./components/structured/DataChart";
 import LocationMap from "./components/structured/LocationMap";
+import ThinkingIndicator from "./components/ThinkingIndicator";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API = "/api";
 const SERPER_API_KEY = import.meta.env.VITE_SERPER_API_KEY || "";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const VITE_GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
@@ -27,46 +29,6 @@ const MAX_FILE_SIZE_MB = 25;
 
 // ─── DIRECT BROWSER AI (Pollinations.ai — Emergency fallback only) ──────────
 // Only used if the backend server is completely unreachable (network down).
-const callPollinationsAI = async (messages, onChunk, signal) => {
-  const body = JSON.stringify({
-    model: "openai",
-    messages,
-    stream: true,
-    private: true,
-    temperature: 0.7,
-  });
-  let res;
-  try {
-    res = await fetch("https://text.pollinations.ai/openai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
-      body,
-      signal,
-    });
-  } catch (err) {
-    throw new Error(`Cannot reach AI service: ${err.message}`);
-  }
-  if (!res.ok) throw new Error(`AI service error: ${res.status}`);
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop();
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const raw = line.slice(6).trim();
-      if (!raw || raw === "[DONE]") continue;
-      try {
-        const content = JSON.parse(raw)?.choices?.[0]?.delta?.content;
-        if (content) onChunk(content);
-      } catch { /* skip malformed */ }
-    }
-  }
-};
 
 
 
@@ -542,7 +504,7 @@ const addMemory      = (email, fact) => { const mems = getMemories(email); if (!
 
 // ─── TRANSLATIONS ─────────────────────────────────────────────────────────────
 const LANGS = {
-  en: { flag: "🇬🇧", name: "English", t: {
+  en: { flag: "EN", name: "English", t: {
     newChat: "New chat", search: "Search…", logout: "Sign out", send: "Send",
     placeholder: "Message VetroAI…", listening: "Listening…", share: "Share", stop: "Stop",
     welcome: "Good to see you.", welcomeSub: "Ask me anything — I'm here to help.",
@@ -571,7 +533,7 @@ const LANGS = {
     ],
     suggestions: ["Explain a concept simply", "Help me write something", "Debug my code", "Plan my week", "Summarize a topic", "Give me ideas"],
   }},
-  hi: { flag: "🇮🇳", name: "हिंदी", t: {
+  hi: { flag: "HI", name: "हिंदी", t: {
     newChat: "नई चैट", search: "खोजें…", logout: "साइन आउट", send: "भेजें",
     placeholder: "VetroAI को संदेश…", listening: "सुन रहा हूँ…", share: "शेयर", stop: "रोकें",
     welcome: "नमस्ते!", welcomeSub: "मैं आपकी कैसे मदद कर सकता हूँ?",
@@ -600,7 +562,7 @@ const LANGS = {
     ],
     suggestions: ["कुछ सरल समझाएं", "कुछ लिखने में मदद करें", "कोड डीबग करें", "सप्ताह की योजना", "विषय सारांश", "विचार दें"],
   }},
-  kn: { flag: "🇮🇳", name: "ಕನ್ನಡ", t: {
+  kn: { flag: "KN", name: "ಕನ್ನಡ", t: {
     newChat: "ಹೊಸ ಚಾಟ್", search: "ಹುಡುಕಿ…", logout: "ಸೈನ್ ಔಟ್", send: "ಕಳುಹಿಸಿ",
     placeholder: "VetroAI ಗೆ ಸಂದೇಶ…", listening: "ಕೇಳುತ್ತಿದ್ದೇನೆ…", share: "ಹಂಚಿ", stop: "ನಿಲ್ಲಿಸಿ",
     welcome: "ಸ್ವಾಗತ!", welcomeSub: "ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
@@ -629,7 +591,7 @@ const LANGS = {
     ],
     suggestions: ["ಸರಳವಾಗಿ ವಿವರಿಸಿ", "ಬರೆಯಲು ಸಹಾಯ", "ಕೋಡ್ ಡೀಬಗ್", "ವಾರದ ಯೋಜನೆ", "ಸಾರಾಂಶ", "ಆಲೋಚನೆಗಳು"],
   }},
-  es: { flag: "🇪🇸", name: "Español", t: {
+  es: { flag: "ES", name: "Español", t: {
     newChat: "Nuevo chat", search: "Buscar…", logout: "Cerrar sesión", send: "Enviar",
     placeholder: "Mensaje a VetroAI…", listening: "Escuchando…", share: "Compartir", stop: "Detener",
     welcome: "Hola de nuevo.", welcomeSub: "¿En qué puedo ayudarte hoy?",
@@ -660,48 +622,53 @@ const LANGS = {
   }},
 };
 
-const AI_MODELS = [
-  { id: "fast_chat",   name: "VetroAI Flash",   provider: "Groq",      icon: "⚡", ctx: "32K", tags: ["Fast","General"], desc: "Fastest responses for everyday questions",     color: "#f59e0b" },
-  { id: "vtu_academic",name: "Academic Pro",     provider: "Groq",      icon: "🎓", ctx: "32K", tags: ["Study","Exam"],   desc: "Optimized for academic help and exam prep",   color: "#3b82f6" },
-  { id: "debugger",    name: "Code Expert",      provider: "Groq",      icon: "🐛", ctx: "32K", tags: ["Code","Debug"],   desc: "Expert code analysis, debugging and review",  color: "#10b981" },
-  { id: "creative",    name: "Creative Studio",  provider: "Groq",      icon: "✨", ctx: "32K", tags: ["Writing","Art"],  desc: "Creative writing, storytelling and ideation", color: "#ec4899" },
-  { id: "analyst",     name: "Data Analyst",     provider: "Groq",      icon: "📊", ctx: "64K", tags: ["Data","Reports"], desc: "Deep data analysis and structured reports",   color: "#8b5cf6" },
-  { id: "web_search",  name: "Web Search",       provider: "Live",      icon: "🌐", ctx: "Live",tags: ["Real-time","News"],"desc": "Live Google search with page content fetch", color: "#06b6d4" },
-  { id: "deep_search", name: "DeepSearch",       provider: "Multi",     icon: "🧠", ctx: "Live",tags: ["Research","Deep"], desc: "Multi-query research with citations",         color: "#6366f1" },
-  { id: "youtube",     name: "YouTube Analyst",  provider: "Video",     icon: "▶️", ctx: "Video",tags: ["Video","Notes"],  desc: "Instant notes from any YouTube video",        color: "#ef4444" },
-  { id: "translator",  name: "Translator",       provider: "Groq",      icon: "🌍", ctx: "32K", tags: ["Language","Multi"],desc: "Professional multi-language translator",      color: "#14b8a6" },
-  { id: "interviewer", name: "Interview Coach",  provider: "Groq",      icon: "💼", ctx: "32K", tags: ["Career","DSA"],   desc: "Mock interviews, DSA and system design",      color: "#f97316" },
-  { id: "astrology",   name: "Astrologer",       provider: "Groq",      icon: "🔮", ctx: "32K", tags: ["Fun","Spiritual"],"desc": "Vedic astrology and cosmic guidance",        color: "#a855f7" },
-  { id: "vision",      name: "Vision Analyzer",  provider: "Groq",      icon: "👁️", ctx: "8K",  tags: ["Vision","Image"],  desc: "Analyze images, screenshots, and diagrams",  color: "#0ea5e9" },
-  { id: "persona",     name: "Custom Persona",   provider: "Groq",      icon: "🎭", ctx: "32K", tags: ["Custom","Role"],   desc: "Chat with a custom AI personality you define",color: "#d946ef" },
+const PROVIDERS = ["Groq", "Gemini", "Mistral", "SambaNova"];
+
+const MODES_LIST = [
+  { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
+  { id: "deep_search", name: "DeepSearch", icon: "Brain", desc: "Multi-query research with citations" },
+  { id: "analyst", name: "Data Analysis", icon: "Calculator", desc: "Deep data analysis and structured reports" },
+  { id: "multi_ai", name: "Multi-AI", icon: "Zap", desc: "Collaborative multi-model refinement" },
+  { id: "debugger", name: "Coding", icon: "Terminal", desc: "Expert code analysis and debugging" },
+  { id: "creative", name: "Creative", icon: "Paintbrush", desc: "Creative writing and storytelling" },
+  { id: "research", name: "Research", icon: "Globe", desc: "Web-enhanced research and synthesis" },
 ];
 
 const ModelIcon = ({ id, size = 16 }) => {
-  const m = AI_MODELS.find(x => x.id === id);
-  if (!m) return "🤖";
   switch(id) {
-    case "fast_chat": return <Zap size={size} />;
+    case "fast_chat":
+    case "multi_ai":     return <Zap size={size} />;
     case "vtu_academic": return <GraduationCap size={size} />;
-    case "debugger": return <Terminal size={size} />;
-    case "creative": return <Paintbrush size={size} />;
-    case "analyst": return <Calculator size={size} />;
-    case "web_search": return <Globe size={size} />;
-    case "deep_search": return <Brain size={size} />;
-    case "youtube": return <Play size={size} />;
-    case "translator": return <Globe size={size} />;
-    case "interviewer": return <Target size={size} />;
-    case "astrology": return <Star size={size} />;
-    case "vision": return <Bot size={size} />;
-    case "persona": return <Bot size={size} />;
-    default: return <span>{m.icon}</span>;
+    case "debugger":     return <Terminal size={size} />;
+    case "creative":     return <Paintbrush size={size} />;
+    case "analyst":      return <Calculator size={size} />;
+    case "research":
+    case "web_search":
+    case "translator":   return <Globe size={size} />;
+    case "deep_search":  return <Brain size={size} />;
+    case "youtube":      return <Play size={size} />;
+    case "interviewer":  return <Target size={size} />;
+    case "astrology":    return <Star size={size} />;
+    case "normal":
+    case "vision":
+    case "persona":      return <Bot size={size} />;
+    default:             return <Bot size={size} />;
   }
 };
 
 // Keep MODES alias for any legacy references
-const MODES = AI_MODELS.map(m => ({ id: m.id, name: m.name }));
+const MODES = MODES_LIST.map(m => ({ id: m.id, name: m.name }));
 
 
-const AVATARS = ["🧑","🤖","🦊","🐼","🐸","🦁","🐯","🦅","🌟","🔥","💎","🚀","🌈","🎨","🦋","🐉","🌙","⚡","🧠","🎯","🦄","🌊","🪐","🎭","🏔️"];
+const AVATARS = ["User", "Bot", "Zap", "Brain", "Globe", "Star", "Flame", "Rocket", "Palette", "Moon", "Sun", "Target", "Compass", "Anchor", "Crown", "Gem", "Shield", "Heart", "Key", "Lock"];
+
+const AvatarIcon = ({ name, size = 16 }) => {
+  const Icon = {
+    User, Bot, Zap, Brain, Globe, Star, Flame, Rocket, Palette, Moon, Sun, Target, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock
+  }[name] || User;
+  return <Icon size={size} />;
+};
+
 const SYSTEM_PRESETS = [
   "You are a Socratic tutor. Guide with questions only.",
   "You are a senior software engineer. Be concise and precise.",
@@ -712,7 +679,14 @@ const SYSTEM_PRESETS = [
   "You are a medical information assistant. Always recommend consulting a doctor.",
   "You are a math tutor. Show step-by-step working for all problems.",
 ];
-const REACTIONS = ["👍","❤️","😂","😮","🔥","🧠"];
+const REACTIONS = ["ThumbsUp", "Heart", "Smile", "Frown", "Flame", "Brain"];
+
+const ReactionIcon = ({ name, size = 14 }) => {
+  const Icon = {
+    ThumbsUp, Heart, Smile, Frown, Flame, Brain
+  }[name] || ThumbsUp;
+  return <Icon size={size} />;
+};
 
 function getDateGroup(id, t) {
   const ts = parseInt(id, 10);
@@ -729,7 +703,7 @@ const Ic = ({ d, size = 16, fill = "none", sw = 1.75 }) => (
     {typeof d === "string" ? <path d={d} /> : d}
   </svg>
 );
-const SendIcon     = () => <Ic size={15} sw={2} fill="currentColor" d={<><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none" /></>} />;
+const SendIcon     = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="11" fill="var(--ink)" stroke="none" /><path d="M12 16V8M8 12l4-4 4 4" stroke="var(--bg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 const MicIcon      = () => <Ic size={17} d={<><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></>} />;
 const WaveIcon     = () => <svg width={17} height={17} viewBox="0 0 24 24" fill="currentColor"><rect x="11" y="3" width="2" height="18" rx="1" /><rect x="7" y="8" width="2" height="8" rx="1" /><rect x="15" y="8" width="2" height="8" rx="1" /><rect x="3" y="10" width="2" height="4" rx="1" /><rect x="19" y="10" width="2" height="4" rx="1" /></svg>;
 const StopIcon     = () => <Ic size={15} d={<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />} />;
@@ -840,10 +814,10 @@ function Toast({ toasts }) {
 
 function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved }) {
   const PKEY = "vetroai_profile";
-  const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"🧑"}');
+  const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
   const [tab, setTab]     = useState("profile");
   const [name, setName]   = useState(userInfo?.name || init.name || "");
-  const [avatar, setAvatar] = useState(init.avatar || "🧑");
+  const [avatar, setAvatar] = useState(init.avatar || "User");
   const [ok, setOk]       = useState(false);
   const save = () => {
     const data = { name, avatar };
@@ -867,7 +841,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
         {tab === "profile" && (
           <div className="modal-body">
             <div className="av-center">
-              <div className="av-big">{avatar}</div>
+              <div className="av-big"><AvatarIcon name={avatar} size={40} /></div>
               {userInfo?.email && <span style={{ fontSize: "0.78rem", color: "var(--ink-3)" }}>{userInfo.email}</span>}
             </div>
             <div className="field-group">
@@ -875,7 +849,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
               <div className="av-grid">
                 {AVATARS.map(a => (
                   <button key={a} className={`av-opt${avatar === a ? " sel" : ""}`} onClick={() => setAvatar(a)}>
-                    {a}{avatar === a && <span className="av-check"><CheckIcon /></span>}
+                    <AvatarIcon name={a} size={20} />{avatar === a && <span className="av-check"><CheckIcon /></span>}
                   </button>
                 ))}
               </div>
@@ -1028,7 +1002,7 @@ function BookmarksPanel({ bookmarks, onSelect, onRemove, onClose, t }) {
         </div>
         <div className="modal-body">
           {bookmarks.length === 0
-            ? <div className="hist-empty"><span>🔖</span><p>{t.noBookmarks}</p></div>
+            ? <div className="hist-empty"><span><BookmarkIcon /></span><p>{t.noBookmarks}</p></div>
             : bookmarks.map(bm => (
               <div key={bm.id} className="bookmark-item">
                 <div className="bookmark-role">{bm.role === "user" ? "You" : "VetroAI"}</div>
@@ -1057,7 +1031,7 @@ function MemoryPanel({ memories, onClear, onRemove, onClose, t }) {
         </div>
         <div className="modal-body">
           {memories.length === 0
-            ? <div className="hist-empty"><span>🧠</span><p>No memories yet. Say "Remember that…" or "My name is…"</p></div>
+            ? <div className="hist-empty"><span><BrainIcon /></span><p>No memories yet. Say "Remember that…" or "My name is…"</p></div>
             : <>{memories.map((m, i) => (
               <div key={i} className="memory-item">
                 <span>{m}</span>
@@ -1076,7 +1050,7 @@ function MemoryPanel({ memories, onClear, onRemove, onClose, t }) {
 function ReactionPicker({ onPick, onClose }) {
   return (
     <div className="rxn-picker">
-      {REACTIONS.map(r => <button key={r} className="rxn-opt" onClick={() => { onPick(r); onClose(); }}>{r}</button>)}
+      {REACTIONS.map(r => <button key={r} className="rxn-opt" onClick={() => { onPick(r); onClose(); }}><ReactionIcon name={r} /></button>)}
     </div>
   );
 }
@@ -1086,7 +1060,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
     <div className="overlay" onClick={onCancel}>
       <div className="modal" style={{ maxWidth: 340 }} onClick={e => e.stopPropagation()}>
         <div className="modal-topbar">
-          <h3 className="modal-title">⚠️ Confirm</h3>
+          <h3 className="modal-title">Confirm</h3>
           <button className="modal-x" onClick={onCancel}><XIcon /></button>
         </div>
         <div className="modal-body">
@@ -1103,12 +1077,12 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
 
 // ─── BOOKING SYSTEM ──────────────────────────────────────────────────────────
 const BOOKING_SERVICES = [
-  { id: "tutoring", icon: "🎓", name: "Tutoring", desc: "1-on-1 academic help", price: "₹299/hr", color: "#3b82f6" },
-  { id: "code_review", icon: "🐛", name: "Code Review", desc: "Expert code analysis", price: "₹499/hr", color: "#10b981" },
-  { id: "career", icon: "💼", name: "Career Counseling", desc: "Career path guidance", price: "₹399/hr", color: "#8b5cf6" },
-  { id: "project", icon: "🚀", name: "Project Help", desc: "Build projects together", price: "₹599/hr", color: "#f59e0b" },
-  { id: "study", icon: "📚", name: "Study Session", desc: "Group study planning", price: "₹199/hr", color: "#ec4899" },
-  { id: "interview", icon: "🎯", name: "Mock Interview", desc: "Practice interviews", price: "₹449/hr", color: "#ef4444" },
+  { id: "tutoring", icon: <GraduationCap size={16} />, name: "Tutoring", desc: "1-on-1 academic help", price: "₹299/hr", color: "#3b82f6" },
+  { id: "code_review", icon: <Terminal size={16} />, name: "Code Review", desc: "Expert code analysis", price: "₹499/hr", color: "#10b981" },
+  { id: "career", icon: <UserIcon />, name: "Career Counseling", desc: "Career path guidance", price: "₹399/hr", color: "#8b5cf6" },
+  { id: "project", icon: <SparkleIcon />, name: "Project Help", desc: "Build projects together", price: "₹599/hr", color: "#f59e0b" },
+  { id: "study", icon: <BookmarkIcon />, name: "Study Session", desc: "Group study planning", price: "₹199/hr", color: "#ec4899" },
+  { id: "interview", icon: <Target size={16} />, name: "Mock Interview", desc: "Practice interviews", price: "₹449/hr", color: "#ef4444" },
 ];
 
 const getBookings = () => { try { return JSON.parse(localStorage.getItem("vetroai_bookings") || "[]"); } catch { return []; } };
@@ -1147,7 +1121,7 @@ function BookingWidget({ onClose, onBooked }) {
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 420 }}>
         <div className="modal-body" style={{ alignItems: "center", textAlign: "center", padding: 36 }}>
-          <div className="booking-success-icon">✅</div>
+          <div className="booking-success-icon"><CheckIcon /></div>
           <h3 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--ink)", margin: "12px 0 6px" }}>Booking Confirmed!</h3>
           <p style={{ color: "var(--ink-3)", fontSize: "0.88rem", marginBottom: 16 }}>Your session has been scheduled successfully.</p>
           <div className="booking-confirm-card">
@@ -1156,10 +1130,10 @@ function BookingWidget({ onClose, onBooked }) {
             <div className="booking-confirm-row"><span>Date</span><strong>{new Date(confirmed.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</strong></div>
             <div className="booking-confirm-row"><span>Time</span><strong>{confirmed.time}</strong></div>
             <div className="booking-confirm-row"><span>Duration</span><strong>{confirmed.duration} min</strong></div>
-            {confirmed.priority === "urgent" && <div className="booking-confirm-row"><span>Priority</span><strong style={{ color: "#ef4444" }}>🔴 Urgent</strong></div>}
+            {confirmed.priority === "urgent" && <div className="booking-confirm-row"><span>Priority</span><strong style={{ color: "#ef4444" }}>Urgent</strong></div>}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <button className="btn-ghost" onClick={() => { const ics = `BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:VetroAI - ${confirmed.service.name}\nDTSTART:${confirmed.date.replace(/-/g,"")}T${confirmed.time.replace(":","")}00\nDURATION:PT${confirmed.duration}M\nDESCRIPTION:${confirmed.notes || "VetroAI Session"}\nEND:VEVENT\nEND:VCALENDAR`; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([ics],{type:"text/calendar"})); a.download=`vetroai-${confirmed.id}.ics`; a.click(); }}>📅 Add to Calendar</button>
+            <button className="btn-ghost" onClick={() => { const ics = `BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:VetroAI - ${confirmed.service.name}\nDTSTART:${confirmed.date.replace(/-/g,"")}T${confirmed.time.replace(":","")}00\nDURATION:PT${confirmed.duration}M\nDESCRIPTION:${confirmed.notes || "VetroAI Session"}\nEND:VEVENT\nEND:VCALENDAR`; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([ics],{type:"text/calendar"})); a.download=`vetroai-${confirmed.id}.ics`; a.click(); }}><Calendar size={14} /> Add to Calendar</button>
             <button className="btn-primary" onClick={onClose}>Done</button>
           </div>
         </div>
@@ -1171,7 +1145,7 @@ function BookingWidget({ onClose, onBooked }) {
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 520 }}>
         <div className="modal-topbar">
-          <h3 className="modal-title">📅 Book a Session</h3>
+          <h3 className="modal-title"><Calendar size={16} /> Book a Session</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div className="booking-steps">
               {[0, 1, 2].map(s => <div key={s} className={`booking-step-dot${step >= s ? " active" : ""}`} />)}
@@ -1221,8 +1195,8 @@ function BookingWidget({ onClose, onBooked }) {
               <div className="field-group">
                 <label className="field-label">Priority</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button className={`booking-dur-btn${priority === "normal" ? " active" : ""}`} onClick={() => setPriority("normal")}>🟢 Normal</button>
-                  <button className={`booking-dur-btn${priority === "urgent" ? " active" : ""}`} onClick={() => setPriority("urgent")} style={priority === "urgent" ? { borderColor: "#ef4444", background: "rgba(239,68,68,0.08)", color: "#ef4444" } : {}}>🔴 Urgent</button>
+                  <button className={`booking-dur-btn${priority === "normal" ? " active" : ""}`} onClick={() => setPriority("normal")}>Normal</button>
+                  <button className={`booking-dur-btn${priority === "urgent" ? " active" : ""}`} onClick={() => setPriority("urgent")} style={priority === "urgent" ? { borderColor: "#ef4444", background: "rgba(239,68,68,0.08)", color: "#ef4444" } : {}}>Urgent</button>
                 </div>
               </div>
               <div className="field-group">
@@ -1263,7 +1237,7 @@ function BookingHistory({ onClose }) {
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 520 }}>
         <div className="modal-topbar">
-          <h3 className="modal-title">📋 My Bookings ({bookings.length})</h3>
+          <h3 className="modal-title"><Calendar size={16} /> My Bookings ({bookings.length})</h3>
           <button className="modal-x" onClick={onClose}><XIcon /></button>
         </div>
         <div className="modal-body">
@@ -1273,11 +1247,11 @@ function BookingHistory({ onClose }) {
             ))}
           </div>
           {filtered.length === 0 ? (
-            <div className="hist-empty"><span>📅</span><p>No {filter !== "all" ? filter : ""} bookings yet</p></div>
+            <div className="hist-empty"><span><Calendar size={16} /></span><p>No {filter !== "all" ? filter : ""} bookings yet</p></div>
           ) : filtered.map(b => (
             <div key={b.id} className="booking-hist-card">
               <div className="booking-hist-top">
-                <span className="booking-hist-icon">{b.service?.icon || "📅"}</span>
+                <span className="booking-hist-icon">{b.service?.icon || <Calendar size={16} />}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--ink)" }}>{b.service?.name || "Session"}</div>
                   <div style={{ fontSize: "0.76rem", color: "var(--ink-3)" }}>{b.id} · {b.duration}min</div>
@@ -1554,18 +1528,50 @@ function ContextWindowBar({ messages, maxCtx = 32000 }) {
 function SummaryPanel({ messages, onClose, addToast }) {
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(true);
+  
   useEffect(() => {
     const userMsgs = messages.filter(m => m.role === "user").map(m => m.content).join("\n").slice(0, 3000);
     const ctrl = new AbortController();
-    const chunks = [];
-    callPollinationsAI(
-      [
-        { role: "system", content: "Create a concise TL;DR summary of this conversation. Use bullet points. Max 150 words." },
-        { role: "user", content: userMsgs },
-      ],
-      (chunk) => { chunks.push(chunk); setSummary(chunks.join("")); },
-      ctrl.signal
-    ).catch(() => setSummary("Unable to generate summary.")).finally(() => setLoading(false));
+    
+    setLoading(true);
+    fetch(API + "/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        input: "Create a concise TL;DR summary of this conversation. Use bullet points. Max 150 words.",
+        messages: JSON.stringify([{ role: "user", content: userMsgs }]),
+        provider: "groq"
+      }),
+      signal: ctrl.signal
+    })
+    .then(async res => {
+      if (!res.ok) throw new Error("Summary failed");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6);
+            if (dataStr.trim() === "[DONE]") break;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.content) {
+                acc += data.content;
+                setSummary(acc);
+              }
+            } catch {}
+          }
+        }
+      }
+    })
+    .catch(() => setSummary("Unable to generate summary."))
+    .finally(() => setLoading(false));
+
     return () => ctrl.abort();
   }, [messages]);
 
@@ -1595,56 +1601,76 @@ function SummaryPanel({ messages, onClose, addToast }) {
 
 // ─── MODEL PICKER MODAL ───────────────────────────────────────────────────────
 
-function ModelPickerModal({ current, onSelect, onClose }) {
+function ModelPickerModal({ currentMode, currentProvider, onSelectMode, onSelectProvider, onClose }) {
   const [search, setSearch] = useState("");
-  const filtered = AI_MODELS.filter(m =>
+  const filteredModes = MODES_LIST.filter(m =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||
-    m.desc.toLowerCase().includes(search.toLowerCase()) ||
-    m.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
+    m.desc.toLowerCase().includes(search.toLowerCase())
   );
+
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal model-picker-modal">
-        <div className="modal-topbar" style={{ padding: "20px 20px 12px" }}>
+        <div className="modal-topbar">
           <div style={{ flex: 1 }}>
-            <h3 className="modal-title" style={{ fontSize: "1.05rem" }}>🤖 Choose Model</h3>
-            <p style={{ fontSize: "0.76rem", color: "var(--ink-3)", marginTop: 2 }}>Select the AI mode that fits your task</p>
+            <h3 className="modal-title">Select AI Workspace</h3>
+            <p style={{ fontSize: "0.78rem", color: "var(--ink-3)", marginTop: 2 }}>Choose the specialized mode for your task</p>
           </div>
-          <button className="modal-x" onClick={onClose}><XIcon /></button>
+          <button className="modal-x" onClick={onClose}><X size={18} /></button>
         </div>
-        <div style={{ padding: "0 20px 12px" }}>
-          <div className="model-search-box">
-            <SearchIcon />
-            <input placeholder="Search models…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+        
+        <div className="model-search-box">
+          <Search size={18} />
+          <input 
+            placeholder="Search workflows…" 
+            value={search} 
+            onChange={e => setSearch(e.target.value)} 
+            autoFocus 
+          />
+        </div>
+
+        <div className="provider-selector-wrap">
+          <label className="provider-label">Backend Provider</label>
+          <div className="provider-selector">
+            {PROVIDERS.map(p => (
+              <button 
+                key={p} 
+                className={`provider-tab${currentProvider === p ? " active" : ""}`}
+                onClick={() => onSelectProvider(p)}
+              >
+                {p}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="model-picker-grid">
-          {filtered.map(m => (
-            <div
-              key={m.id}
-              className={`model-card${current === m.id ? " active" : ""}`}
-              style={{ "--mc": m.color }}
-              onClick={() => { onSelect(m.id); onClose(); }}
-            >
-              <div className="model-card-top">
-                <span className="model-card-icon"><ModelIcon id={m.id} size={20} /></span>
+
+        <div className="model-picker-scroll">
+          <div className="model-card-list">
+            {filteredModes.map(m => (
+              <div
+                key={m.id}
+                className={`model-card${currentMode === m.id ? " active" : ""}`}
+                onClick={() => { onSelectMode(m.id); onClose(); }}
+              >
+                <div className="model-card-icon">
+                  <ModelIcon id={m.id} size={18} />
+                </div>
                 <div className="model-card-info">
                   <span className="model-card-name">{m.name}</span>
-                  <span className="model-card-provider">{m.provider} · {m.ctx} ctx</span>
+                  <p className="model-card-desc">{m.desc}</p>
                 </div>
-                {current === m.id && <span className="model-card-check"><CheckIcon /></span>}
+                <div className="model-card-check">
+                  <Check size={18} />
+                </div>
               </div>
-              <p className="model-card-desc">{m.desc}</p>
-              <div className="model-card-tags">
-                {m.tags.map(tag => <span key={tag} className="model-tag">{tag}</span>)}
+            ))}
+            {filteredModes.length === 0 && (
+              <div className="hist-empty" style={{ padding: "40px 20px" }}>
+                <span>🔍</span>
+                <p>No modes match "{search}"</p>
               </div>
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className="hist-empty" style={{ gridColumn: "1/-1" }}>
-              <span>🔍</span><p>No models match "{search}"</p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1655,7 +1681,7 @@ function ModelPickerModal({ current, onSelect, onClose }) {
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [theme, setTheme]         = useState(() => localStorage.getItem("vetroai_theme") || "light");
+  const [theme, setTheme]         = useState(() => localStorage.getItem("vetroai_theme") || "dark");
   const [langCode, setLangCode]   = useState(() => localStorage.getItem("vetroai_lang") || "en");
   const t = LANGS[langCode]?.t || LANGS.en.t;
 
@@ -1731,6 +1757,7 @@ export default function App() {
   const [editIdx, setEditIdx]               = useState(null);
   const [editInput, setEditInput]           = useState("");
   const [selectedMode, setSelectedMode]     = useState(MODES[0].id);
+  const [selectedProvider, setSelectedProvider] = useState("Groq");
   const isYtMode     = selectedMode === "youtube";
   const isWebMode    = selectedMode === "web_search";
   const isDeepSearch = selectedMode === "deep_search";
@@ -1749,6 +1776,15 @@ export default function App() {
   const [streamingContent, setStreamingContent] = useState("");
   // FIX 1: track auto-continuation status
   const [isContinuing, setIsContinuing]     = useState(false);
+  const [streamStatus, setStreamStatus]     = useState("idle"); // idle, preparing, streaming, retrying, recovering, failed
+  const [debugLogs, setDebugLogs]           = useState([]);
+  const [showDebug, setShowDebug]           = useState(false);
+
+  const addDebugLog = (event, data = {}) => {
+    const entry = { ts: new Date().toLocaleTimeString(), event, ...data };
+    console.log(`[DEBUG] ${event}`, data);
+    setDebugLogs(prev => [entry, ...prev].slice(0, 50));
+  };
   const abortRef     = useRef(null);
   const requestIdRef = useRef(0);
   const transcriptCacheRef = useRef(new Map());
@@ -1757,6 +1793,41 @@ export default function App() {
   const [isWebSearching, setIsWebSearching] = useState(false);
   const [autoWebSearch, setAutoWebSearch]   = useState(true);
   const currentMode = MODES.find(m => m.id === selectedMode) || MODES[0];
+
+  // ── Backend Health ────────────────────────────────────────────────────────────
+  const [backendStatus, setBackendStatus] = useState("checking");
+  const [providerStatus, setProviderStatus] = useState({});
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.shiftKey && e.key === "D") {
+        setShowDebug(prev => !prev);
+        addToast("Debug Panel " + (!showDebug ? "Enabled" : "Disabled"), "info");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showDebug]);
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch(API + "/health");
+        if (res.ok) {
+          const json = await res.json();
+          setBackendStatus(json.data?.backend || "online");
+          setProviderStatus(json.data?.providers || {});
+        } else {
+          setBackendStatus("offline");
+        }
+      } catch {
+        setBackendStatus("offline");
+      }
+    };
+    checkHealth();
+    const id = setInterval(checkHealth, 30000); // Check every 30s
+    return () => clearInterval(id);
+  }, []);
 
   const suggestionOptions = isYtMode
     ? [
@@ -1899,7 +1970,7 @@ export default function App() {
     const applyAuthPayload = (payload) => {
       const accessToken = payload?.accessToken;
       if (!accessToken) {
-        setAuthError("⚠️ Invalid auth response from server.");
+        setAuthError("Invalid auth response from server.");
         setAuthLoading(false);
         return false;
       }
@@ -1975,7 +2046,7 @@ export default function App() {
         localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
         setUser(localToken);
         setUserInfo(info);
-        addToast("⚠️ Server offline — running in offline mode. Chat features still work!", "info", 5000);
+        addToast("Server offline — running in offline mode. Chat features still work!", "info", 5000);
         setAuthLoading(false);
         return;
       }
@@ -1993,13 +2064,13 @@ export default function App() {
           return;
         }
         setAuthMode("login");
-        setAuthError("✅ Account created! Please sign in.");
+        setAuthError("Account created! Please sign in.");
         setAuthLoading(false);
         return;
       }
       applyAuthPayload(payload);
     } catch {
-      setAuthError("⚠️ Something went wrong. Please try again.");
+      setAuthError("Something went wrong. Please try again.");
     }
     setAuthLoading(false);
   };
@@ -2229,8 +2300,24 @@ export default function App() {
     if (!c.trim()) return;
     const u   = new SpeechSynthesisUtterance(c);
     const vs  = window.speechSynthesis.getVoices();
-    u.voice   = vs.find(v => v.name.includes("AriaNeural")) || vs.find(v => v.lang === "en-US") || vs[0];
-    u.pitch   = 0.95; u.rate = 1.05;
+    
+    const hasHindi = /[\u0900-\u097F]/.test(c);
+    const hasSpanish = /[áéíóúñÁÉÍÓÚÑ]/.test(c);
+    const targetLang = hasHindi ? "hi" : hasSpanish ? "es" : "en";
+    
+    const premiumFemales = ["Aria", "Samantha", "Zira", "Karen", "Victoria", "Tessa", "Google UK English Female", "Google US English", "Amalia", "Monica", "Lekha"];
+    
+    let best = vs.find(v => v.lang.startsWith(targetLang) && premiumFemales.some(n => v.name.includes(n)))
+            || vs.find(v => v.lang.startsWith(targetLang) && (v.name.toLowerCase().includes("female") || v.name.includes("Natural") || v.name.includes("Online")))
+            || vs.find(v => v.lang.startsWith(targetLang))
+            || vs.find(v => premiumFemales.some(n => v.name.includes(n))) 
+            || vs[0];
+            
+    u.voice = best;
+    u.lang = best?.lang || (hasHindi ? 'hi-IN' : hasSpanish ? 'es-ES' : 'en-US');
+    u.pitch = 1.08; 
+    u.rate = 1.02;
+    
     u.onstart = () => { try { recogRef.current?.stop(); } catch (err) { swallowError(err); } setIsListening(false); };
     u.onend   = () => { if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
     window.speechSynthesis.speak(u);
@@ -2242,7 +2329,11 @@ export default function App() {
     if (window.speechSynthesis?.onvoiceschanged !== undefined) window.speechSynthesis.onvoiceschanged = lv;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
-    const sr = new SR(); sr.interimResults = true;
+    const sr = new SR(); 
+    sr.interimResults = true;
+    sr.continuous = true;
+    sr.lang = navigator.language || 'en-US';
+    
     sr.onresult = e => {
       if (window.speechSynthesis?.speaking) return;
       let txt = "";
@@ -2250,23 +2341,28 @@ export default function App() {
       setInput(txt);
     };
     sr.onend = () => {
-      setIsListening(false);
-      if (voiceRef.current) {
+      if (voiceRef.current && !loadRef.current && !window.speechSynthesis?.speaking) {
         const cur = inputRef.current || "";
-        if (cur.trim() && !loadRef.current && !window.speechSynthesis?.speaking) {
+        if (cur.trim()) {
           submitVoiceRef.current?.(cur);
         } else {
           setTimeout(() => {
             if (voiceRef.current && !loadRef.current && !window.speechSynthesis?.speaking) {
-              try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
+              try { sr.start(); setIsListening(true); } catch (err) { swallowError(err); }
             }
-          }, 800);
+          }, 400);
         }
+      } else {
+        setIsListening(false);
       }
     };
     sr.onerror = e => {
-      setIsListening(false);
-      if (e.error === "not-allowed") { setIsVoiceOpen(false); addToast("⚠️ Microphone access denied", "error"); }
+      if (e.error === "not-allowed") { setIsListening(false); setIsVoiceOpen(false); addToast("⚠️ Microphone access denied", "error"); }
+      if (e.error === "no-speech" || e.error === "network") {
+         if (voiceRef.current && !window.speechSynthesis?.speaking) {
+             try { sr.start(); setIsListening(true); } catch (err) { swallowError(err); }
+         }
+      }
     };
     recogRef.current = sr;
   }, [addToast]);
@@ -2308,12 +2404,11 @@ export default function App() {
     else { setFilePreview(null); addToast(`📎 ${f.name} attached`, "success", 2000); }
   };
 
-
   const stopGeneration = () => {
     requestIdRef.current += 1;
     abortRef.current?.abort();
     setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false);
-    setStreamingContent(""); setIsContinuing(false);
+    setStreamingContent(""); setIsContinuing(false); setStreamStatus("idle");
   };
 
   const insertFmt = (pre, suf = "") => {
@@ -2324,363 +2419,146 @@ export default function App() {
     setTimeout(() => { if (textareaRef.current) { textareaRef.current.focus(); textareaRef.current.setSelectionRange(s + pre.length, s + pre.length + (sel || "text").length); } }, 0);
   };
 
-  // ── FIX 1: Stream helper — shared SSE reader ──────────────────────────────────
-  const readSSEStream = async (reader, onChunk, isActive) => {
+  const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId) => {
     const dec = new TextDecoder();
     let lineBuffer = "";
     let accumulated = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!isActive()) return accumulated;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!isActive()) return accumulated;
+        lineBuffer += dec.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop();
 
-      lineBuffer += dec.decode(value, { stream: true });
-      const lines = lineBuffer.split("\n");
-      lineBuffer  = lines.pop(); // keep incomplete last line
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (!raw || raw === "[DONE]") continue;
 
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const raw = line.slice(6).trim();
-        if (!raw || raw === "[DONE]") continue;
-        try {
-          const content = JSON.parse(raw).content;
-          if (content) { accumulated += content; onChunk(accumulated); }
-        } catch { /* skip malformed chunk */ }
+          try {
+            const { type, data } = JSON.parse(raw);
+            if (type === "content" && data) {
+              accumulated += data;
+              onChunk(accumulated);
+            } else if (type === "status" && data) {
+              onStatus(data);
+            } else if (type === "error" && data) {
+              onError(data);
+            }
+          } catch (err) {
+            console.error("SSE parse error:", err, raw);
+          }
+        }
       }
+    } catch (err) {
+      console.error("SSE read error:", err);
+      throw err;
     }
-
-    // Flush remaining buffer
-    if (lineBuffer.startsWith("data: ")) {
-      const raw = lineBuffer.slice(6).trim();
-      if (raw && raw !== "[DONE]") {
-        try {
-          const content = JSON.parse(raw).content;
-          if (content) { accumulated += content; onChunk(accumulated); }
-        } catch (err) { swallowError(err); }
-      }
-    }
-
     return accumulated;
   };
 
-  // ── FIX 1: Auto-continuation — appends seamlessly to the last message ─────────
-  const fetchContinuation = useCallback(async (existingContent, origHist, depth, requestId) => {
-    if (depth >= 3) return; // max 3 auto-continuations
-
-    const isActive = () => requestIdRef.current === requestId && !abortRef.current?.signal.aborted;
-    if (!isActive()) return;
-
-    setIsContinuing(true);
-    setIsLoading(true);
-
-    const contPrompt = "Continue EXACTLY from where you stopped. Output ONLY the continuation — no intro, no repetition, start mid-sentence if needed. Make sure to complete all code blocks and sentences.";
-    const contHist   = [
-      ...origHist,
-      { role: "assistant", content: existingContent },
-      { role: "user",      content: contPrompt },
-    ];
-
-    const fd = new FormData();
-    fd.append("input",    contPrompt);
-    fd.append("model",    selectedModeRef.current);
-    fd.append("temperature", String(temperature));
-    fd.append("maxTokens", String(maxTokens));
-    fd.append("safeMode", safeMode ? "true" : "false");
-
-    const ctx = contHist.slice(-12).map(m => ({ role: m.role, content: m.content }));
-    const nowISO = new Date().toISOString().slice(0, 10);
-    ctx.unshift({
-      role: "system",
-      content: `Today: ${nowISO}. You are continuing a PREVIOUS response that was cut off. Output ONLY the continuation text starting from where you stopped. CRITICAL: Close any open code fences (\`\`\`) and complete all sentences and lists before ending.`,
-    });
-    fd.append("messages", JSON.stringify(ctx));
-
-    try {
-      const res = await fetch(API + "/chat", {
-        method: "POST",
-        headers: {},
-        body: fd,
-        signal: abortRef.current?.signal,
-      });
-      if (!isActive() || !res.ok) {
-        setIsLoading(false);
-        setIsContinuing(false);
-        addToast("Unable to continue answer. Please retry.", "error");
-        return;
-      }
-
-      const reader = res.body.getReader();
-      let fullContent = existingContent;
-
-      await readSSEStream(reader, (accContinuation) => {
-        if (!isActive()) return;
-        fullContent = existingContent + accContinuation;
-        setMessages(prev => {
-          const u = [...prev];
-          u[u.length - 1] = { ...u[u.length - 1], content: fullContent };
-          return u;
-        });
-        setStreamingContent(fullContent);
-        if (!isScrolling.current) scrollToBottom();
-      }, isActive);
-
-      setStreamingContent("");
-      if (!isActive()) return;
-      setIsLoading(false);
-      setIsContinuing(false);
-
-      // Recurse if still truncated (and continuation added meaningful content)
-      const continuation = fullContent.slice(existingContent.length);
-      if (continuation.length > 80 && isLikelyTruncatedAnswer(fullContent)) {
-        await fetchContinuation(fullContent, origHist, depth + 1, requestId);
-      } else {
-        // Final message is clean — trigger follow-ups
-        generateFollowUps(fullContent, origHist[origHist.length - 1]?.content || "");
-      }
-    } catch (err) {
-      setIsLoading(false); setIsContinuing(false);
-      if (err.name !== "AbortError") swallowError(err);
-    }
-  }, [scrollToBottom, generateFollowUps, temperature, maxTokens, safeMode, addToast]);
-
-  // ── MAIN AI CALL ──────────────────────────────────────────────────────────────
   const triggerAI = async (hist, fileData = null, ytContext = null) => {
+    const reqId = Date.now().toString();
     abortRef.current?.abort();
     const ctrl      = new AbortController(); abortRef.current = ctrl;
     const requestId = ++requestIdRef.current;
     const isActive  = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
 
-    setIsLoading(true); setIsTyping(true); scrollToBottom(); stopSpeak();
+    setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
     setFollowUps([]); setIsContinuing(false);
 
-    const userQuery    = hist[hist.length - 1]?.content || "";
-    const curMode      = selectedModeRef.current;
-    const isYtMode     = curMode === "youtube";
-    const isWebMode    = curMode === "web_search";
-    const isDeepSearch = curMode === "deep_search";
-    const shouldSearch = isWebMode || isDeepSearch || (autoWebSearchRef.current && needsWebSearch(userQuery));
-    const isFirstMsg   = hist.filter(m => m.role === "user").length === 1;
-
-    let webContext = null;
-    if (shouldSearch && !ytContext) {
-      setIsWebSearching(true);
-      webContext = await Promise.race([
-        (isDeepSearch ? fetchDeepSearchContext(userQuery) : fetchWebResults(userQuery)),
-        new Promise(resolve => setTimeout(() => resolve(null), isDeepSearch ? 9000 : 6000)),
-      ]);
-      if (!isActive()) return;
-      setIsWebSearching(false);
-    }
-
-    const memFact = extractMemory(userQuery);
-    if (memFact) handleAddMemory(memFact);
+    const userQuery = hist[hist.length - 1]?.content || "";
+    const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
     const fd = new FormData();
     fd.append("input", userQuery);
-    fd.append("model", (isYtMode || isWebMode || isDeepSearch) ? "fast_chat" : curMode);
+    fd.append("messages", JSON.stringify(hist.slice(-12)));
+    fd.append("mode", selectedMode);
+    fd.append("provider", selectedProvider);
     fd.append("temperature", String(temperature));
     fd.append("maxTokens", String(maxTokens));
-    fd.append("safeMode", safeMode ? "true" : "false");
-
-    const ctx             = hist.slice(-10).map(m => ({ role: m.role, content: m.content?.slice(0, 4000) }));
-    const now             = new Date();
-    const nowStr          = now.toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-    const nowISO          = now.toISOString().slice(0, 10);
-    const currentMemories = userInfo?.email ? getMemories(userInfo.email) : [];
-
-    // ── FIX 2D: Improved system prompt ──────────────────────────────────────────
-    let sysContent = [
-      `TODAY IS: ${nowStr} (${nowISO}). Current year: ${now.getFullYear()}.`,
-      `NEVER say an event "hasn't happened yet" if it's plausible given today's date.`,
-      currentMemories.length ? `USER CONTEXT:\n${currentMemories.map(m => `• ${m}`).join("\n")}` : "",
-      // Active persona prompt
-      activePersona?.prompt || "",
-      systemPromptRef.current || "",
-    ].filter(Boolean).join("\n\n");
-
-    // Visualization Rules
-    sysContent += "\n\n## VISUALIZATION RULES\n" +
-      "Graphs should automatically appear in BOTH General Chat and Data Analysis Mode ONLY when the user query strongly indicates that visualization will improve understanding.\n\n" +
-      "### KEYWORDS/TRIGGERS THAT SHOULD GENERATE GRAPHS\n" +
-      "1. **Comparison** (compare, comparison, versus, vs, difference between, ranking, top, highest, lowest, better than, performance comparison) -> Use: `bar`, `horizontal-bar`, `radar`, `multi-series`\n" +
-      "2. **Trend / Time-Series** (trend, growth, decline, over time, history, historical, yearly, monthly, daily, timeline, progress, increase, decrease, analytics over time) -> Use: `line`, `area`, `timeline`\n" +
-      "3. **Percentage / Distribution** (percentage, distribution, share, market share, vote share, breakdown, allocation, composition, proportion, split) -> Use: `pie`, `donut`, `stacked-bar`\n" +
-      "4. **Multi-Metric Analysis** (benchmark, capabilities, strengths, weaknesses, score comparison, performance metrics, attribute comparison, analysis across categories) -> Use: `radar`, `multi-series`\n" +
-      "5. **Financial / Analytics** (revenue, stock, profit, sales, finance, earnings, analytics, dashboard, KPI, metrics, investment, market analysis) -> Use: `line`, `area`, `multi-series`\n" +
-      "6. **Election / Political** (seats, vote share, election prediction, constituency analysis, alliance comparison, political analysis) -> Use: `bar`, `stacked-bar`, `donut`\n" +
-      "7. **Timeline/Event** (roadmap, releases, launch history, milestones, events over time, chronological) -> Use: `timeline`\n" +
-      "8. **Directional / Cyclic** (seasonal pattern, cyclic, directional, wind direction, rotation analysis) -> Use: `polar`\n\n" +
-      "### DO NOT GENERATE GRAPHS IF\n" +
-      "- The answer is a simple factual question, casual conversation, definition, joke, greeting, coding without analytics, short answer, or involves only 1-2 simple values.\n" +
-      "- Examples: \"What is Python?\", \"Who is Elon Musk?\", \"Tell me a joke.\", \"What is the capital of India?\" -> Use plain text only.\n\n" +
-      "### INTELLIGENT DECISION RULE\n" +
-      "Before generating graphs, ask internally:\n" +
-      "1. Is there structured comparable data?\n" +
-      "2. Will visualization improve understanding?\n" +
-      "3. Is the dataset large enough?\n" +
-      "4. Which graph makes the answer easiest to understand?\n" +
-      "5. Will the graph remain readable?\n\n" +
-      "### CHART LIBRARY SELECTION RULES\n" +
-      "- Use `recharts` for standard/simple charts (Bar, Line, Area, Pie).\n" +
-      "- Use `apexcharts` for premium interactive dashboards and timeline charts.\n" +
-      "- Use `echarts` for large datasets (50+ points) or complex charts (Heatmaps, Treemaps).\n" +
-      "- Use `chartjs` for radar, polar area, and circular charts.\n\n" +
-      "CRITICAL: If the user's query matches any of the triggers above and contains structured data, you MUST include a JSON block with type 'chart' to render a graph. Do NOT skip it.\n\n" +
-      "Format the JSON EXACTLY as follows (include the 'library' field):\n" +
-      "```json\n" +
-      "{\n" +
-      "  \"type\": \"chart\",\n" +
-      "  \"chartType\": \"bar\",\n" +
-      "  \"library\": \"recharts\",\n" +
-      "  \"title\": \"Chart Title\",\n" +
-      "  \"data\": [\n" +
-      "    {\"label\": \"Label1\", \"value\": 100},\n" +
-      "    {\"label\": \"Label2\", \"value\": 150}\n" +
-      "  ]\n" +
-      "}\n" +
-      "```\n" +
-      "Be proactive in generating graphs. If the data contains 3 or more comparable values or a sequence, assume a graph WILL help and generate it. Only omit if the answer is purely conversational or a simple fact.\n\n" +
-      "### MAP GENERATION RULES\n" +
-      "If the user asks for a location, address, directions, or wants to see a place on a map, you MUST include a JSON block with type 'location' to render a Google Map. Do NOT skip it.\n\n" +
-      "Format the JSON EXACTLY as follows:\n" +
-      "```json\n" +
-      "{\n" +
-      "  \"type\": \"location\",\n" +
-      "  \"place\": \"Eiffel Tower, Paris\",\n" +
-      "  \"summary\": \"The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris.\",\n" +
-      "  \"details\": [\n" +
-      "    {\"label\": \"Height\", \"value\": \"330m\"},\n" +
-      "    {\"label\": \"Opened\", \"value\": \"1889\"}\n" +
-      "  ]\n" +
-      "}\n" +
-      "```\n";
-
-    // Mode-specific instructions
-    if (curMode === "translator")  sysContent = "You are a professional translator. Detect the language and translate accurately. Provide both literal and natural translations.\n\n" + sysContent;
-    if (curMode === "interviewer") sysContent = "You are a professional technical interviewer. Ask challenging questions, evaluate answers, provide feedback. Cover DSA, system design, and behavioral questions.\n\n" + sysContent;
-
-    // FIX 2D: Search-specific instructions — much more directive
-    if (shouldSearch && webContext) {
-      sysContent += `\n\n${"═".repeat(55)}\n🌐 LIVE SEARCH RESULTS (treat as ground truth — use these as your PRIMARY source):\n${"═".repeat(55)}\n\n${webContext}\n\n${"═".repeat(55)}\n\nCRITICAL SEARCH RULES:\n1. Base your answer DIRECTLY on the search results above — they reflect today's reality.\n2. If a DIRECT ANSWER field is present, use it as your primary answer verbatim.\n3. Quote exact numbers, scores, prices, and dates from the results.\n4. NEVER say "I don't have real-time data" — you DO have it via the results above.\n5. Always cite source URLs (e.g. "Source: <url>") for factual claims.\n6. If results conflict, state both versions and their sources.\n7. Compare dates in results against TODAY (${nowISO}) to identify what is current.\n\n## WEB SEARCH + GRAPH INTEGRATION RULES\nIf you decide to generate a chart (based on the VISUALIZATION RULES), you MUST act as a web-data extraction layer and strictly follow these rules:\n1. **Never directly pass raw web-search text into charts**. You must parse, structure, validate, and normalize the data first.\n2. **AI-Powered Schema Generation**: Convert text claims into clean JSON datasets. E.g., "Bitcoin rose from $42,000 in Jan 2024 to $95,000 in Dec 2025" -> \`[{"label": "Jan 2024", "value": 42000}, {"label": "Dec 2025", "value": 95000}]\`.\n3. **Validation**: Ensure all data points have valid labels and numeric values. NEVER use "Unknown" as a label if you can avoid it. Never render empty or broken analytics.\n4. **Time-Series Extraction**: For trend charts, detect chronological order, parse month/year correctly, and sort dates automatically.\n5. **Source-Aware Parsing**: Extract meaningful structured datasets from news, Wikipedia, or financial snippets provided in the search results.`;
-    } else if (shouldSearch && !webContext) {
-      sysContent += `\n\n⚠️ NOTICE: Web search returned no results for this query. Clearly tell the user your data may be outdated (training cutoff Oct 2024) and suggest they verify from a live source.`;
-    }
-
-    if (isDeepSearch) {
-      sysContent += "\n\nDeepSearch mode: Synthesize across ALL source packs. Show clear sections, compare conflicting claims, cite a link per major claim. Never cut off code blocks or SQL mid-statement.";
-    }
-
-    if (ytContext) {
-      sysContent += `\n\n${"━".repeat(50)}\n▶️ YOUTUBE VIDEO:\nTitle: ${ytContext.title}\nChannel: ${ytContext.author}\n\n${ytContext.transcript || "(Transcript unavailable)"}\n${"━".repeat(50)}\n\nGenerate COMPREHENSIVE notes:\n\n## 📋 Video Overview\n## 🔑 Key Points\n## 📚 Detailed Notes\n## 💡 Important Concepts\n## 🎯 Key Takeaways\n## ❓ Possible Quiz Questions\n\nBe thorough, use markdown, include all important details.`;
-    }
-
-    // FIX 1: Stronger anti-truncation rule
-    sysContent += "\n\n⚡ OUTPUT COMPLETENESS RULE: You MUST finish your entire response in one go. Never end mid-sentence, mid-code-block, mid-SQL statement, or mid-list. Every opened ``` MUST be closed with ```. If your answer is very long, prioritize completing it fully over covering every subtopic.";
-
-    if (sysContent.trim()) ctx.unshift({ role: "system", content: sysContent });
-    fd.append("messages", JSON.stringify(ctx));
+    fd.append("reqId", reqId);
+    fd.append("memories", JSON.stringify(userInfo?.email ? getMemories(userInfo.email) : []));
+    
     if (fileData) fd.append("file", fileData);
 
     try {
+      addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode });
+      
       const res = await fetch(API + "/chat", {
         method: "POST",
-        headers: {},
         body: fd,
-        signal: ctrl.signal,
+        signal: ctrl.signal
       });
+      
       if (!isActive()) return;
-      setBackendAvailable(true);
-      // if (res.status === 401) { logout(); return; }
+      
       if (!res.ok) {
-        let message = `Server error: ${res.status}`;
-        try {
-          const data = await res.json();
-          const detail = Array.isArray(data?.data) ? data.data.map((d) => d?.message || d).join(" · ") : "";
-          message = detail || data?.message || message;
-        } catch { /* ignore parse errors */ }
-        throw new Error(message);
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Server error: ${res.status}`);
       }
 
       const reader = res.body.getReader();
       const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
       setIsTyping(false);
-      if (!isActive()) return;
       setMessages(prev => [...prev, {
         role: "assistant", content: "", timestamp: ts,
-        usedWebSearch: shouldSearch && !!webContext,
-        usedYoutube: !!ytContext,
+        provider: selectedProvider,
         ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
       }]);
 
-      // Use the shared SSE reader
-      const bot = await readSSEStream(reader, (acc) => {
-        if (!isActive()) return;
-        setMessages(prev => {
-          const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
-        });
-        setStreamingContent(acc);
-        if (!isScrolling.current) scrollToBottom();
-      }, isActive);
+      setStreamStatus("streaming");
+      const bot = await readSSEStream(
+        reader, 
+        (acc) => {
+          if (!isActive()) return;
+          setMessages(prev => {
+            const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+          });
+          setStreamingContent(acc);
+          if (!isScrolling.current) scrollToBottom();
+        },
+        (statusMsg) => {
+          if (!isActive()) return;
+          setStreamStatus(statusMsg);
+          addDebugLog("SSE.status", { status: statusMsg });
+        },
+        (errorMsg) => {
+          addToast(errorMsg, "error");
+        },
+        isActive, 
+        reqId
+      );
 
+      setIsLoading(false);
+      setStreamStatus("idle");
       setStreamingContent("");
+      
       if (!isActive()) return;
 
-      // ── FIX 1: Auto-continuation if response was truncated ─────────────────────
-      if (bot.length > 150 && isLikelyTruncatedAnswer(bot)) {
-        // Don't set isLoading(false) yet — fetchContinuation will manage it
-        await fetchContinuation(bot, hist, 0, requestId);
-      } else {
-        setIsLoading(false);
-        if (voiceRef.current || autoSpeak) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery);
-        generateFollowUps(bot, userQuery);
-      }
+      if (voiceRef.current || autoSpeak) speak(bot);
+      if (isFirstMsg) updateSessionTitle(userQuery);
+      generateFollowUps(bot, userQuery);
 
     } catch (err) {
-      setIsLoading(false); setIsTyping(false); setIsWebSearching(false); setIsYtFetching(false);
-      setStreamingContent(""); setIsContinuing(false);
-      if (err.name === "AbortError") { setSelFile(null); setFilePreview(null); return; }
-
-      // ── BACKEND FAILED → Fall back to direct Pollinations.ai (free, no key) ────────
-      setBackendAvailable(false);
-      addToast("🌐 Backend offline — switching to direct AI mode (Pollinations.ai)", "info", 4000);
-      setIsTyping(true);
+      if (err.name === "AbortError") return;
+      addDebugLog("Chat.catch", { reqId, error: err.message });
+      setIsLoading(false); setStreamStatus("failed");
+      addToast(err.message || "Connection issue", "error");
+      
       const ts2 = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      setMessages(prev => [...prev, { role: "assistant", content: "", timestamp: ts2, isDirectMode: true }]);
-      try {
-        const directCtx = hist.slice(-10).map(m => ({ role: m.role, content: (m.content || "").slice(0, 4000) }));
-        if (sysContent.trim()) directCtx.unshift({ role: "system", content: sysContent });
-        const chunks2 = [];
-        await callPollinationsAI(
-          directCtx,
-          (chunk) => {
-            if (!isActive()) return;
-            chunks2.push(chunk);
-            const acc = chunks2.join("");
-            setMessages(prev => { const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u; });
-            setStreamingContent(acc);
-            if (!isScrolling.current) scrollToBottom();
-          },
-          ctrl.signal
-        );
-        setStreamingContent("");
-        setIsTyping(false);
-        setIsLoading(false);
-        const finalBot = chunks2.join("");
-        if (isFirstMsg) updateSessionTitle(userQuery);
-        generateFollowUps(finalBot, userQuery);
-        const codeMatch = finalBot.match(/```(\w+)?\n([\s\S]{200,})```/);
-        if (codeMatch) { setArtifactCode(codeMatch[2]); setArtifactLang(codeMatch[1] || "text"); }
-      } catch (e2) {
-        setIsTyping(false);
-        if (e2.name !== "AbortError") {
-          addToast("⚠️ AI service unavailable. Check your internet and try again.", "error");
-          setMessages(prev => [...prev, { role: "assistant", content: "⚠️ Both backend and direct AI are unavailable. Please check your internet connection.", timestamp: ts2 }]);
-        }
-      }
-    } finally { setSelFile(null); setFilePreview(null); }
+      setMessages(prev => [...prev, { 
+        role: "assistant", 
+        content: `I encountered an issue: "${err.message}". Please try again.`, 
+        timestamp: ts2 
+      }]);
+    } finally {
+      setSelFile(null); setFilePreview(null);
+    }
   };
 
   const submitVoice = useCallback(txt => {
@@ -2754,6 +2632,18 @@ export default function App() {
     }
 
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    
+    // Diagnostic Command: /test-visual
+    if (text === "/test-visual") {
+      const testContent = `# Diagnostic Analysis: Infrastructure & Logistics\n\nThis is a premium diagnostic summary of the VetroAI visualization engine.\n\n> [!IMPORTANT]\n> The execution pipeline is active. All components below are rendered dynamically from structured JSON blocks.\n\n## Market Performance Comparison\n\n\`\`\`json\n{\n  "type": "chart",\n  "chartType": "bar",\n  "library": "recharts",\n  "title": "Cloud Infrastructure Revenue (Q4 2023)",\n  "data": [\n    {"label": "AWS", "value": 24.2},\n    {"label": "Azure", "value": 18.5},\n    {"label": "Google Cloud", "value": 9.1}\n  ]\n}\n\`\`\`\n\n## Global Logistics Route\n\n\`\`\`json\n{\n  "type": "route",\n  "origin": "Chennai, Tamil Nadu",\n  "destination": "Bangalore, Karnataka",\n  "summary": "Critical industrial corridor connecting the automobile hub to the tech capital.",\n  "waypoints": ["Vellore", "Hosur"],\n  "details": [\n    {"label": "Distance", "value": "346 km"},\n    {"label": "Est. Time", "value": "6h 15m"}\n  ]\n}\n\`\`\`\n\n## Key Metrics\n\n## Performance Analytics\n\n- **Uptime**: 99.99%\n- **Latency**: 45ms\n- **Throughput**: 1.2GB/s\n\n## Implementation Roadmap\n\n1. **Design System**\nInitial UI/UX tokens and architecture.\n2. **Component Build**\nDeveloping modular structured blocks.\n3. **Orchestration**\nConnecting the AI intent to the rendering layer.\n`;
+      setMessages(prev => [...prev, 
+        { role: "user", content: text, timestamp: ts },
+        { role: "assistant", content: testContent, timestamp: ts }
+      ]);
+      setInput("");
+      return;
+    }
+
     const hist = [...messages, { role: "user", content: text, file: selFile ? { preview: filePreview, name: selFile?.name } : null, timestamp: ts }];
     setMessages(hist); setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -2860,10 +2750,10 @@ export default function App() {
             <input className="auth-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
             <div style={{ position: "relative" }}>
               <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
-              <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)" }}>{showPass ? "🙈" : "👁️"}</button>
+              <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.75rem" }}>{showPass ? "Hide" : "Show"}</button>
             </div>
             {authError && (
-              <div style={{ fontSize: "0.82rem", color: authError.includes("✅") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("✅") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("✅") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
+              <div style={{ fontSize: "0.82rem", color: authError.includes("created") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("created") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("created") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
             )}
             <button className="auth-submit-btn" type="submit" disabled={authLoading}>
               {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
@@ -2895,13 +2785,19 @@ export default function App() {
       {showMemory    && <MemoryPanel memories={memories} onClear={clearAllMemory} onRemove={removeMemoryItem} onClose={() => setShowMemory(false)} t={t} />}
       {showCalc      && <CalcWidget onClose={() => setShowCalc(false)} />}
       {showTimer     && <FocusTimer onClose={() => setShowTimer(false)} />}
-      {showModelPicker && <ModelPickerModal current={selectedMode} onSelect={(next) => {
-        if (lockModelPerChat && messages.length > 0) {
-          addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
-          return;
-        }
-        setSelectedMode(next);
-      }} onClose={() => setShowModelPicker(false)} />}
+      {showModelPicker && <ModelPickerModal 
+        currentMode={selectedMode} 
+        currentProvider={selectedProvider}
+        onSelectMode={(next) => {
+          if (lockModelPerChat && messages.length > 0) {
+            addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
+            return;
+          }
+          setSelectedMode(next);
+        }} 
+        onSelectProvider={setSelectedProvider}
+        onClose={() => setShowModelPicker(false)} 
+      />}
       {showBooking   && <BookingWidget onClose={() => setShowBooking(false)} onBooked={(b) => addToast(`✅ Booked: ${b.service.name} — ${b.id}`, "success", 4000)} />}
       {showBookingHistory && <BookingHistory onClose={() => setShowBookingHistory(false)} />}
       {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
@@ -2923,7 +2819,7 @@ export default function App() {
             <div className={`vring r3${isListening ? " on" : ""}`} />
           </div>
           <div className={`vorb${isListening ? " listening" : isLoading ? " loading" : " speaking"}`} onClick={handleOrb}>
-            {isLoading ? "⏳" : isListening ? <MicIcon /> : <WaveIcon />}
+            {isLoading ? <TimerIcon /> : isListening ? <MicIcon /> : <WaveIcon />}
           </div>
           <p className="voice-label">{isListening ? t.voiceListen : isLoading ? t.voiceThink : t.voiceSpeak}</p>
           <p className="voice-hint">{isListening ? t.tapStop : isLoading ? t.tapWait : t.tapInterrupt}</p>
@@ -2960,15 +2856,7 @@ export default function App() {
 
         <button className="new-btn" onClick={newChat}><PlusIcon />{t.newChat}</button>
 
-        {/* Model Picker at the top */}
-        <button className="model-picker-btn top-picker" onClick={() => setShowModelPicker(true)} style={{ margin: "10px 16px", width: "calc(100% - 32px)", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", padding: "10px", borderRadius: "10px", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
-          <ModelIcon id={selectedMode} size={18} />
-          <div style={{ flex: 1, textAlign: "left" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--ink)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.name || "Select Model"}</div>
-            <div style={{ fontSize: "0.68rem", color: "var(--ink-4)" }}>{AI_MODELS.find(m => m.id === selectedMode)?.provider}</div>
-          </div>
-          <ArrowDown size={14} />
-        </button>
+
 
         <div className="sb-search">
           <SearchIcon />
@@ -3098,32 +2986,49 @@ export default function App() {
         <header className="chat-header">
           <div className="ch-left">
             <button className="icon-btn mobile-only" onClick={() => setIsSidebarOpen(true)}><MenuIcon /></button>
-            <div className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`}>
+            <button className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`} onClick={() => setShowModelPicker(true)} style={{ cursor: "pointer", border: "none" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <ModelIcon id={selectedMode} size={14} />
-                <span>{AI_MODELS.find(m => m.id === selectedMode)?.name}</span>
+                <span>{MODES_LIST.find(m => m.id === selectedMode)?.name}</span>
               </div>
               {(isWebMode || isDeepSearch) && <span className="web-live-dot" />}
               {isYtMode && <span className="web-live-dot" style={{ background: "#ff0000" }} />}
-            </div>
+              <ArrowDown size={12} style={{ marginLeft: 4 }} />
+            </button>
             {autoWebSearch && !isWebMode && !isDeepSearch && !isYtMode && (
               <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, opacity: 0.7 }}>
                 <GlobeIcon /> Auto
               </div>
             )}
-            {/* FIX 1: Show "Expanding answer…" indicator during auto-continuation */}
             {isContinuing && (
               <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, color: "var(--accent)", background: "rgba(var(--accent-rgb),0.1)" }}>
-                <WebSpinIcon /> Expanding answer…
+                <WebSpinIcon /> {streamStatus === "recovering" ? "Recovering..." : "Expanding answer…"}
               </div>
             )}
+            {streamStatus !== "idle" && streamStatus !== "completed" && (
+              <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, color: "var(--accent)", background: "rgba(var(--accent-rgb),0.1)" }}>
+                <WebSpinIcon /> {streamStatus.charAt(0).toUpperCase() + streamStatus.slice(1)}...
+              </div>
+            )}
+            {/* Backend Health Status */}
+            <div className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, background: backendStatus === "online" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", color: backendStatus === "online" ? "#10b981" : "#ef4444" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: backendStatus === "online" ? "#10b981" : "#ef4444" }} />
+              API
+            </div>
+            {/* Provider Status */}
+            {Object.entries(providerStatus || {}).map(([name, status]) => (
+              <div key={name} className="mode-pill" style={{ fontSize: "0.7rem", gap: 4, background: status === "healthy" ? "rgba(16,185,129,0.1)" : status === "degraded" ? "rgba(245,158,11,0.1)" : "rgba(239,68,68,0.1)", color: status === "healthy" ? "#10b981" : status === "degraded" ? "#f59e0b" : "#ef4444" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: status === "healthy" ? "#10b981" : status === "degraded" ? "#f59e0b" : "#ef4444" }} />
+                {name}
+              </div>
+            ))}
           </div>
           <div className="ch-right">
             <button className="icon-btn" onClick={() => setShowPersona(true)} title="AI Persona" style={{ color: activePersona?.id !== "default" ? "var(--accent)" : undefined }}>
               <span style={{ fontSize: "1rem" }}>{activePersona?.avatar || "🤖"}</span>
             </button>
             {messages.length > 1 && (
-              <button className="icon-btn" onClick={() => setShowSummary(true)} title="Summarize conversation">📌</button>
+              <button className="icon-btn" onClick={() => setShowSummary(true)} title="Summarize conversation"><BookmarkIcon /></button>
             )}
             <button className="icon-btn" onClick={() => setShowCalc(true)} title="Calculator"><CalcIcon /></button>
             <button className="icon-btn" onClick={() => setShowTimer(true)} title="Focus Timer"><TimerIcon /></button>
@@ -3168,7 +3073,7 @@ export default function App() {
             <div className="welcome">
               <div className="welcome-avatar">V</div>
               <h2 className="welcome-title">
-                {userInfo?.name ? `Hi, ${userInfo.name.split(" ")[0]}! 👋` : t.welcome}
+                {userInfo?.name ? `Hi, ${userInfo.name.split(" ")[0]}!` : t.welcome}
               </h2>
               <p className="welcome-sub">{t.welcomeSub}</p>
               {systemPrompt && <div className="sys-badge"><BotIcon />{t.systemPromptBadge}</div>}
@@ -3189,15 +3094,15 @@ export default function App() {
               )}
               <div className="welcome-cards">
                 {[
-                  { icon: "📅", label: "Book a Session", sub: "Schedule tutoring & more", action: () => setShowBooking(true) },
-                  { icon: "▶️", label: "YouTube Notes", sub: "Paste any YouTube URL", action: () => setSelectedMode("youtube") },
-                  { icon: "🎨", label: "Image Generation", sub: "Create AI images free", action: () => setInput("Generate an image of ") },
-                  { icon: "🌐", label: "Live Web Search", sub: "Real-time Google results", action: () => { setAutoWebSearch(true); setInput("Latest news today"); } },
-                  { icon: "🧠", label: "DeepSearch", sub: "Multi-query deep research", action: () => { setSelectedMode("deep_search"); setInput("Analyze latest AI model trends with sources"); } },
-                  { icon: "🐛", label: "Code Debugger", sub: "Fix bugs instantly", action: () => setSelectedMode("debugger") },
-                  { icon: "🧪", label: "Code Playground", sub: "Run code live", action: () => setShowPlayground(true) },
-                  { icon: "📝", label: "Scratchpad", sub: "Quick notes & ideas", action: () => setShowScratchpad(true) },
-                  { icon: "📊", label: "Your Stats", sub: "Chat analytics", action: () => setShowStats(true) },
+                  { icon: <Calendar size={16} />, label: "Book a Session", sub: "Schedule tutoring & more", action: () => setShowBooking(true) },
+                  { icon: <YTIcon />, label: "YouTube Notes", sub: "Paste any YouTube URL", action: () => setSelectedMode("youtube") },
+                  { icon: <Paintbrush size={16} />, label: "Image Generation", sub: "Create AI images free", action: () => setInput("Generate an image of ") },
+                  { icon: <GlobeIcon />, label: "Live Web Search", sub: "Real-time Google results", action: () => { setAutoWebSearch(true); setInput("Latest news today"); } },
+                  { icon: <BrainIcon />, label: "DeepSearch", sub: "Multi-query deep research", action: () => { setSelectedMode("deep_search"); setInput("Analyze latest AI model trends with sources"); } },
+                  { icon: <Terminal size={16} />, label: "Code Debugger", sub: "Fix bugs instantly", action: () => setSelectedMode("debugger") },
+                  { icon: <CodeIc2 />, label: "Code Playground", sub: "Run code live", action: () => setShowPlayground(true) },
+                  { icon: <Paperclip size={16} />, label: "Scratchpad", sub: "Quick notes & ideas", action: () => setShowScratchpad(true) },
+                  { icon: <CalcIcon />, label: "Your Stats", sub: "Chat analytics", action: () => setShowStats(true) },
                 ].map(({ icon, label, sub, action }) => (
                   <div key={label} className="welcome-card" onClick={action}>
                     <span className="wcard-icon">{icon}</span>
@@ -3258,61 +3163,27 @@ export default function App() {
                           <YTIcon /> {msg.ytInfo?.title ? `Notes: ${msg.ytInfo.title.slice(0, 40)}` : t.ytNotes}
                         </div>
                       )}
-                      {msg.role === "assistant" && msg.isImageGen && (
-                        <div className="web-search-badge" style={{ color: "#8b5cf6", background: "rgba(139,92,246,0.08)", borderColor: "rgba(139,92,246,0.2)" }}>
-                          <ImageIcon /> AI Generated Image
-                        </div>
+                      {msg.role === "assistant" && (idx === messages.length - 1 && isLoading) ? (
+                        <StreamingResponse 
+                          content={streamingContent || msg.content} 
+                          isStreaming={true} 
+                        />
+                      ) : msg.role === "assistant" ? (
+                        <StructuredResponseRenderer 
+                          response={msg.content} 
+                          onSubmitCode={(code) => {
+                            setInput(code);
+                            textareaRef.current?.focus();
+                          }}
+                        />
+                      ) : (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+                        >
+                          {formatMath(msg.content)}
+                        </ReactMarkdown>
                       )}
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-                        components={{
-                          code({ inline, className, children }) {
-                            const match = /language-(\w+)/.exec(className || "");
-                            const str   = String(children).replace(/\n$/, "");
-                            
-                            if (!inline && match && match[1] === "json") {
-                              try {
-                                // Strip comments if any
-                                const cleanedStr = str.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-                                const data = JSON.parse(cleanedStr);
-                                if (data.type === "chart") {
-                                  return (
-                                    <div className="inline-chart-container" style={{ margin: "16px 0", width: "100%" }}>
-                                      <DataChart 
-                                        title={data.title} 
-                                        data={data.data} 
-                                        chartType={data.chartType} 
-                                        library={data.library || "recharts"} 
-                                      />
-                                    </div>
-                                  );
-                                } else if (data.type === "location" || data.type === "map") {
-                                  return (
-                                    <div className="inline-map-container" style={{ margin: "16px 0", width: "100%" }}>
-                                      <LocationMap 
-                                        place={data.place} 
-                                        summary={data.summary} 
-                                        coordinates={data.coordinates} 
-                                        details={data.details} 
-                                      />
-                                    </div>
-                                  );
-                                }
-                              } catch (e) {
-                                // Fall through to normal code block if parse fails
-                              }
-                            }
-                            
-                            return !inline && match
-                              ? <CodeBlock match={match} codeString={str} copyLabel={t.copy} />
-                              : <code className="icode">{children}</code>;
-                          },
-                          img({ src, alt }) { return <img src={src} alt={alt || ""} className="gen-image" loading="lazy" />; },
-                          a({ href, children }) { return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>; },
-                        }}>
-                        {formatMath(msg.content)}
-                      </ReactMarkdown>
                     </div>
                   )}
 
@@ -3322,7 +3193,7 @@ export default function App() {
 
                   {msgRxns.length > 0 && (
                     <div className="rxn-bar">
-                      {msgRxns.map(r => <button key={r} className="rxn-badge" onClick={() => removeRxn(idx, r)}>{r}</button>)}
+                      {msgRxns.map(r => <button key={r} className="rxn-badge" onClick={() => removeRxn(idx, r)}><ReactionIcon name={r} /></button>)}
                     </div>
                   )}
 
@@ -3369,9 +3240,18 @@ export default function App() {
             <div className="msg assistant">
               <div className="msg-av bot-av">V</div>
               <div className="msg-body">
-                <div className="typing-wrap">
-                  <TypingIndicator text={isWebSearching ? "Searching + fetching content…" : isYtFetching ? "Analyzing video…" : ""} />
-                </div>
+                <ThinkingIndicator 
+                  isVisible={true} 
+                  customStatuses={
+                    (streamStatus !== "idle" && streamStatus !== "streaming" && streamStatus !== "preparing")
+                      ? [streamStatus]
+                      : (isWebSearching 
+                          ? ['Searching the Web', 'Fetching Page Content', 'Analyzing Results', 'Synthesizing Information', 'Preparing Response']
+                          : isYtFetching
+                            ? ['Fetching Transcript', 'Analyzing Video', 'Generating Notes', 'Preparing Summary']
+                            : undefined)
+                  }
+                />
               </div>
             </div>
           )}
@@ -3384,6 +3264,23 @@ export default function App() {
 
         {/* INPUT AREA */}
         <div className="input-area">
+          {/* Live Thinking Status */}
+          {(isLoading || isTyping) && (
+            <div className="thinking-above-input">
+              <ThinkingIndicator 
+                isVisible={true}
+                customStatuses={
+                  (streamStatus !== "idle" && streamStatus !== "streaming" && streamStatus !== "preparing")
+                    ? [streamStatus]
+                    : (isWebSearching 
+                        ? ['Searching the Web', 'Fetching Page Content', 'Analyzing Results', 'Synthesizing Information', 'Preparing Response']
+                        : isYtFetching
+                          ? ['Fetching Transcript', 'Analyzing Video', 'Generating Notes', 'Preparing Summary']
+                          : undefined)
+                }
+              />
+            </div>
+          )}
           {systemPrompt && (
             <div className="sys-strip">
               <BotIcon /><span>{t.systemPromptBadge}: {systemPrompt.slice(0, 55)}{systemPrompt.length > 55 ? "…" : ""}</span>
@@ -3453,6 +3350,7 @@ export default function App() {
           </form>
           <p className="input-note">
             {isPdfLoading && <span style={{ color: "#3b82f6", fontWeight: 600 }}>📄 Parsing PDF… · </span>}
+            <span className="pro-badge">✦ Pro</span>&nbsp;
             VetroAI can make mistakes.&nbsp;
             {isYtMode     ? "YouTube mode uses video transcripts — accuracy depends on transcript availability." :
              isDeepSearch ? "DeepSearch combines multiple web queries; cross-check cited sources for critical decisions." :
@@ -3462,6 +3360,35 @@ export default function App() {
           {messages.length > 0 && <ContextWindowBar messages={messages} />}
 
         </div>
+        {showDebug && (
+          <div className="debug-panel" style={{
+            position: "fixed", top: 80, right: 20, width: 350, maxHeight: "70vh",
+            background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)",
+            borderRadius: 12, zIndex: 9999, overflow: "hidden", color: "#00ff00",
+            fontFamily: "monospace", fontSize: "0.75rem", border: "1px solid #333",
+            display: "flex", flexDirection: "column", boxShadow: "0 10px 30px rgba(0,0,0,0.5)"
+          }}>
+            <div style={{ padding: "10px 15px", background: "#222", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>DEV DEBUG PANEL</span>
+              <button onClick={() => setShowDebug(false)} style={{ color: "#fff", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ padding: 10, borderBottom: "1px solid #333" }}>
+              <div>API: {API}</div>
+              <div>Status: {backendStatus}</div>
+              <div>Stream: {streamStatus}</div>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: 10 }}>
+              {debugLogs.map((log, i) => (
+                <div key={i} style={{ marginBottom: 6, borderBottom: "1px solid #222", paddingBottom: 4 }}>
+                  <span style={{ color: "#aaa" }}>[{log.ts}]</span> <span style={{ color: "#0af" }}>{log.event}</span>
+                  {Object.entries(log).map(([k, v]) => (
+                    k !== "ts" && k !== "event" && <div key={k} style={{ paddingLeft: 10, color: "#888" }}>{k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}</div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

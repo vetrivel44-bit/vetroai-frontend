@@ -126,7 +126,7 @@ const ResultsChart = ({ overallScore, topicScores, typeScores, weakAreas, strong
       {/* Weak Areas Section */}
       {weakAreas && weakAreas.length > 0 ? (
         <div style={{ marginBottom: '32px' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '16px' }}>Areas to Improve 🔴</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '16px' }}>Areas to Improve</h3>
           {weakAreas.map((area, idx) => (
             <div key={idx} style={{ marginBottom: '16px' }}>
               <div style={{ fontWeight: '600', fontSize: '0.9rem', marginBottom: '4px' }}>{area}</div>
@@ -141,7 +141,7 @@ const ResultsChart = ({ overallScore, topicScores, typeScores, weakAreas, strong
       ) : (
         /* Congratulations Section */
         <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: '600', color: '#06D6A0', marginBottom: '8px' }}>Excellent work! 🏆</h3>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: '600', color: '#06D6A0', marginBottom: '8px' }}>Excellent work!</h3>
           <p style={{ fontSize: '0.9rem', color: 'var(--ink-3)' }}>
             You showed strong performance in <strong>{strongestTopic}</strong> and <strong>{strongestType}</strong>.
           </p>
@@ -168,7 +168,7 @@ const ResultsChart = ({ overallScore, topicScores, typeScores, weakAreas, strong
                 <td style={{ padding: '8px' }}>{topic}</td>
                 <td style={{ padding: '8px', textAlign: 'center' }}>{score}/10</td>
                 <td style={{ padding: '8px', textAlign: 'center' }}>
-                  {score >= 7 ? '✅' : '🔴'}
+                  {score >= 7 ? 'Strong' : 'Needs Work'}
                 </td>
               </tr>
             ))}

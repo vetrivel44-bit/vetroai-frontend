@@ -38,9 +38,13 @@ app.use(
   })
 );
 
+app.use(require("./middleware/debugMiddleware"));
+
 app.get("/health", (_req, res) =>
   successResponse(res, "Service is healthy", {
+    backend: "online",
     uptime: process.uptime(),
+    providers: require("./services/ProviderManager").getStats()
   })
 );
 
@@ -48,7 +52,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/sessions", chatSessionRoutes);
 app.use("/api/maps", mapsRoutes);
-app.use("/", chatRoutes);
+app.use("/api/debug", require("./routes/debugRoutes"));
+app.use("/api", chatRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

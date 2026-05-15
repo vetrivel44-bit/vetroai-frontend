@@ -1,14 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ══════════════════════════════════════════
    VETROAI — WARM EDITORIAL DESIGN SYSTEM
    ══════════════════════════════════════════ */
 :root {
-  --bg:          #FAF9F7;
-  --bg-sidebar:  #F3F1EE;
+  --bg:          #FDFCFB; /* Soft warm white */
+  --bg-sidebar:  #F7F5F2;
   --bg-elevated: #FFFFFF;
-  --bg-hover:    #EFEDE9;
-  --bg-active:   #E8E4DE;
+  --bg-hover:    #F2EFEA;
+  --bg-active:   #EAE4DB;
 
   --ink:         #1C1917;
   --ink-2:       #44403C;
@@ -25,36 +25,36 @@
   --danger:      #E05454;
   --danger-soft: rgba(224,84,84,0.10);
 
-  --border:      rgba(28,25,23,0.08);
-  --border-med:  rgba(28,25,23,0.12);
-  --border-str:  rgba(28,25,23,0.18);
+  --border:      rgba(28,25,23,0.06); /* Softer border */
+  --border-med:  rgba(28,25,23,0.10);
+  --border-str:  rgba(28,25,23,0.15);
 
-  --shadow-xs:   0 1px 3px rgba(0,0,0,0.06);
-  --shadow-sm:   0 2px 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-md:   0 8px 24px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
-  --shadow-lg:   0 20px 48px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.06);
+  --shadow-xs:   0 1px 2px rgba(0,0,0,0.03);
+  --shadow-sm:   0 2px 6px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+  --shadow-md:   0 8px 20px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+  --shadow-lg:   0 20px 40px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.04);
 
   --sidebar-w:   272px;
   --r-xs:  4px;
   --r-sm:  8px;
   --r-md:  12px;
-  --r-lg:  18px;
-  --r-xl:  24px;
-  --r-2xl: 32px;
+  --r-lg:  16px; /* Slightly reduced */
+  --r-xl:  20px;
+  --r-2xl: 28px;
   --r-full:999px;
 
-  --font:  'Plus Jakarta Sans', system-ui, sans-serif;
+  --font:  'Inter', system-ui, sans-serif; /* Changed to Inter */
   --mono:  'JetBrains Mono', monospace;
-  --tr:    0.15s ease;
-  --tr-spring: 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --tr:    0.2s ease; /* Slightly slower for premium feel */
+  --tr-spring: 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 [data-theme="dark"] {
-  --bg:          #171412;
-  --bg-sidebar:  #110F0D;
-  --bg-elevated: #1F1C19;
-  --bg-hover:    #252119;
-  --bg-active:   #2C2720;
+  --bg:          #0B0A09; /* Darker, more layered */
+  --bg-sidebar:  #050504;
+  --bg-elevated: #141211;
+  --bg-hover:    #1C1A18;
+  --bg-active:   #24211E;
 
   --ink:         #F5F3EF;
   --ink-2:       #D6D0C8;
@@ -62,14 +62,14 @@
   --ink-4:       #635C56;
   --ink-5:       #3A3530;
 
-  --border:      rgba(245,243,239,0.07);
-  --border-med:  rgba(245,243,239,0.11);
-  --border-str:  rgba(245,243,239,0.16);
+  --border:      rgba(245,243,239,0.05);
+  --border-med:  rgba(245,243,239,0.09);
+  --border-str:  rgba(245,243,239,0.14);
 
-  --shadow-xs:   0 1px 3px rgba(0,0,0,0.3);
-  --shadow-sm:   0 2px 8px rgba(0,0,0,0.4);
-  --shadow-md:   0 8px 24px rgba(0,0,0,0.45);
-  --shadow-lg:   0 20px 48px rgba(0,0,0,0.55);
+  --shadow-xs:   0 1px 3px rgba(0,0,0,0.4);
+  --shadow-sm:   0 2px 8px rgba(0,0,0,0.5);
+  --shadow-md:   0 8px 24px rgba(0,0,0,0.55);
+  --shadow-lg:   0 20px 48px rgba(0,0,0,0.65);
 }
 
 /* ─── RESET ──────────────────────────────────── */
@@ -79,8 +79,8 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   transition: background var(--tr), color var(--tr);
 }
@@ -340,13 +340,30 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: var(--r-full);
-  padding: 5px 12px;
-  font-size: 0.78rem;
-  font-weight: 500;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--ink-2);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+  transition: all var(--tr);
+}
+.mode-pill:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+[data-theme="dark"] .mode-pill {
+  background: rgba(31, 28, 25, 0.6);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+[data-theme="dark"] .mode-pill:hover {
+  background: rgba(31, 28, 25, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 .mobile-only { display: none; }
 
@@ -494,7 +511,7 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   max-width: 780px;
   width: 100%;
   margin: 0 auto;
-  padding: 6px 24px;
+  padding: 12px 24px; /* Increased padding */
   gap: 14px;
   align-items: flex-start;
   animation: msgIn 0.2s ease;
@@ -528,9 +545,9 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 }
 .msg.user .bubble {
   background: var(--bg-elevated);
-  border: 1px solid var(--border-med);
+  border: 1px solid rgba(0,0,0,0.05); /* Softer border */
   border-bottom-right-radius: 4px;
-  box-shadow: var(--shadow-xs);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.03); /* Softer shadow */
 }
 .msg.assistant .bubble {
   background: transparent;
@@ -680,28 +697,28 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 }
 
 /* Markdown */
-.bubble p { margin: 0 0 10px; }
+.bubble p { margin: 0 0 14px; } /* Increased margin */
 .bubble p:last-child { margin-bottom: 0; }
-.bubble h1,.bubble h2,.bubble h3 { font-weight: 700; margin: 18px 0 8px; color: var(--ink); letter-spacing: -0.3px; }
-.bubble h1 { font-size: 1.3em; }
-.bubble h2 { font-size: 1.15em; }
-.bubble h3 { font-size: 1.05em; }
-.bubble ul,.bubble ol { padding-left: 20px; margin: 8px 0; }
-.bubble li { margin: 4px 0; }
+.bubble h1,.bubble h2,.bubble h3 { font-weight: 700; margin: 24px 0 12px; color: var(--ink); letter-spacing: -0.3px; }
+.bubble h1 { font-size: 1.5em; letter-spacing: -0.5px; } /* Larger headers */
+.bubble h2 { font-size: 1.25em; letter-spacing: -0.3px; }
+.bubble h3 { font-size: 1.1em; }
+.bubble ul,.bubble ol { padding-left: 20px; margin: 12px 0; }
+.bubble li { margin: 6px 0; }
 .bubble blockquote {
   border-left: 3px solid var(--accent);
   padding: 8px 16px;
-  margin: 12px 0;
+  margin: 16px 0;
   background: var(--accent-glow);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   color: var(--ink-2);
 }
-.bubble table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.88em; }
-.bubble th,.bubble td { border: 1px solid var(--border-med); padding: 8px 12px; text-align: left; }
+.bubble table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.88em; }
+.bubble th,.bubble td { border: 1px solid var(--border-med); padding: 10px 14px; text-align: left; }
 .bubble th { background: var(--bg-hover); font-weight: 600; }
 .bubble a { color: var(--accent); text-decoration: none; }
 .bubble a:hover { text-decoration: underline; }
-.bubble hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+.bubble hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
 .bubble strong { font-weight: 700; }
 
 /* ═══════════════════════════════════
@@ -761,20 +778,20 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   width: 100%;
   max-width: 780px;
   background: var(--bg-elevated);
-  border: 1px solid var(--border-med);
-  border-radius: 20px;
-  padding: 10px 10px 10px 14px;
+  border: 1px solid rgba(0,0,0,0.05);
+  border-radius: 24px;
+  padding: 12px 14px;
   display: flex;
   align-items: flex-end;
-  gap: 6px;
-  transition: all var(--tr);
-  min-height: 52px;
-  box-shadow: var(--shadow-xs);
+  gap: 8px;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  min-height: 56px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02);
   flex-wrap: wrap;
 }
 .input-box:focus-within {
-  border-color: var(--border-str);
-  box-shadow: var(--shadow-sm), 0 0 0 3px rgba(231,111,81,0.08);
+  border-color: var(--accent);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.03), 0 0 0 2px var(--accent-soft);
 }
 
 .file-prev {
@@ -812,8 +829,8 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 .input-box textarea {
   flex: 1;
   color: var(--ink);
-  font-size: 0.94rem;
-  padding: 5px 4px;
+  font-size: 0.96rem;
+  padding: 6px 4px;
   resize: none;
   line-height: 1.6;
   max-height: 200px;

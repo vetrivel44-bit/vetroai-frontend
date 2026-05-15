@@ -30,6 +30,9 @@ const MODEL_ALIASES = {
   persona:      "llama-3.3-70b-versatile",
 };
 
+const aiGateway = require("../services/AIGateway");
+const providerManager = require("../services/ProviderManager");
+
 const SAFE_PATTERNS = [
   /ignore (all|previous|prior) instructions/gi,
   /reveal (system|hidden) prompt/gi,
@@ -42,17 +45,49 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "application/pdf", "application/x-pdf",
 ]);
 
-function normalizeModel(inputModel) {
-  const fallback = config.groqModel || "llama-3.3-70b-versatile";
-  if (!inputModel) return fallback;
+function normalizeModel(inputModel, provider) {
+  const fallbackMap = {
+    groq: "llama-3.3-70b-versatile",
+    gemini: "gemini-2.0-flash-exp",
+    mistral: "mistral-small-latest",
+    sambanova: "Meta-Llama-3.1-70B-Instruct"
+  };
+  
+  const fallback = fallbackMap[provider?.toLowerCase()] || "llama-3.3-70b-versatile";
+  if (!inputModel || inputModel.toLowerCase() === provider?.toLowerCase()) return fallback;
   return MODEL_ALIASES[inputModel] || inputModel;
+}
+
+function sseWrite(res, data) {
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function routeByMode(mode) {
+  return MODEL_ALIASES[mode] || "mistral";
+}
+
+function routeQuery(input, hasFile) {
+  if (hasFile) return "vision";
+  const low = input.toLowerCase();
+  if (low.includes("code") || low.includes("python") || low.includes("js")) return "debugger";
+  if (low.includes("search") || low.includes("find")) return "web_search";
+  return "fast_chat";
+}
+
+function getAttachmentContext(file) {
+  if (!file) return "";
+  return `\n\n[Attached File: ${file.originalname}]\nContent preview or metadata would be parsed here.`;
 }
 
 function normalizeMessages(rawMessages, input) {
   let parsed = [];
   if (rawMessages) {
-    try { parsed = JSON.parse(rawMessages); }
-    catch { throw new ApiError(400, "Invalid messages payload"); }
+    if (typeof rawMessages === "string") {
+      try { parsed = JSON.parse(rawMessages); }
+      catch { throw new ApiError(400, "Invalid messages payload"); }
+    } else if (Array.isArray(rawMessages)) {
+      parsed = rawMessages;
+    }
   }
   if (!Array.isArray(parsed)) parsed = [];
   const clean = parsed
@@ -111,175 +146,33 @@ async function withRetry(operation, retries = 2, delay = 1000) {
   throw lastErr;
 }
 
-async function callMistralChat({ messages, temperature, maxTokens, model }) {
-  if (!mistralAvailable) throw new Error("Mistral API key not configured.");
-  const endpoint = "https://api.mistral.ai/v1/chat/completions";
-  const body = {
-    model: model || config.mistralModel || "mistral-small-latest",
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-    stream: false,
-  };
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.mistralApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = await res.text();
-    const err = new Error(`Mistral service error: ${res.status} ${detail}`);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
-}
-
-async function callMistralChatStream({ messages, temperature, maxTokens, model }) {
-  if (!mistralAvailable) throw new Error("Mistral API key not configured.");
-  const endpoint = "https://api.mistral.ai/v1/chat/completions";
-  const body = {
-    model: model || config.mistralModel || "mistral-small-latest",
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-    stream: true,
-  };
-  const res = await withRetry(
-    () => fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.mistralApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }),
-    2
-  );
-  if (!res.ok) {
-    const detail = await res.text();
-    const err = new Error(`Mistral service error: ${res.status} ${detail}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.body;
-}
-
-async function callSambaNovaChat({ messages, temperature, maxTokens, model }) {
-  if (!config.sambanovaApiKey) throw new Error("SambaNova API key not configured.");
-  const endpoint = "https://api.sambanova.ai/v1/chat/completions";
-  const body = {
-    model: model || "Meta-Llama-3.1-70B-Instruct",
-    messages,
-    temperature: temperature ?? 0.7,
-    max_tokens: maxTokens ?? 2048,
-    stream: false,
-  };
-  const res = await withRetry(
-    () => fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.sambanovaApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }),
-    2
-  );
-  if (!res.ok) {
-    const detail = await res.text();
-    const err = new Error(`SambaNova service error: ${res.status} ${detail}`);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
-}
-
-async function callGeminiChatStream({ messages, temperature, maxTokens, model }) {
-  if (!config.geminiApiKey) throw new Error("Gemini API key not configured.");
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-1.5-flash"}:streamGenerateContent?key=${config.geminiApiKey}`;
-  
-  const contents = messages.map(msg => ({
-    role: msg.role === "assistant" ? "model" : "user",
-    parts: [{ text: msg.content }]
-  }));
-
-  const body = {
-    contents,
-    generationConfig: {
-      temperature: temperature ?? 0.7,
-      maxOutputTokens: maxTokens ?? 2048,
-    }
-  };
-
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const detail = await res.text();
-    const err = new Error(`Gemini service error: ${res.status} ${detail}`);
-    err.status = res.status;
-    throw err;
-  }
-
-  return res.body;
-}
-
-function routeQuery(prompt, hasImage) {
-  if (hasImage) return "gemini";
-  
-  const lower = prompt.toLowerCase();
-  
-  // Coding / Complex Reasoning intent
-  const codingKeywords = ["javascript", "python", "java", "c++", "html", "css", "react", "node", "function", "class", "debug", "error", "code", "write a", "implement"];
-  const isCode = codingKeywords.some(kw => lower.includes(kw)) || prompt.includes("```");
-  
-  // DeepSearch intent
-  const deepSearchKeywords = ["research", "deep search", "analyze", "compare", "latest", "best", "guide", "full roadmap", "explain deeply", "current", "news", "top", "vs", "pros and cons", "data analysis", "trends", "statistics", "growth"];
-  
-  if (!isCode && (deepSearchKeywords.some(kw => lower.includes(kw)) || prompt.length > 300)) {
-    return "deep_search";
-  }
-  
-  // Live info / Maps intent
-  const liveKeywords = ["weather", "map", "location", "directions", "where is", "navigate"];
-  if (liveKeywords.some(kw => lower.includes(kw))) {
-    return "gemini";
-  }
-  
-  // Simple / Fast intent
-  const simpleKeywords = ["hi", "hello", "hey", "thanks", "thank you", "bye"];
-  if (prompt.length < 30 || simpleKeywords.some(kw => lower === kw || lower.startsWith(kw + " "))) {
-    return "groq";
-  }
-  
-  // Default to Mistral for complex/reasoning
-  return "mistral";
-}
+const AIOrchestrator = require("../services/AIOrchestrator");
 
 // ── MAIN CHAT HANDLER ─────────────────────────────────────────────────────────
 async function chat(req, res) {
-  const startedAt = Date.now();
   const reqId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const model = normalizeModel(req.body?.model);
+  
+  const provider = req.body?.provider;
+  const mode = req.body?.mode;
   const safeMode = String(req.body?.safeMode || "false") === "true";
-  const temperature = Number(req.body?.temperature ?? config.groqTemperature);
-  const rawMax = Number(req.body?.maxTokens ?? config.groqMaxTokens);
-  const maxTokens = Math.min(rawMax, 8192);
+  const temperature = Number(req.body?.temperature ?? 0.7);
+  const maxTokens = Number(req.body?.maxTokens ?? 2048);
+  
+  // Basic input sanitization
   const input = sanitizePrompt(req.body?.input || "", safeMode);
   const messages = normalizeMessages(req.body?.messages, input);
+  
+  let memories = [];
+  if (req.body?.memories) {
+    try {
+      memories = typeof req.body.memories === "string" ? JSON.parse(req.body.memories) : req.body.memories;
+    } catch (e) { logger.warn("Failed to parse memories", { error: e.message }); }
+  }
+  
   const attachmentContext = getAttachmentContext(req.file);
-  if (attachmentContext) messages.push({ role: "user", content: attachmentContext });
+  if (attachmentContext) {
+    messages.push({ role: "user", content: attachmentContext });
+  }
 
   if (!messages.length) throw new ApiError(400, "No valid messages provided");
 
@@ -292,286 +185,22 @@ async function chat(req, res) {
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
 
-  if (!groq && !mistralAvailable) {
-    cleanup();
-    sseWrite(res, { content: "⚠️ AI service not configured. Please set GROQ_API_KEY or MISTRAL_API_KEY in the backend .env file and restart the server." });
-    res.write("data: [DONE]\n\n");
-    res.end();
-    return;
-  }
-
-  const hasImage = Boolean(req.file);
-  const routedModel = routeQuery(input, hasImage);
-
-  logger.info("chat.request.started", {
-    reqId, userId: req.user?.id || "anon", model,
-    messages: messages.length, hasAttachment: hasImage,
-    routedModel,
-  });
-
-  const useGroqFirst = routedModel === "groq";
-  const useGemini = routedModel === "gemini";
-  const useDeepSearch = routedModel === "deep_search";
-
   try {
-    if (useDeepSearch) {
-      // Use DeepSearch
-      const { context } = await performDeepSearch(input);
-      
-      const systemPrompt = "You are a premium AI research assistant. Synthesize the findings from the web search and generate a structured research-style answer. Use bullet points, comparisons, pros/cons, and citations where useful.\n\n" +
-        "## WEB SEARCH + GRAPH INTEGRATION RULES\n" +
-        "If you decide to generate a chart (based on the VISUALIZATION RULES), you MUST act as a web-data extraction layer and strictly follow these rules:\n" +
-        "1. **Never directly pass raw web-search text into charts**. You must parse, structure, validate, and normalize the data first.\n" +
-        "2. **AI-Powered Schema Generation**: Convert text claims into clean JSON datasets. E.g., \"Bitcoin rose from $42,000 in Jan 2024 to $95,000 in Dec 2025\" -> `[{\"label\": \"Jan 2024\", \"value\": 42000}, {\"label\": \"Dec 2025\", \"value\": 95000}]`.\n" +
-        "3. **Validation**: Ensure all data points have valid labels and numeric values. NEVER use \"Unknown\" as a label if you can avoid it. Never render empty or broken analytics.\n" +
-        "4. **Time-Series Extraction**: For trend charts, detect chronological order, parse month/year correctly, and sort dates automatically.\n" +
-        "5. **Source-Aware Parsing**: Extract meaningful structured datasets from news, Wikipedia, or financial snippets provided in the search results.\n\n" +
-        "IMPORTANT: Do NOT include search sources or context inside code blocks. Code blocks should contain ONLY clean, working code or valid JSON for charts as specified in the VISUALIZATION RULES. If you create tables, ALWAYS use proper Markdown table syntax with a header row and a separator row. Never output raw pipes without structure. Please respect the VISUALIZATION RULES provided in the message history for generating charts.";
-      const messagesWithContext = [
-        { role: "system", content: systemPrompt },
-        ...messages,
-        { role: "user", content: `Web Search Results:\n${context}\n\nPlease synthesize and answer the original query.` }
-      ];
-      
-      const stream = await callMistralChatStream({ messages: messagesWithContext, temperature, maxTokens, model: config.mistralModel });
-      
-      let tokenCount = 0;
-      let buffer = "";
-      
-      for await (const chunk of stream) {
-        buffer += new TextDecoder("utf-8").decode(chunk);
-        const lines = buffer.split("\n");
-        buffer = lines.pop(); // Keep incomplete line in buffer
-        
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.slice(6);
-            if (dataStr.trim() === "[DONE]") break;
-            try {
-              const data = JSON.parse(dataStr);
-              const content = data.choices?.[0]?.delta?.content || "";
-              if (content) {
-                tokenCount++;
-                sseWrite(res, { content });
-              }
-            } catch (e) {
-              // ignore parse errors for incomplete chunks
-            }
-          }
-        }
-      }
-      
-      res.write("data: [DONE]\n\n");
-      res.end();
-      cleanup();
-      logger.info("chat.request.completed", {
-        reqId, model: config.mistralModel, streamChunks: tokenCount, provider: "DeepSearch (Mistral)", latencyMs: Date.now() - startedAt,
-      });
-      return;
-    } else if (useGemini) {
-      // ... keep gemini block ...
-      const stream = await callGeminiChatStream({ messages, temperature, maxTokens, model: "gemini-1.5-flash" });
-      
-      let tokenCount = 0;
-      let buffer = "";
-      
-      for await (const chunk of stream) {
-        buffer += new TextDecoder("utf-8").decode(chunk);
-        const lines = buffer.split("\n");
-        buffer = lines.pop(); // Keep incomplete line in buffer
-        
-        for (const line of lines) {
-          if (line.trim() === "[" || line.trim() === "]" || line.trim() === ",") continue;
-          let cleanedLine = line.trim();
-          if (cleanedLine.startsWith(",")) cleanedLine = cleanedLine.slice(1).trim();
-          
-          try {
-            const data = JSON.parse(cleanedLine);
-            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (content) {
-              tokenCount++;
-              sseWrite(res, { content });
-            }
-          } catch (e) {
-            // ignore parse errors for incomplete chunks
-          }
-        }
-      }
-      
-      res.write("data: [DONE]\n\n");
-      res.end();
-      cleanup();
-      logger.info("chat.request.completed", {
-        reqId, model: "gemini-1.5-flash", streamChunks: tokenCount, provider: "Gemini", latencyMs: Date.now() - startedAt,
-      });
-    } else if (useGroqFirst) {
-      // ... keep groq block ...
-      const stream = await withRetry(
-        () => groq.chat.completions.create({
-          model,
-          messages,
-          temperature: Number.isFinite(temperature) ? temperature : config.groqTemperature,
-          max_tokens: Number.isFinite(maxTokens) ? maxTokens : config.groqMaxTokens,
-          stream: true,
-        }),
-        1
-      );
-
-      let tokenCount = 0;
-      for await (const chunk of stream) {
-        const content = chunk?.choices?.[0]?.delta?.content || "";
-        if (!content) continue;
-        tokenCount++;
-        sseWrite(res, { content });
-      }
-
-      res.write("data: [DONE]\n\n");
-      res.end();
-      cleanup();
-      logger.info("chat.request.completed", {
-        reqId, model, streamChunks: tokenCount, latencyMs: Date.now() - startedAt,
-      });
-    } else {
-      // Use Mistral (Streaming)
-      const endpoint = "https://api.mistral.ai/v1/chat/completions";
-      const body = {
-        model: config.mistralModel || "mistral-small-latest",
-        messages,
-        temperature: Number.isFinite(temperature) ? temperature : config.mistralTemperature,
-        max_tokens: Number.isFinite(maxTokens) ? maxTokens : config.mistralMaxTokens,
-        stream: true,
-      };
-      
-      const response = await withRetry(
-        () => fetch(endpoint, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.mistralApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        }),
-        1
-      );
-
-      if (!response.ok) {
-        const detail = await response.text();
-        const err = new Error(`Mistral service error: ${response.status} ${detail}`);
-        err.status = response.status;
-        throw err;
-      }
-
-      let buffer = "";
-      let tokenCount = 0;
-      
-      for await (const chunk of response.body) {
-        buffer += new TextDecoder("utf-8").decode(chunk);
-        const lines = buffer.split("\n");
-        buffer = lines.pop(); // Keep incomplete line in buffer
-        
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.slice(6);
-            if (dataStr.trim() === "[DONE]") break;
-            try {
-              const data = JSON.parse(dataStr);
-              const content = data.choices[0].delta.content || "";
-              if (content) {
-                tokenCount++;
-                sseWrite(res, { content });
-              }
-            } catch (e) {
-              // ignore parse errors for incomplete chunks
-            }
-          }
-        }
-      }
-      
-      res.write("data: [DONE]\n\n");
-      res.end();
-      cleanup();
-      logger.info("chat.request.completed", {
-        reqId, model: body.model, streamChunks: tokenCount, provider: "Mistral", latencyMs: Date.now() - startedAt,
-      });
-    }
+    await AIOrchestrator.processRequest(reqId, {
+      messages,
+      mode,
+      provider,
+      memories,
+      options: { temperature, maxTokens }
+    }, res);
   } catch (err) {
-    // Fallback logic
-    logger.error("chat.request.failed", { reqId, model, message: err.message, status: err.status });
-
-    if (useGemini) {
-      try {
-        logger.info("chat.fallback.mistral", { reqId });
-        const fallbackModel = config.mistralModel || "mistral-small-latest";
-        const output = await callMistralChat({ messages, temperature, maxTokens, model: fallbackModel });
-        sseWrite(res, { content: output });
-        res.write("data: [DONE]\n\n");
-        res.end();
-        cleanup();
-        return;
-      } catch (merr) {
-        logger.error("chat.fallback.failed.mistral", { reqId, message: merr.message });
-      }
-    } else if (useDeepSearch || (!useGroqFirst && routedModel === "mistral")) {
-      // If Mistral failed (in DeepSearch or normal mode), try SambaNova
-      try {
-        logger.info("chat.fallback.sambanova", { reqId });
-        const output = await callSambaNovaChat({ messages, temperature, maxTokens });
-        sseWrite(res, { content: output });
-        res.write("data: [DONE]\n\n");
-        res.end();
-        cleanup();
-        return;
-      } catch (serr) {
-        logger.error("chat.fallback.failed.sambanova", { reqId, message: serr.message });
-        // Fallback to Groq if SambaNova failed
-        try {
-          logger.info("chat.fallback.groq", { reqId });
-          const stream = await groq.chat.completions.create({
-            model: config.groqModel || "llama-3.3-70b-versatile",
-            messages,
-            temperature,
-            max_tokens: maxTokens,
-            stream: true,
-          });
-          for await (const chunk of stream) {
-            const content = chunk?.choices?.[0]?.delta?.content || "";
-            if (content) sseWrite(res, { content });
-          }
-          res.write("data: [DONE]\n\n");
-          res.end();
-          cleanup();
-          return;
-        } catch (gerr) {
-          logger.error("chat.fallback.failed.groq", { reqId, message: gerr.message });
-        }
-      }
-    } else if (useGroqFirst && mistralAvailable) {
-      try {
-        logger.info("chat.fallback.mistral", { reqId });
-        const fallbackModel = config.mistralModel || "mistral-small-latest";
-        const output = await callMistralChat({ messages, temperature, maxTokens, model: fallbackModel });
-        sseWrite(res, { content: output });
-        res.write("data: [DONE]\n\n");
-        res.end();
-        cleanup();
-        return;
-      } catch (merr) {
-        logger.error("chat.fallback.failed.mistral", { reqId, message: merr.message });
-      }
+    logger.error("chat.request.failed", { reqId, error: err.message });
+    // AIOrchestrator already tries to send an error event, but we ensure it's closed
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: "error", data: "VetroAI is currently unreachable. Please check your connection." })}\n\n`);
     }
-
+  } finally {
     cleanup();
-    let errMsg = "\n\n⚠️ **AI Error**: ";
-    if (err.status === 429) {
-      errMsg += "Rate limit reached. Please wait a moment and try again.";
-    } else if (err.status === 401) {
-      errMsg += "Invalid API key. Please check your configuration.";
-    } else {
-      errMsg += `${err.message || "Service error. Please try again."}`;
-    }
-
-    sseWrite(res, { content: errMsg });
-    res.write("data: [DONE]\n\n");
     res.end();
   }
 }
@@ -659,4 +288,14 @@ async function followUps(req, res) {
   return successResponse(res, "Follow-ups generated", { suggestions });
 }
 
-module.exports = { chat, generateTitle, followUps };
+async function getHealth(req, res) {
+  return res.json({
+    backend: "online",
+    providers: providerManager.getStats(),
+    uptime: process.uptime(),
+    version: "1.1.0",
+    environment: process.env.NODE_ENV || "development"
+  });
+}
+
+module.exports = { chat, generateTitle, followUps, getHealth };

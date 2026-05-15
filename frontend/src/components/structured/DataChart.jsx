@@ -3,11 +3,15 @@ import { motion } from 'framer-motion';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, AreaChart, Area,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  ScatterChart, Scatter, ZAxis,
   XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend as RechartsLegend, ResponsiveContainer,
   Cell, Brush
 } from 'recharts';
 import { Chart as ChartJS, RadialLinearScale, PointElement, LineElement, Filler, Tooltip as ChartTooltip, Legend as ChartLegend } from 'chart.js';
 import { Radar as ChartJSRadar } from 'react-chartjs-2';
+import ReactApexChart from 'react-apexcharts';
+import ReactECharts from 'echarts-for-react';
+import { normalizeDataset, inferChartType, getColorPalette } from '../../utils/dataNormalizer';
 import '../../styles/StructuredResponse.css';
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, ChartTooltip, ChartLegend);
@@ -17,48 +21,7 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
 
   // 1. DATA PIPELINE & INTEGRITY VALIDATION
   const processedData = useMemo(() => {
-    if (!Array.isArray(data)) return [];
-    
-    // Robust parsing: Ensure all items have a label and a valid numeric value
-    const mappedData = data.map(item => {
-      if (!item || typeof item !== 'object') return null;
-      
-      // Auto-detect label: look for label, name, or the first string property
-      let label = item.label || item.name || item.category || item.title;
-      if (!label) {
-        const stringProp = Object.entries(item).find(([k, v]) => typeof v === 'string' && k !== 'type');
-        if (stringProp) label = stringProp[1];
-      }
-      
-      // Auto-detect value: look for value, or the first numeric property
-      let value = item.value;
-      if (value === undefined) {
-        const numProp = Object.entries(item).find(([k, v]) => {
-          if (typeof v === 'number') return true;
-          if (typeof v === 'string') {
-            const parsed = Number(v.replace(/[^0-9.-]/g, ''));
-            return !isNaN(parsed) && v.trim() !== '';
-          }
-          return false;
-        });
-        if (numProp) value = numProp[1];
-      }
-      
-      // Robust value parsing: remove %, $, commas, etc.
-      if (value !== undefined && typeof value !== 'number') {
-        const strVal = String(value).replace(/[^0-9.-]/g, '');
-        value = Number(strVal);
-      }
-      
-      // Filter out if no label or value is invalid
-      if (!label || value === undefined || isNaN(value)) return null;
-      
-      return {
-        ...item,
-        label: String(label),
-        value: value
-      };
-    }).filter(Boolean);
+    const mappedData = normalizeDataset(data);
     
     // Fallback: If dataset is empty after validation
     if (mappedData.length === 0) return [];
@@ -90,27 +53,7 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
 
   // 2. ADAPTIVE CHART LAYOUT ENGINE
   const effectiveChartType = useMemo(() => {
-    if (chartType && chartType !== 'auto' && chartType !== 'bar') {
-      return chartType; 
-    }
-    
-    const count = processedData.length;
-    const isLargeDataset = count > 15;
-    
-    // Rule 1: Time Series Detection (Years or Dates)
-    const isTimeSeries = processedData.every(d => /^\d{4}$/.test(d.label) || !isNaN(Date.parse(d.label)));
-    if (isTimeSeries && count > 1) return 'line';
-    
-    // Rule 2: Proportions Detection (Sum ~100, Max 6 items)
-    const total = processedData.reduce((acc, curr) => acc + curr.value, 0);
-    const looksLikeProportion = (total >= 95 && total <= 105) && count <= 6;
-    if (looksLikeProportion) return 'donut';
-    
-    // Rule 3: Large Dataset -> Line
-    if (isLargeDataset) return 'line';
-    
-    // Rule 4: Default comparison -> Bar
-    return 'bar';
+    return inferChartType(processedData, chartType);
   }, [chartType, processedData]);
 
   // 3. THEME & COLORS (Premium Palette)
@@ -167,6 +110,78 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
 
   // Render Functions
   const renderChart = () => {
+    if (library === 'apexcharts') {
+      const type = ['bar', 'line', 'area', 'pie', 'donut', 'radar'].includes(effectiveChartType) ? effectiveChartType : 'bar';
+      const options = {
+        chart: { 
+          id: 'apex-chart', 
+          toolbar: { show: false },
+          background: 'transparent',
+          foreColor: darkTheme.textColorSecondary
+        },
+        xaxis: { 
+          categories: processedData.map(d => d.label),
+          labels: { style: { colors: darkTheme.textColorSecondary, fontSize: '11px' } }
+        },
+        yaxis: {
+          labels: { style: { colors: darkTheme.textColorSecondary, fontSize: '11px' } }
+        },
+        colors: colors,
+        stroke: { curve: 'smooth', width: 2 },
+        fill: { opacity: type === 'area' ? 0.3 : 1 },
+        tooltip: { theme: 'dark' },
+        legend: { labels: { colors: darkTheme.textColor } },
+        dataLabels: { enabled: false }
+      };
+      
+      const isPie = ['pie', 'donut'].includes(type);
+      const series = isPie 
+        ? processedData.map(d => d.value)
+        : [{ name: 'Value', data: processedData.map(d => d.value) }];
+        
+      if (isPie) {
+        options.labels = processedData.map(d => d.label);
+      }
+
+      return (
+        <div style={{ height: 350 }}>
+          <ReactApexChart options={options} series={series} type={type} height={350} />
+        </div>
+      );
+    }
+
+    if (library === 'echarts') {
+      const type = effectiveChartType === 'bar' ? 'bar' : 'line';
+      const option = {
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis', backgroundColor: darkTheme.tooltipBg, borderColor: darkTheme.tooltipBorder, textStyle: { color: darkTheme.textColor } },
+        xAxis: { 
+          type: 'category', 
+          data: processedData.map(d => d.label),
+          axisLabel: { color: darkTheme.textColorSecondary, fontSize: 11 },
+          axisLine: { lineStyle: { color: darkTheme.borderColor } }
+        },
+        yAxis: { 
+          type: 'value',
+          axisLabel: { color: darkTheme.textColorSecondary, fontSize: 11 },
+          splitLine: { lineStyle: { color: darkTheme.gridColor } }
+        },
+        series: [{ 
+          data: processedData.map(d => d.value), 
+          type: type,
+          smooth: true,
+          itemStyle: { color: colors[0] },
+          areaStyle: effectiveChartType === 'area' ? { opacity: 0.3 } : undefined
+        }],
+        textStyle: { color: darkTheme.textColorSecondary, fontFamily: 'var(--font)' }
+      };
+      return (
+        <div style={{ height: 350 }}>
+          <ReactECharts option={option} style={{ height: 350 }} />
+        </div>
+      );
+    }
+
     switch (effectiveChartType) {
       case 'line':
         return (
@@ -293,16 +308,49 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
           </ResponsiveContainer>
         );
 
+      case 'scatter':
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={darkTheme.gridColor} />
+              <XAxis 
+                type="category" 
+                dataKey="label" 
+                name="Category" 
+                stroke={darkTheme.textColorSecondary} 
+                tick={{ fill: darkTheme.textColorSecondary, fontSize: 11 }}
+              />
+              <YAxis 
+                type="number" 
+                dataKey="value" 
+                name="Value" 
+                stroke={darkTheme.textColorSecondary} 
+                tick={{ fill: darkTheme.textColorSecondary, fontSize: 11 }}
+              />
+              <ZAxis type="number" range={[64, 400]} />
+              <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={<CustomTooltip />} />
+              <RechartsLegend />
+              <Scatter name="Data Points" data={processedData} fill="var(--accent)" />
+            </ScatterChart>
+          </ResponsiveContainer>
+        );
+
       case 'horizontal-bar':
         return (
           <ResponsiveContainer width="100%" height={Math.max(350, processedData.length * 35)}>
             <BarChart data={processedData} layout="vertical" margin={{ top: 20, right: 30, left: 120, bottom: 20 }}>
+              <defs>
+                <linearGradient id="barGradientHoriz" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="var(--accent)" stopOpacity={1}/>
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={darkTheme.gridColor} />
               <XAxis type="number" stroke={darkTheme.textColorSecondary} tick={{ fill: darkTheme.textColorSecondary, fontSize: 11 }} />
               <YAxis dataKey="label" type="category" stroke={darkTheme.textColorSecondary} tick={{ fill: darkTheme.textColorSecondary, fontSize: 11 }} width={110} tickFormatter={(value) => value.length > 15 ? `${value.slice(0, 12)}..` : value} />
               <RechartsTooltip content={<CustomTooltip />} />
               <RechartsLegend />
-              <Bar dataKey="value" name="Value" fill="var(--accent)" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="value" name="Value" fill="url(#barGradientHoriz)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         );
@@ -312,12 +360,18 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
         return (
           <ResponsiveContainer width="100%" height={350}>
             <BarChart data={processedData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+              <defs>
+                <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--accent)" stopOpacity={1}/>
+                  <stop offset="95%" stopColor="var(--accent)" stopOpacity={0.7}/>
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={darkTheme.gridColor} />
               <XAxis {...getXAxisProps()} />
               <YAxis stroke={darkTheme.textColorSecondary} tick={{ fill: darkTheme.textColorSecondary, fontSize: 11 }} />
               <RechartsTooltip content={<CustomTooltip />} />
               <RechartsLegend />
-              <Bar dataKey="value" name="Value" fill="#6366F1" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" name="Value" fill="url(#barGradient)" radius={[4, 4, 0, 0]} />
               {(isLargeDataset || count > 10) && (
                 <Brush 
                   dataKey="label" 

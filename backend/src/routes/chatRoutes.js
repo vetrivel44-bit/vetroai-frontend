@@ -16,6 +16,7 @@ const upload = multer({
   },
 });
 
+router.get("/health", asyncHandler(chatController.getHealth));
 router.post("/chat", chatLimiter, upload.single("file"), asyncHandler(chatController.chat));
 router.post("/generate-title", chatLimiter, asyncHandler(chatController.generateTitle));
 router.post("/follow-ups", chatLimiter, asyncHandler(chatController.followUps));
