@@ -225,15 +225,31 @@ or
           stream.on("error", reject);
         });
       }
-      // 3. Handle Web Streams (fetch res.body)
       else if (stream.getReader) {
         const reader = stream.getReader();
         const decoder = new TextDecoder();
+        let buffer = "";
+        
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const raw = decoder.decode(value, { stream: true });
-          const content = this.normalizeChunk(raw, provider);
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop(); // Keep partial line
+          
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const content = this.normalizeChunk(line, provider);
+            if (content) {
+              fullContent += content;
+              this.sendVetroEvent(res, "content", content);
+            }
+          }
+        }
+        
+        if (buffer && buffer.trim()) {
+          const content = this.normalizeChunk(buffer, provider);
           if (content) {
             fullContent += content;
             this.sendVetroEvent(res, "content", content);
@@ -308,6 +324,7 @@ or
             const json = JSON.parse(trimmed.slice(6));
             const text = json.choices?.[0]?.delta?.content || "";
             content += text;
+            if (text) logger.info(`normalizeChunk [${provider}]`, { text });
           } catch (e) {
             // Partial JSON or garbage
           }
