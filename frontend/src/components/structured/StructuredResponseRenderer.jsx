@@ -333,25 +333,25 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
 
     switch (section.type) {
       case 'hero':
-        component = <HeroSummary {...commonProps} title={section.title} tagline={section.tagline} badge={section.badge} />;
+        component = <HeroSummary key={`hero-${index}`} {...commonProps} title={section.title} tagline={section.tagline} badge={section.badge} />;
         break;
       case 'alert':
-        component = <HighlightAlert {...commonProps} type={section.alertType}>{section.content}</HighlightAlert>;
+        component = <HighlightAlert key={`alert-${index}`} {...commonProps} type={section.alertType}>{section.content}</HighlightAlert>;
         break;
       case 'comparison':
-        component = <ComparisonCards {...commonProps} left={section.left} right={section.right} />;
+        component = <ComparisonCards key={`comp-${index}`} {...commonProps} left={section.left} right={section.right} />;
         break;
       case 'metrics':
-        component = <MetricCards {...commonProps} metrics={section.metrics} />;
+        component = <MetricCards key={`met-${index}`} {...commonProps} metrics={section.metrics} />;
         break;
       case 'comparison_table':
-        component = <ComparisonTable {...commonProps} title={section.title} options={section.options} features={section.features} />;
+        component = <ComparisonTable key={`table-${index}`} {...commonProps} title={section.title} options={section.options} features={section.features} />;
         break;
       case 'timeline':
-        component = <StepTimeline {...commonProps} title={section.title} steps={section.steps} />;
+        component = <StepTimeline key={`time-${index}`} {...commonProps} title={section.title} steps={section.steps} />;
         break;
       case 'architecture':
-        component = <ArchitectureDiagram {...commonProps} title={section.title} nodes={section.nodes} connections={section.connections} />;
+        component = <ArchitectureDiagram key={`arch-${index}`} {...commonProps} title={section.title} nodes={section.nodes} connections={section.connections} />;
         break;
       case 'location':
       case 'route':
