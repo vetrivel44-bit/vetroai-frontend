@@ -5,21 +5,29 @@ export default function ThinkingIndicator({ isVisible = false }) {
   if (!isVisible) return null;
 
   return (
-    <div className="minimal-thinking-container" style={{ display: 'flex', alignItems: 'center', height: '24px', paddingLeft: '2px' }}>
-      <div 
-        className="minimal-pulse-dot" 
-        style={{
-          width: '10px',
-          height: '10px',
-          borderRadius: '50%',
-          background: 'var(--accent)',
-          animation: 'pulse-opacity 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-        }}
-      />
+    <div className="claude-loader" style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '24px', paddingLeft: '4px' }}>
+      <div className="claude-dot" style={{ animationDelay: '0s' }} />
+      <div className="claude-dot" style={{ animationDelay: '0.2s' }} />
+      <div className="claude-dot" style={{ animationDelay: '0.4s' }} />
+      
       <style>{`
-        @keyframes pulse-opacity {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.3; transform: scale(0.85); }
+        .claude-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background-color: var(--accent, #d97757);
+          animation: claudePulse 1.8s ease-in-out infinite;
+          opacity: 0.35;
+        }
+        @keyframes claudePulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 0.35;
+          }
+          50% {
+            transform: scale(1.4);
+            opacity: 0.95;
+          }
         }
       `}</style>
     </div>
