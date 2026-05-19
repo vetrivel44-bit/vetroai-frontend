@@ -73,9 +73,16 @@ const extractSourceUrls = (text) => {
   });
 };
 
+// ─── CLAUDE-STYLE VETROAI LOGO (Serif Spark) ──────────────────────────────────
+const VetroSpark = ({ size = 24, color = "currentColor", className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} className={className} xmlns="http://www.w3.org/2000/svg">
+    <path d="M11.996 1.5c.219 4.394 3.655 7.828 8.054 8.046v.908c-4.399.218-7.835 3.652-8.054 8.046h-.908c-.219-4.394-3.655-7.828-8.054-8.046v-.908c4.399-.218 7.835-3.652 8.054-8.046h.908z" />
+  </svg>
+);
+
 // ─── CUSTOM AI PERSONAS ────────────────────────────────────────────────────────
 const DEFAULT_PERSONAS = [
-  { id: "default",  name: "VetroAI",          avatar: <Bot size={16} />, color: "#7c3aed", prompt: "" },
+  { id: "default",  name: "VetroAI",          avatar: <VetroSpark size={16} color="#d97757" />, color: "#d97757", prompt: "" },
   { id: "teacher",  name: "Professor",         avatar: <GraduationCap size={16} />, color: "#3b82f6", prompt: "You are a patient, encouraging professor. Break down complex topics with examples. Always check for understanding." },
   { id: "coder",    name: "Senior Dev",        avatar: <Terminal size={16} />, color: "#10b981", prompt: "You are a senior software engineer with 15 years of experience. Write clean, efficient, production-ready code. Explain trade-offs." },
   { id: "coach",    name: "Life Coach",        avatar: <Star size={16} />, color: "#f59e0b", prompt: "You are an empathetic life coach. Help users set goals, overcome challenges, and think positively. Be supportive and actionable." },
@@ -2608,7 +2615,9 @@ export default function App() {
         <div className="auth-hero-orb orb3" />
         <div className="auth-hero-content">
           <div className="auth-hero-logo">
-            <div className="auth-logo-mark" style={{ width: 52, height: 52, borderRadius: 16, fontSize: "1.5rem" }}>V</div>
+            <div className="auth-logo-mark" style={{ width: 52, height: 52, borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <VetroSpark size={32} color="#fff" />
+            </div>
             <div>
               <div className="logo-name" style={{ fontSize: "1.5rem" }}>VetroAI</div>
               <div className="logo-ver">v2.3 · Powered by Mistral</div>
@@ -2734,7 +2743,9 @@ export default function App() {
       <aside className={`sidebar${isSidebarOpen ? " open" : ""}`}>
         <div className="sb-head">
           <div className="sb-logo">
-            <div className="sb-mark">V</div>
+            <div className="sb-mark" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent' }}>
+              <VetroSpark size={24} color="var(--accent)" />
+            </div>
             <span className="sb-name">VetroAI</span>
           </div>
           <div className="sb-head-actions">
