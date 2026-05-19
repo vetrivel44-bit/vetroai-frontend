@@ -148,7 +148,6 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
         const data = JSON.parse(cleanedContent);
         if (data.type === 'location' || data.type === 'route') {
           sections.push({ 
-            type: 'location', 
             place: data.place || data.destination, 
             summary: data.summary, 
             coordinates: data.coordinates, 
