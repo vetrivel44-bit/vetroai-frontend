@@ -87,12 +87,12 @@ const VetroSpark = ({ size = 24, color = "currentColor", className = "" }) => (
 
 // ─── CUSTOM AI PERSONAS ────────────────────────────────────────────────────────
 const DEFAULT_PERSONAS = [
-  { id: "default",  name: "VetroAI",          avatar: <VetroSpark size={16} color="#d97757" />, color: "#d97757", prompt: "" },
-  { id: "teacher",  name: "Professor",         avatar: <GraduationCap size={16} />, color: "#3b82f6", prompt: "You are a patient, encouraging professor. Break down complex topics with examples. Always check for understanding." },
-  { id: "coder",    name: "Senior Dev",        avatar: <Terminal size={16} />, color: "#10b981", prompt: "You are a senior software engineer with 15 years of experience. Write clean, efficient, production-ready code. Explain trade-offs." },
-  { id: "coach",    name: "Life Coach",        avatar: <Star size={16} />, color: "#f59e0b", prompt: "You are an empathetic life coach. Help users set goals, overcome challenges, and think positively. Be supportive and actionable." },
-  { id: "socrates", name: "Socratic Tutor",    avatar: <Brain size={16} />, color: "#ec4899", prompt: "You are a Socratic tutor. Never give direct answers — guide students to discover answers themselves through thoughtful questions." },
-  { id: "creative", name: "Creative Director", avatar: <Paintbrush size={16} />, color: "#ef4444", prompt: "You are a creative director and writer. Think outside the box. Your responses are vivid, imaginative, and full of originality." },
+  { id: "default",  name: "VetroAI",          avatar: <VetroSpark size={28} color="#d97757" />, color: "#d97757", prompt: "" },
+  { id: "teacher",  name: "Professor",         avatar: <GraduationCap size={24} />, color: "#3b82f6", prompt: "You are a patient, encouraging professor. Break down complex topics with examples. Always check for understanding." },
+  { id: "coder",    name: "Senior Dev",        avatar: <Terminal size={24} />, color: "#10b981", prompt: "You are a senior software engineer with 15 years of experience. Write clean, efficient, production-ready code. Explain trade-offs." },
+  { id: "coach",    name: "Life Coach",        avatar: <Star size={24} />, color: "#f59e0b", prompt: "You are an empathetic life coach. Help users set goals, overcome challenges, and think positively. Be supportive and actionable." },
+  { id: "socrates", name: "Socratic Tutor",    avatar: <Brain size={24} />, color: "#ec4899", prompt: "You are a Socratic tutor. Never give direct answers — guide students to discover answers themselves through thoughtful questions." },
+  { id: "creative", name: "Creative Director", avatar: <Paintbrush size={24} />, color: "#ef4444", prompt: "You are a creative director and writer. Think outside the box. Your responses are vivid, imaginative, and full of originality." },
 ];
 const getCustomPersonas = () => { try { return JSON.parse(localStorage.getItem("vetroai_personas") || "[]"); } catch { return []; } };
 const saveCustomPersonas = (p) => localStorage.setItem("vetroai_personas", JSON.stringify(p));
@@ -1609,6 +1609,14 @@ function ModelPickerModal({ currentMode, currentProvider, onSelectMode, onSelect
   );
 }
 
+// Helper to format real-time SSE stream status updates
+const getStatusLabel = (status) => {
+  if (!status || status === "preparing" || status === "streaming" || status === "idle") {
+    return "Thinking";
+  }
+  return status;
+};
+
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
@@ -2473,9 +2481,21 @@ export default function App() {
       
       if (!isActive()) return;
 
-      if (voiceRef.current || autoSpeak) speak(bot);
-      if (isFirstMsg) updateSessionTitle(userQuery);
-      generateFollowUps(bot, userQuery);
+      if (!bot || !bot.trim()) {
+        setMessages(prev => {
+          if (prev.length === 0) return prev;
+          const u = [...prev];
+          u[u.length - 1] = { 
+            ...u[u.length - 1], 
+            content: "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models." 
+          };
+          return u;
+        });
+      } else {
+        if (voiceRef.current || autoSpeak) speak(bot);
+        if (isFirstMsg) updateSessionTitle(userQuery);
+        generateFollowUps(bot, userQuery);
+      }
 
     } catch (err) {
       if (err.name === "AbortError") {
@@ -2655,7 +2675,7 @@ export default function App() {
         <div className="auth-hero-content">
           <div className="auth-hero-logo">
             <div className="auth-logo-mark" style={{ width: 52, height: 52, borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <VetroSpark size={32} color="#fff" />
+              <VetroSpark size={48} color="#fff" />
             </div>
             <div>
               <div className="logo-name" style={{ fontSize: "1.5rem" }}>VetroAI</div>
@@ -2783,7 +2803,7 @@ export default function App() {
         <div className="sb-head">
           <div className="sb-logo">
             <div className="sb-mark" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent' }}>
-              <VetroSpark size={24} color="var(--accent)" />
+              <VetroSpark size={28} color="var(--accent)" />
             </div>
             <span className="sb-name">VetroAI</span>
           </div>
@@ -3009,13 +3029,13 @@ export default function App() {
           {messages.length === 0 && (
             <div className="welcome">
               <div className="welcome-avatar" style={{ background: "transparent", color: "var(--accent)", boxShadow: "none" }}>
-                <VetroSpark size={48} />
+                <VetroSpark size={60} />
               </div>
               <h2 className="welcome-title">
                 {userInfo?.name ? `Hi, ${userInfo.name.split(" ")[0]}!` : t.welcome}
               </h2>
               <p className="welcome-sub">{t.welcomeSub}</p>
-              {systemPrompt && <div className="sys-badge"><VetroSpark size={14} />{t.systemPromptBadge}</div>}
+              {systemPrompt && <div className="sys-badge"><VetroSpark size={18} />{t.systemPromptBadge}</div>}
               {isWebMode && (
                 <div className="sys-badge" style={{ background: "rgba(59,130,246,0.1)", borderColor: "rgba(59,130,246,0.25)", color: "#3b82f6" }}>
                   <GlobeIcon /> Web Search Mode — Live results + page content fetching
@@ -3068,7 +3088,7 @@ export default function App() {
 
             return (
               <div key={idx} className={`msg ${msg.role} msg-${idx}${highlighted ? " hl" : ""}`}>
-                {msg.role === "assistant" && <div className="msg-av bot-av" style={{ background: "transparent" }}>{activePersona?.avatar || <VetroSpark size={22} color="var(--accent)" />}</div>}
+                {msg.role === "assistant" && <div className="msg-av bot-av" style={{ background: "transparent" }}>{activePersona?.avatar || <VetroSpark size={28} color="var(--accent)" />}</div>}
                 <div className="msg-body">
                   {msg.role === "user" && editIdx === idx ? (
                     <div className="edit-box">
@@ -3110,7 +3130,7 @@ export default function App() {
                                 <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>{isWebSearching ? "Searching the Web..." : "Fetching video..."}</span>
                               </div>
                             )}
-                            <ThinkingIndicator isVisible={true} />
+                            <ThinkingIndicator isVisible={true} status={getStatusLabel(streamStatus)} />
                           </div>
                         ) : (
                           <StructuredResponseRenderer 
