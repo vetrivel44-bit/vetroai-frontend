@@ -3063,9 +3063,12 @@ export default function App() {
                         </div>
                       )}
                       {msg.role === "assistant" && (idx === messages.length - 1 && isLoading) ? (
-                        <StreamingResponse 
-                          content={streamingContent || msg.content} 
-                          isStreaming={true} 
+                        <StructuredResponseRenderer 
+                          response={(streamingContent || msg.content) + "▍"} 
+                          onSubmitCode={(code) => {
+                            setInput(code);
+                            textareaRef.current?.focus();
+                          }}
                         />
                       ) : msg.role === "assistant" ? (
                         <StructuredResponseRenderer 
@@ -3139,18 +3142,7 @@ export default function App() {
             <div className="msg assistant">
               <div className="msg-av bot-av" style={{ background: "transparent" }}>{activePersona?.avatar || <VetroSpark size={22} color="var(--accent)" />}</div>
               <div className="msg-body">
-                <ThinkingIndicator 
-                  isVisible={true} 
-                  customStatuses={
-                    (streamStatus !== "idle" && streamStatus !== "streaming" && streamStatus !== "preparing")
-                      ? [streamStatus]
-                      : (isWebSearching 
-                          ? ['Searching the Web', 'Fetching Page Content', 'Analyzing Results', 'Synthesizing Information', 'Preparing Response']
-                          : isYtFetching
-                            ? ['Fetching Transcript', 'Analyzing Video', 'Generating Notes', 'Preparing Summary']
-                            : undefined)
-                  }
-                />
+                <ThinkingIndicator isVisible={true} />
               </div>
             </div>
           )}
