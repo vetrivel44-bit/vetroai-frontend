@@ -2969,12 +2969,14 @@ export default function App() {
         <div className="feed" ref={feedRef} onScroll={handleScroll}>
           {messages.length === 0 && (
             <div className="welcome">
-              <div className="welcome-avatar">V</div>
+              <div className="welcome-avatar" style={{ background: "transparent", color: "var(--accent)", boxShadow: "none" }}>
+                <VetroSpark size={48} />
+              </div>
               <h2 className="welcome-title">
                 {userInfo?.name ? `Hi, ${userInfo.name.split(" ")[0]}!` : t.welcome}
               </h2>
               <p className="welcome-sub">{t.welcomeSub}</p>
-              {systemPrompt && <div className="sys-badge"><BotIcon />{t.systemPromptBadge}</div>}
+              {systemPrompt && <div className="sys-badge"><VetroSpark size={14} />{t.systemPromptBadge}</div>}
               {isWebMode && (
                 <div className="sys-badge" style={{ background: "rgba(59,130,246,0.1)", borderColor: "rgba(59,130,246,0.25)", color: "#3b82f6" }}>
                   <GlobeIcon /> Web Search Mode — Live results + page content fetching
@@ -3027,7 +3029,7 @@ export default function App() {
 
             return (
               <div key={idx} className={`msg ${msg.role} msg-${idx}${highlighted ? " hl" : ""}`}>
-                {msg.role === "assistant" && <div className="msg-av bot-av">V</div>}
+                {msg.role === "assistant" && <div className="msg-av bot-av" style={{ background: "transparent" }}>{activePersona?.avatar || <VetroSpark size={22} color="var(--accent)" />}</div>}
                 <div className="msg-body">
                   {msg.role === "user" && editIdx === idx ? (
                     <div className="edit-box">
@@ -3135,7 +3137,7 @@ export default function App() {
 
           {isTyping && (
             <div className="msg assistant">
-              <div className="msg-av bot-av">V</div>
+              <div className="msg-av bot-av" style={{ background: "transparent" }}>{activePersona?.avatar || <VetroSpark size={22} color="var(--accent)" />}</div>
               <div className="msg-body">
                 <ThinkingIndicator 
                   isVisible={true} 
