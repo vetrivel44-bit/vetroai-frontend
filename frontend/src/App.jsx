@@ -15,7 +15,14 @@ import LocationMap from "./components/structured/LocationMap";
 import ThinkingIndicator from "./components/ThinkingIndicator";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const API = import.meta.env.VITE_API_BASE_URL || "/api";
+let baseApi = "/api";
+if (!import.meta.env.DEV && import.meta.env.VITE_API_BASE_URL) {
+  baseApi = import.meta.env.VITE_API_BASE_URL;
+}
+if (baseApi.startsWith("http") && !baseApi.endsWith("/api")) {
+  baseApi = baseApi.replace(/\/+$/, "") + "/api";
+}
+const API = baseApi;
 const SERPER_API_KEY = import.meta.env.VITE_SERPER_API_KEY || "";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const VITE_GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
@@ -988,30 +995,270 @@ function ScratchpadWidget({ onClose }) {
   );
 }
 
-// ─── CODE PLAYGROUND ─────────────────────────────────────────────────────────
+// ─── CODE PLAYGROUND (Full-Screen Multi-Language Compiler) ───────────────────
+// Supported languages map directly to compiler runtimes hosted on Wandbox compiler endpoint
+const PLAYGROUND_LANGS = [
+  { id: "python",     label: "Python",      runtime: "python",     version: "3.12.7",  sample: 'print("Hello, World!")\n\n# Try some Python\nfor i in range(5):\n    print(f"Count: {i}")' },
+  { id: "javascript", label: "JavaScript",  runtime: "javascript", version: "20.17.0", sample: 'console.log("Hello, World!")\n\n// Array operations\nconst nums = [1, 2, 3, 4, 5];\nnums.forEach(n => console.log(`Square of ${n}: ${n*n}`));' },
+  { id: "typescript", label: "TypeScript",  runtime: "typescript", version: "5.6.2",   sample: 'const greet = (name: string): string => `Hello, ${name}!`;\nconsole.log(greet("World"));\n\ninterface User { name: string; age: number; }\nconst user: User = { name: "VetroAI", age: 1 };\nconsole.log(user);' },
+  { id: "c",          label: "C",           runtime: "c",          version: "13.2.0",  sample: '#include <stdio.h>\n\nint main() {\n    printf("Hello, World!\\n");\n    for (int i = 0; i < 5; i++) {\n        printf("Count: %d\\n", i);\n    }\n    return 0;\n}' },
+  { id: "cpp",        label: "C++",         runtime: "cpp",        version: "13.2.0",  sample: '#include <iostream>\n#include <vector>\nusing namespace std;\n\nint main() {\n    cout << "Hello, World!" << endl;\n    vector<int> v = {1, 2, 3, 4, 5};\n    for (int x : v) cout << "Value: " << x << endl;\n    return 0;\n}' },
+  { id: "java",       label: "Java",        runtime: "java",       version: "21",      sample: 'public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, World!");\n        for (int i = 0; i < 5; i++) {\n            System.out.println("Count: " + i);\n        }\n    }\n}' },
+  { id: "go",         label: "Go",          runtime: "go",         version: "1.23.2",  sample: 'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello, World!")\n    for i := 0; i < 5; i++ {\n        fmt.Printf("Count: %d\\n", i)\n    }\n}' },
+  { id: "rust",       label: "Rust",        runtime: "rust",       version: "1.82.0",  sample: 'fn main() {\n    println!("Hello, World!");\n    for i in 0..5 {\n        println!("Count: {}", i);\n    }\n}' },
+  { id: "ruby",       label: "Ruby",        runtime: "ruby",       version: "3.3.11",  sample: 'puts "Hello, World!"\n\n5.times do |i|\n  puts "Count: #{i}"\nend' },
+  { id: "php",        label: "PHP",         runtime: "php",        version: "8.3.12",  sample: '<?php\necho "Hello, World!\\n";\nfor ($i = 0; $i < 5; $i++) {\n    echo "Count: $i\\n";\n}' },
+  { id: "swift",      label: "Swift",       runtime: "swift",      version: "6.0.1",   sample: 'print("Hello, World!")\nfor i in 0..<5 {\n    print("Count: \\(i)")\n}' },
+  { id: "csharp",     label: "C#",          runtime: "csharp",     version: "8.0.402", sample: 'using System;\n\npublic class Program {\n    public static void Main() {\n        Console.WriteLine("Hello, World!");\n        for (int i = 0; i < 5; i++) {\n            Console.WriteLine($"Count: {i}");\n        }\n    }\n}' },
+  { id: "bash",       label: "Bash",        runtime: "bash",       version: "latest",  sample: '#!/bin/bash\necho "Hello, World!"\nfor i in {0..4}; do\n    echo "Count: $i"\ndone' },
+  { id: "r",          label: "R",           runtime: "r",          version: "4.4.1",   sample: 'cat("Hello, World!\\n")\nfor (i in 0:4) {\n  cat(sprintf("Count: %d\\n", i))\n}' },
+];
+
+const LANG_COLORS = {
+  python: "#3572A5", javascript: "#F7DF1E", typescript: "#3178C6",
+  c: "#555555", cpp: "#f34b7d", java: "#b07219", go: "#00ADD8",
+  rust: "#dea584", ruby: "#701516", php: "#4F5D95", swift: "#F05138",
+  csharp: "#178600", bash: "#89e051", r: "#198CE7",
+};
+
 function CodePlayground({ onClose }) {
-  const [html, setHtml] = useState(localStorage.getItem("vetroai_playground_html") || '<h1 style="color:#E76F51">Hello VetroAI!</h1>\n<p>Edit me and see live preview ↓</p>');
-  const [output, setOutput] = useState("");
-  useEffect(() => { localStorage.setItem("vetroai_playground_html", html); }, [html]);
-  const run = () => setOutput(html);
-  useEffect(() => { run(); }, []);
+  const savedLang = () => { try { return localStorage.getItem("vetroai_pg_lang") || "python"; } catch { return "python"; } };
+  const savedCode = (lang) => { try { return localStorage.getItem(`vetroai_pg_code_${lang}`) || ""; } catch { return ""; } };
+
+  const [langId, setLangId]     = useState(savedLang);
+  const [code, setCode]         = useState(() => savedCode(savedLang()) || PLAYGROUND_LANGS.find(l => l.id === savedLang())?.sample || "");
+  const [output, setOutput]     = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [runTime, setRunTime]   = useState(null);
+  const [exitCode, setExitCode] = useState(null);
+  const [tab, setTab]           = useState("editor"); // "editor" | "output"
+  const [fontSize, setFontSize] = useState(14);
+  const [theme, setTheme]       = useState("dark"); // "dark" | "light"
+  const [stdin, setStdin]       = useState("");
+  const [rightTab, setRightTab] = useState("output"); // "output" | "stdin"
+  const textRef = useRef(null);
+
+  const currentLang = PLAYGROUND_LANGS.find(l => l.id === langId) || PLAYGROUND_LANGS[0];
+
+  // Save code per language
+  useEffect(() => {
+    try { localStorage.setItem(`vetroai_pg_code_${langId}`, code); } catch {}
+  }, [code, langId]);
+  useEffect(() => {
+    try { localStorage.setItem("vetroai_pg_lang", langId); } catch {}
+  }, [langId]);
+
+  const switchLang = (id) => {
+    setLangId(id);
+    const stored = savedCode(id);
+    setCode(stored || PLAYGROUND_LANGS.find(l => l.id === id)?.sample || "");
+    setOutput("");
+    setExitCode(null);
+    setRunTime(null);
+  };
+
+  const runCode = async () => {
+    if (!code.trim() || isRunning) return;
+    setIsRunning(true);
+    setOutput("");
+    setExitCode(null);
+    setRunTime(null);
+    setTab("output");
+    setRightTab("output"); // Auto-switch to output tab to see compiler results
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${API}/code/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: currentLang.id,
+          code: code,
+          stdin: stdin || ""
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try { const j = await res.json(); errMsg = j.error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
+
+      const data = await res.json();
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+      const compileOut = data.compile?.output?.trimEnd() || "";
+      const runOut     = data.run?.output?.trimEnd()     || "";
+      const combined   = [compileOut, runOut].filter(Boolean).join("\n");
+      setOutput(combined || "(no output)");
+      setExitCode(data.run?.code ?? 0);
+      setRunTime(elapsed);
+    } catch (err) {
+      const msg = err.name === "TimeoutError"
+        ? "Execution timed out (30s). Try a shorter program."
+        : err.message || "Unknown error";
+      setOutput(`⚠️ ${msg}`);
+      setExitCode(1);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const clearOutput = () => { setOutput(""); setExitCode(null); setRunTime(null); };
+  const copyCode   = () => navigator.clipboard.writeText(code);
+  const resetCode  = () => { setCode(currentLang.sample); setOutput(""); setExitCode(null); };
+
+  // Tab key in textarea
+  const handleKeyDown = (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const start = e.target.selectionStart;
+      const end   = e.target.selectionEnd;
+      const spaces = "  ";
+      setCode(c => c.slice(0, start) + spaces + c.slice(end));
+      setTimeout(() => {
+        if (textRef.current) {
+          textRef.current.selectionStart = textRef.current.selectionEnd = start + spaces.length;
+        }
+      }, 0);
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      runCode();
+    }
+  };
+
+  const accentColor = LANG_COLORS[langId] || "#7c3aed";
+  const isDark = theme === "dark";
+
   return (
-    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 640 }}>
-        <div className="modal-topbar">
-          <h3 className="modal-title">🧪 Code Playground</h3>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button className="btn-primary sm" onClick={run} style={{ fontSize: "0.76rem" }}>▶ Run</button>
-            <button className="modal-x" onClick={onClose}><XIcon /></button>
+    <div className="pg-fullscreen" data-theme={theme}>
+      {/* Top Bar */}
+      <div className="pg-topbar">
+        <div className="pg-topbar-left">
+          <div className="pg-logo">
+            <span style={{ fontSize: 18 }}>⚡</span>
+            <span>Code Playground</span>
+          </div>
+          {/* Language Selector */}
+          <div className="pg-lang-scroll">
+            {PLAYGROUND_LANGS.map(l => (
+              <button
+                key={l.id}
+                className={`pg-lang-tab${langId === l.id ? " active" : ""}`}
+                style={{ "--lc": LANG_COLORS[l.id] || "#7c3aed" }}
+                onClick={() => switchLang(l.id)}
+              >
+                <span className="pg-lang-dot" />
+                {l.label}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="modal-body" style={{ gap: 10 }}>
-          <textarea className="field-textarea" value={html} onChange={e => setHtml(e.target.value)}
-            style={{ minHeight: 140, fontFamily: "var(--mono)", fontSize: "0.82rem" }}
-            placeholder="Write HTML/CSS/JS here…" />
-          <div className="field-label">Preview</div>
-          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid var(--border)", overflow: "hidden", minHeight: 140 }}>
-            <iframe title="preview" srcDoc={output} sandbox="allow-scripts" style={{ width: "100%", height: 200, border: "none", display: "block" }} />
+        <div className="pg-topbar-right">
+          <button className="pg-icon-btn" title="Decrease font" onClick={() => setFontSize(f => Math.max(10, f - 1))}>A-</button>
+          <button className="pg-icon-btn" title="Increase font" onClick={() => setFontSize(f => Math.min(22, f + 1))}>A+</button>
+          <button className="pg-icon-btn" title="Toggle theme" onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}>{isDark ? "☀️" : "🌙"}</button>
+          <button className="pg-icon-btn" title="Reset code" onClick={resetCode}>↺</button>
+          <button className="pg-icon-btn" title="Copy code" onClick={copyCode}>⎘</button>
+          <button
+            className={`pg-run-btn${isRunning ? " running" : ""}`}
+            onClick={runCode}
+            disabled={isRunning}
+            title="Run (Ctrl+Enter)"
+          >
+            {isRunning ? <><span className="pg-spinner" />Running…</> : <>▶ Run</>}
+          </button>
+          <button className="pg-close-btn" onClick={onClose} title="Close">✕</button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="pg-body">
+        {/* Editor Panel */}
+        <div className="pg-editor-panel">
+          <div className="pg-panel-header">
+            <span className="pg-lang-badge" style={{ background: accentColor + "22", color: accentColor, borderColor: accentColor + "44" }}>
+              <span className="pg-lang-dot" style={{ background: accentColor }} />
+              {currentLang.label} · {currentLang.version}
+            </span>
+            <span className="pg-hint">Ctrl+Enter to run · Tab to indent</span>
+          </div>
+          <div className="pg-editor-wrap">
+            <div className="pg-line-nums" aria-hidden="true">
+              {code.split("\n").map((_, i) => (
+                <div key={i} className="pg-line-num">{i + 1}</div>
+              ))}
+            </div>
+            <textarea
+              ref={textRef}
+              className="pg-code-editor"
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              onKeyDown={handleKeyDown}
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
+              style={{ fontSize }}
+              placeholder={`Write your ${currentLang.label} code here…`}
+            />
+          </div>
+        </div>
+
+        {/* Output Panel */}
+        <div className="pg-output-panel">
+          <div className="pg-panel-header" style={{ padding: "6px 12px" }}>
+            <div className="pg-tab-row">
+              <button
+                className={`pg-panel-tab ${rightTab === "output" ? "active" : ""}`}
+                onClick={() => setRightTab("output")}
+              >
+                Output
+              </button>
+              <button
+                className={`pg-panel-tab ${rightTab === "stdin" ? "active" : ""}`}
+                onClick={() => setRightTab("stdin")}
+              >
+                Input (Stdin) {stdin.trim() && <span className="pg-stdin-dot" />}
+              </button>
+            </div>
+            <div className="pg-panel-header-right">
+              {exitCode !== null && rightTab === "output" && (
+                <span className={`pg-exit-badge ${exitCode === 0 ? "ok" : "err"}`}>
+                  {exitCode === 0 ? "✓ Success" : `✗ Exit ${exitCode}`}
+                </span>
+              )}
+              {runTime && rightTab === "output" && <span className="pg-time-badge">⏱ {runTime}s</span>}
+              {output && rightTab === "output" && <button className="pg-icon-btn" onClick={clearOutput} title="Clear output">✕ Clear</button>}
+            </div>
+          </div>
+          <div className="pg-output-body">
+            {rightTab === "stdin" ? (
+              <div className="pg-stdin-wrap">
+                <textarea
+                  className="pg-stdin-editor"
+                  value={stdin}
+                  onChange={e => setStdin(e.target.value)}
+                  placeholder={`Provide standard input values for your program here.\nFor example, if your Python code prompts:\n  name = input()\n  age = input()\nthen type the values on separate lines:\n  John\n  25`}
+                  spellCheck={false}
+                />
+              </div>
+            ) : isRunning ? (
+              <div className="pg-running-msg">
+                <div className="pg-run-anim">
+                  <span /><span /><span />
+                </div>
+                <p>Compiling and running your {currentLang.label} code…</p>
+                <small>Powered by Wandbox</small>
+              </div>
+            ) : output ? (
+              <pre className={`pg-output-pre ${exitCode !== 0 ? "error" : ""}`}>{output}</pre>
+            ) : (
+              <div className="pg-output-empty">
+                <span style={{ fontSize: 32 }}>▶</span>
+                <p>Click <strong>Run</strong> or press <kbd>Ctrl+Enter</kbd> to execute your code</p>
+                <small>For interactive programs, click the <strong>Input (Stdin)</strong> tab and enter values before running.</small>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1020,18 +1267,15 @@ function CodePlayground({ onClose }) {
 }
 
 // ─── STATS PANEL ─────────────────────────────────────────────────────────────
-function StatsPanel({ onClose, sessions, bookings }) {
+function StatsPanel({ onClose, sessions }) {
   const totalMsgs = sessions.reduce((a, s) => a + (s.messages?.length || 0), 0);
   const userMsgs = sessions.reduce((a, s) => a + (s.messages?.filter(m => m.role === "user").length || 0), 0);
   const botMsgs = totalMsgs - userMsgs;
-  const totalBookings = bookings.length;
   const stats = [
     { icon: "💬", label: "Total Messages", value: totalMsgs },
     { icon: "👤", label: "You Sent", value: userMsgs },
     { icon: "🤖", label: "AI Replies", value: botMsgs },
     { icon: "📂", label: "Conversations", value: sessions.length },
-    { icon: "📅", label: "Total Bookings", value: totalBookings },
-    { icon: "⭐", label: "Active Bookings", value: bookings.filter(b => b.status === "upcoming").length },
   ];
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1539,6 +1783,15 @@ export default function App() {
   // ── Bookmarks & Memory ────────────────────────────────────────────────────────
   const [bookmarks, setBookmarks]           = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_bookmarks") || "[]"); } catch { return []; } });
   const [showBookmarks, setShowBookmarks]   = useState(false);
+  const [memories, setMemories]             = useState([]);
+
+  // Lightweight per-user memory backed by localStorage
+  const getMemories = (email) => {
+    try {
+      const key = `vetroai_memories_${email}`;
+      return JSON.parse(localStorage.getItem(key) || "[]");
+    } catch { return []; }
+  };
 
   // ── Modals ────────────────────────────────────────────────────────────────────
   const [showProfile, setShowProfile]       = useState(false);
@@ -2138,7 +2391,7 @@ export default function App() {
     fd.append("temperature", String(temperature));
     fd.append("maxTokens", String(maxTokens));
     fd.append("reqId", reqId);
-    fd.append("memories", JSON.stringify([]));
+    fd.append("memories", JSON.stringify(memories));
     
     if (fileData) fd.append("file", fileData);
 
@@ -2234,15 +2487,6 @@ export default function App() {
     if (!text && !selFile) return;
     if (isListening) recogRef.current?.stop();
 
-    // Booking intent intercept
-    if (detectBookingIntent(text) && !selFile) {
-      setShowBooking(true);
-      const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      setMessages(prev => [...prev, { role: "user", content: text, timestamp: ts }, { role: "assistant", content: "I'd love to help you book a session! 📅 I've opened the booking panel for you — select your preferred service, date, and time.", timestamp: ts }]);
-      setInput("");
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-      return;
-    }
 
     // Image generation intercept
     const imgPrompt = detectImagePrompt(text);
@@ -2342,13 +2586,17 @@ export default function App() {
   const removeRxn = (i, r) => setReactions(p => ({ ...p, [i]: (p[i] || []).filter(x => x !== r) }));
 
   const [profileData, setProfileData] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("vetroai_profile") || '{"name":"","avatar":"🧑"}'); }
+    try {
+      const stored = JSON.parse(localStorage.getItem("vetroai_profile") || 'null');
+      if (stored && typeof stored === 'object') return stored;
+      return { name: "", avatar: "🧑" };
+    }
     catch { return { name: "", avatar: "🧑" }; }
   });
   const charCount   = input.length;
   const tokenEst    = Math.ceil(charCount / 4);
   const isEmpty     = !input.trim() && !selFile;
-  const avatarEl    = <span>{profileData.avatar}</span>;
+  const avatarEl    = <span>{profileData?.avatar || "🧑"}</span>;
 
   // ── AUTH PAGE ──────────────────────────────────────────────────────────────────
   if (!user) return (
@@ -2367,9 +2615,9 @@ export default function App() {
             </div>
           </div>
           <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
-          <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, session booking and more — all in one place.</p>
+          <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, code playground and more — all in one place.</p>
           <div className="auth-hero-features">
-            {[[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Calendar size={16} />,"Session booking"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
+            {[[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Terminal size={16} />,"Code Playground"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
               <div key={lb} className="auth-hero-feat"><span>{ic}</span>{lb}</div>
             ))}
           </div>
@@ -2455,7 +2703,7 @@ export default function App() {
       />}
       {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
-      {showStats     && <StatsPanel onClose={() => setShowStats(false)} sessions={sessions} bookings={[]} />}
+      {showStats     && <StatsPanel onClose={() => setShowStats(false)} sessions={sessions} />}
       {confirmDelete && <ConfirmDialog message={confirmDelete.message} onConfirm={confirmDeleteSession} onCancel={() => setConfirmDelete(null)} />}
       {/* NEW FEATURES */}
       {showPersona   && <PersonaSwitcher currentPersonaId={activePersona?.id} onSelect={setActivePersona} onClose={() => setShowPersona(false)} />}
@@ -2869,7 +3117,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                {msg.role === "user" && <div className="msg-av user-av">{profileData.avatar}</div>}
+                {msg.role === "user" && <div className="msg-av user-av">{profileData?.avatar || "🧑"}</div>}
               </div>
             );
           })}

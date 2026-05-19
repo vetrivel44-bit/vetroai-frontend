@@ -64,6 +64,7 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/sessions", chatSessionRoutes);
 app.use("/api/maps", mapsRoutes);
 app.use("/api/debug", require("./routes/debugRoutes"));
+app.use("/api/code", require("./routes/codeRoutes"));
 app.use("/api", chatRoutes);
 
 app.use(notFoundHandler);

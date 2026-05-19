@@ -329,7 +329,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
 
   const renderSection = (section, index) => {
     let component = null;
-    const commonProps = { key: `s-${index}`, delay: section.delay };
+    const commonProps = { delay: section.delay };
 
     switch (section.type) {
       case 'hero':

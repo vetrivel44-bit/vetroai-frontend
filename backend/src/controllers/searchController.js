@@ -20,36 +20,90 @@ async function fetchPageContent(url, maxChars = 3000) {
 
 const cheerio = require("cheerio");
 
+async function searchBrave(query) {
+  try {
+    const url = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      },
+      signal: AbortSignal.timeout(6000)
+    });
+
+    if (!res.ok) {
+      logger.warn(`Brave Search status error: ${res.status}`);
+      return [];
+    }
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const results = [];
+
+    $('a.l1').each((i, el) => {
+      if (results.length >= 8) return;
+      const title = $(el).find('div.title, .title').first().text().trim() || $(el).text().trim();
+      const href = $(el).attr('href');
+      const parent = $(el).parent();
+      const snippet = parent.find('.generic-snippet, div[class*="snippet"]').text().trim();
+      
+      if (title && href && href.startsWith("http")) {
+        results.push({ title, description: snippet, url: href });
+      }
+    });
+
+    return results;
+  } catch (err) {
+    logger.warn("Brave search failed, falling back", { error: err.message });
+    return [];
+  }
+}
+
+async function searchMojeek(query) {
+  try {
+    const url = `https://www.mojeek.com/search?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      signal: AbortSignal.timeout(6000)
+    });
+
+    if (!res.ok) {
+      logger.warn(`Mojeek search status error: ${res.status}`);
+      return [];
+    }
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const results = [];
+
+    $('.results-list li, .results li').each((i, el) => {
+      if (results.length >= 8) return;
+      const titleA = $(el).find('a.title').first();
+      const title = titleA.text().trim();
+      const href = titleA.attr('href');
+      const snippet = $(el).find('p.s').text().trim();
+      
+      if (title && href && href.startsWith("http")) {
+        results.push({ title, description: snippet, url: href });
+      }
+    });
+
+    return results;
+  } catch (err) {
+    logger.warn("Mojeek search failed", { error: err.message });
+    return [];
+  }
+}
+
 async function searchWeb(query) {
   if (!query) throw new Error("Query is required");
 
-  // 1. Manually scrape DuckDuckGo HTML to avoid library rate limits
-  const fetchRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5'
-    },
-    signal: AbortSignal.timeout(8000)
-  });
-  
-  if (!fetchRes.ok) throw new Error(`DDG returned ${fetchRes.status}`);
-  const html = await fetchRes.text();
-  const $ = cheerio.load(html);
-  
-  const results = [];
-  $('.result').each((i, el) => {
-    if (results.length >= 5) return;
-    const title = $(el).find('.result__title').text().trim();
-    const snippet = $(el).find('.result__snippet').text().trim();
-    let url = $(el).find('.result__url').attr('href');
-    if (title && url) {
-      if (url.includes('uddg=')) {
-        try { url = decodeURIComponent(url.split('uddg=')[1].split('&')[0]); } catch (e) {}
-      }
-      results.push({ title, description: snippet, url });
-    }
-  });
+  let results = await searchBrave(query);
+  if (results.length === 0) {
+    logger.info("Brave Search returned 0 results. Trying Mojeek...");
+    results = await searchMojeek(query);
+  }
 
   const snippets = [];
   const todayStr = new Date().toLocaleDateString("en-US", {
