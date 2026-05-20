@@ -58,7 +58,7 @@ class ProviderManager {
     };
 
     // Background health check loop - only in non-serverless
-    if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.LAMBDA_TASK_ROOT) {
+    if (!process.env.LAMBDA_TASK_ROOT) {
       setInterval(() => this.checkHealth(), 15000); // every 15 s
     }
   }
