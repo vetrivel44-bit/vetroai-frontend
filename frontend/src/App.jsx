@@ -75,12 +75,12 @@ const extractSourceUrls = (text) => {
 
 // ─── CLAUDE-STYLE VETROAI LOGO (Serif Spark) ──────────────────────────────────
 const VetroSpark = ({ size = 24, color = "currentColor", className = "" }) => (
-  <img 
-    src="/logo.png" 
-    alt="VetroAI Logo" 
-    width={size} 
-    height={size} 
-    className={`vetroai-logo ${className}`} 
+  <img
+    src="/logo.png"
+    alt="VetroAI Logo"
+    width={size}
+    height={size}
+    className={`vetroai-logo ${className}`}
     style={{ borderRadius: '24%', objectFit: 'contain', display: 'inline-block', verticalAlign: 'middle' }}
   />
 );
@@ -859,12 +859,29 @@ function SysPromptModal({ onClose, t, value, setValue }) {
 }
 
 function ShareModal({ onClose, t, messages }) {
+  const [selectedOption, setSelectedOption] = useState("public");
+  const [step, setStep] = useState(1);
   const [cp, setCp] = useState(false);
+
   const url = useMemo(() => {
     const d = btoa(encodeURIComponent(JSON.stringify(messages.slice(-10).map(m => ({ r: m.role, c: m.content?.slice(0, 200) })))));
     return `${window.location.origin}${window.location.pathname}?share=${d.slice(0, 400)}`;
   }, [messages]);
-  const copy = () => { navigator.clipboard.writeText(url); setCp(true); setTimeout(() => setCp(false), 2500); };
+
+  const copy = () => {
+    navigator.clipboard.writeText(url);
+    setCp(true);
+    setTimeout(() => setCp(false), 2500);
+  };
+
+  const handleActionClick = () => {
+    if (selectedOption === "private") {
+      onClose();
+    } else {
+      setStep(2);
+    }
+  };
+
   const exportFn = (type) => {
     let content, mime, ext;
     if (type === "txt") { content = messages.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join("\n\n---\n\n"); mime = "text/plain"; ext = "txt"; }
@@ -880,33 +897,95 @@ function ShareModal({ onClose, t, messages }) {
     a.download = `vetroai-chat-${makeExportStamp()}.${ext}`;
     a.click();
   };
+
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-topbar">
-          <h3 className="modal-title"><ShareIcon />{t.shareTitle}</h3>
-          <button className="modal-x" onClick={onClose}><XIcon /></button>
-        </div>
-        <div className="modal-body">
-          <div className="field-group">
-            <label className="field-label">Share link</label>
-            <div className="share-row">
-              <input className="field-input" readOnly value={url} />
-              <button className="btn-primary" onClick={copy}>{cp ? <><CheckIcon />Copied</> : t.copy}</button>
+      <div className="claude-modal share-modal">
+        <button className="claude-modal-x" onClick={onClose}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+
+        {step === 1 ? (
+          <>
+            <h2 className="claude-modal-title">Share chat</h2>
+            <p className="claude-modal-subtitle">Only messages up to this point will be shared.</p>
+
+            <div className="claude-share-options-card">
+              <div
+                className={`claude-share-option-row${selectedOption === "private" ? " active" : ""}`}
+                onClick={() => setSelectedOption("private")}
+              >
+                <span className="option-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </span>
+                <div className="option-text">
+                  <div className="option-title">Keep private</div>
+                  <div className="option-desc">Only you have access</div>
+                </div>
+                {selectedOption === "private" && (
+                  <span className="option-check">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </span>
+                )}
+              </div>
+
+              <div
+                className={`claude-share-option-row${selectedOption === "public" ? " active" : ""}`}
+                onClick={() => setSelectedOption("public")}
+              >
+                <span className="option-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                </span>
+                <div className="option-text">
+                  <div className="option-title">Create public link</div>
+                  <div className="option-desc">Anyone with the link can view</div>
+                </div>
+                {selectedOption === "public" && (
+                  <span className="option-check">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </span>
+                )}
+              </div>
             </div>
-            <p className="share-note">{t.shareNote}</p>
-          </div>
-          <div className="field-group">
-            <label className="field-label">{t.exportChat}</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              {["txt", "md", "html", "json"].map(type => (
-                <button key={type} className="btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => exportFn(type)}>
-                  <DlIcon />{type.toUpperCase()}
-                </button>
-              ))}
+
+            <p className="claude-modal-policy-note">
+              Don't share personal information or third-party content without permission, and see our <a href="#" onClick={(e) => e.preventDefault()}>Usage Policy</a>.
+            </p>
+
+            <div className="claude-modal-footer">
+              <button className="claude-btn-dark" onClick={handleActionClick}>
+                {selectedOption === "private" ? "Close" : "Create share link"}
+              </button>
             </div>
-          </div>
-        </div>
+          </>
+        ) : (
+          <>
+            <h2 className="claude-modal-title">Public link created</h2>
+            <p className="claude-modal-subtitle">You can now copy the link and share it with others.</p>
+
+            <div className="claude-share-result-row">
+              <input className="claude-modal-input" readOnly value={url} onClick={(e) => e.target.select()} />
+              <button className="claude-btn-dark" onClick={copy}>{cp ? "Copied!" : "Copy link"}</button>
+            </div>
+
+            <div className="claude-modal-exports-section">
+              <div className="exports-label">Or export chat data:</div>
+              <div className="exports-grid">
+                {["txt", "md", "html", "json"].map(type => (
+                  <button key={type} className="claude-pill" style={{ flex: 1, justifyContent: "center" }} onClick={() => exportFn(type)}>
+                    {type.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="claude-modal-footer" style={{ marginTop: 24 }}>
+              <button className="claude-pill" onClick={() => setStep(1)}>
+                Back
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1460,11 +1539,11 @@ function ContextWindowBar({ messages, maxCtx = 32000 }) {
 function SummaryPanel({ messages, onClose, addToast }) {
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(true);
-  
+
   useEffect(() => {
     const userMsgs = messages.filter(m => m.role === "user").map(m => m.content).join("\n").slice(0, 3000);
     const ctrl = new AbortController();
-    
+
     setLoading(true);
     fetch(API + "/chat", {
       method: "POST",
@@ -1550,14 +1629,14 @@ function ModelPickerModal({ currentMode, currentProvider, onSelectMode, onSelect
           </div>
           <button className="modal-x" onClick={onClose}><X size={18} /></button>
         </div>
-        
+
         <div className="model-search-box">
           <Search size={18} />
-          <input 
-            placeholder="Search workflows…" 
-            value={search} 
-            onChange={e => setSearch(e.target.value)} 
-            autoFocus 
+          <input
+            placeholder="Search workflows…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            autoFocus
           />
         </div>
 
@@ -1565,8 +1644,8 @@ function ModelPickerModal({ currentMode, currentProvider, onSelectMode, onSelect
           <label className="provider-label">Backend Provider</label>
           <div className="provider-selector">
             {PROVIDERS.map(p => (
-              <button 
-                key={p} 
+              <button
+                key={p}
                 className={`provider-tab${currentProvider === p ? " active" : ""}`}
                 onClick={() => onSelectProvider(p)}
               >
@@ -1620,6 +1699,18 @@ const getStatusLabel = (status) => {
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
+function getRelativeTime(id) {
+  const ts = parseInt(id, 10);
+  if (isNaN(ts)) return "";
+  const diff = Date.now() - ts;
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days/7)} weeks ago`;
+  return `${Math.floor(days/30)} months ago`;
+}
+
 export default function App() {
   const [theme, setTheme]         = useState(() => localStorage.getItem("vetroai_theme") || "dark");
   const [langCode, setLangCode]   = useState(() => localStorage.getItem("vetroai_lang") || "en");
@@ -1685,6 +1776,13 @@ export default function App() {
 
   // ── Session ───────────────────────────────────────────────────────────────────
   const [sessions, setSessions]             = useState([]);
+  const [showRecentsPage, setShowRecentsPage] = useState(false);
+  const [recentsSearch, setRecentsSearch]   = useState("");
+
+  const filteredSessions = React.useMemo(() => {
+    if (!recentsSearch) return sessions;
+    return sessions.filter(s => s.title?.toLowerCase().includes(recentsSearch.toLowerCase()));
+  }, [sessions, recentsSearch]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [histSearch, setHistSearch]         = useState("");
   const [pinnedIds, setPinnedIds]           = useState(() => JSON.parse(localStorage.getItem("vetroai_pins") || "[]"));
@@ -1863,6 +1961,7 @@ export default function App() {
   const [autoSpeak, setAutoSpeak]   = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [isDictating, setIsDictating] = useState(false);
 
   // ── Refs ──────────────────────────────────────────────────────────────────────
   const feedRef        = useRef(null);
@@ -2230,24 +2329,24 @@ export default function App() {
     if (!c.trim()) return;
     const u   = new SpeechSynthesisUtterance(c);
     const vs  = window.speechSynthesis.getVoices();
-    
+
     const hasHindi = /[\u0900-\u097F]/.test(c);
     const hasSpanish = /[áéíóúñÁÉÍÓÚÑ]/.test(c);
     const targetLang = hasHindi ? "hi" : hasSpanish ? "es" : "en";
-    
+
     const premiumFemales = ["Aria", "Samantha", "Zira", "Karen", "Victoria", "Tessa", "Google UK English Female", "Google US English", "Amalia", "Monica", "Lekha"];
-    
+
     let best = vs.find(v => v.lang.startsWith(targetLang) && premiumFemales.some(n => v.name.includes(n)))
             || vs.find(v => v.lang.startsWith(targetLang) && (v.name.toLowerCase().includes("female") || v.name.includes("Natural") || v.name.includes("Online")))
             || vs.find(v => v.lang.startsWith(targetLang))
-            || vs.find(v => premiumFemales.some(n => v.name.includes(n))) 
+            || vs.find(v => premiumFemales.some(n => v.name.includes(n)))
             || vs[0];
-            
+
     u.voice = best;
     u.lang = best?.lang || (hasHindi ? 'hi-IN' : hasSpanish ? 'es-ES' : 'en-US');
-    u.pitch = 1.08; 
+    u.pitch = 1.08;
     u.rate = 1.02;
-    
+
     u.onstart = () => { try { recogRef.current?.stop(); } catch (err) { swallowError(err); } setIsListening(false); };
     u.onend   = () => { if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
     window.speechSynthesis.speak(u);
@@ -2259,11 +2358,11 @@ export default function App() {
     if (window.speechSynthesis?.onvoiceschanged !== undefined) window.speechSynthesis.onvoiceschanged = lv;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
-    const sr = new SR(); 
+    const sr = new SR();
     sr.interimResults = true;
     sr.continuous = true;
     sr.lang = navigator.language || 'en-US';
-    
+
     sr.onresult = e => {
       if (window.speechSynthesis?.speaking) return;
       let txt = "";
@@ -2433,20 +2532,20 @@ export default function App() {
     fd.append("maxTokens", String(maxTokens));
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(memories));
-    
+
     if (fileData) fd.append("file", fileData);
 
     try {
       addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode });
-      
+
       const res = await fetch(API + "/chat", {
         method: "POST",
         body: fd,
         signal: ctrl.signal
       });
-      
+
       if (!isActive()) return;
-      
+
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || `Server error: ${res.status}`);
@@ -2457,7 +2556,7 @@ export default function App() {
       setIsTyping(false);
       setStreamStatus("streaming");
       const bot = await readSSEStream(
-        reader, 
+        reader,
         (acc) => {
           if (!isActive()) return;
           setMessages(prev => {
@@ -2474,23 +2573,23 @@ export default function App() {
         (errorMsg) => {
           addToast(errorMsg, "error");
         },
-        isActive, 
+        isActive,
         reqId
       );
 
       setIsLoading(false);
       setStreamStatus("idle");
       setStreamingContent("");
-      
+
       if (!isActive()) return;
 
       if (!bot || !bot.trim()) {
         setMessages(prev => {
           if (prev.length === 0) return prev;
           const u = [...prev];
-          u[u.length - 1] = { 
-            ...u[u.length - 1], 
-            content: "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models." 
+          u[u.length - 1] = {
+            ...u[u.length - 1],
+            content: "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models."
           };
           return u;
         });
@@ -2515,22 +2614,22 @@ export default function App() {
       addDebugLog("Chat.catch", { reqId, error: err.message });
       setIsLoading(false); setStreamStatus("failed");
       addToast(err.message || "Connection issue", "error");
-      
+
       const ts2 = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       setMessages(prev => {
         const u = [...prev];
         const lastIdx = u.map(m => m.role).lastIndexOf("assistant");
         if (lastIdx !== -1 && !u[lastIdx].content) {
-          u[lastIdx] = { 
-            role: "assistant", 
-            content: `I encountered an issue: "${err.message}". Please try again.`, 
-            timestamp: ts2 
+          u[lastIdx] = {
+            role: "assistant",
+            content: `I encountered an issue: "${err.message}". Please try again.`,
+            timestamp: ts2
           };
         } else {
           u.push({
-            role: "assistant", 
-            content: `I encountered an issue: "${err.message}". Please try again.`, 
-            timestamp: ts2 
+            role: "assistant",
+            content: `I encountered an issue: "${err.message}". Please try again.`,
+            timestamp: ts2
           });
         }
         return u;
@@ -2602,11 +2701,11 @@ export default function App() {
     }
 
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    
+
     // Diagnostic Command: /test-visual
     if (text === "/test-visual") {
       const testContent = `# Diagnostic Analysis: Infrastructure & Logistics\n\nThis is a premium diagnostic summary of the VetroAI visualization engine.\n\n> [!IMPORTANT]\n> The execution pipeline is active. All components below are rendered dynamically from structured JSON blocks.\n\n## Market Performance Comparison\n\n\`\`\`json\n{\n  "type": "chart",\n  "chartType": "bar",\n  "library": "recharts",\n  "title": "Cloud Infrastructure Revenue (Q4 2023)",\n  "data": [\n    {"label": "AWS", "value": 24.2},\n    {"label": "Azure", "value": 18.5},\n    {"label": "Google Cloud", "value": 9.1}\n  ]\n}\n\`\`\`\n\n## Global Logistics Route\n\n\`\`\`json\n{\n  "type": "route",\n  "origin": "Chennai, Tamil Nadu",\n  "destination": "Bangalore, Karnataka",\n  "summary": "Critical industrial corridor connecting the automobile hub to the tech capital.",\n  "waypoints": ["Vellore", "Hosur"],\n  "details": [\n    {"label": "Distance", "value": "346 km"},\n    {"label": "Est. Time", "value": "6h 15m"}\n  ]\n}\n\`\`\`\n\n## Key Metrics\n\n## Performance Analytics\n\n- **Uptime**: 99.99%\n- **Latency**: 45ms\n- **Throughput**: 1.2GB/s\n\n## Implementation Roadmap\n\n1. **Design System**\nInitial UI/UX tokens and architecture.\n2. **Component Build**\nDeveloping modular structured blocks.\n3. **Orchestration**\nConnecting the AI intent to the rendering layer.\n`;
-      setMessages(prev => [...prev, 
+      setMessages(prev => [...prev,
         { role: "user", content: text, timestamp: ts },
         { role: "assistant", content: testContent, timestamp: ts }
       ]);
@@ -2749,6 +2848,146 @@ export default function App() {
   );
 
 
+  const getDynamicGreeting = () => {
+    const hrs = new Date().getHours();
+    const namePart = userInfo?.name ? `, ${userInfo.name.split(" ")[0]}` : "";
+    if (hrs >= 21 || hrs < 5) return `Hello, night owl${namePart}`;
+    if (hrs >= 5 && hrs < 12) return `Good morning${namePart}`;
+    if (hrs >= 12 && hrs < 17) return `Good afternoon${namePart}`;
+    return `Good evening${namePart}`;
+  };
+
+    const toggleDictation = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      addToast("Speech recognition is not supported in this browser.", "error");
+      return;
+    }
+
+    if (isDictating) {
+      setIsDictating(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsDictating(true);
+    recognition.onend = () => setIsDictating(false);
+    recognition.onerror = (e) => {
+      console.error(e);
+      setIsDictating(false);
+    };
+    recognition.onresult = (e) => {
+      let finalTranscript = "";
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        if (e.results[i].isFinal) {
+          finalTranscript += e.results[i][0].transcript;
+        }
+      }
+      if (finalTranscript) {
+        setInput(prev => prev + (prev ? " " : "") + finalTranscript);
+      }
+    };
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error(e);
+      setIsDictating(false);
+    }
+  };
+
+  const renderInputBox = () => {
+    return (
+      <form className="claude-input-box" onSubmit={sendMessage}>
+        <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" />
+        {filePreview && (
+          <div className="file-prev">
+            <img src={filePreview} alt="" />
+            <button type="button" onClick={() => { setSelFile(null); setFilePreview(null); }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        )}
+        {selFile && !filePreview && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg-hover)", border: "1px solid var(--border-med)", borderRadius: 10, padding: "6px 12px", width: "fit-content", marginBottom: 10, fontSize: "0.8rem", color: "var(--ink-2)" }}>
+            📄 {selFile.name}
+            <button type="button" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)" }} onClick={() => setSelFile(null)}>✕</button>
+          </div>
+        )}
+
+        <textarea
+          ref={textareaRef}
+          rows="1"
+          placeholder={
+            isDictating ? t.listening || "Listening..." :
+            isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
+            isDeepSearch ? "DeepSearch: ask a research question (I will query multiple angles)..." :
+            isWebMode    ? "Search the web with AI — I fetch real page content…" :
+                           'Message VetroAI… (try "generate an image of…")'
+          }
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              sendMessage(e);
+            }
+          }}
+          disabled={isLoading}
+        />
+
+        <div className="claude-input-footer">
+          <div className="claude-footer-left">
+            <button type="button" className="claude-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload file">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+
+          <div className="claude-footer-right">
+            <button type="button" className="claude-model-text-btn" onClick={() => setShowModelPicker(true)} title="Model selector">
+              <span>{currentMode.name}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+
+            {/* Mic Icon - Dictation placeholder */}
+            <button type="button" className={`claude-action-btn ${isDictating ? "active" : ""}`} onClick={toggleDictation} title="Dictate">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDictating ? "var(--accent)" : "currentColor"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+            </button>
+
+            {/* Voice Mode / Audio Activity Icon */}
+            {isVoiceOpen ? (
+              <button type="button" className="claude-action-btn active voice" onClick={closeVoice} title="Close voice mode">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            ) : (
+              <button type="button" className="claude-action-btn voice" onClick={() => setIsVoiceOpen(true)} title="Start Voice Mode">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14v-4m4 6V8m4 8V6m4 8V8m4 6v-4" /></svg>
+              </button>
+            )}
+
+            {/* Send / Stop Button */}
+            {isLoading ? (
+              <button type="button" className="claude-send-btn active" onClick={stopGeneration} title="Stop generating" style={{ background: "var(--ink)", color: "var(--bg)" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg>
+              </button>
+            ) : (
+              <button 
+                type="submit" 
+                className={`claude-send-btn ${(!input.trim() && !selFile) ? "" : "active"}`} 
+                disabled={!input.trim() && !selFile}
+                title="Send message"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </form>
+    );
+  };
+
   // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
     <div className="shell">
@@ -2759,8 +2998,8 @@ export default function App() {
       {showShare     && messages.length > 0 && <ShareModal onClose={() => setShowShare(false)} t={t} messages={messages} />}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={msg => setInput(msg.content)} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
       {showCalc      && <CalcWidget onClose={() => setShowCalc(false)} />}
-      {showModelPicker && <ModelPickerModal 
-        currentMode={selectedMode} 
+      {showModelPicker && <ModelPickerModal
+        currentMode={selectedMode}
         currentProvider={selectedProvider}
         onSelectMode={(next) => {
           if (lockModelPerChat && messages.length > 0) {
@@ -2768,9 +3007,9 @@ export default function App() {
             return;
           }
           setSelectedMode(next);
-        }} 
+        }}
         onSelectProvider={setSelectedProvider}
-        onClose={() => setShowModelPicker(false)} 
+        onClose={() => setShowModelPicker(false)}
       />}
       {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
@@ -2800,6 +3039,49 @@ export default function App() {
       )}
 
       {isSidebarOpen && <div className="sb-overlay" onClick={() => setIsSidebarOpen(false)} />}
+
+      {/* Claude-style slim icon rail */}
+      <nav className="icon-rail">
+        <div className="rail-section rail-top">
+          {/* Logo / New chat button at the very top */}
+          <button className="rail-btn" onClick={() => { newChat(); setShowRecentsPage(false); }} title="New Chat" style={{ color: "var(--accent)" }}>
+            <VetroSpark size={20} />
+          </button>
+
+          <div style={{ width: "24px", height: "1px", background: "var(--border)", margin: "4px 0" }} />
+
+          {/* 1. History Toggle (Clock/History icon) */}
+          <button className={`rail-btn${isSidebarOpen ? " active" : ""}`} onClick={() => { setIsSidebarOpen(o => !o); setShowRecentsPage(false); }} title="Chat History">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          </button>
+
+          {/* 2. Recents Dashboard Toggle (Chat Bubble / Recents list) */}
+          <button className={`rail-btn${showRecentsPage ? " active" : ""}`} onClick={() => { setShowRecentsPage(r => !r); setIsSidebarOpen(false); }} title="Chats Dashboard">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </button>
+
+          {/* 3. Bookmarks Panel Toggle (Star/Bookmark icon) */}
+
+        </div>
+
+        <div className="rail-section rail-bottom">
+          {/* Theme Toggle */}
+          <button className="rail-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Toggle Theme">
+            {theme === "dark" ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            )}
+          </button>
+
+          {/* User Profile Avatar */}
+          <button className="rail-btn rail-avatar-btn" onClick={() => setShowProfile(true)} title="Profile">
+            <div className="rail-avatar">
+              {(userInfo?.name || "U")[0].toUpperCase()}
+            </div>
+          </button>
+        </div>
+      </nav>
 
       {/* SIDEBAR */}
       <aside className={`sidebar${isSidebarOpen ? " open" : ""}`}>
@@ -2875,67 +3157,11 @@ export default function App() {
           )}
         </nav>
 
-        <div className="sb-foot">
-          <div className="sb-quick-row">
-            <button className="sb-quick-btn" onClick={() => setShowBookmarks(true)} title={t.bookmarks}>
-              <BookmarkIcon /><span>{t.bookmarks}</span>
-              {bookmarks.length > 0 && <span className="sb-badge">{bookmarks.length}</span>}
-            </button>
-            <button className="sb-quick-btn" onClick={() => setShowCalc(true)} title="Calculator">
-              <CalcIcon /><span>Calc</span>
-            </button>
-          </div>
-          <div className="sb-quick-row">
-            <button className="sb-quick-btn" onClick={() => setShowScratchpad(true)} title="Scratchpad">
-              <NoteIcon /><span>Notes</span>
-            </button>
-            <button className="sb-quick-btn" onClick={() => setShowStats(true)} title="Stats">
-              <ChartIcon /><span>Stats</span>
-            </button>
-          </div>
-
+                <div className="sb-foot">
           <div className="mode-row" style={{ cursor: "pointer" }} onClick={() => setAutoWebSearch(v => !v)}>
             <GlobeIcon />
             <span style={{ flex: 1, fontSize: "0.82rem", color: "var(--ink)" }}>Auto Web Search</span>
             <div className={`toggle-pill${autoWebSearch ? " on" : ""}`}><div className="toggle-thumb" /></div>
-          </div>
-          <div className="mode-row" style={{ cursor: "pointer" }} onClick={() => setSafeMode(v => !v)}>
-            <BotIcon />
-            <span style={{ flex: 1, fontSize: "0.82rem", color: "var(--ink)" }}>Safe Mode</span>
-            <div className={`toggle-pill${safeMode ? " on" : ""}`}><div className="toggle-thumb" /></div>
-          </div>
-          <div className="mode-row" style={{ cursor: "pointer" }} onClick={() => setLockModelPerChat(v => !v)}>
-            <PinIcon />
-            <span style={{ flex: 1, fontSize: "0.82rem", color: "var(--ink)" }}>Lock model per chat</span>
-            <div className={`toggle-pill${lockModelPerChat ? " on" : ""}`}><div className="toggle-thumb" /></div>
-          </div>
-          <div className="gen-controls">
-            <div className="gen-control-row">
-              <label htmlFor="temp-slider">Temperature</label>
-              <span>{temperature.toFixed(1)}</span>
-            </div>
-            <input
-              id="temp-slider"
-              type="range"
-              min="0"
-              max="1.2"
-              step="0.1"
-              value={temperature}
-              onChange={(e) => setTemperature(Number(e.target.value))}
-            />
-            <div className="gen-control-row">
-              <label htmlFor="max-token-slider">Max Tokens</label>
-              <span>{maxTokens}</span>
-            </div>
-            <input
-              id="max-token-slider"
-              type="range"
-              min="1024"
-              max="8192"
-              step="256"
-              value={maxTokens}
-              onChange={(e) => setMaxTokens(Number(e.target.value))}
-            />
           </div>
 
           <button className="signout-btn" onClick={logout} style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", width: "calc(100% - 32px)", margin: "10px 16px" }}><X size={14} />{t.logout}</button>
@@ -2944,7 +3170,48 @@ export default function App() {
 
       {/* CHAT AREA */}
       <main className="chat">
-        <header className="chat-header">
+                {showRecentsPage ? (
+          <div className="claude-recents-container">
+            <div className="recents-header-row">
+              <h1 className="recents-title">Chats</h1>
+              <div className="recents-actions">
+                <button className="claude-btn-outline">Select chats</button>
+                <button className="claude-btn-dark" onClick={() => { newChat(); setShowRecentsPage(false); }}>New chat</button>
+              </div>
+            </div>
+
+            <div className="recents-search-bar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input
+                placeholder="Search chats..."
+                value={recentsSearch}
+                onChange={(e) => setRecentsSearch(e.target.value)}
+              />
+              {recentsSearch && (
+                <button className="clear-btn" onClick={() => setRecentsSearch("")}>✕</button>
+              )}
+            </div>
+
+            <div className="recents-list">
+              {filteredSessions.length === 0 ? (
+                <div className="recents-empty">No matching chats found</div>
+              ) : (
+                [...filteredSessions].reverse().map(s => (
+                  <div
+                    key={s.id}
+                    className="recents-item"
+                    onClick={() => { loadSession(s.id); setShowRecentsPage(false); }}
+                  >
+                    <span className="recents-item-title">{s.title || "Untitled Chat"}</span>
+                    <span className="recents-item-time">{getRelativeTime(s.id)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <header className="chat-header">
           <div className="ch-left">
             <button className="icon-btn mobile-only" onClick={() => setIsSidebarOpen(true)}><MenuIcon /></button>
             <button className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`} onClick={() => setShowModelPicker(true)} style={{ cursor: "pointer", border: "none" }}>
@@ -3028,7 +3295,44 @@ export default function App() {
         )}
 
         {/* MESSAGE FEED */}
-        <div className="feed" ref={feedRef} onScroll={handleScroll}>
+
+            {messages.length === 0 ? (
+              <div className="claude-empty-container">
+                <div className="claude-welcome">
+                  <div className="claude-greeting-row">
+                    <span className="claude-spark"><VetroSpark size={36} color="var(--accent)" /></span>
+                    <h1 className="claude-greeting">{getDynamicGreeting()}</h1>
+                  </div>
+                </div>
+                {renderInputBox()}
+                <div className="claude-suggestion-pills-row">
+                  <div className="claude-suggestion-pills">
+                    <button className="claude-pill" onClick={() => setInput("Write an email to my manager explaining...")}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                      Write
+                    </button>
+                    <button className="claude-pill" onClick={() => setInput("Teach me about quantum computing in simple terms")}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>
+                      Learn
+                    </button>
+                    <button className="claude-pill" onClick={() => setInput("Code a React hook for fetching API data with auto-retry")}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                      Code
+                    </button>
+                    <button className="claude-pill" onClick={() => setInput("Help me plan a 3-day itinerary for Tokyo")}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+                      Life stuff
+                    </button>
+                    <button className="claude-pill" onClick={() => setInput("Can you suggest some interesting topics?")}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 12 3a4.65 4.65 0 0 0-4.5 8.5c.76.76 1.23 1.52 1.41 2.5"></path></svg>
+                      VetroAI's choice
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="feed" ref={feedRef} onScroll={handleScroll}>
           {messages.length === 0 && (
             <div className="welcome">
               <div className="welcome-avatar" style={{ background: "transparent", color: "var(--accent)", boxShadow: "none" }}>
@@ -3129,15 +3433,15 @@ export default function App() {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {(isWebSearching || isYtFetching) && (
                               <div className="web-search-badge" style={{ display: 'inline-flex', width: 'fit-content', gap: 6, margin: 0, padding: '4px 10px', background: 'rgba(217,119,87,0.06)', border: '1px solid rgba(217,119,87,0.15)', color: 'var(--accent)' }}>
-                                <GlobeIcon style={{ animation: 'spin 2.5s linear infinite', width: 14, height: 14 }} /> 
+                                <GlobeIcon style={{ animation: 'spin 2.5s linear infinite', width: 14, height: 14 }} />
                                 <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>{isWebSearching ? "Searching the Web..." : "Fetching video..."}</span>
                               </div>
                             )}
                             <ThinkingIndicator isVisible={true} status={getStatusLabel(streamStatus)} />
                           </div>
                         ) : (
-                          <StructuredResponseRenderer 
-                            response={(streamingContent || msg.content) + "▍"} 
+                          <StructuredResponseRenderer
+                            response={(streamingContent || msg.content) + "▍"}
                             onSubmitCode={(code) => {
                               setInput(code);
                               textareaRef.current?.focus();
@@ -3145,8 +3449,8 @@ export default function App() {
                           />
                         )
                       ) : msg.role === "assistant" ? (
-                        <StructuredResponseRenderer 
-                          response={msg.content} 
+                        <StructuredResponseRenderer
+                          response={msg.content}
                           onSubmitCode={(code) => {
                             setInput(code);
                             textareaRef.current?.focus();
@@ -3207,7 +3511,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                {msg.role === "user" && <div className="msg-av user-av">{profileData?.avatar || "🧑"}</div>}
+
               </div>
             );
           })}
@@ -3246,42 +3550,7 @@ export default function App() {
               <span className="counter">{charCount} {t.chars} · ~{tokenEst} {t.tokens}</span>
             </div>
           )}
-          <form className="input-box" onSubmit={sendMessage}>
-            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" />
-            {filePreview && (
-              <div className="file-prev">
-                <img src={filePreview} alt="" />
-                <button type="button" onClick={() => { setSelFile(null); setFilePreview(null); }}>✕</button>
-              </div>
-            )}
-            {selFile && !filePreview && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", background: "var(--bg-hover)", borderRadius: 8, fontSize: "0.78rem", color: "var(--ink-2)", flexShrink: 0, marginBottom: 4 }}>
-                <Paperclip size={14} style={{ flexShrink: 0 }} /> {selFile.name}
-                <button type="button" onClick={() => { setSelFile(null); setFilePreview(null); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", padding: 0, fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} /></button>
-              </div>
-            )}
-            <button type="button" className="attach-btn" onClick={() => fileInputRef.current.click()} title="Attach file" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><Paperclip size={16} /></button>
-            <textarea ref={textareaRef}
-              placeholder={
-                isListening && !isVoiceOpen ? t.listening :
-                isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
-                isDeepSearch ? "DeepSearch: ask a research question (I will query multiple angles)..." :
-                isWebMode    ? "Search the web with AI — I fetch real page content…" :
-                               'Message VetroAI… (try "generate an image of…")'
-              }
-              value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown} disabled={isLoading} rows={1} />
-            <div className="input-actions">
-              {isLoading
-                ? <button type="button" className="stop-btn" onClick={stopGeneration} title="Stop generating"><StopIcon /></button>
-                : isEmpty
-                  ? <>
-                    <button type="button" className={`mic-btn${isListening && !isVoiceOpen ? " active" : ""}`} onClick={toggleMic} title="Toggle mic"><MicIcon /></button>
-                    <button type="button" className="wave-btn" onClick={openVoice} title="Voice mode"><WaveIcon /></button>
-                  </>
-                  : <button type="submit" className={`send-btn${isWebMode || isDeepSearch ? " web-send" : isYtMode ? " yt-send" : ""}`} title={t.send}><SendIcon /></button>}
-            </div>
-          </form>
+          {renderInputBox()}
           <p className="input-note">
             {isPdfLoading && <span style={{ color: "#3b82f6", fontWeight: 600 }}>📄 Parsing PDF… · </span>}
             <span className="pro-badge">✦ Pro</span>&nbsp;
@@ -3294,7 +3563,12 @@ export default function App() {
           {messages.length > 0 && <ContextWindowBar messages={messages} />}
 
         </div>
-        {showDebug && (
+
+              </>
+            )}
+          </>
+        )}
+{showDebug && (
           <div className="debug-panel" style={{
             position: "fixed", top: 80, right: 20, width: 350, maxHeight: "70vh",
             background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)",

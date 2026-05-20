@@ -47,10 +47,10 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
 
 function normalizeModel(inputModel, provider) {
   const fallbackMap = {
-    groq: "llama-3.3-70b-versatile",
+    groq: "llama-3.1-8b-instant",      // 30K TPM — avoids rate limits on free tier
     gemini: "gemini-2.0-flash-exp",
     mistral: "mistral-small-latest",
-    sambanova: "Meta-Llama-3.1-70B-Instruct"
+    sambanova: "Meta-Llama-3.3-70B-Instruct"
   };
   
   const fallback = fallbackMap[provider?.toLowerCase()] || "llama-3.3-70b-versatile";

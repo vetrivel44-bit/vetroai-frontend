@@ -16,11 +16,11 @@ class ProviderManager {
         consecutiveErrors: 0,
         isSuspended: false,
         lastFailure: 0,
-        cooldown: 60000,
-        fallbacks: ["sambanova", "mistral"],
+        cooldown: 20000,
+        fallbacks: ["mistral", "sambanova", "gemini"],
       },
-      gemini: {
-        adapter: geminiAdapter,
+      mistral: {
+        adapter: mistralAdapter,
         weight: 90,
         score: 90,
         latency: 0,
@@ -28,11 +28,11 @@ class ProviderManager {
         consecutiveErrors: 0,
         isSuspended: false,
         lastFailure: 0,
-        cooldown: 60000,
-        fallbacks: ["groq", "mistral"],
+        cooldown: 20000,
+        fallbacks: ["groq", "sambanova", "gemini"],
       },
-      mistral: {
-        adapter: mistralAdapter,
+      sambanova: {
+        adapter: sambanovaAdapter,
         weight: 80,
         score: 80,
         latency: 0,
@@ -40,26 +40,26 @@ class ProviderManager {
         consecutiveErrors: 0,
         isSuspended: false,
         lastFailure: 0,
-        cooldown: 60000,
-        fallbacks: ["groq", "sambanova"],
+        cooldown: 20000,
+        fallbacks: ["groq", "mistral", "gemini"],
       },
-      sambanova: {
-        adapter: sambanovaAdapter,
-        weight: 70,
-        score: 70,
+      gemini: {
+        adapter: geminiAdapter,
+        weight: 50, // Lowered — free quota often exhausted
+        score: 50,
         latency: 0,
         successRate: 1,
         consecutiveErrors: 0,
         isSuspended: false,
         lastFailure: 0,
-        cooldown: 60000,
-        fallbacks: ["groq", "mistral"],
+        cooldown: 20000,
+        fallbacks: ["groq", "mistral", "sambanova"],
       },
     };
 
     // Background health check loop - only in non-serverless
     if (!process.env.VERCEL && !process.env.NETLIFY && !process.env.LAMBDA_TASK_ROOT) {
-      setInterval(() => this.checkHealth(), 30000);
+      setInterval(() => this.checkHealth(), 15000); // every 15 s
     }
   }
 
@@ -73,29 +73,53 @@ class ProviderManager {
     }
   }
 
+  resetAllProviders() {
+    logger.warn("ProviderManager: All providers suspended — resetting all to recover.");
+    for (const p of Object.values(this.providers)) {
+      p.isSuspended = false;
+      p.consecutiveErrors = 0;
+    }
+  }
+
   getBestProvider(mode, preferredProvider) {
     // If user explicitly chose a provider, try it first if not suspended
     if (preferredProvider && preferredProvider !== "undefined") {
       const pref = preferredProvider.toLowerCase();
-      if (this.providers[pref] && !this.providers[pref].isSuspended) {
-        return pref;
+      if (this.providers[pref]) {
+        // Unsuspend if cooldown has passed
+        const p = this.providers[pref];
+        if (p.isSuspended && Date.now() - p.lastFailure > p.cooldown) {
+          p.isSuspended = false;
+          p.consecutiveErrors = 0;
+        }
+        if (!p.isSuspended) return pref;
       }
     }
 
-    // Weighting logic
-    const candidates = Object.keys(this.providers).filter(name => !this.providers[name].isSuspended);
-    
-    if (candidates.length === 0) return "groq"; // Last resort
+    // Auto-expire cooled-down suspensions before picking
+    for (const [, p] of Object.entries(this.providers)) {
+      if (p.isSuspended && Date.now() - p.lastFailure > p.cooldown) {
+        p.isSuspended = false;
+        p.consecutiveErrors = 0;
+      }
+    }
 
-    // Sort by score (weight + successRate - normalizedLatency)
+    const candidates = Object.keys(this.providers).filter(name => !this.providers[name].isSuspended);
+
+    // If ALL are still suspended, force-reset and use all
+    if (candidates.length === 0) {
+      this.resetAllProviders();
+      candidates.push(...Object.keys(this.providers));
+    }
+
+    // Sort by weighted score
     return candidates.sort((a, b) => {
       const pA = this.providers[a];
       const pB = this.providers[b];
-      
+
       let scoreA = pA.weight;
       let scoreB = pB.weight;
 
-      // Intent-based weighting
       if (mode === "debugger" || mode === "coding") {
         if (a === "groq") scoreA += 50;
         if (b === "groq") scoreB += 50;
@@ -113,14 +137,27 @@ class ProviderManager {
 
   getFallbackProvider(failedProvider) {
     const p = this.providers[failedProvider];
-    if (!p || !p.fallbacks) return "groq";
-    
-    for (const f of p.fallbacks) {
+    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["gemini", "sambanova", "mistral", "groq"];
+
+    // Auto-expire cooled-down suspensions first
+    for (const [, prov] of Object.entries(this.providers)) {
+      if (prov.isSuspended && Date.now() - prov.lastFailure > prov.cooldown) {
+        prov.isSuspended = false;
+        prov.consecutiveErrors = 0;
+      }
+    }
+
+    for (const f of fallbackList) {
       if (this.providers[f] && !this.providers[f].isSuspended) {
         return f;
       }
     }
-    return "groq";
+
+    // All fallbacks exhausted — reset everything and pick highest weight
+    this.resetAllProviders();
+    return Object.keys(this.providers).sort(
+      (a, b) => this.providers[b].weight - this.providers[a].weight
+    )[0];
   }
 
   updateMetrics(providerName, success, latency) {
@@ -134,8 +171,9 @@ class ProviderManager {
     } else {
       p.consecutiveErrors++;
       p.successRate = (p.successRate * 0.9);
-      if (p.consecutiveErrors >= 3) {
-        logger.warn(`ProviderManager: Suspending ${providerName} due to consecutive errors`);
+      // Only suspend after 5 consecutive failures so transient errors don't kill the provider
+      if (p.consecutiveErrors >= 5) {
+        logger.warn(`ProviderManager: Suspending ${providerName} after ${p.consecutiveErrors} consecutive errors`);
         p.isSuspended = true;
         p.lastFailure = Date.now();
       }

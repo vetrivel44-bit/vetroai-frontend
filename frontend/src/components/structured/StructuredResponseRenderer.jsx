@@ -1,4 +1,4 @@
-﻿import HeroSummary from './HeroSummary';
+import HeroSummary from './HeroSummary';
 import HighlightAlert from './HighlightAlert';
 import ComparisonCards from './ComparisonCards';
 import ComparisonTable from './ComparisonTable';
@@ -361,19 +361,6 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
       >
         {sections.map((section, index) => renderSection(section, index))}
         
-        <motion.div 
-          className="structured-actions-bar"
-          variants={blockVariants}
-        >
-          <button className="structured-action-btn" onClick={handleCopy}>
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            <span>{copied ? 'Copied' : 'Copy Response'}</span>
-          </button>
-          <button className="structured-action-btn" onClick={handleExport}>
-            <FileDown size={14} />
-            <span>Export Document</span>
-          </button>
-        </motion.div>
       </motion.div>
     </div>
   );

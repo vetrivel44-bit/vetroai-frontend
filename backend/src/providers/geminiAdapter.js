@@ -8,7 +8,9 @@ async function generateStream(messages, options = {}) {
   }
 
   const { temperature, maxTokens, model } = options;
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.0-flash"}:streamGenerateContent?key=${config.geminiApiKey}`;
+  // Use gemini-1.5-flash as default (separate quota from gemini-2.0-flash)
+  const modelName = model || "gemini-1.5-flash";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${config.geminiApiKey}`;
 
   const systemMessage = messages.find(m => m.role === "system");
   const chatMessages = messages.filter(m => m.role !== "system");

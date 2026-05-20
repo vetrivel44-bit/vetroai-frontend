@@ -39,90 +39,39 @@ class AIOrchestrator {
   async buildSystemPrompt(mode, context = {}) {
     const { userQuery, webContext, personaPrompt, customInstructions, memories = [] } = context;
     const now = new Date();
-    const nowStr = now.toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
     const nowISO = now.toISOString().slice(0, 10);
 
-    let sys = [
-      `TODAY IS: ${nowStr} (${nowISO}). Current year: ${now.getFullYear()}.`,
-      `NEVER say an event "hasn't happened yet" if it's plausible given today's date.`,
-      memories.length ? `USER CONTEXT:\n${memories.map(m => `• ${m}`).join("\n")}` : "",
-      personaPrompt || "",
-      customInstructions || "",
-    ].filter(Boolean).join("\n\n");
+    // ── Compact core system prompt (keeps token usage low for free-tier providers) ──
+    let sys = `You are VetroAI, a helpful AI assistant. Today is ${nowISO}.`;
 
-    sys += `\n\n## VISUALIZATION RULES
-Graphs should automatically appear in ANY mode when the user query indicates that visualization will improve understanding.
-- **NEVER** ask for permission to show a graph. Just include the JSON block.
-- **ALWAYS** prefer charts over long lists of numbers.
-
-### TRIGGERS FOR GRAPHS
-1. **Comparison** (compare, vs, ranking) -> Use: \`bar\`, \`horizontal-bar\`, \`radar\`
-2. **Trend** (trend, growth, history, over time) -> Use: \`line\`, \`area\`, \`timeline\`
-3. **Distribution** (percentage, share, breakdown) -> Use: \`pie\`, \`donut\`, \`stacked-bar\`
-4. **Math Functions** (plot, y=x^2, sine wave) -> Use: \`line\` (high density points)
-
-### MATH FUNCTION PLOTTING
-If the user asks to plot a function (e.g., y=x^2, sine wave), generate a high-density dataset:
-- Use at least 50 points for smooth curves.
-- Data format: \`[{"label": "-5", "value": 25}, {"label": "-4.8", "value": 23.04}, ...]\`
-- Include the function name in the title.
-
-### CHART FORMAT
-Include a JSON block with type 'chart':
-\`\`\`json
-{
-  "type": "chart",
-  "chartType": "line",
-  "library": "recharts",
-  "title": "Plot of f(x) = x²",
-  "data": [{"label": "-5", "value": 25}, ...]
-}
-\`\`\`
-
-### MAP & ROUTE RULES
-If location/directions requested, use:
-\`\`\`json
-{ "type": "location", "place": "Name", "summary": "..." }
-\`\`\`
-or
-\`\`\`json
-{ "type": "route", "origin": "A", "destination": "B", "summary": "..." }
-\`\`\`
-`;
-
-    if (webContext) {
-      sys += `\n\n🌐 LIVE SEARCH RESULTS (treat as PRIMARY source):\n${webContext}\n\nRULES: Base answer DIRECTLY on these results. Quote exact numbers/dates. NEVER say "I don't have real-time data". Cite source URLs.`;
+    if (memories.length) {
+      sys += `\nUser context: ${memories.map(m => `• ${m}`).join(" | ")}`;
     }
+    if (personaPrompt) sys += `\n${personaPrompt}`;
+    if (customInstructions) sys += `\n${customInstructions}`;
 
+    // Mode-specific instructions
     if (mode === "debugger" || mode === "coding") {
-      sys += "\n\nYou are an expert developer. Provide clean, secure, production-ready code with explanations of trade-offs.";
+      sys += "\nYou are an expert developer. Give clean, production-ready code with brief explanations.";
+    } else if (mode === "analyst") {
+      sys += "\nYou are a data analyst. Always include a chart JSON block when data allows.";
     }
 
-    if (mode === "analyst") {
-      sys += "\n\nYou are a senior data analyst. Provide deep insights, identify trends, and ALWAYS include a visualization if data allows.";
+    // Web context
+    if (webContext) {
+      sys += `\n\nLIVE SEARCH RESULTS:\n${webContext}\nBase your answer on these results. Cite URLs.`;
     }
 
-    sys += `
+    // Chart format (only injected when visualization is likely needed)
+    if (userQuery && this.needsVisualization(userQuery)) {
+      sys += `\n\nWhen data fits a chart, embed this JSON block:\n\`\`\`json\n{"type":"chart","chartType":"bar","title":"...","data":[{"label":"A","value":10}]}\n\`\`\``;
+    }
 
-## CLAUDE-STYLE RESPONSE FORMATTING & STRUCTURE
-To make your response highly structured, clean, and professional:
-1. **Formatting**:
-   - Begin directly with the answer. Avoid conversational prefix/postfix filler (e.g., "Here is the comparison...", "Sure, I can help you with that...").
-   - Use clear markdown headers (\`##\` and \`###\`) to separate logical sections.
-   - Use bolding (\`**bold**\`) to highlight key terms and make responses scannable.
-   - Use bullet points (\`-\`) or numbered lists (\`1.\`) with clean spacing for list items.
-   - Use Markdown Tables for comparisons, feature sets, or metrics rather than long lists of bullet points.
-2. **Alerts & Callouts**:
-   - Use GitHub-style blockquotes for highlights:
-     > [!NOTE]
-     > Use for extra context, tips, or interesting explanations.
+    // Location/route
+    sys += `\nFor location queries use: \`\`\`json\n{"type":"location","place":"Name","summary":"..."}\n\`\`\``;
 
-     > [!WARNING]
-     > Use for cautions, compatibility notes, or potential pitfalls.
-3. **Tone**: Clear, objective, authoritative, and helpful. Never apologize unnecessarily.
-`;
-
-    sys += "\n\n⚡ OUTPUT COMPLETENESS: Finish your response fully. Close all code fences. Never end mid-sentence. Ensure all JSON blocks are valid and complete.";
+    // Formatting rules (concise)
+    sys += `\n\nFormatting: Answer directly without filler phrases. Use ## headers, **bold** key terms, bullet lists, and markdown tables for comparisons. Finish responses fully.`;
 
     return sys;
   }
