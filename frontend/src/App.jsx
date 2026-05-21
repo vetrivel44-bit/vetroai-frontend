@@ -7,7 +7,7 @@ import "katex/dist/katex.min.css";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText } from "lucide-react";
 import StreamingResponse from "./components/structured/StreamingResponse";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 import DataChart from "./components/structured/DataChart";
@@ -549,9 +549,8 @@ const MODES_LIST = [
   { id: "deep_search", name: "DeepSearch", icon: "Brain", desc: "Multi-query research with citations" },
   { id: "analyst", name: "Data Analysis", icon: "Calculator", desc: "Deep data analysis and structured reports" },
   { id: "multi_ai", name: "Multi-AI", icon: "Zap", desc: "Collaborative multi-model refinement" },
-  { id: "debugger", name: "Coding", icon: "Terminal", desc: "Expert code analysis and debugging" },
-  { id: "creative", name: "Creative", icon: "Paintbrush", desc: "Creative writing and storytelling" },
-  { id: "research", name: "Research", icon: "Globe", desc: "Web-enhanced research and synthesis" },
+  { id: "debugger", name: "Code", icon: "Terminal", desc: "Expert code analysis and debugging" },
+  { id: "summarize", name: "Summarize", icon: "FileText", desc: "Docs and long text synthesis" },
 ];
 
 const ModelIcon = ({ id, size = 16 }) => {
@@ -562,6 +561,7 @@ const ModelIcon = ({ id, size = 16 }) => {
     case "debugger":     return <Terminal size={size} />;
     case "creative":     return <Paintbrush size={size} />;
     case "analyst":      return <Calculator size={size} />;
+    case "summarize":    return <FileText size={size} />;
     case "research":
     case "web_search":
     case "translator":   return <Globe size={size} />;
@@ -1610,81 +1610,73 @@ function SummaryPanel({ messages, onClose, addToast }) {
   );
 }
 
-// ─── MODEL PICKER MODAL ───────────────────────────────────────────────────────
+// ─── WORKSPACE POPUP ────────────────────────────────────────────────────────────
 
-function ModelPickerModal({ currentMode, currentProvider, onSelectMode, onSelectProvider, onClose }) {
-  const [search, setSearch] = useState("");
-  const filteredModes = MODES_LIST.filter(m =>
-    m.name.toLowerCase().includes(search.toLowerCase()) ||
-    m.desc.toLowerCase().includes(search.toLowerCase())
-  );
+function WorkspacePopup({ currentMode, currentProvider, onSelectMode, onSelectProvider, onClose }) {
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(onClose, 100);
+  };
+
+  const modeColors = {
+    normal: "rgba(255, 255, 255, 0.12)",
+    deep_search: "rgba(59, 130, 246, 0.12)",
+    analyst: "rgba(249, 115, 22, 0.12)",
+    multi_ai: "rgba(16, 185, 129, 0.12)",
+    debugger: "rgba(168, 85, 247, 0.12)",
+    summarize: "rgba(245, 158, 11, 0.12)"
+  };
 
   return (
-    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal model-picker-modal">
-        <div className="modal-topbar">
-          <div style={{ flex: 1 }}>
-            <h3 className="modal-title">Select AI Workspace</h3>
-            <p style={{ fontSize: "0.78rem", color: "var(--ink-3)", marginTop: 2 }}>Choose the specialized mode for your task</p>
-          </div>
-          <button className="modal-x" onClick={onClose}><X size={18} /></button>
-        </div>
-
-        <div className="model-search-box">
-          <Search size={18} />
-          <input
-            placeholder="Search workflows…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            autoFocus
-          />
-        </div>
-
-        <div className="provider-selector-wrap">
-          <label className="provider-label">Backend Provider</label>
-          <div className="provider-selector">
+    <>
+      <div className="overlay" style={{ background: "transparent" }} onClick={handleClose}></div>
+      <div className={`workspace-popup${isClosing ? " closing" : ""}`}>
+        <div className="ws-popup-header">
+          <span className="ws-popup-label">Workspace</span>
+          <div className="ws-provider-tabs">
             {PROVIDERS.map(p => (
               <button
                 key={p}
-                className={`provider-tab${currentProvider === p ? " active" : ""}`}
-                onClick={() => onSelectProvider(p)}
+                className={`ws-provider-tab${currentProvider === p ? " active" : ""}`}
+                onClick={(e) => { e.stopPropagation(); onSelectProvider(p); }}
               >
                 {p}
               </button>
             ))}
           </div>
         </div>
-
-        <div className="model-picker-scroll">
-          <div className="model-card-list">
-            {filteredModes.map(m => (
-              <div
-                key={m.id}
-                className={`model-card${currentMode === m.id ? " active" : ""}`}
-                onClick={() => { onSelectMode(m.id); onClose(); }}
-              >
-                <div className="model-card-icon">
-                  <ModelIcon id={m.id} size={18} />
-                </div>
-                <div className="model-card-info">
-                  <span className="model-card-name">{m.name}</span>
-                  <p className="model-card-desc">{m.desc}</p>
-                </div>
-                <div className="model-card-check">
-                  <Check size={18} />
-                </div>
+        <div className="ws-popup-grid">
+          {MODES_LIST.map(m => (
+            <div
+              key={m.id}
+              className={`ws-mode-card${currentMode === m.id ? " active" : ""}`}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                onSelectMode(m.id); 
+                handleClose(); 
+              }}
+            >
+              <div className="ws-mode-icon" style={{ background: modeColors[m.id] || modeColors.normal }}>
+                <ModelIcon id={m.id} size={16} />
               </div>
-            ))}
-            {filteredModes.length === 0 && (
-              <div className="hist-empty" style={{ padding: "40px 20px" }}>
-                <span>🔍</span>
-                <p>No modes match "{search}"</p>
-              </div>
-            )}
-          </div>
+              <div className="ws-mode-name">{m.name}</div>
+              <div className="ws-mode-desc">{m.desc}</div>
+              {currentMode === m.id && <div className="ws-mode-active-badge">Active</div>}
+            </div>
+          ))}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -2135,7 +2127,9 @@ export default function App() {
   useEffect(() => {
     if (messages.length === 0 || !user) return;
     try {
-      const title = `${(messages[0]?.content || "Chat").slice(0, 36)}…`;
+      const content = messages[0]?.content || "Chat";
+      const words = content.split(/\s+/);
+      const title = words.slice(0, 4).join(" ") + (words.length > 4 ? "…" : "");
       if (!currentSessionId) {
         const id = Date.now().toString();
         setCurrentSessionId(id);
@@ -2997,10 +2991,23 @@ export default function App() {
             </button>
           </div>
 
-          <div className="claude-footer-right">
-            <button type="button" className="claude-model-text-btn" onClick={() => setShowModelPicker(true)} title="Model selector">
+          <div className="claude-footer-right" style={{ position: "relative" }}>
+            {showModelPicker && <WorkspacePopup
+              currentMode={selectedMode}
+              currentProvider={selectedProvider}
+              onSelectMode={(next) => {
+                if (lockModelPerChat && messages.length > 0) {
+                  addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
+                  return;
+                }
+                setSelectedMode(next);
+              }}
+              onSelectProvider={setSelectedProvider}
+              onClose={() => setShowModelPicker(false)}
+            />}
+            <button type="button" className="claude-model-text-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
               <span>{currentMode.name}</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <svg style={{ transform: showModelPicker ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
 
             {/* Mic Icon - Dictation placeholder */}
@@ -3050,19 +3057,6 @@ export default function App() {
       {showShare     && messages.length > 0 && <ShareModal onClose={() => setShowShare(false)} t={t} messages={messages} />}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={msg => setInput(msg.content)} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
       {showCalc      && <CalcWidget onClose={() => setShowCalc(false)} />}
-      {showModelPicker && <ModelPickerModal
-        currentMode={selectedMode}
-        currentProvider={selectedProvider}
-        onSelectMode={(next) => {
-          if (lockModelPerChat && messages.length > 0) {
-            addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
-            return;
-          }
-          setSelectedMode(next);
-        }}
-        onSelectProvider={setSelectedProvider}
-        onClose={() => setShowModelPicker(false)}
-      />}
       {showScratchpad && <ScratchpadWidget onClose={() => setShowScratchpad(false)} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
       {showStats     && <StatsPanel onClose={() => setShowStats(false)} sessions={sessions} />}
@@ -3315,15 +3309,14 @@ export default function App() {
             <header className="chat-header">
           <div className="ch-left">
             <button className="icon-btn mobile-only" onClick={() => setIsSidebarOpen(true)}><MenuIcon /></button>
-            <button className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`} onClick={() => setShowModelPicker(true)} style={{ cursor: "pointer", border: "none" }}>
+            <div className={`mode-pill${isWebMode || isDeepSearch ? " web-mode-pill" : isYtMode ? " yt-mode-pill" : ""}`}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <ModelIcon id={selectedMode} size={14} />
                 <span className="mode-pill-name">{MODES_LIST.find(m => m.id === selectedMode)?.name}</span>
               </div>
               {(isWebMode || isDeepSearch) && <span className="web-live-dot" />}
               {isYtMode && <span className="web-live-dot" style={{ background: "#ff0000" }} />}
-              <ArrowDown size={12} style={{ marginLeft: 4 }} />
-            </button>
+            </div>
             {autoWebSearch && !isWebMode && !isDeepSearch && !isYtMode && (
               <div className="mode-pill ch-desktop-pill" style={{ fontSize: "0.7rem", gap: 4, opacity: 0.7 }}>
                 <GlobeIcon /> Auto
