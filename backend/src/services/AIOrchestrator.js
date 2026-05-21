@@ -41,25 +41,35 @@ class AIOrchestrator {
     const now = new Date();
     const nowISO = now.toISOString().slice(0, 10);
 
-    // ── Compact core system prompt (keeps token usage low for free-tier providers) ──
+    // ── Core system prompt ──
     let sys = `You are VetroAI, a helpful AI assistant. Today is ${nowISO}.`;
+
+    // CRITICAL: Do NOT start responses with headings like "# Introduction" or "## Introduction".
+    // Respond directly and conversationally. For greetings, respond naturally — not with structured sections.
+    sys += `\n\nCRITICAL: NEVER start your response with a heading (e.g. "# Introduction", "## Overview"). Jump straight into the answer. For simple greetings or questions, respond conversationally without markdown headers.`;
 
     if (memories.length) {
       sys += `\nUser context: ${memories.map(m => `• ${m}`).join(" | ")}`;
     }
     if (personaPrompt) sys += `\n${personaPrompt}`;
-    if (customInstructions) sys += `\n${customInstructions}`;
+    if (customInstructions) sys += `\n\nUser instructions: ${customInstructions}`;
 
     // Mode-specific instructions
     if (mode === "debugger" || mode === "coding") {
       sys += "\nYou are an expert developer. Give clean, production-ready code with brief explanations.";
     } else if (mode === "analyst") {
       sys += "\nYou are a data analyst. Always include a chart JSON block when data allows.";
+    } else if (mode === "creative") {
+      sys += "\nYou are a creative writer. Be vivid, imaginative, and original.";
+    } else if (mode === "research") {
+      sys += "\nYou are a research assistant. Provide well-cited, comprehensive answers.";
+    } else if (mode === "deep_search") {
+      sys += "\nYou are a deep research AI. Analyze multiple angles and cite your sources clearly.";
     }
 
     // Web context
     if (webContext) {
-      sys += `\n\nLIVE SEARCH RESULTS:\n${webContext}\nBase your answer on these results. Cite URLs.`;
+      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results. Cite URLs where relevant.`;
     }
 
     // Chart format (only injected when visualization is likely needed)
@@ -70,8 +80,8 @@ class AIOrchestrator {
     // Location/route
     sys += `\nFor location queries use: \`\`\`json\n{"type":"location","place":"Name","summary":"..."}\n\`\`\``;
 
-    // Formatting rules (concise)
-    sys += `\n\nFormatting: Answer directly without filler phrases. Use ## headers, **bold** key terms, bullet lists, and markdown tables for comparisons. Finish responses fully.`;
+    // Formatting rules
+    sys += `\n\nFormatting: Be direct and concise. Only use ## headers for long multi-section responses. Use **bold** for key terms, bullet lists for multiple items, and markdown tables for comparisons. Never add filler like "Certainly!" or "Great question!". Finish responses fully.`;
 
     return sys;
   }
@@ -85,8 +95,10 @@ class AIOrchestrator {
     const maxAttempts = 3;
     let success = false;
 
-    // Intent detection
-    const shouldSearch = mode === "web_search" || mode === "deep_search" || this.needsWebSearch(userQuery);
+    // Intent detection — also support explicit webSearch flag from frontend
+    const shouldSearch = mode === "web_search" || mode === "deep_search" || mode === "research" ||
+      params.webSearch === true || params.webSearch === "true" ||
+      this.needsWebSearch(userQuery);
     let webContext = null;
 
     if (shouldSearch) {
@@ -99,7 +111,7 @@ class AIOrchestrator {
       }
     }
 
-    const sysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories });
+    const sysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
     let fullMessages = [{ role: "system", content: sysPrompt }, ...messages.slice(-10)];
     // Prevent empty assistant messages (Mistral error)
     fullMessages = fullMessages.filter(m => {

@@ -1797,7 +1797,7 @@ export default function App() {
   const [selectedMode, setSelectedMode]     = useState(MODES[0].id);
   const [selectedProvider, setSelectedProvider] = useState("Groq");
   const isYtMode     = selectedMode === "youtube";
-  const isWebMode    = selectedMode === "web_search";
+  const isWebMode    = selectedMode === "research" || selectedMode === "web_search";
   const isDeepSearch = selectedMode === "deep_search";
   const [selFile, setSelFile]               = useState(null);
   const [filePreview, setFilePreview]       = useState(null);
@@ -1830,7 +1830,7 @@ export default function App() {
   // ── Web search ────────────────────────────────────────────────────────────────
   const [isWebSearching, setIsWebSearching] = useState(false);
   const [autoWebSearch, setAutoWebSearch]   = useState(true);
-  const currentMode = MODES.find(m => m.id === selectedMode) || MODES[0];
+  const currentMode = MODES_LIST.find(m => m.id === selectedMode) || MODES_LIST[0];
 
   // ── Backend Health ────────────────────────────────────────────────────────────
   const [backendStatus, setBackendStatus] = useState("checking");
@@ -2510,6 +2510,10 @@ export default function App() {
     setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
     setFollowUps([]); setIsContinuing(false);
 
+    // Show web searching indicator if web search will be triggered
+    const willWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
+    if (willWebSearch) setIsWebSearching(true);
+
     const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const emptyAssistantMsg = {
       role: "assistant",
@@ -2533,6 +2537,20 @@ export default function App() {
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(memories));
 
+    // Pass custom system prompt to backend
+    if (systemPromptRef.current) {
+      fd.append("systemPrompt", systemPromptRef.current);
+    }
+
+    // Pass webSearch flag: true when autoWebSearch is on OR when in web_search / deep_search / research mode
+    const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
+    fd.append("webSearch", String(shouldWebSearch));
+
+    // Pass YouTube context if present
+    if (ytContext) {
+      fd.append("ytContext", JSON.stringify(ytContext));
+    }
+
     if (fileData) fd.append("file", fileData);
 
     try {
@@ -2554,6 +2572,7 @@ export default function App() {
       const reader = res.body.getReader();
 
       setIsTyping(false);
+      setIsWebSearching(false); // Clear web searching indicator once streaming starts
       setStreamStatus("streaming");
       const bot = await readSSEStream(
         reader,
@@ -2716,6 +2735,39 @@ export default function App() {
     const hist = [...messages, { role: "user", content: text, file: selFile ? { preview: filePreview, name: selFile?.name } : null, timestamp: ts }];
     setMessages(hist); setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+
+    // ── Frontend web search (Serper/DDG) ──────────────────────────────────────
+    // When web mode, deep search, or autoWebSearch is enabled, fetch context before AI call
+    const shouldRunFrontendSearch = isWebMode || isDeepSearch || autoWebSearchRef.current;
+    if (shouldRunFrontendSearch && !selFile) {
+      setIsWebSearching(true);
+      try {
+        let webCtx = null;
+        if (isDeepSearch) {
+          webCtx = await fetchDeepSearchContext(text);
+        } else {
+          webCtx = await fetchWebResults(text);
+        }
+        if (webCtx) {
+          // Inject search context as a system message before the user message
+          const webSystemMsg = {
+            role: "system",
+            content: `[LIVE WEB SEARCH RESULTS]\n${webCtx}\n[Use these results to answer the user's question accurately and cite sources.]`,
+            _isWebContext: true
+          };
+          const histWithWeb = [...hist];
+          // Insert web context before the last user message
+          histWithWeb.splice(histWithWeb.length - 1, 0, webSystemMsg);
+          setIsWebSearching(false);
+          triggerAI(histWithWeb, selFile);
+          return;
+        }
+      } catch (err) {
+        console.error("Frontend web search failed:", err);
+      }
+      setIsWebSearching(false);
+    }
+
     triggerAI(hist, selFile);
   };
 

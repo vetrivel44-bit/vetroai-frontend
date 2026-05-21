@@ -168,7 +168,13 @@ async function chat(req, res) {
       memories = typeof req.body.memories === "string" ? JSON.parse(req.body.memories) : req.body.memories;
     } catch (e) { logger.warn("Failed to parse memories", { error: e.message }); }
   }
-  
+
+  // Custom system prompt from the frontend
+  const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
+
+  // Web search flag from frontend (autoWebSearch toggle or explicit web mode)
+  const webSearch = String(req.body?.webSearch || "false") === "true";
+
   const attachmentContext = getAttachmentContext(req.file);
   if (attachmentContext) {
     messages.push({ role: "user", content: attachmentContext });
@@ -192,6 +198,8 @@ async function chat(req, res) {
       mode,
       provider,
       memories,
+      systemPrompt,
+      webSearch,
       options: { temperature, maxTokens }
     }, res);
   } catch (err) {
