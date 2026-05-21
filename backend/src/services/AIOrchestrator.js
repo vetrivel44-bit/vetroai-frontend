@@ -44,9 +44,8 @@ class AIOrchestrator {
     // ── Core system prompt ──
     let sys = `You are VetroAI, a helpful AI assistant. Today is ${nowISO}.`;
 
-    // CRITICAL: Do NOT start responses with headings like "# Introduction" or "## Introduction".
-    // Respond directly and conversationally. For greetings, respond naturally — not with structured sections.
-    sys += `\n\nCRITICAL: NEVER start your response with a heading (e.g. "# Introduction", "## Overview"). Jump straight into the answer. For simple greetings or questions, respond conversationally without markdown headers.`;
+    // CRITICAL global formatting rule
+    sys += `\n\nCRITICAL: Respond naturally and conversationally. Do not use bold section headers, numbered outlines, bullet points, or document-style formatting unless the user explicitly asks for a structured output, report, or document. NEVER start your response with a heading (e.g. "# Introduction"). Jump straight into the answer.`;
 
     if (memories.length) {
       sys += `\nUser context: ${memories.map(m => `• ${m}`).join(" | ")}`;
@@ -55,16 +54,18 @@ class AIOrchestrator {
     if (customInstructions) sys += `\n\nUser instructions: ${customInstructions}`;
 
     // Mode-specific instructions
-    if (mode === "debugger" || mode === "coding") {
-      sys += "\nYou are an expert developer. Give clean, production-ready code with brief explanations.";
+    if (mode === "debugger" || mode === "code") {
+      sys += "\n\n[MODE: CODE] Switch to a code-first response style. Always wrap code in proper syntax-highlighted blocks with the language label. For debugging requests, first explain what's wrong in plain English, then show the fixed code, then explain what changed and why. For generation requests, write clean commented code and offer a brief explanation below. If the user's message is ambiguous, ask one clarifying question before writing code — don't guess the language or framework.";
     } else if (mode === "analyst") {
-      sys += "\nYou are a data analyst. Always include a chart JSON block when data allows.";
-    } else if (mode === "creative") {
-      sys += "\nYou are a creative writer. Be vivid, imaginative, and original.";
-    } else if (mode === "research") {
-      sys += "\nYou are a research assistant. Provide well-cited, comprehensive answers.";
+      sys += "\n\n[MODE: DATA ANALYSIS] You are optimized for structured thinking. When the user sends data (CSV, table, numbers, or a plain description), identify what type of analysis fits, run it, and return a clean structured report — with sections like Summary, Key Findings, Breakdown, and Recommendations. Response should feel like a junior analyst handed you a report, not a chatbot answering a question. Always include a chart JSON block when data allows.";
+    } else if (mode === "summarize") {
+      sys += "\n\n[MODE: SUMMARIZE] Automatically detect the content type and summarize it at three levels: a one-sentence TL;DR at the top, a short paragraph summary below, and bullet-point key takeaways at the bottom. If the content seems very long, also add a 'What to read in full' note pointing out which section is most important. Tone should match the source — formal docs get formal summaries, casual articles get casual ones.";
     } else if (mode === "deep_search") {
-      sys += "\nYou are a deep research AI. Analyze multiple angles and cite your sources clearly.";
+      sys += "\n\n[MODE: DEEP SEARCH] Write a well-structured response with inline citations (numbered footnotes or source links at the bottom). Final response should feel like a researched answer, not a chat reply — use paragraphs, sources, and state confidence level where relevant.";
+    } else if (mode === "creative") {
+      sys += "\n\n[MODE: CREATIVE] You are a creative writer. Be vivid, imaginative, and original.";
+    } else if (mode === "research") {
+      sys += "\n\n[MODE: RESEARCH] Provide well-cited, comprehensive answers.";
     }
 
     // Web context

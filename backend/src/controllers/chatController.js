@@ -222,7 +222,7 @@ async function generateTitle(req, res) {
     const completion = await callMistralChat({
       model: config.mistralModel,
       messages: [
-        { role: "system", content: "Generate a short chat title with max 6 words. Include a relevant emoji at start. Return plain text only." },
+        { role: "system", content: "Generate a 4-6 word summary title for this chat. Never use simple greetings like 'hi' or 'hello' as a title. Include a relevant emoji at the start. Return plain text only." },
         { role: "user", content: firstMessage.slice(0, 400) },
       ],
       temperature: config.mistralTemperature,
@@ -237,7 +237,7 @@ async function generateTitle(req, res) {
       model: "llama-3.1-8b-instant",
       temperature: 0.2, max_tokens: 28,
       messages: [
-        { role: "system", content: "Generate a short chat title with max 6 words. Include a relevant emoji at start. Return plain text only." },
+        { role: "system", content: "Generate a 4-6 word summary title for this chat. Never use simple greetings like 'hi' or 'hello' as a title. Include a relevant emoji at the start. Return plain text only." },
         { role: "user", content: firstMessage.slice(0, 400) },
       ],
     }),

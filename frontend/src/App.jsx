@@ -1610,12 +1610,25 @@ function SummaryPanel({ messages, onClose, addToast }) {
   );
 }
 
+const SPACE_ICONS = [
+  { id: "Globe", icon: Globe },
+  { id: "Terminal", icon: Terminal },
+  { id: "Brain", icon: Brain },
+  { id: "Rocket", icon: Rocket },
+  { id: "Heart", icon: Heart },
+  { id: "Shield", icon: Shield },
+  { id: "Compass", icon: Compass }
+];
+const SPACE_COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#64748b"];
+
 // ─── SPACE MODAL ────────────────────────────────────────────────────────────
 function SpaceModal({ space, onSave, onClose, onDelete }) {
   const [name, setName] = useState(space ? space.name : "");
   const [mode, setMode] = useState(space ? space.mode : MODES_LIST[0].id);
   const [prompt, setPrompt] = useState(space ? space.systemPrompt : "");
   const [files, setFiles] = useState(space ? space.files || [] : []);
+  const [color, setColor] = useState(space ? space.color || SPACE_COLORS[0] : SPACE_COLORS[0]);
+  const [icon, setIcon] = useState(space ? space.icon || SPACE_ICONS[0].id : SPACE_ICONS[0].id);
 
   const handleFileUpload = (e) => {
     const newFiles = Array.from(e.target.files);
@@ -1636,15 +1649,32 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
           <button className="modal-x" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="modal-content" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
-          <div>
-            <label className="provider-label">Name</label>
-            <input className="sys-prompt-textarea" style={{ minHeight: "auto", height: 40 }} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Coding Space" />
+          <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <label className="provider-label">Name</label>
+              <input className="sys-prompt-textarea" style={{ minHeight: "auto", height: 40 }} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Coding Space" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="provider-label">Default Mode</label>
+              <select className="sys-prompt-textarea" style={{ minHeight: "auto", height: 40 }} value={mode} onChange={e => setMode(e.target.value)}>
+                {MODES_LIST.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
           </div>
           <div>
-            <label className="provider-label">Default Mode</label>
-            <select className="sys-prompt-textarea" style={{ minHeight: "auto", height: 40 }} value={mode} onChange={e => setMode(e.target.value)}>
-              {MODES_LIST.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
+            <label className="provider-label">Icon & Color</label>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+              {SPACE_ICONS.map(I => (
+                <button key={I.id} onClick={() => setIcon(I.id)} style={{ background: icon === I.id ? "rgba(255,255,255,0.15)" : "transparent", border: "none", color: "var(--ink)", padding: 6, borderRadius: 6, cursor: "pointer" }}>
+                  <I.icon size={20} />
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              {SPACE_COLORS.map(c => (
+                <button key={c} onClick={() => setColor(c)} style={{ width: 24, height: 24, borderRadius: "50%", background: c, border: color === c ? "2px solid white" : "none", cursor: "pointer", padding: 0 }} />
+              ))}
+            </div>
           </div>
           <div>
             <label className="provider-label">System Prompt / Instructions</label>
@@ -1669,7 +1699,7 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
             <button className="btn-ghost" onClick={onClose}>Cancel</button>
             <button className="btn-primary" onClick={() => {
               if (!name.trim()) return;
-              onSave({ id: space ? space.id : Date.now().toString(), name, mode, systemPrompt: prompt, files });
+              onSave({ id: space ? space.id : Date.now().toString(), name, mode, systemPrompt: prompt, files, color, icon });
             }}>Save</button>
           </div>
         </div>
@@ -2232,13 +2262,14 @@ export default function App() {
     } catch (err) { swallowError(err); }
   }, [messages, currentSessionId, user]);
 
-  const updateSessionTitle = useCallback(async (firstMsg) => {
-    if (!firstMsg || !currentSessionId) return;
+  const updateSessionTitle = useCallback(async (userMsg, botMsg) => {
+    if (!userMsg || !currentSessionId) return;
     try {
+      const payload = botMsg ? `User: ${userMsg}\nAI: ${botMsg}` : userMsg;
       const res  = await fetch(API + "/generate-title", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstMessage: firstMsg }),
+        body: JSON.stringify({ firstMessage: payload }),
       });
       const data = await res.json();
       if (data.title) {
@@ -2591,6 +2622,119 @@ export default function App() {
     return accumulated;
   };
 
+  const handleMultiAI = async (hist, baseFd, userQuery, isFirstMsg, ctrl, isActive, reqId) => {
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const emptyMultiMsg = {
+      role: "assistant",
+      isMultiAi: true,
+      timestamp: ts,
+      models: [
+        { name: "Llama 3 (Groq)", id: "groq", content: "", status: "streaming" },
+        { name: "Mistral", id: "mistral", content: "", status: "streaming" }
+      ],
+      consensus: null
+    };
+    
+    setMessages([...hist, emptyMultiMsg]);
+    setIsTyping(false);
+    setIsWebSearching(false);
+    setStreamStatus("streaming");
+
+    const updateModel = (idx, content, status) => {
+      if (!isActive()) return;
+      setMessages(prev => {
+        const u = [...prev];
+        const last = { ...u[u.length - 1] };
+        if (last.isMultiAi) {
+          last.models = [...last.models];
+          if (content !== undefined) last.models[idx].content = content;
+          if (status !== undefined) last.models[idx].status = status;
+          u[u.length - 1] = last;
+        }
+        return u;
+      });
+    };
+
+    const runModel = async (provider, idx) => {
+      const fd = new FormData();
+      for (let [k, v] of baseFd.entries()) fd.append(k, v);
+      fd.set("provider", provider);
+      fd.set("mode", "normal");
+      try {
+        const res = await fetch(API + "/chat", { method: "POST", body: fd, signal: ctrl.signal });
+        if (!res.ok) throw new Error("Failed");
+        const reader = res.body.getReader();
+        const bot = await readSSEStream(
+          reader,
+          (acc) => { updateModel(idx, acc); if(!isScrolling.current) scrollToBottom(); },
+          () => {}, () => {}, isActive, reqId
+        );
+        updateModel(idx, bot, "done");
+        return bot;
+      } catch (err) {
+        updateModel(idx, "Error: " + err.message, "error");
+        return "Error";
+      }
+    };
+
+    const [resp1, resp2] = await Promise.all([
+      runModel("groq", 0),
+      runModel("mistral", 1)
+    ]);
+
+    if (!isActive()) return;
+    
+    setMessages(prev => {
+      const u = [...prev];
+      const last = { ...u[u.length - 1] };
+      if (last.isMultiAi) last.consensus = "generating";
+      u[u.length - 1] = last;
+      return u;
+    });
+
+    const consensusFd = new FormData();
+    consensusFd.append("input", `Synthesize a short consensus or best answer based on these two responses to the user's query: "${userQuery}".\n\nResponse 1:\n${resp1}\n\nResponse 2:\n${resp2}\n\nReturn ONLY the consensus text. No intros.`);
+    consensusFd.append("messages", JSON.stringify([{role: "user", content: "Synthesize consensus."}]));
+    consensusFd.append("mode", "normal");
+    consensusFd.append("provider", "groq");
+    
+    try {
+      const cRes = await fetch(API + "/chat", { method: "POST", body: consensusFd, signal: ctrl.signal });
+      const cReader = cRes.body.getReader();
+      const consensusText = await readSSEStream(
+        cReader,
+        (acc) => {
+          if (!isActive()) return;
+          setMessages(prev => {
+            const u = [...prev];
+            const last = { ...u[u.length - 1] };
+            if (last.isMultiAi) last.consensus = acc;
+            u[u.length - 1] = last;
+            return u;
+          });
+          if(!isScrolling.current) scrollToBottom();
+        },
+        () => {}, () => {}, isActive, reqId
+      );
+      
+      if (isActive() && isFirstMsg) {
+        updateSessionTitle(userQuery, consensusText);
+      }
+    } catch(err) {
+      if (!isActive()) return;
+      setMessages(prev => {
+        const u = [...prev];
+        const last = { ...u[u.length - 1] };
+        if (last.isMultiAi) last.consensus = "Failed to generate consensus.";
+        u[u.length - 1] = last;
+        return u;
+      });
+    }
+    
+    setIsLoading(false);
+    setStreamStatus("idle");
+  };
+
   const triggerAI = async (hist, fileData = null, ytContext = null) => {
     const reqId = Date.now().toString();
     abortRef.current?.abort();
@@ -2605,16 +2749,6 @@ export default function App() {
     const willWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
     if (willWebSearch) setIsWebSearching(true);
 
-    const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const emptyAssistantMsg = {
-      role: "assistant",
-      content: "",
-      timestamp: ts,
-      provider: selectedProvider,
-      ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
-    };
-    setMessages([...hist, emptyAssistantMsg]);
-
     const userQuery = hist[hist.length - 1]?.content || "";
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
@@ -2628,7 +2762,6 @@ export default function App() {
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(memories));
 
-    // Combine global system prompt with Space instructions and files
     let finalSystemPrompt = systemPromptRef.current || "";
     if (currentSpaceId) {
       const space = spaces.find(s => s.id === currentSpaceId);
@@ -2646,16 +2779,29 @@ export default function App() {
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    // Pass webSearch flag: true when autoWebSearch is on OR when in web_search / deep_search / research mode
     const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
     fd.append("webSearch", String(shouldWebSearch));
 
-    // Pass YouTube context if present
     if (ytContext) {
       fd.append("ytContext", JSON.stringify(ytContext));
     }
 
     if (fileData) fd.append("file", fileData);
+
+    if (selectedMode === "multi_ai") {
+      await handleMultiAI(hist, fd, userQuery, isFirstMsg, ctrl, isActive, reqId);
+      return;
+    }
+
+    const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const emptyAssistantMsg = {
+      role: "assistant",
+      content: "",
+      timestamp: ts,
+      provider: selectedProvider,
+      ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
+    };
+    setMessages([...hist, emptyAssistantMsg]);
 
     try {
       addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode });
@@ -2718,7 +2864,7 @@ export default function App() {
         });
       } else {
         if (voiceRef.current || autoSpeak) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery);
+        if (isFirstMsg) updateSessionTitle(userQuery, bot);
         generateFollowUps(bot, userQuery);
       }
 
@@ -2778,7 +2924,10 @@ export default function App() {
     if (!text && !selFile) return;
     if (isListening) recogRef.current?.stop();
 
-
+    // Auto-detect Code mode suggestion
+    if (selectedMode === "normal" && (text.includes("```") || /function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+/.test(text))) {
+      addToast("Tip: Code detected. Switch to Code mode for optimized coding answers.", "info", 4000);
+    }
     // Image generation intercept
     const imgPrompt = detectImagePrompt(text);
     if (imgPrompt && !selFile) {
@@ -3303,14 +3452,25 @@ export default function App() {
           </div>
           <div className="spaces-list">
             <div className={`space-item${!currentSpaceId ? " active" : ""}`} onClick={() => handleSwitchSpace(null)}>
-              <Globe size={14} /> General
-            </div>
-            {spaces.map(sp => (
-              <div key={sp.id} className={`space-item${currentSpaceId === sp.id ? " active" : ""}`} onClick={() => handleSwitchSpace(sp.id)}>
-                <ModelIcon id={sp.mode} size={14} /> {sp.name}
-                <button className="space-edit-btn" onClick={(e) => { e.stopPropagation(); setEditingSpace(sp); setShowSpaceModal(true); }}><Paintbrush size={12} /></button>
+              <div style={{ width: 20, height: 20, borderRadius: 5, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink-3)" }}>
+                <Globe size={12} />
               </div>
-            ))}
+              <span style={{ flex: 1 }}>General</span>
+            </div>
+            {spaces.map(sp => {
+              const IconComp = SPACE_ICONS.find(i => i.id === sp.icon)?.icon || Globe;
+              const modeName = MODES_LIST.find(m => m.id === sp.mode)?.name || sp.mode;
+              return (
+                <div key={sp.id} className={`space-item${currentSpaceId === sp.id ? " active" : ""}`} onClick={() => handleSwitchSpace(sp.id)}>
+                  <div style={{ width: 20, height: 20, borderRadius: 5, background: sp.color || "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                    <IconComp size={12} />
+                  </div>
+                  <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sp.name}</span>
+                  <span style={{ fontSize: "0.65rem", padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ink-4)" }}>{modeName}</span>
+                  <button className="space-edit-btn" onClick={(e) => { e.stopPropagation(); setEditingSpace(sp); setShowSpaceModal(true); }}><Paintbrush size={12} /></button>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -3337,7 +3497,9 @@ export default function App() {
           )}
           {dateOrder.map(group => groupedSessions[group]?.length > 0 && (
             <React.Fragment key={group}>
-              <div className="hist-label">{group}</div>
+              <div className="hist-label">
+                {group} {currentSpaceId ? `— ${spaces.find(s => s.id === currentSpaceId)?.name || ""}` : ""}
+              </div>
               {groupedSessions[group].map(s => (
                 <div key={s.id} className={`hist-item${s.id === currentSessionId ? " active" : ""}`} onClick={() => loadSession(s.id)}>
                   <span className="hist-title">{s.title}</span>
@@ -3677,7 +3839,43 @@ export default function App() {
                           <YTIcon /> {msg.ytInfo?.title ? `Notes: ${msg.ytInfo.title.slice(0, 40)}` : t.ytNotes}
                         </div>
                       )}
-                      {msg.role === "assistant" && (idx === messages.length - 1 && isLoading) ? (
+                      {msg.isMultiAi ? (
+                        <div className="multi-ai-container" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                          <div style={{ display: "flex", gap: 16, overflowX: "auto" }}>
+                            {msg.models.map((m, idx) => (
+                              <div key={idx} style={{ flex: 1, minWidth: 300, background: "var(--bg-hover)", borderRadius: 8, padding: 12, border: "1px solid var(--border)" }}>
+                                <div style={{ fontSize: "0.75rem", color: "var(--ink-3)", marginBottom: 8, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                                  <Bot size={12} /> {m.name}
+                                  {m.status === "streaming" && <span style={{ animation: "pulse 1.5s infinite" }}>●</span>}
+                                </div>
+                                <StructuredResponseRenderer
+                                  response={m.content + (m.status === "streaming" ? "▍" : "")}
+                                  onSubmitCode={(code) => {
+                                    setInput(code);
+                                    textareaRef.current?.focus();
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          {msg.consensus && (
+                            <div style={{ background: "rgba(59,130,246,0.05)", borderRadius: 8, padding: 12, border: "1px solid rgba(59,130,246,0.2)" }}>
+                              <div style={{ fontSize: "0.75rem", color: "#3b82f6", marginBottom: 8, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                                <Zap size={12} /> Consensus Synthesis
+                                {msg.consensus === "generating" && <span style={{ animation: "pulse 1.5s infinite" }}>●</span>}
+                              </div>
+                              {msg.consensus === "generating" ? (
+                                <span style={{ color: "var(--ink-4)", fontSize: "0.85rem" }}>Synthesizing best answer...</span>
+                              ) : (
+                                <StructuredResponseRenderer
+                                  response={msg.consensus}
+                                  onSubmitCode={(code) => { setInput(code); textareaRef.current?.focus(); }}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : msg.role === "assistant" && (idx === messages.length - 1 && isLoading) ? (
                         !(streamingContent || msg.content) ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {(isWebSearching || isYtFetching) && (
@@ -3773,6 +3971,25 @@ export default function App() {
 
         {/* INPUT AREA */}
         <div className="input-area">
+          {currentSpaceId && (() => {
+            const sp = spaces.find(s => s.id === currentSpaceId);
+            if (!sp) return null;
+            const IconComp = SPACE_ICONS.find(i => i.id === sp.icon)?.icon || Globe;
+            const modeName = MODES_LIST.find(m => m.id === sp.mode)?.name || sp.mode;
+            return (
+              <div style={{ height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: "rgba(255,255,255,0.02)", borderTop: "0.5px solid rgba(255,255,255,0.08)", fontSize: "0.8rem", color: "var(--ink-2)", borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 16, height: 16, borderRadius: 4, background: sp.color || "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                    <IconComp size={10} />
+                  </div>
+                  <span style={{ fontWeight: 500 }}>{sp.name}</span>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.06)", padding: "2px 8px", borderRadius: 4, fontSize: "0.7rem", color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  {modeName}
+                </div>
+              </div>
+            );
+          })()}
           {systemPrompt && (
             <div className="sys-strip">
               <BotIcon /><span>{t.systemPromptBadge}: {systemPrompt.slice(0, 55)}{systemPrompt.length > 55 ? "…" : ""}</span>
