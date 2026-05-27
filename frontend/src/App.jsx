@@ -405,7 +405,7 @@ const LANGS = {
   }},
 };
 
-const PROVIDERS = ["Groq", "Gemini", "Mistral", "SambaNova", "OpenRouter"];
+const PROVIDERS = ["OpenRouter", "Groq", "Gemini", "Mistral", "SambaNova"];
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
@@ -1767,7 +1767,7 @@ export default function App() {
   const [editIdx, setEditIdx]               = useState(null);
   const [editInput, setEditInput]           = useState("");
   const [selectedMode, setSelectedMode]     = useState(MODES[0].id);
-  const [selectedProvider, setSelectedProvider] = useState("Groq");
+  const [selectedProvider, setSelectedProvider] = useState("OpenRouter");
   const isYtMode     = selectedMode === "youtube";
   const isWebMode    = selectedMode === "research" || selectedMode === "web_search";
   const isDeepSearch = selectedMode === "deep_search";
@@ -2500,7 +2500,7 @@ export default function App() {
       isMultiAi: true,
       timestamp: ts,
       models: [
-        { name: "Llama 3 (Groq)", id: "groq", content: "", status: "streaming" },
+        { name: "Llama 3 (OpenRouter)", id: "openrouter", content: "", status: "streaming" },
         { name: "Mistral", id: "mistral", content: "", status: "streaming" }
       ],
       consensus: null
@@ -2549,7 +2549,7 @@ export default function App() {
     };
 
     const [resp1, resp2] = await Promise.all([
-      runModel("groq", 0),
+      runModel("openrouter", 0),
       runModel("mistral", 1)
     ]);
 
@@ -2567,7 +2567,7 @@ export default function App() {
     consensusFd.append("input", `Synthesize a short consensus or best answer based on these two responses to the user's query: "${userQuery}".\n\nResponse 1:\n${resp1}\n\nResponse 2:\n${resp2}\n\nReturn ONLY the consensus text. No intros.`);
     consensusFd.append("messages", JSON.stringify([{role: "user", content: "Synthesize consensus."}]));
     consensusFd.append("mode", "normal");
-    consensusFd.append("provider", "groq");
+    consensusFd.append("provider", "openrouter");
     
     try {
       const cRes = await fetch(API + "/chat", { method: "POST", body: consensusFd, signal: ctrl.signal });
