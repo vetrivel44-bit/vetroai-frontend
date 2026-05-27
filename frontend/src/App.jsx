@@ -542,7 +542,7 @@ const LANGS = {
   }},
 };
 
-const PROVIDERS = ["Groq", "Gemini", "Mistral", "SambaNova"];
+const PROVIDERS = ["Groq", "Gemini", "Mistral", "SambaNova", "OpenRouter"];
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },

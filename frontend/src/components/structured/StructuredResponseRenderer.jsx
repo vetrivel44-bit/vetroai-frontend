@@ -74,7 +74,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
     // Find backtick blocks
     const backtickRegex = /```(?:json)?\s*([\s\S]*?)```/gi;
     let bMatch;
-    while ((bMatch = backtickRegex.exec(text)) !== null) {
+    while ((bMatch = backtickRegex.exec(remainingText)) !== null) {
       blocks.push({
         raw: bMatch[0],
         content: bMatch[1],
@@ -84,8 +84,8 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
 
     // Find raw JSON blocks (bracket matching)
     let bIndex = 0;
-    while (bIndex < text.length) {
-      const start = text.indexOf('{', bIndex);
+    while (bIndex < remainingText.length) {
+      const start = remainingText.indexOf('{', bIndex);
       if (start === -1) break;
 
       // Skip if this start is inside a known backtick block
@@ -96,8 +96,8 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
       }
 
       // Check if it looks like our structured JSON
-      const sub = text.slice(start, start + 300);
-      if (!sub.includes('"type"') || !/(onboarding|editor|results|location|gallery|chart|timeline|comparison_table)/.test(sub)) {
+      const sub = remainingText.slice(start, start + 300);
+      if (!sub.includes('"type"') || !/(onboarding|editor|results|location|route|gallery|chart|timeline|comparison_table|comparison|metrics|architecture|collapsible|mcq)/.test(sub)) {
         bIndex = start + 1;
         continue;
       }
@@ -108,8 +108,8 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
       let inString = false;
       let escape = false;
 
-      while (end < text.length && bracketCount > 0) {
-        const char = text[end];
+      while (end < remainingText.length && bracketCount > 0) {
+        const char = remainingText[end];
         if (char === '"' && !escape) inString = !inString;
         else if (!inString) {
           if (char === '{') bracketCount++;
@@ -121,7 +121,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
       }
 
       if (bracketCount === 0) {
-        const raw = text.slice(start, end);
+        const raw = remainingText.slice(start, end);
         blocks.push({
           raw,
           content: raw,
@@ -168,6 +168,14 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
           sections.push({ type: 'timeline', title: data.title, steps: data.steps, delay: 0.5 });
         } else if (data.type === 'comparison_table') {
           sections.push({ type: 'comparison_table', title: data.title, options: data.options, features: data.features, delay: 0.5 });
+        } else if (data.type === 'comparison') {
+          sections.push({ type: 'comparison', left: data.left, right: data.right, delay: 0.5 });
+        } else if (data.type === 'metrics') {
+          sections.push({ type: 'metrics', metrics: data.metrics, delay: 0.5 });
+        } else if (data.type === 'architecture') {
+          sections.push({ type: 'architecture', title: data.title, nodes: data.nodes, connections: data.connections, delay: 0.5 });
+        } else if (data.type === 'collapsible') {
+          sections.push({ type: 'collapsible', title: data.title, content: data.content, icon: data.icon, delay: 0.5 });
         } else if (data.type === 'editor') {
           sections.push({ type: 'editor', language: data.language, questionNumber: data.questionNumber, totalQuestions: data.totalQuestions, signature: data.signature, delay: 0.5 });
         } else if (data.type === 'results') {

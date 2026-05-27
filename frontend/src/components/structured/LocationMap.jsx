@@ -18,6 +18,9 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
+// Cache to store geocoding results and avoid duplicate API calls
+const geocodeCache = new Map();
+
 // Custom Marker Icons
 const startIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
@@ -91,13 +94,31 @@ const LocationMap = ({
       try {
         const geocode = async (q) => {
           if (!q) return null;
+          const cacheKey = q.trim().toLowerCase();
+          if (geocodeCache.has(cacheKey)) {
+            return geocodeCache.get(cacheKey);
+          }
           try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`, {
+            const res = await fetch(`/api/maps/search?query=${encodeURIComponent(q)}`, {
               signal: abortController.signal
             });
             const d = await res.json();
-            return d?.[0] ? { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon), label: q } : null;
+            if (d?.success && d?.data?.[0]) {
+              const placeObj = d.data[0];
+              if (placeObj.location) {
+                const result = {
+                  lat: placeObj.location.lat,
+                  lng: placeObj.location.lng,
+                  label: placeObj.name || q
+                };
+                geocodeCache.set(cacheKey, result);
+                return result;
+              }
+            }
+            geocodeCache.set(cacheKey, null);
+            return null;
           } catch (e) {
+            geocodeCache.set(cacheKey, null);
             return null;
           }
         };
