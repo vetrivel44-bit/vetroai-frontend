@@ -3796,6 +3796,7 @@ export default function App() {
           )}
 
           {messages.map((msg, idx) => {
+            if (msg.role === "system") return null;
             const highlighted     = chatSearchQuery && chatSearchResults.includes(idx);
             const msgRxns         = reactions[idx] || [];
             const isLastAssistant = msg.role === "assistant" && idx === messages.length - 1 && !isLoading;
