@@ -3682,37 +3682,100 @@ export default function App() {
                         </div>
                       )}
                       {msg.isMultiAi ? (
-                        <div className="multi-ai-container" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                          <div style={{ display: "flex", gap: 16, overflowX: "auto" }}>
+                        <div className="multi-ai-container" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
                             {msg.models.map((m, idx) => (
-                              <div key={idx} style={{ flex: 1, minWidth: 300, background: "var(--bg-hover)", borderRadius: 8, padding: 12, border: "1px solid var(--border)" }}>
-                                <div style={{ fontSize: "0.75rem", color: "var(--ink-3)", marginBottom: 8, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                                  <Bot size={12} /> {m.name}
-                                  {m.status === "streaming" && <span style={{ animation: "pulse 1.5s infinite" }}>●</span>}
+                              <div key={idx} style={{ 
+                                flex: 1, 
+                                background: "rgba(255,255,255,0.02)", 
+                                backdropFilter: "blur(12px)", 
+                                WebkitBackdropFilter: "blur(12px)",
+                                borderRadius: 12, 
+                                padding: 20, 
+                                border: m.status === "streaming" ? "1px solid rgba(217, 119, 87, 0.4)" : "1px solid rgba(255,255,255,0.08)",
+                                boxShadow: m.status === "streaming" ? "0 4px 20px rgba(217, 119, 87, 0.08)" : "0 4px 12px rgba(0,0,0,0.2)",
+                                transition: "all 0.3s ease"
+                              }}>
+                                <div style={{ 
+                                  fontSize: "0.75rem", 
+                                  color: m.status === "streaming" ? "var(--accent)" : "var(--ink-3)", 
+                                  marginBottom: 16, 
+                                  fontWeight: 600, 
+                                  display: "flex", 
+                                  alignItems: "center", 
+                                  justifyContent: "space-between",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.5px"
+                                }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <Bot size={14} /> {m.name}
+                                  </div>
+                                  {m.status === "streaming" ? (
+                                    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.7rem", color: "var(--accent)" }}>
+                                      <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", animation: "pulse 1.5s infinite" }} />
+                                      GENERATING
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontSize: "0.7rem", color: "var(--ink-4)" }}>COMPLETED</span>
+                                  )}
                                 </div>
-                                <StructuredResponseRenderer
-                                  response={m.content + (m.status === "streaming" ? "▍" : "")}
-                                  onSubmitCode={(code) => {
-                                    setInput(code);
-                                    textareaRef.current?.focus();
-                                  }}
-                                />
+                                <div style={{ fontSize: "0.95rem", lineHeight: "1.6", color: "var(--ink-1)" }}>
+                                  <StructuredResponseRenderer
+                                    response={m.content + (m.status === "streaming" ? "▍" : "")}
+                                    onSubmitCode={(code) => { setInput(code); textareaRef.current?.focus(); }}
+                                  />
+                                </div>
                               </div>
                             ))}
                           </div>
+                          
                           {msg.consensus && (
-                            <div style={{ background: "rgba(59,130,246,0.05)", borderRadius: 8, padding: 12, border: "1px solid rgba(59,130,246,0.2)" }}>
-                              <div style={{ fontSize: "0.75rem", color: "#3b82f6", marginBottom: 8, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                                <Zap size={12} /> Consensus Synthesis
+                            <div style={{ 
+                              background: "linear-gradient(145deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.04) 100%)", 
+                              backdropFilter: "blur(12px)", 
+                              borderRadius: 12, 
+                              padding: 24, 
+                              border: "1px solid rgba(59, 130, 246, 0.2)",
+                              boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+                              position: "relative",
+                              overflow: "hidden"
+                            }}>
+                              <div style={{ 
+                                position: "absolute", top: 0, left: 0, width: "100%", height: "2px", 
+                                background: msg.consensus === "generating" 
+                                  ? "linear-gradient(90deg, transparent, #3b82f6, #9333ea, transparent)"
+                                  : "linear-gradient(90deg, #3b82f6, #9333ea)",
+                                backgroundSize: "200% 100%",
+                                animation: msg.consensus === "generating" ? "shimmer 2s infinite linear" : "none"
+                              }} />
+                              
+                              <div style={{ 
+                                fontSize: "0.8rem", 
+                                color: "#3b82f6", 
+                                marginBottom: 16, 
+                                fontWeight: 700, 
+                                display: "flex", 
+                                alignItems: "center", 
+                                gap: 8,
+                                textTransform: "uppercase",
+                                letterSpacing: "1px"
+                              }}>
+                                <Zap size={16} fill="currentColor" /> Consensus Synthesis
                                 {msg.consensus === "generating" && <span style={{ animation: "pulse 1.5s infinite" }}>●</span>}
                               </div>
+                              
                               {msg.consensus === "generating" ? (
-                                <span style={{ color: "var(--ink-4)", fontSize: "0.85rem" }}>Synthesizing best answer...</span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+                                  <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#3b82f6", animation: "pulse 1.5s infinite" }} />
+                                  <span style={{ color: "var(--ink-3)", fontSize: "0.9rem" }}>Synthesizing the best answer from multiple models...</span>
+                                </div>
                               ) : (
-                                <StructuredResponseRenderer
-                                  response={msg.consensus}
-                                  onSubmitCode={(code) => { setInput(code); textareaRef.current?.focus(); }}
-                                />
+                                <div style={{ fontSize: "1rem", lineHeight: "1.7", color: "var(--ink-1)" }}>
+                                  <StructuredResponseRenderer
+                                    response={msg.consensus}
+                                    onSubmitCode={(code) => { setInput(code); textareaRef.current?.focus(); }}
+                                  />
+                                </div>
                               )}
                             </div>
                           )}
