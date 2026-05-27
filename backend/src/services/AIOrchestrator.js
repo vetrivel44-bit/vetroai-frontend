@@ -424,9 +424,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
     let success = false;
 
     // Intent detection — also support explicit webSearch flag from frontend
-    const shouldSearch = mode === "web_search" || mode === "deep_search" || mode === "research" ||
+    const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery);
+    const shouldSearch = !isGreeting && (
+      mode === "web_search" || mode === "deep_search" || mode === "research" ||
       params.webSearch === true || params.webSearch === "true" ||
-      this.needsWebSearch(userQuery);
+      this.needsWebSearch(userQuery)
+    );
     let webContext = null;
 
     if (shouldSearch) {
