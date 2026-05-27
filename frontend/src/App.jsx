@@ -1843,7 +1843,7 @@ export default function App() {
     } catch { addToast("Google login failed. Please try again.", "error"); }
   }, []);
 
-  // Load Google GSI script
+  // Load Google GSI script (silently skip if blocked/unavailable in region)
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
     const existing = document.getElementById("google-gsi");
@@ -1854,11 +1854,19 @@ export default function App() {
     script.async = true;
     script.defer = true;
     script.onload = () => {
-      window.google?.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleLogin,
-        auto_select: false,
-      });
+      try {
+        window.google?.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleLogin,
+          auto_select: false,
+        });
+      } catch (e) {
+        // Google Sign-In unavailable in this region, skip silently
+      }
+    };
+    script.onerror = () => {
+      // Google GSI blocked (e.g. 451 geo-restriction) — skip silently
+      console.warn("Google Sign-In script unavailable in this region.");
     };
     document.head.appendChild(script);
   }, [handleGoogleLogin]);
