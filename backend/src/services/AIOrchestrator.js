@@ -435,10 +435,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
     if (shouldSearch) {
       this.sendVetroEvent(res, "status", "Searching the web for latest info...");
       try {
-        const searchRes = mode === "deep_search" ? await performDeepSearch(userQuery) : await searchWeb(userQuery);
+        const searchRes = await Promise.race([
+          mode === "deep_search" ? performDeepSearch(userQuery) : searchWeb(userQuery),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
+        ]);
         webContext = searchRes.context;
       } catch (err) {
         logger.error("AIOrchestrator.searchError", { reqId, error: err.message });
+        // Search failed/timed out — AI will still respond without web context
       }
     }
 
