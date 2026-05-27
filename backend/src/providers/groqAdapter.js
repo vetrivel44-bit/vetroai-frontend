@@ -14,10 +14,10 @@ async function generateStream(messages, options = {}) {
 
   try {
     const stream = await groq.chat.completions.create({
-      model: model || "llama-3.1-8b-instant",  // 30K TPM vs 6K TPM for 70b
+      model: model || config.groqModel || "llama-3.1-8b-instant",
       messages,
       temperature: temperature ?? 0.7,
-      max_tokens: maxTokens ?? 2048,
+      max_tokens: Math.min(maxTokens ?? 1024, 1024), // cap for free tier rate limits
       stream: true,
     });
 

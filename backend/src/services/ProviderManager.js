@@ -10,15 +10,15 @@ class ProviderManager {
     this.providers = {
       groq: {
         adapter: groqAdapter,
-        weight: 100,
-        score: 100,
+        weight: 80,
+        score: 80,
         latency: 0,
         successRate: 1,
         consecutiveErrors: 0,
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["mistral", "sambanova", "openrouter", "gemini"],
+        fallbacks: ["openrouter", "mistral", "sambanova", "gemini"],
       },
       mistral: {
         adapter: mistralAdapter,
@@ -34,15 +34,15 @@ class ProviderManager {
       },
       openrouter: {
         adapter: openrouterAdapter,
-        weight: 85,
-        score: 85,
+        weight: 100,
+        score: 100,
         latency: 0,
         successRate: 1,
         consecutiveErrors: 0,
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["groq", "mistral", "sambanova", "gemini"],
+        fallbacks: ["mistral", "groq", "sambanova", "gemini"],
       },
       sambanova: {
         adapter: sambanovaAdapter,
