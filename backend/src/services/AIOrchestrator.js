@@ -474,7 +474,13 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
       const startTime = Date.now();
       try {
-        const stream = await adapter.generateStream(fullMessages, options);
+        // Add timeout to prevent hanging
+        const streamPromise = adapter.generateStream(fullMessages, options);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Stream generation timeout")), 30000)
+        );
+        
+        const stream = await Promise.race([streamPromise, timeoutPromise]);
         
         if (!stream) throw new Error("Provider returned empty stream");
 
@@ -488,15 +494,22 @@ Choose the single best-fitting visualization block(s) from the formats below:
         providerManager.updateMetrics(currentProviderName, false, Date.now() - startTime);
         
         const isRateLimit = /rate limit|429|too many requests/i.test(err.message);
+        const isTimeout = /timeout|timed out|ECONNRESET|ENOTFOUND/i.test(err.message);
+        
         if (isRateLimit) {
           providerManager.suspendProvider(currentProviderName, "Rate limit reached");
+        } else if (isTimeout) {
+          logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }
         
         if (attempts < maxAttempts) {
           const nextProvider = providerManager.getFallbackProvider(currentProviderName);
-          const friendlyMsg = isRateLimit 
-            ? `Model ${currentProviderName} is temporarily busy. Switching to another AI model…`
-            : `Issue with ${currentProviderName}. Switching to another model…`;
+          let friendlyMsg = `Issue with ${currentProviderName}. Switching to another model…`;
+          if (isRateLimit) {
+            friendlyMsg = `Model ${currentProviderName} is temporarily busy. Switching to another AI model…`;
+          } else if (isTimeout) {
+            friendlyMsg = `Connection with ${currentProviderName} timed out. Trying another model…`;
+          }
           
           this.sendVetroEvent(res, "clear", "");
           this.sendVetroEvent(res, "status", friendlyMsg);
@@ -587,19 +600,33 @@ Choose the single best-fitting visualization block(s) from the formats below:
           stream.on("error", reject);
         });
       }
-      // 3. Handle Web Streams with getReader
-      else if (stream.getReader) {
+      // 3. Handle Web Streams with getReader (OpenRouter uses this)
+      else if (stream.getReader && typeof stream.getReader === "function") {
         const reader = stream.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          const text = decoder.decode(value, { stream: true });
-          const content = processTextChunk(text);
-          if (content) {
-            fullContent += content;
-            this.sendVetroEvent(res, "content", content);
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const text = decoder.decode(value, { stream: true });
+            const content = processTextChunk(text);
+            if (content) {
+              fullContent += content;
+              this.sendVetroEvent(res, "content", content);
+            }
           }
+          // Flush remaining bytes from decoder
+          const finalText = decoder.decode();
+          if (finalText) {
+            const content = processTextChunk(finalText);
+            if (content) {
+              fullContent += content;
+              this.sendVetroEvent(res, "content", content);
+            }
+          }
+        } catch (readerErr) {
+          reader.cancel?.();
+          throw readerErr;
         }
       }
 

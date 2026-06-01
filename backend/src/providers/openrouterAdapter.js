@@ -28,16 +28,23 @@ async function generateStream(messages, options = {}) {
         "X-Title": "VetroAI",
       },
       body: JSON.stringify(body),
+      timeout: 30000,
     });
 
     if (!res.ok) {
       const detail = await res.text();
-      throw new Error(`OpenRouter service error: ${res.status} ${detail}`);
+      const errorMsg = `OpenRouter service error: ${res.status} ${detail}`;
+      logger.error("openrouterAdapter.generateStream.failed", { status: res.status, detail });
+      throw new ApiError(res.status, errorMsg);
+    }
+
+    if (!res.body) {
+      throw new Error("OpenRouter returned empty response body");
     }
 
     return res.body;
   } catch (err) {
-    logger.error("openrouterAdapter.generateStream", { error: err.message });
+    logger.error("openrouterAdapter.generateStream", { error: err.message, errorCode: err.code });
     throw err;
   }
 }
