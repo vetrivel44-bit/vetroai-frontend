@@ -3808,6 +3808,19 @@ export default function App() {
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkMath]}
                           rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+                          components={{
+                            table: ({ node, ...props }) => (
+                              <div className="w-full overflow-x-auto">
+                                <table className="min-w-full" {...props} />
+                              </div>
+                            ),
+                            th: ({ node, ...props }) => (
+                              <th className="whitespace-nowrap px-4 py-2 border-b border-[var(--border-med)] text-left font-semibold" {...props} />
+                            ),
+                            td: ({ node, ...props }) => (
+                              <td className="whitespace-nowrap px-4 py-2 border-b border-[var(--border-med)]" {...props} />
+                            )
+                          }}
                         >
                           {formatMath(msg.content)}
                         </ReactMarkdown>
