@@ -3074,7 +3074,11 @@ export default function App() {
                            'Message VetroAI… (try "generate an image of…")'
           }
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            e.target.style.height = 'auto';
+            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -3087,7 +3091,7 @@ export default function App() {
         <div className="claude-input-footer">
           <div className="claude-footer-left">
             <button type="button" className="claude-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload file">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
           </div>
 
@@ -3138,7 +3142,7 @@ export default function App() {
                 disabled={!input.trim() && !selFile}
                 title="Send message"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
               </button>
             )}
           </div>
@@ -3398,15 +3402,7 @@ export default function App() {
           title="Mode"
         >
           <ModelIcon id={selectedMode} size={20} />
-          <span>Mode</span>
-        </button>
-        <button
-          className="mbn-btn"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          title="Theme"
-        >
-          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          <span>Theme</span>
+          <span>Explore</span>
         </button>
         <button
           className="mbn-btn"

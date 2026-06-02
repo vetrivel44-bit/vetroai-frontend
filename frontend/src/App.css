@@ -43,6 +43,9 @@
   --r-2xl: 24px;
   --r-full:999px;
 
+  --glass-bg:    rgba(250, 249, 245, 0.75);
+  --glass-border: rgba(0, 0, 0, 0.05);
+
   --font:  'Inter', 'SF Pro', system-ui, sans-serif;
   --mono:  'JetBrains Mono', monospace;
   --tr:    0.2s ease;
@@ -121,11 +124,11 @@
 }
 
 [data-theme="dark"] {
-  --bg:          #191919;
-  --bg-sidebar:  #191919;
-  --bg-elevated: #191919;
-  --bg-hover:    #232323;
-  --bg-active:   #2d2d2d;
+  --bg:          #0a0a0c;
+  --bg-sidebar:  #0a0a0c;
+  --bg-elevated: #1a1a1d;
+  --bg-hover:    #26262a;
+  --bg-active:   #313136;
 
   --ink:         #f0f0f2;
   --ink-2:       #c8c8cc;
@@ -134,22 +137,22 @@
   --ink-5:       #2c2c30;
 
   --accent:      #60a5fa;
-  --accent-soft: rgba(96,165,250,0.08);
-  --accent-mid:  rgba(96,165,250,0.16);
-  --accent-glow: rgba(96,165,250,0.05);
+  --accent-soft: rgba(96,165,250,0.12);
+  --accent-mid:  rgba(96,165,250,0.20);
+  --accent-glow: rgba(96,165,250,0.08);
   --accent-rgb:  96,165,250;
 
-  --border:      rgba(255,255,255,0.05);
-  --border-med:  rgba(255,255,255,0.08);
-  --border-str:  rgba(255,255,255,0.12);
+  --border:      rgba(255,255,255,0.06);
+  --border-med:  rgba(255,255,255,0.10);
+  --border-str:  rgba(255,255,255,0.16);
 
-  --shadow-xs:   0 1px 3px rgba(0,0,0,0.4);
-  --shadow-sm:   0 2px 8px rgba(0,0,0,0.5);
-  --shadow-md:   0 8px 24px rgba(0,0,0,0.6);
-  --shadow-lg:   0 20px 48px rgba(0,0,0,0.7);
+  --shadow-xs:   0 1px 3px rgba(0,0,0,0.5);
+  --shadow-sm:   0 2px 8px rgba(0,0,0,0.6);
+  --shadow-md:   0 8px 24px rgba(0,0,0,0.8);
+  --shadow-lg:   0 20px 48px rgba(0,0,0,0.9);
 
-  --glass-bg:    rgba(255,255,255,0.03);
-  --glass-border: rgba(255,255,255,0.06);
+  --glass-bg:    rgba(26, 26, 29, 0.7);
+  --glass-border: rgba(255,255,255,0.08);
 }
 
 /* Claude-Style Icon Rail */
@@ -441,10 +444,12 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   align-items: center;
   justify-content: space-between;
   padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   flex-shrink: 0;
-  z-index: 5;
+  z-index: 50;
   gap: 12px;
 }
 .ch-left, .ch-right { display: flex; align-items: center; gap: 6px; }
@@ -744,6 +749,19 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 .act-btns button:hover { background: var(--bg-hover); color: var(--ink-2); border-color: var(--border); }
 
 /* ─── CODE BLOCKS ────────────────────────────── */
+.bubble pre {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bubble table {
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+  -webkit-overflow-scrolling: touch;
+}
+
 .code-block {
   margin: 16px 0;
   background: #111111; /* Unified deep black/grey */
@@ -846,8 +864,10 @@ code:not([class]) {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  background: var(--bg);
+  background: linear-gradient(180deg, transparent 0%, var(--bg) 40%, var(--bg) 100%);
   transition: background var(--tr);
+  position: relative;
+  z-index: 10;
 }
 
 .sys-strip {
@@ -4470,6 +4490,29 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   transform: translateY(-3px);
 }
 
+.claude-send-btn {
+  background: var(--bg-hover);
+  border: none;
+  color: var(--ink-4);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.claude-send-btn.active {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.claude-send-btn.active:hover {
+  transform: scale(1.05);
+}
+
 [data-theme="dark"] .sug {
   background: rgba(255,255,255,0.02);
   border-color: rgba(255,255,255,0.04);
@@ -5394,10 +5437,11 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 
 /* Claude Rounded Input Box Container */
 .claude-input-box {
-  background: var(--bg);
-  border: 1px solid var(--border-med);
-  border-radius: 28px; /* Slightly larger radius like screenshot */
-  padding: 16px 20px 12px 20px; /* More padding */
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-str);
+  border-radius: 32px; 
+  padding: 12px 20px; 
+
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -5439,8 +5483,8 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   justify-content: space-between;
   align-items: center;
   border-top: 0px solid transparent;
-  padding-top: 6px;
-  margin-top: 8px;
+  padding-top: 4px;
+  margin-top: 4px;
 }
 
 .claude-footer-left, .claude-footer-right {
@@ -5551,23 +5595,33 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 }
 
 /* Claude Suggestions Pills */
+.claude-suggestion-pills-row {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px; /* space for scrollbar */
+}
+.claude-suggestion-pills-row::-webkit-scrollbar {
+  display: none;
+}
 .claude-suggestion-pills {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   gap: 10px;
   margin-top: 24px;
-  width: 100%;
+  width: max-content;
+  padding: 0 20px;
 }
 
 .claude-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 8px 16px;
+  border-radius: 99px;
   border: 1px solid var(--border-med);
-  background: transparent;
+  background: var(--bg-elevated);
   color: var(--ink-2);
   font-size: 0.9rem;
   font-weight: 500;
@@ -5817,8 +5871,8 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
     left: 0;
     right: 0;
     height: 60px;
-    background: var(--bg);
-    border-top: 1px solid var(--border);
+    background: var(--glass-bg);
+    border-top: 1px solid var(--glass-border);
     z-index: 30;
     padding: 0 4px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -5828,7 +5882,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   }
 
   [data-theme="dark"] .mobile-bottom-nav {
-    background: rgba(25, 25, 25, 0.97);
+    background: var(--glass-bg);
     box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
   }
 
@@ -6473,8 +6527,8 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   bottom: calc(100% + 12px);
   right: 0;
   width: 480px;
-  background: #1e1e1c;
-  border: 1px solid rgba(255,255,255,0.10);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-med);
   border-radius: 14px;
   z-index: 1000;
   overflow: hidden;
@@ -6604,6 +6658,41 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   padding: 2px 6px;
   border-radius: 4px;
   text-transform: uppercase;
+}
+
+/* Mobile Bottom Sheet */
+@media (max-width: 768px) {
+  .workspace-popup {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: 100%;
+    max-height: 85vh;
+    border-radius: 24px 24px 0 0;
+    background: var(--bg-elevated);
+    border: none;
+    border-top: 1px solid var(--border-str);
+    z-index: 1000;
+    animation: slideUpSheet 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .workspace-popup.closing {
+    animation: slideDownSheet 0.2s ease-in forwards;
+  }
+  .ws-popup-grid {
+    grid-template-columns: repeat(2, 1fr);
+    overflow-y: auto;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes slideDownSheet {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
 }
 
 /* Sidebar Hover Fixes */
