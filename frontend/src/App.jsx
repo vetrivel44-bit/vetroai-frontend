@@ -3654,7 +3654,7 @@ export default function App() {
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form className="claude-input-box bg-slate-800 md:bg-[var(--bg-elevated)] border border-slate-700 md:border-[var(--border-str)]" onSubmit={sendMessage}>
+        <form className="claude-input-box bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)]" onSubmit={sendMessage}>
         <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" />
         {filePreview && (
           <div className="file-prev">
@@ -4284,7 +4284,7 @@ export default function App() {
                                   <div className="flex flex-col gap-6 w-full py-2">
                                     <div className="flex gap-6 w-full overflow-x-auto pb-4 hide-scrollbar" style={{ scrollSnapType: 'x mandatory' }}>
                                       {m.models.map((mod, midx) => (
-                                        <div key={midx} className="flex-1 min-w-[300px] relative overflow-hidden group transition-all duration-300 hover:-translate-y-1" style={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)', backdropFilter: 'blur(16px)', borderRadius: '24px', scrollSnapAlign: 'start' }}>
+                                        <div key={midx} className="flex-1 min-w-[300px] relative overflow-hidden group transition-all duration-300 hover:-translate-y-1" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)', backdropFilter: 'blur(16px)', borderRadius: '24px', scrollSnapAlign: 'start' }}>
                                           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-emerald-500/30 opacity-50 group-hover:opacity-100 transition-opacity"></div>
                                           <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
                                             <span className="font-semibold text-[14px] flex items-center gap-2.5 text-slate-200">
@@ -4434,4 +4434,6 @@ export default function App() {
     </div>
   );
 }
+
+
 
