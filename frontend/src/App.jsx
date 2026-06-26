@@ -4443,62 +4443,76 @@ export default function App() {
                                ? <MediaGenCard type="video" text={m.content} />
                                : m.isMultiAi
                                ? (
-                                  <div className="flex flex-col gap-6 w-full py-2">
-                                    <div className="flex gap-6 w-full overflow-x-auto pb-4 hide-scrollbar" style={{ scrollSnapType: 'x mandatory' }}>
-                                      {m.models.map((mod, midx) => (
-                                        <div key={midx} className="flex-1 min-w-[300px] relative overflow-hidden group transition-all duration-300 hover:-translate-y-1" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)', backdropFilter: 'blur(16px)', borderRadius: '24px', scrollSnapAlign: 'start' }}>
-                                          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-emerald-500/30 opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                                          <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
-                                            <span className="font-semibold text-[14px] flex items-center gap-2.5 text-slate-200">
-                                              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 border border-white/10 shadow-sm">
-                                                <Bot size={14} className="opacity-80" />
+                                  <div className="multi-ai-container">
+                                    <div className="multi-ai-cards">
+                                      {m.models.map((mod, midx) => {
+                                        const PROVIDER_COLORS = ['#3b82f6', '#f97316'];
+                                        const providerColor = PROVIDER_COLORS[midx] || '#8b5cf6';
+                                        const contentToRender = mod.content || "...";
+                                        const hasStruct = hasStructuredContent(contentToRender);
+                                        return (
+                                        <div key={midx} className="multi-ai-card">
+                                          <div className="multi-ai-card-accent" style={{ background: `linear-gradient(90deg, ${providerColor}, transparent)` }} />
+                                          <div className="multi-ai-card-header">
+                                            <div className="multi-ai-provider">
+                                              <div className="multi-ai-provider-icon" style={{ background: `${providerColor}18`, borderColor: `${providerColor}30` }}>
+                                                <Bot size={14} style={{ color: providerColor }} />
                                               </div>
-                                              {mod.name}
-                                            </span>
+                                              <span>{mod.name}</span>
+                                            </div>
                                             {mod.status === 'streaming' ? (
-                                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 text-[10px] uppercase font-bold tracking-widest border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                                                Gen
+                                              <span className="multi-ai-status streaming">
+                                                <span className="multi-ai-status-dot" />
+                                                Generating
                                               </span>
+                                            ) : mod.status === 'error' ? (
+                                              <span className="multi-ai-status error">Error</span>
                                             ) : (
-                                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] uppercase font-bold tracking-widest border border-emerald-500/20">
-                                                <Check size={11} /> Done
+                                              <span className="multi-ai-status done">
+                                                <Check size={10} /> Done
                                               </span>
                                             )}
                                           </div>
-                                          <div className="claude-prose text-[14.5px] p-6 pt-5 leading-relaxed" style={{ color: 'var(--ink)' }}>
-                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]} components={{
-                                              code({ inline, className, children }) {
-                                                const codeString = String(children).replace(/\n$/, "");
-                                                const langMatch = /language-(\w+)/.exec(className || "");
-                                                if (inline || !langMatch) return <code className={className}>{children}</code>;
-                                                return <CodeBlock match={langMatch} codeString={codeString} />;
-                                              }
-                                            }}>{mod.content || "..."}</ReactMarkdown>
+                                          <div className="multi-ai-card-body claude-prose">
+                                            {hasStruct
+                                              ? <StructuredResponseRenderer response={contentToRender} />
+                                              : <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]} components={{
+                                                  code({ inline, className, children }) {
+                                                    const codeString = String(children).replace(/\n$/, "");
+                                                    const langMatch = /language-(\w+)/.exec(className || "");
+                                                    if (inline || !langMatch) return <code className={className}>{children}</code>;
+                                                    return <CodeBlock match={langMatch} codeString={codeString} />;
+                                                  }
+                                                }}>{contentToRender}</ReactMarkdown>
+                                            }
                                           </div>
                                         </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                     {m.consensus && (
-                                      <div className="relative overflow-hidden mt-2 transition-all duration-300 hover:shadow-lg" style={{ background: 'linear-gradient(145deg, rgba(139,92,246,0.08) 0%, rgba(139,92,246,0.02) 100%)', border: '1px solid rgba(139,92,246,0.2)', boxShadow: '0 8px 32px rgba(139,92,246,0.05), inset 0 1px 0 rgba(139,92,246,0.1)', backdropFilter: 'blur(16px)', borderRadius: '24px' }}>
-                                        <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b from-purple-500 to-indigo-500"></div>
-                                        <div className="px-7 py-5 flex items-center justify-between border-b border-purple-500/10 bg-purple-500/[0.02]">
-                                          <div className="font-semibold text-[14px] text-purple-300 uppercase tracking-widest flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500/20 border border-purple-500/30 shadow-[0_0_15px_rgba(139,92,246,0.3)]">
-                                              <VetroSparkWhite size={16} />
+                                      <div className="multi-ai-consensus">
+                                        <div className="multi-ai-consensus-bar" />
+                                        <div className="multi-ai-consensus-header">
+                                          <div className="multi-ai-consensus-title">
+                                            <div className="multi-ai-consensus-icon">
+                                              <VetroSparkWhite size={15} />
                                             </div>
                                             AI Consensus
                                           </div>
                                           {m.consensus === 'generating' && (
-                                            <div className="flex gap-1.5 items-center">
-                                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce"></span>
-                                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0.15s' }}></span>
-                                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0.3s' }}></span>
+                                            <div className="multi-ai-consensus-dots">
+                                              <span /><span /><span />
                                             </div>
                                           )}
                                         </div>
-                                        <div className="claude-prose text-[15px] p-7 pt-5 leading-relaxed" style={{ color: 'var(--ink)' }}>
-                                          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{m.consensus === 'generating' ? "Analyzing responses and synthesizing the best answer..." : m.consensus}</ReactMarkdown>
+                                        <div className="multi-ai-consensus-body claude-prose">
+                                          {(() => {
+                                            const cText = m.consensus === 'generating' ? "Synthesizing the best answer..." : m.consensus;
+                                            return hasStructuredContent(cText)
+                                              ? <StructuredResponseRenderer response={cText} />
+                                              : <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{cText}</ReactMarkdown>;
+                                          })()}
                                         </div>
                                       </div>
                                     )}
