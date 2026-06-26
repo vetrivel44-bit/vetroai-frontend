@@ -12,8 +12,8 @@ export default function ArtifactsGallery({ onClose }) {
   ];
 
   return (
-    <div className="feature-shell fade-in" style={{ padding: '30px', height: '100%', overflowY: 'auto', background: 'var(--bg)' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+    <div className="feature-shell fade-in" style={{ padding: '16px', height: '100%', overflowY: 'auto', background: 'var(--bg)' }}>
+      <header style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: '1.8rem', fontWeight: 600, margin: 0, color: 'var(--ink)' }}>Artifacts</h1>
           <p style={{ color: 'var(--ink-2)', margin: 0 }}>All your generated documents, code, and media in one place.</p>
@@ -21,34 +21,34 @@ export default function ArtifactsGallery({ onClose }) {
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn-ghost"><Filter size={18} /> Filter</button>
           <div style={{ display: 'flex', background: 'var(--bg-2)', borderRadius: 8, padding: 4, border: '1px solid var(--border)' }}>
-            <button onClick={() => setViewMode('grid')} style={{ padding: 6, borderRadius: 4, background: viewMode === 'grid' ? 'var(--bg)' : 'transparent', border: 'none', color: viewMode === 'grid' ? 'var(--ink)' : 'var(--ink-3)' }}><LayoutGrid size={18}/></button>
-            <button onClick={() => setViewMode('list')} style={{ padding: 6, borderRadius: 4, background: viewMode === 'list' ? 'var(--bg)' : 'transparent', border: 'none', color: viewMode === 'list' ? 'var(--ink)' : 'var(--ink-3)' }}><List size={18}/></button>
+            <button onClick={() => setViewMode('grid')} style={{ padding: 6, minWidth: 36, minHeight: 36, borderRadius: 4, background: viewMode === 'grid' ? 'var(--bg)' : 'transparent', border: 'none', color: viewMode === 'grid' ? 'var(--ink)' : 'var(--ink-3)' }}><LayoutGrid size={18}/></button>
+            <button onClick={() => setViewMode('list')} style={{ padding: 6, minWidth: 36, minHeight: 36, borderRadius: 4, background: viewMode === 'list' ? 'var(--bg)' : 'transparent', border: 'none', color: viewMode === 'list' ? 'var(--ink)' : 'var(--ink-3)' }}><List size={18}/></button>
           </div>
         </div>
       </header>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 30 }}>
-        <button className="mode-pill active">All</button>
-        <button className="mode-pill">Documents</button>
-        <button className="mode-pill">Code</button>
-        <button className="mode-pill">Media</button>
-        <button className="mode-pill">Data</button>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 24, overflowX: 'auto', paddingBottom: 4 }}>
+        <button className="mode-pill active" style={{ flexShrink: 0 }}>All</button>
+        <button className="mode-pill" style={{ flexShrink: 0 }}>Documents</button>
+        <button className="mode-pill" style={{ flexShrink: 0 }}>Code</button>
+        <button className="mode-pill" style={{ flexShrink: 0 }}>Media</button>
+        <button className="mode-pill" style={{ flexShrink: 0 }}>Data</button>
       </div>
 
       {viewMode === 'grid' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
           {artifacts.map(a => (
-            <div key={a.id} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }} className="artifact-card">
+            <div key={a.id} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s', minWidth: 0 }} className="artifact-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                 <div style={{ background: a.color + '22', padding: 12, borderRadius: 8, color: a.color }}>
                   <a.icon size={24} />
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button style={{ background: 'none', border: 'none', color: 'var(--ink-3)' }}><Share2 size={16}/></button>
-                  <button style={{ background: 'none', border: 'none', color: 'var(--ink-3)' }}><Download size={16}/></button>
+                  <button style={{ background: 'none', border: 'none', color: 'var(--ink-3)', minWidth: 32, minHeight: 32 }}><Share2 size={16}/></button>
+                  <button style={{ background: 'none', border: 'none', color: 'var(--ink-3)', minWidth: 32, minHeight: 32 }}><Download size={16}/></button>
                 </div>
               </div>
-              <h3 style={{ fontSize: '1.1rem', margin: '0 0 8px 0', color: 'var(--ink)' }}>{a.name}</h3>
+              <h3 style={{ fontSize: '1.1rem', margin: '0 0 8px 0', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</h3>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ink-3)', fontSize: '0.85rem' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={12}/> {a.date}</span>
                 <span>{a.size}</span>
@@ -57,8 +57,8 @@ export default function ArtifactsGallery({ onClose }) {
           ))}
         </div>
       ) : (
-        <div style={{ background: 'var(--bg-2)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div style={{ background: 'var(--bg-2)', borderRadius: 12, border: '1px solid var(--border)', overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--ink-3)', fontSize: '0.85rem' }}>
                 <th style={{ padding: '16px 20px', fontWeight: 500 }}>Name</th>

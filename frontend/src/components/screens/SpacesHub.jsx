@@ -10,8 +10,8 @@ export default function SpacesHub({ onClose }) {
   ];
 
   return (
-    <div className="feature-shell fade-in" style={{ padding: '30px', height: '100%', overflowY: 'auto', background: 'var(--bg)' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 30 }}>
+    <div className="feature-shell fade-in" style={{ padding: '16px', height: '100%', overflowY: 'auto', background: 'var(--bg)' }}>
+      <header style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: '1.8rem', fontWeight: 600, margin: 0, color: 'var(--ink)' }}>Spaces Hub</h1>
           <p style={{ color: 'var(--ink-2)', margin: 0 }}>Organize your work into projects, collaborate, and build knowledge bases.</p>
@@ -27,9 +27,9 @@ export default function SpacesHub({ onClose }) {
       </div>
 
       <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 16px 0', color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 1 }}>Your Spaces</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginBottom: 40 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16, marginBottom: 40 }}>
         {spaces.map(s => (
-          <div key={s.id} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s', display: 'flex', flexDirection: 'column', gap: 16 }} className="space-card">
+          <div key={s.id} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s', display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }} className="space-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ background: s.color + '22', padding: 12, borderRadius: 8, color: s.color }}>

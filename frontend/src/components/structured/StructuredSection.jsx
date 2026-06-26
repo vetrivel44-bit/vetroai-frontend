@@ -2,9 +2,14 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import 'katex/dist/katex.min.css';
 import '../../styles/StructuredResponse.css';
+
+const KATEX_OPTIONS = { strict: false };
 
 const StructuredSection = ({ title, content, children, delay = 0 }) => {
   return (
@@ -17,8 +22,9 @@ const StructuredSection = ({ title, content, children, delay = 0 }) => {
       {title && <h2>{title}</h2>}
       <div className="section-body">
         {content ? (
-          <ReactMarkdown 
-            remarkPlugins={[remarkGfm]}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
             components={{
               code({ node, inline, className, children, ...rest }) {
                 const match = /language-(\w+)/.exec(className || '');

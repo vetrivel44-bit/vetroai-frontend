@@ -4,9 +4,15 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+// KaTeX defaults to throwing/warning on plain-prose punctuation (en dashes, curly quotes)
+// that ends up inside a $...$ span when remark-math's greedy single-dollar matching
+// grabs surrounding text. `strict: false` renders those characters as-is instead of
+// spamming the console — it doesn't change how real math expressions are rendered.
+const KATEX_OPTIONS = { strict: false };
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
+import GoogleLoginButton from "./components/auth/GoogleLoginButton";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -86,20 +92,23 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
 
 
 
-// ─── PDF TEXT EXTRACTION (client-side, no library needed) ─────────────────────
+// ─── PDF TEXT EXTRACTION (client-side, bundled via pdfjs-dist, lazy-loaded) ───
+let _pdfjsLib = null;
+const loadPdfjs = async () => {
+  if (_pdfjsLib) return _pdfjsLib;
+  const [pdfjsLib, workerMod] = await Promise.all([
+    import("pdfjs-dist"),
+    import("pdfjs-dist/build/pdf.worker.min.js?url"),
+  ]);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerMod.default;
+  _pdfjsLib = pdfjsLib;
+  return pdfjsLib;
+};
+
 const extractPdfText = async (file) => {
-  // Use PDF.js via CDN
-  if (!window.pdfjsLib) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-  }
+  const pdfjsLib = await loadPdfjs();
   const buf = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let text = "";
   for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
     const page = await pdf.getPage(i);
@@ -367,13 +376,80 @@ const needsWebSearch = (q) => CURRENT_TRIGGERS.some(rx => rx.test(q));
 
 
 // ─── IMAGE GENERATION ─────────────────────────────────────────────────────────
-const IMAGE_DETECT = /\b(generate|create|make|draw|paint|design|render|show me)\b.{0,40}\b(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon)\b/i;
+const IMAGE_DETECT = /\b(generate|create|make|draw|paint|design|render|show me|give me)\b.{0,80}\b(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\b/i;
 const detectImagePrompt = (text) => {
   if (!IMAGE_DETECT.test(text)) return null;
-  return text.replace(/^.*(generate|create|make|draw|paint|design|render|show me)\s+(an?\s+|the\s+)?(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon)\s+(of\s+)?/i, "").trim() || text;
+  return text.replace(/^.*(generate|create|make|draw|paint|design|render|show me|give me)\s+(an?\s+|the\s+)?(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\s+(of\s+|for\s+|about\s+|showing\s+)?/i, "").trim() || text;
 };
-const getImageUrl = (prompt) => `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=512&nologo=true&seed=${Math.floor(Math.random() * 99999)}`;
+const generateImageViaAgnes = async (prompt) => {
+  const res = await fetch(`${API}/generate-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  if (!res.ok) throw new Error(`Image generation failed (${res.status})`);
+  const json = await res.json();
+  return json?.data?.url;
+};
 
+
+// ─── MEDIA GENERATION LOADING CARD ────────────────────────────────────────────
+const MediaGenCard = ({ type, text }) => (
+  <div className="media-gen-card">
+    <div className="media-gen-preview">
+      <div className="media-gen-shimmer" />
+      <div className="media-gen-icon">
+        {type === "video" ? (
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        ) : (
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        )}
+      </div>
+    </div>
+    <div className="media-gen-info">
+      <div className="media-gen-status">
+        <div className="media-gen-spinner" />
+        <span>{text || (type === "video" ? "Generating video..." : "Generating image...")}</span>
+      </div>
+      <div className="media-gen-hint">
+        {type === "video" ? "This may take a few minutes" : "Almost there..."}
+      </div>
+    </div>
+  </div>
+);
+
+// ─── VIDEO GENERATION ─────────────────────────────────────────────────────────
+const VIDEO_DETECT = /\b(generate|create|make|render|produce|give me)\b.{0,80}\b(video|animation|clip|movie|film|motion|reel|cinematic)\b/i;
+const detectVideoPrompt = (text) => {
+  if (!VIDEO_DETECT.test(text)) return null;
+  return text.replace(/^.*(generate|create|make|render|produce|give me)\s+(an?\s+|the\s+)?(video|animation|clip|movie|film|motion|reel|cinematic)\s+(of\s+|about\s+|showing\s+|for\s+)?/i, "").trim() || text;
+};
+
+const generateVideoViaAgnes = async (prompt) => {
+  const res = await fetch(`${API}/generate-video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  if (!res.ok) throw new Error(`Video generation failed (${res.status})`);
+  const json = await res.json();
+  return json?.data?.videoId;
+};
+
+const pollVideoStatus = async (videoId, onProgress) => {
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const res = await fetch(`${API}/video-status/${encodeURIComponent(videoId)}`);
+    if (!res.ok) throw new Error(`Status check failed (${res.status})`);
+    const json = await res.json();
+    const { status, progress, videoUrl } = json?.data || {};
+    if (onProgress) onProgress(progress || 0);
+    if (status === "completed" && videoUrl) return videoUrl;
+    if (status === "failed") throw new Error("Video generation failed");
+  }
+  throw new Error("Video generation timed out");
+};
 
 // ─── TRANSLATIONS ─────────────────────────────────────────────────────────────
 const LANGS = {
@@ -495,7 +571,7 @@ const LANGS = {
   }},
 };
 
-const PROVIDERS = ["OpenRouter", "Groq", "Gemini", "Mistral", "SambaNova"];
+const PROVIDERS = ["Agnes", "Groq", "Gemini", "Mistral", "SambaNova"];
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
@@ -687,7 +763,7 @@ function WritingBlockCard({ content }) {
         </div>
       ) : (
         <div className="writing-block-content claude-prose">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{draft}</ReactMarkdown>
         </div>
       ))}
     </div>
@@ -1107,7 +1183,7 @@ function ScratchpadWidget({ onClose }) {
         <div className="modal-body">
           {preview ? (
             <div className="bubble bg-slate-800 md:bg-[var(--bg-hover)] text-slate-200 md:text-[var(--ink)]" style={{ padding: 16, borderRadius: 12, minHeight: 200 }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text || "*Nothing here yet…*"}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{text || "*Nothing here yet…*"}</ReactMarkdown>
             </div>
           ) : (
             <textarea className="field-textarea" value={text} onChange={e => setText(e.target.value)}
@@ -1444,7 +1520,10 @@ function ArtifactsPanel({ artifact, onClose }) {
   const { code, language, title } = artifact;
   const [tab, setTab] = useState(language === "html" ? "preview" : "code");
   const [copied, setCopied] = useState(false);
-  const previewable = language === "html" || language === "javascript" || language === "js" || language === "svg";
+  // Only HTML/SVG have visual output an iframe can render. Plain JS (e.g. Node/Express
+  // backend code) has no DOM to preview — feeding it to srcDoc just shows it as flowed,
+  // unstyled text since the browser parses it as an HTML document body.
+  const previewable = language === "html" || language === "svg";
   const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const download = () => {
     const ext = ARTIFACT_EXT[language] || "txt";
@@ -1859,7 +1938,7 @@ function SummaryPanel({ messages, onClose, addToast }) {
         <div className="modal-body">
           {loading && <TypingIndicator text="Summarizing…" />}
           <div className="bubble bg-slate-800 md:bg-[var(--bg-hover)] text-slate-200 md:text-[var(--ink)]" style={{ padding: 16, borderRadius: 12 }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary || "…"}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{summary || "…"}</ReactMarkdown>
           </div>
           <div className="modal-footer">
             <button className="btn-ghost" onClick={() => { navigator.clipboard.writeText(summary); addToast("Summary copied!", "success", 2000); }}>
@@ -2158,33 +2237,30 @@ export default function App() {
     } catch { addToast("Google login failed. Please try again.", "error"); }
   }, []);
 
-  // Load Google GSI script (silently skip if blocked/unavailable in region)
+  // Load Google GSI script (silently skip if blocked/unavailable in region).
+  // Initialization itself is owned by <GoogleLoginButton> below — it polls for
+  // window.google once this script lands and calls accounts.id.initialize/renderButton
+  // with the modern FedCM flag, which One Tap's prompt()-only flow (the old approach
+  // here) silently fails without in current Chrome.
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
     const existing = document.getElementById("google-gsi");
-    if (existing) return;
+    if (existing) {
+      if (window.google?.accounts?.id) window.dispatchEvent(new Event("google-ready"));
+      return;
+    }
     const script = document.createElement("script");
     script.id = "google-gsi";
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
     script.defer = true;
-    script.onload = () => {
-      try {
-        window.google?.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: handleGoogleLogin,
-          auto_select: false,
-        });
-      } catch (e) {
-        // Google Sign-In unavailable in this region, skip silently
-      }
-    };
+    script.onload = () => window.dispatchEvent(new Event("google-ready"));
     script.onerror = () => {
       // Google GSI blocked (e.g. 451 geo-restriction) — skip silently
       console.warn("Google Sign-In script unavailable in this region.");
     };
     document.head.appendChild(script);
-  }, [handleGoogleLogin]);
+  }, []);
 
   // ── Toast ─────────────────────────────────────────────────────────────────────
   const [toasts, setToasts] = useState([]);
@@ -2220,7 +2296,7 @@ export default function App() {
   const [copiedAiIdx, setCopiedAiIdx]       = useState(null);
   const [copiedUserIdx, setCopiedUserIdx]   = useState(null);
   const [selectedMode, setSelectedMode]     = useState(MODES[0].id);
-  const [selectedProvider, setSelectedProvider] = useState("OpenRouter");
+  const [selectedProvider, setSelectedProvider] = useState("Agnes");
   const isYtMode     = selectedMode === "youtube";
   const isWebMode    = selectedMode === "research" || selectedMode === "web_search";
   const isDeepSearch = selectedMode === "deep_search";
@@ -2583,6 +2659,11 @@ export default function App() {
     if (!token || token.startsWith("local_")) return;
     try {
       const res = await fetch(API + "/billing/me", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 401) {
+        // Token is expired/invalid server-side — stop retrying with it.
+        localStorage.removeItem("token"); localStorage.removeItem("refreshToken");
+        return;
+      }
       const data = await res.json();
       if (!res.ok || data.success === false) return;
       const { plan, credits, subscriptionStatus, planRenewsAt } = data.data;
@@ -3003,7 +3084,7 @@ export default function App() {
       isMultiAi: true,
       timestamp: ts,
       models: [
-        { name: "Llama 3 (OpenRouter)", id: "openrouter", content: "", status: "streaming" },
+        { name: "Agnes 2.0", id: "agnes", content: "", status: "streaming" },
         { name: "Mistral", id: "mistral", content: "", status: "streaming" }
       ],
       consensus: null
@@ -3021,6 +3102,7 @@ export default function App() {
         const last = { ...u[u.length - 1] };
         if (last.isMultiAi) {
           last.models = [...last.models];
+          last.models[idx] = { ...last.models[idx] };
           if (content !== undefined) last.models[idx].content = content;
           if (status !== undefined) last.models[idx].status = status;
           u[u.length - 1] = last;
@@ -3052,7 +3134,7 @@ export default function App() {
     };
 
     const [resp1, resp2] = await Promise.all([
-      runModel("openrouter", 0),
+      runModel("agnes", 0),
       runModel("mistral", 1)
     ]);
 
@@ -3070,7 +3152,7 @@ export default function App() {
     consensusFd.append("input", `Synthesize a short consensus or best answer based on these two responses to the user's query: "${userQuery}".\n\nResponse 1:\n${resp1}\n\nResponse 2:\n${resp2}\n\nReturn ONLY the consensus text. No intros.`);
     consensusFd.append("messages", JSON.stringify([{role: "user", content: "Synthesize consensus."}]));
     consensusFd.append("mode", "normal");
-    consensusFd.append("provider", "openrouter");
+    consensusFd.append("provider", "agnes");
     
     try {
       const cRes = await fetch(API + "/chat", { method: "POST", body: consensusFd, signal: ctrl.signal });
@@ -3305,18 +3387,94 @@ export default function App() {
     // Image generation intercept
     const imgPrompt = detectImagePrompt(text);
     if (imgPrompt && !selFile) {
-      const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const imgUrl = getImageUrl(imgPrompt);
+      const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const userMsg = { role: "user", content: text, timestamp: ts };
-      const botMsg  = {
-        role: "assistant",
-        content: `Here's your generated image of **"${imgPrompt}"**:\n\n![${imgPrompt}](${imgUrl})\n\n*Powered by Pollinations.ai — [Generate another variation](${getImageUrl(imgPrompt)})*`,
-        timestamp: ts, isImageGen: true,
+      const pendingBotMsg = {
+        role: "assistant", content: "Generating your image...", timestamp: ts, isImageGen: true, isPending: true,
       };
-      setMessages(prev => [...prev, userMsg, botMsg]);
+      setMessages(prev => [...prev, userMsg, pendingBotMsg]);
       setInput("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       if (messages.length === 0) updateSessionTitle(text);
+
+      try {
+        const imgUrl = await generateImageViaAgnes(imgPrompt);
+        setMessages(prev => {
+          const u = [...prev];
+          const idx = u.lastIndexOf(pendingBotMsg);
+          if (idx !== -1) {
+            u[idx] = {
+              role: "assistant",
+              content: `Here's your generated image of **"${imgPrompt}"**:\n\n![${imgPrompt}](${imgUrl})\n\n*Powered by Agnes AI*`,
+              timestamp: ts, isImageGen: true,
+            };
+          }
+          return u;
+        });
+      } catch (err) {
+        setMessages(prev => {
+          const u = [...prev];
+          const idx = u.lastIndexOf(pendingBotMsg);
+          if (idx !== -1) {
+            u[idx] = { role: "assistant", content: `Image generation failed: ${err.message}`, timestamp: ts };
+          }
+          return u;
+        });
+      }
+      return;
+    }
+
+    // Video generation intercept
+    const vidPrompt = detectVideoPrompt(text);
+    if (vidPrompt && !selFile) {
+      const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const userMsg = { role: "user", content: text, timestamp: ts };
+      const pendingBotMsg = {
+        role: "assistant", content: "🎬 Generating your video... This may take a few minutes.", timestamp: ts, isVideoGen: true, isPending: true,
+      };
+      setMessages(prev => [...prev, userMsg, pendingBotMsg]);
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      if (messages.length === 0) updateSessionTitle(text);
+
+      try {
+        const videoTaskId = await generateVideoViaAgnes(vidPrompt);
+        setMessages(prev => {
+          const u = [...prev];
+          const idx = u.lastIndexOf(pendingBotMsg);
+          if (idx !== -1) u[idx] = { ...u[idx], content: "🎬 Video queued — generating... (0%)" };
+          return u;
+        });
+        const videoUrl = await pollVideoStatus(videoTaskId, (progress) => {
+          setMessages(prev => {
+            const u = [...prev];
+            const lastPending = u.findLastIndex(m => m.isVideoGen && m.isPending);
+            if (lastPending !== -1) u[lastPending] = { ...u[lastPending], content: `🎬 Generating video... (${progress}%)` };
+            return u;
+          });
+        });
+        setMessages(prev => {
+          const u = [...prev];
+          const lastPending = u.findLastIndex(m => m.isVideoGen && m.isPending);
+          if (lastPending !== -1) {
+            u[lastPending] = {
+              role: "assistant",
+              content: `Here's your generated video of **"${vidPrompt}"**:\n\n<video controls width="100%" src="${videoUrl}"></video>\n\n[Download Video](${videoUrl})\n\n*Powered by Agnes AI*`,
+              timestamp: ts, isVideoGen: true,
+            };
+          }
+          return u;
+        });
+      } catch (err) {
+        setMessages(prev => {
+          const u = [...prev];
+          const lastPending = u.findLastIndex(m => m.isVideoGen && m.isPending);
+          if (lastPending !== -1) {
+            u[lastPending] = { role: "assistant", content: `Video generation failed: ${err.message}`, timestamp: ts };
+          }
+          return u;
+        });
+      }
       return;
     }
 
@@ -3436,80 +3594,6 @@ export default function App() {
   const avatarEl    = <span>{profileData?.avatar || "🧑"}</span>;
 
   // ── AUTH PAGE ──────────────────────────────────────────────────────────────────
-  if (!user) return (
-    <div className="auth-page-v3">
-      {/* Hero side */}
-      <div className="auth-hero-side">
-        <div className="auth-hero-orb orb1" />
-        <div className="auth-hero-orb orb2" />
-        <div className="auth-hero-orb orb3" />
-        <div className="auth-hero-content">
-          <div className="auth-hero-logo">
-            <VetroLogo width={160} />
-            <div className="logo-ver" style={{ marginTop: 6 }}>v2.3 · Powered by Mistral</div>
-          </div>
-          <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
-          <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, code playground and more — all in one place.</p>
-          <div className="auth-hero-features">
-            {[[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Terminal size={16} />,"Code Playground"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
-              <div key={lb} className="auth-hero-feat"><span>{ic}</span>{lb}</div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Form side */}
-      <div className="auth-form-side">
-        <div className="auth-form-card">
-          <div className="auth-form-header">
-            <h2 className="auth-form-title">{authMode === "login" ? "Welcome back 👋" : "Join VetroAI 🚀"}</h2>
-            <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Create a free account in seconds."}</p>
-          </div>
-
-          {/* Google Sign In */}
-          {GOOGLE_CLIENT_ID ? (
-            <>
-              <div
-                className="google-sign-in-btn"
-                onClick={() => {
-                  window.google?.accounts.id.prompt();
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/><path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z"/><path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.31z"/></svg>
-                Continue with Google
-              </div>
-              <div className="auth-divider-row"><span /><em>or</em><span /></div>
-            </>
-          ) : null}
-
-          <form onSubmit={handleAuthSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {authMode === "signup" && (
-              <input className="auth-input" type="text" placeholder="Full name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
-            )}
-            <input className="auth-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
-            <div style={{ position: "relative" }}>
-              <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
-              <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.75rem" }}>{showPass ? "Hide" : "Show"}</button>
-            </div>
-            {authError && (
-              <div style={{ fontSize: "0.82rem", color: authError.includes("created") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("created") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("created") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
-            )}
-            <button className="auth-submit-btn" type="submit" disabled={authLoading}>
-              {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
-            </button>
-          </form>
-
-          <p className="auth-switch-text">
-            {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
-              {authMode === "login" ? "Sign up free" : "Sign in"}
-            </button>
-          </p>
-          <p style={{ fontSize: "0.68rem", color: "var(--ink-5)", textAlign: "center", marginTop: 4 }}>By continuing you agree to use VetroAI responsibly.</p>
-        </div>
-      </div>
-    </div>
-  );
 
 
   const getDynamicGreeting = () => {
@@ -3622,7 +3706,7 @@ export default function App() {
 
           <div className="claude-footer-right">
             {/* Model selector */}
-            <div className="hidden md:block" style={{ position: "relative" }}>
+            <div className="block" style={{ position: "relative" }}>
               {showModelPicker && <WorkspacePopup
                 currentMode={selectedMode}
                 currentProvider={selectedProvider}
@@ -3686,6 +3770,7 @@ export default function App() {
   const [isAgenticMode, setIsAgenticMode] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('chats');
   const [recentsSortOpen, setRecentsSortOpen] = useState(false);
   const [recentsSortMode, setRecentsSortMode] = useState('recent');
@@ -3791,6 +3876,73 @@ export default function App() {
     </div>
   );
 
+  if (!user) return (
+    <div className="auth-page-v3">
+      {/* Hero side */}
+      <div className="auth-hero-side">
+        <div className="auth-hero-orb orb1" />
+        <div className="auth-hero-orb orb2" />
+        <div className="auth-hero-orb orb3" />
+        <div className="auth-hero-content">
+          <div className="auth-hero-logo">
+            <VetroLogo width={160} />
+            <div className="logo-ver" style={{ marginTop: 6 }}>v2.3 · Powered by Mistral</div>
+          </div>
+          <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
+          <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, code playground and more — all in one place.</p>
+          <div className="auth-hero-features">
+            {[[<Zap size={16} />,"Instant answers"],[<Globe size={16} />,"Live web search"],[<Play size={16} />,"YouTube notes"],[<Terminal size={16} />,"Code Playground"],[<Paintbrush size={16} />,"AI image gen"],[<Brain size={16} />,"Memory across chats"]].map(([ic,lb]) => (
+              <div key={lb} className="auth-hero-feat"><span>{ic}</span>{lb}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Form side */}
+      <div className="auth-form-side">
+        <div className="auth-form-card">
+          <div className="auth-form-header">
+            <h2 className="auth-form-title">{authMode === "login" ? "Welcome back 👋" : "Join VetroAI 🚀"}</h2>
+            <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Create a free account in seconds."}</p>
+          </div>
+
+          {/* Google Sign In */}
+          {GOOGLE_CLIENT_ID ? (
+            <>
+              <GoogleLoginButton clientId={GOOGLE_CLIENT_ID} onLogin={handleGoogleLogin} theme={theme} />
+              <div className="auth-divider-row"><span /><em>or</em><span /></div>
+            </>
+          ) : null}
+
+          <form onSubmit={handleAuthSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {authMode === "signup" && (
+              <input className="auth-input" type="text" placeholder="Full name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
+            )}
+            <input className="auth-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
+            <div style={{ position: "relative" }}>
+              <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
+              <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.75rem" }}>{showPass ? "Hide" : "Show"}</button>
+            </div>
+            {authError && (
+              <div style={{ fontSize: "0.82rem", color: authError.includes("created") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("created") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("created") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
+            )}
+            <button className="auth-submit-btn" type="submit" disabled={authLoading}>
+              {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
+            </button>
+          </form>
+
+          <p className="auth-switch-text">
+            {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
+            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
+              {authMode === "login" ? "Sign up free" : "Sign in"}
+            </button>
+          </p>
+          <p style={{ fontSize: "0.68rem", color: "var(--ink-5)", textAlign: "center", marginTop: 4 }}>By continuing you agree to use VetroAI responsibly.</p>
+        </div>
+      </div>
+    </div>
+  );
+
   // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen w-screen overflow-hidden font-sans" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
@@ -3832,8 +3984,11 @@ export default function App() {
       {showDesign && <DesignCanvas onClose={() => setShowDesign(false)} />}
 
       {/* LEFT SIDEBAR */}
-      <nav className={`claude-sidebar flex-shrink-0 h-full z-10 hidden md:flex transition-all duration-200 overflow-hidden ${sidebarCollapsed ? "w-0" : "w-[240px]"}`} style={{ backgroundColor: "var(--bg-sidebar)", borderRight: "1px solid rgba(28,25,23,0.04)" }}>
-      <div className="flex flex-col h-full" style={{ width: 240, minWidth: 240, padding: "0 8px" }}>
+      {sidebarMobileOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSidebarMobileOpen(false)} />
+      )}
+      <nav className={`claude-sidebar flex-shrink-0 h-full z-50 transition-all duration-200 overflow-hidden fixed md:relative inset-y-0 left-0 ${sidebarMobileOpen ? "flex w-[240px]" : "hidden"} md:flex ${sidebarCollapsed ? "md:w-0" : "md:w-[240px]"}`} style={{ backgroundColor: "var(--bg-sidebar)", borderRight: "1px solid rgba(28,25,23,0.04)" }}>
+      <div className="flex flex-col h-full" style={{ width: 240, minWidth: 240, padding: "0 8px" }} onClick={(e) => { if (e.target.closest('button') && !e.target.closest('[data-popover-trigger]') && !e.target.closest('.claude-popover')) setSidebarMobileOpen(false); }}>
         {/* Logo + icons row */}
         <div className="px-2 pt-3 pb-2 flex items-center justify-between gap-2">
           <div className="flex items-center cursor-pointer min-w-0 vetro-brand-link" onClick={goToChatsHome}>
@@ -3843,7 +3998,7 @@ export default function App() {
             <button onClick={() => setShowGlobalSearch(true)} title="Search chats" className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 30, height: 30, color: 'var(--ink-3)' }}>
               <Search size={15} />
             </button>
-            <button onClick={() => setSidebarCollapsed(true)} title="Close sidebar" className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 30, height: 30, color: 'var(--ink-3)' }}>
+            <button onClick={() => { setSidebarCollapsed(true); setSidebarMobileOpen(false); }} title="Close sidebar" className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 30, height: 30, color: 'var(--ink-3)' }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
             </button>
           </div>
@@ -3984,6 +4139,9 @@ export default function App() {
         {/* Top Header */}
         <header className="chat-header">
           <div className="ch-left" style={{ position: "relative" }}>
+            <button type="button" onClick={() => setSidebarMobileOpen(true)} title="Open menu" className="claude-sb-item claude-sb-icon-btn flex md:hidden items-center justify-center rounded-md" style={{ marginRight: 4, width: 30, height: 30 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
             {sidebarCollapsed && (
               <button type="button" onClick={() => setSidebarCollapsed(false)} title="Open sidebar" className="claude-sb-item claude-sb-icon-btn hidden md:flex items-center justify-center rounded-md" style={{ marginRight: 4 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
@@ -4063,8 +4221,8 @@ export default function App() {
                 </div>
              ) : (
                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 160 }} ref={feedRef} onScroll={handleScroll}>
-                   <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px 0' }}>
+                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}>
+                   <div style={{ maxWidth: 720, margin: '0 auto', paddingTop: 32 }} className="px-4 sm:px-6">
                    {messages.map((m, i) => (
                      <div key={i} className={`flex w-full mb-6 ${m.role === 'user' ? 'justify-end' : 'justify-start gap-3'}`}>
 
@@ -4117,7 +4275,74 @@ export default function App() {
                        ) : (
                          <div className="flex-1 min-w-0 msg-row">
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
-                             {!m.content && isLoading
+                             {m.isPending && m.isImageGen
+                               ? <MediaGenCard type="image" text={m.content} />
+                               : m.isPending && m.isVideoGen
+                               ? <MediaGenCard type="video" text={m.content} />
+                               : m.isMultiAi
+                               ? (
+                                  <div className="flex flex-col gap-6 w-full py-2">
+                                    <div className="flex gap-6 w-full overflow-x-auto pb-4 hide-scrollbar" style={{ scrollSnapType: 'x mandatory' }}>
+                                      {m.models.map((mod, midx) => (
+                                        <div key={midx} className="flex-1 min-w-[300px] relative overflow-hidden group transition-all duration-300 hover:-translate-y-1" style={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)', backdropFilter: 'blur(16px)', borderRadius: '24px', scrollSnapAlign: 'start' }}>
+                                          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-emerald-500/30 opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                                          <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
+                                            <span className="font-semibold text-[14px] flex items-center gap-2.5 text-slate-200">
+                                              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 border border-white/10 shadow-sm">
+                                                <Bot size={14} className="opacity-80" />
+                                              </div>
+                                              {mod.name}
+                                            </span>
+                                            {mod.status === 'streaming' ? (
+                                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 text-[10px] uppercase font-bold tracking-widest border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                                                Gen
+                                              </span>
+                                            ) : (
+                                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] uppercase font-bold tracking-widest border border-emerald-500/20">
+                                                <Check size={11} /> Done
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="claude-prose text-[14.5px] p-6 pt-5 leading-relaxed" style={{ color: 'var(--ink)' }}>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]} components={{
+                                              code({ inline, className, children }) {
+                                                const codeString = String(children).replace(/\n$/, "");
+                                                const langMatch = /language-(\w+)/.exec(className || "");
+                                                if (inline || !langMatch) return <code className={className}>{children}</code>;
+                                                return <CodeBlock match={langMatch} codeString={codeString} />;
+                                              }
+                                            }}>{mod.content || "..."}</ReactMarkdown>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {m.consensus && (
+                                      <div className="relative overflow-hidden mt-2 transition-all duration-300 hover:shadow-lg" style={{ background: 'linear-gradient(145deg, rgba(139,92,246,0.08) 0%, rgba(139,92,246,0.02) 100%)', border: '1px solid rgba(139,92,246,0.2)', boxShadow: '0 8px 32px rgba(139,92,246,0.05), inset 0 1px 0 rgba(139,92,246,0.1)', backdropFilter: 'blur(16px)', borderRadius: '24px' }}>
+                                        <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b from-purple-500 to-indigo-500"></div>
+                                        <div className="px-7 py-5 flex items-center justify-between border-b border-purple-500/10 bg-purple-500/[0.02]">
+                                          <div className="font-semibold text-[14px] text-purple-300 uppercase tracking-widest flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500/20 border border-purple-500/30 shadow-[0_0_15px_rgba(139,92,246,0.3)]">
+                                              <VetroSparkWhite size={16} />
+                                            </div>
+                                            AI Consensus
+                                          </div>
+                                          {m.consensus === 'generating' && (
+                                            <div className="flex gap-1.5 items-center">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce"></span>
+                                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0.15s' }}></span>
+                                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0.3s' }}></span>
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="claude-prose text-[15px] p-7 pt-5 leading-relaxed" style={{ color: 'var(--ink)' }}>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{m.consensus === 'generating' ? "Analyzing responses and synthesizing the best answer..." : m.consensus}</ReactMarkdown>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                               )
+                               : !m.content && isLoading
                                ? <div style={{ paddingTop: 4, color: "var(--ink-3)" }}>
                                    <div className="flex gap-2 items-center">
                                      <div className="flex gap-1 items-center">
@@ -4133,7 +4358,8 @@ export default function App() {
                                  : isWritingBlock(m.content)
                                    ? <WritingBlockCard content={m.content} />
                                    : <ReactMarkdown
-                                       remarkPlugins={[remarkGfm]}
+                                       remarkPlugins={[remarkGfm, remarkMath]}
+                                       rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
                                        components={{
                                          code({ inline, className, children }) {
                                            const codeString = String(children).replace(/\n$/, "");
@@ -4196,7 +4422,7 @@ export default function App() {
                    <div ref={messagesEndRef} />
                    </div>
                  </div>
-                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '60px 24px 20px', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }}>
+                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="px-4 sm:px-6">
                    <div style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto' }}>
                     {renderInputBox()}
                   </div>

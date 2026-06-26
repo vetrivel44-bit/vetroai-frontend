@@ -59,13 +59,13 @@ export default function UpgradeModal({ onClose, currentPlan = "free" }) {
 
   return (
     <div className="overlay" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal upgrade-modal" style={{ width: 820, maxWidth: '95%', maxHeight: '90vh', padding: 40, background: 'var(--bg)', color: 'var(--ink)', position: 'relative', overflowY: 'auto' }}>
-        <button className="modal-x" onClick={onClose} aria-label="Close" style={{ position: 'absolute', top: 20, right: 20, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)' }}>
+      <div className="modal upgrade-modal" style={{ width: 820, maxWidth: '95vw', maxHeight: '90vh', padding: '32px 20px', background: 'var(--bg)', color: 'var(--ink)', position: 'relative', overflowY: 'auto', boxSizing: 'border-box' }}>
+        <button className="modal-x" onClick={onClose} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', minWidth: 36, minHeight: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <X size={24} />
         </button>
 
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h2 style={{ fontSize: '2rem', fontWeight: 700, margin: '0 0 10px 0' }}>Upgrade your VetroAI Experience</h2>
+        <div style={{ textAlign: 'center', marginBottom: 32, padding: '0 32px' }}>
+          <h2 style={{ fontSize: 'clamp(1.4rem, 5vw, 2rem)', fontWeight: 700, margin: '0 0 10px 0' }}>Upgrade your VetroAI Experience</h2>
           <p style={{ color: 'var(--ink-2)', fontSize: '1.05rem', margin: 0 }}>Choose the plan that fits your productivity needs.</p>
         </div>
 
@@ -95,7 +95,7 @@ export default function UpgradeModal({ onClose, currentPlan = "free" }) {
         )}
 
         {plans && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 20 }}>
             {plans.map((plan) => {
               const Icon = PLAN_ICON[plan.id] || Zap;
               const accent = PLAN_ACCENT[plan.id] || 'var(--ink-3)';

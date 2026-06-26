@@ -35,6 +35,19 @@ const endIcon = new L.Icon({
   iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
 });
 
+const makePhotoIcon = (url) => new L.DivIcon({
+  className: 'photo-pin-icon',
+  html: `
+    <div class="photo-pin">
+      <div class="photo-pin-ring"><img src="${url}" alt="" /></div>
+      <div class="photo-pin-tail"></div>
+    </div>
+  `,
+  iconSize: [52, 64],
+  iconAnchor: [26, 60],
+  popupAnchor: [0, -58],
+});
+
 const ChangeView = ({ center, zoom, bounds }) => {
   const map = useMap();
   useEffect(() => {
@@ -235,9 +248,9 @@ const LocationMap = ({
           <div className="location-icon">
             {isRoute ? <Navigation size={24} /> : <MapPin size={24} />}
           </div>
-          <div className="location-title-group">
+          <div className="location-title-group" style={{ minWidth: 0 }}>
             <span className="location-label">{isRoute ? 'Navigation' : 'Location'}</span>
-            <h3>{isRoute ? `${origin} → ${destination}` : (place || "Map View")}</h3>
+            <h3 style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{isRoute ? `${origin} → ${destination}` : (place || "Map View")}</h3>
           </div>
         </div>
         
@@ -269,7 +282,7 @@ const LocationMap = ({
       )}
 
       <div className="map-wrapper">
-        <div style={{ height: '400px', borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--structured-border)', position: 'relative' }}>
+        <div style={{ height: 'min(400px, 60vh)', minHeight: 220, borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--structured-border)', position: 'relative' }}>
           <MapContainer 
             center={mapData.center} 
             zoom={mapData.zoom} 
@@ -281,32 +294,48 @@ const LocationMap = ({
             {/* Legal Open-Source Tiles (OpenStreetMap & Esri) */}
             {mapType === 'street' ? (
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png"
+                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
                 attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 subdomains="abcd"
                 maxZoom={20}
               />
             ) : (
-              <TileLayer
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-              />
+              <>
+                <TileLayer
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                  attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+                  maxZoom={19}
+                />
+                <TileLayer
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                  maxZoom={19}
+                />
+                <TileLayer
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                  maxZoom={19}
+                />
+              </>
             )}
             
             {mapData.path.length > 1 && (
               <Polyline positions={mapData.path} color="#4285F4" weight={5} opacity={0.7} />
             )}
 
-            {mapData.markers.map((m, i) => (
-              <Marker key={i} position={[m.lat, m.lng]} icon={m.type === 'start' ? startIcon : endIcon}>
-                <Popup><b>{m.label || place}</b></Popup>
-              </Marker>
-            ))}
+            {mapData.markers.map((m, i) => {
+              const icon = isRoute
+                ? (m.type === 'start' ? startIcon : endIcon)
+                : (mapImages[0]?.url ? makePhotoIcon(mapImages[0].url) : endIcon);
+              return (
+                <Marker key={i} position={[m.lat, m.lng]} icon={icon}>
+                  <Popup><b>{m.label || place}</b></Popup>
+                </Marker>
+              );
+            })}
           </MapContainer>
 
           {/* Map Controls */}
           <div style={{
-            position: 'absolute', top: 10, right: 10, zIndex: 1000,
+            position: 'absolute', top: 8, right: 8, zIndex: 1000,
             display: 'flex', gap: 2, padding: 3,
             background: 'rgba(20,20,24,0.75)', backdropFilter: 'blur(8px)',
             border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
@@ -316,7 +345,7 @@ const LocationMap = ({
               className={`map-type-btn ${mapType === 'street' ? 'active' : ''}`}
               onClick={() => setMapType('street')}
               style={{
-                padding: '6px 12px', fontSize: '11px', borderRadius: 6, border: 'none',
+                padding: '8px 12px', minHeight: 36, fontSize: '11px', borderRadius: 6, border: 'none',
                 background: mapType === 'street' ? '#4285F4' : 'transparent',
                 color: mapType === 'street' ? '#fff' : 'rgba(255,255,255,0.65)',
                 cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s ease'
@@ -326,7 +355,7 @@ const LocationMap = ({
               className={`map-type-btn ${mapType === 'satellite' ? 'active' : ''}`}
               onClick={() => setMapType('satellite')}
               style={{
-                padding: '6px 12px', fontSize: '11px', borderRadius: 6, border: 'none',
+                padding: '8px 12px', minHeight: 36, fontSize: '11px', borderRadius: 6, border: 'none',
                 background: mapType === 'satellite' ? '#4285F4' : 'transparent',
                 color: mapType === 'satellite' ? '#fff' : 'rgba(255,255,255,0.65)',
                 cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s ease'

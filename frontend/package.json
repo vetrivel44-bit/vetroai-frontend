@@ -31,6 +31,7 @@
     "katex": "^0.16.33",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.14.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "^19.2.0",
     "react-apexcharts": "^2.1.0",
     "react-chartjs-2": "^5.3.1",

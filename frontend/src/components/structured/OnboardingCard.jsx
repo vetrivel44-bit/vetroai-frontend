@@ -93,11 +93,11 @@ const OnboardingCard = ({ step, question, options = [], onSelect, totalSteps = 4
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#666666', fontSize: '14px' }}>
-              <button style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '2px', color: '#999999' }}><ChevronLeft size={16} /></button>
+              <button style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '8px', minWidth: 32, minHeight: 32, color: '#999999' }}><ChevronLeft size={16} /></button>
               <span>{step} of {totalSteps}</span>
-              <button style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '2px', color: '#999999' }}><ChevronRight size={16} /></button>
+              <button style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '8px', minWidth: 32, minHeight: 32, color: '#999999' }}><ChevronRight size={16} /></button>
             </div>
-            <button style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '2px', color: '#999999' }}><X size={16} /></button>
+            <button style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '8px', minWidth: 32, minHeight: 32, color: '#999999' }}><X size={16} /></button>
           </div>
         </div>
 

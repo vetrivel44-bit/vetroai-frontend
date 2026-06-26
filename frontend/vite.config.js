@@ -10,6 +10,15 @@ export default defineConfig(({ mode }) => {
       port: Number(env.VITE_PORT) || 5173,
       strictPort: true,
       host: true,
+      cors: {
+        origin: '*',
+        methods: '*',
+        headers: '*'
+      },
+      headers: {
+        "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+        "Access-Control-Allow-Origin": "*"
+      },
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:3000',
