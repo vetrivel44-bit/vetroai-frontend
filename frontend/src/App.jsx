@@ -13,7 +13,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -2183,6 +2183,163 @@ const getStatusLabel = (status, mode) => {
   return status;
 };
 
+// ─── NEWS PANEL ──────────────────────────────────────────────────────────────
+const NEWS_API_KEY = "pub_7dd8730c7cc543fa9480cc8f82096134";
+const NEWS_CATEGORIES = ["top", "business", "technology", "sports", "entertainment", "health", "science", "politics"];
+
+function NewsPanel({ onClose }) {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [category, setCategory] = useState("top");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const fetchNews = useCallback(async (cat, query) => {
+    setLoading(true);
+    setError("");
+    try {
+      let url = `https://newsdata.io/api/1/latest?apikey=${NEWS_API_KEY}&language=en`;
+      if (query) {
+        url += `&q=${encodeURIComponent(query)}`;
+      } else if (cat && cat !== "top") {
+        url += `&category=${cat}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
+      setArticles(data.results || []);
+    } catch (e) {
+      setError("Failed to load news. Please try again.");
+      console.error("News fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchNews(category, ""); }, [category, fetchNews]);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) fetchNews("top", searchQuery.trim());
+  };
+
+  const timeAgo = (dateStr) => {
+    if (!dateStr) return "";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    return `${Math.floor(hrs / 24)}d`;
+  };
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
+      <div className="news-panel" onClick={e => e.stopPropagation()}>
+        <div className="news-panel-header">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Newspaper size={20} />
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>News</h2>
+          </div>
+          <button className="modal-x" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <form className="news-search-bar" onSubmit={handleSearch}>
+          <Search size={15} style={{ color: "var(--ink-4)", flexShrink: 0 }} />
+          <input
+            type="text"
+            placeholder="Search news…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="news-search-input"
+          />
+          {searchQuery && (
+            <button type="button" onClick={() => { setSearchQuery(""); fetchNews(category, ""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", display: "flex", padding: 2 }}>
+              <X size={14} />
+            </button>
+          )}
+        </form>
+
+        <div className="news-categories">
+          {NEWS_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              className={`news-cat-btn${category === cat ? " active" : ""}`}
+              onClick={() => { setCategory(cat); setSearchQuery(""); }}
+            >
+              {cat.charAt(0).toUpperCase() + cat.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        <div className="news-feed">
+          {loading ? (
+            <div className="news-loading">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="news-card-skeleton">
+                  <div className="news-skel-img" />
+                  <div className="news-skel-lines">
+                    <div className="news-skel-line w80" />
+                    <div className="news-skel-line w60" />
+                    <div className="news-skel-line w40" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : error ? (
+            <div className="news-error">
+              <p>{error}</p>
+              <button className="btn-primary" onClick={() => fetchNews(category, searchQuery)}>Retry</button>
+            </div>
+          ) : articles.length === 0 ? (
+            <div className="news-empty">
+              <Newspaper size={40} style={{ opacity: 0.3 }} />
+              <p>No articles found</p>
+            </div>
+          ) : (
+            <div className="news-grid">
+              {articles.map((article, i) => (
+                <a
+                  key={article.article_id || i}
+                  href={article.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="news-card"
+                >
+                  {article.image_url && (
+                    <div className="news-card-img">
+                      <img
+                        src={article.image_url}
+                        alt=""
+                        loading="lazy"
+                        onError={e => { e.target.parentElement.style.display = "none"; }}
+                      />
+                    </div>
+                  )}
+                  <div className="news-card-body">
+                    <div className="news-card-meta">
+                      {article.source_icon && (
+                        <img src={article.source_icon} alt="" className="news-source-icon" onError={e => { e.target.style.display = "none"; }} />
+                      )}
+                      <span className="news-source">{article.source_name || article.source_id || "News"}</span>
+                      <span className="news-dot">·</span>
+                      <span className="news-time">{timeAgo(article.pubDate)}</span>
+                    </div>
+                    <h3 className="news-card-title">{article.title}</h3>
+                    {article.description && (
+                      <p className="news-card-desc">{article.description.slice(0, 120)}{article.description.length > 120 ? "…" : ""}</p>
+                    )}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
@@ -2424,6 +2581,7 @@ export default function App() {
   const [showProfile, setShowProfile]       = useState(false);
   const [showSysPrompt, setShowSysPrompt]   = useState(false);
   const [showShare, setShowShare]           = useState(false);
+  const [showNews, setShowNews]             = useState(false);
   const [showCalc, setShowCalc]             = useState(false);
   const [showScratchpad, setShowScratchpad] = useState(false);
   const [showPlayground, setShowPlayground] = useState(false);
@@ -4163,6 +4321,9 @@ export default function App() {
             })()}
           </div>
           <div className="ch-right">
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
+              <Newspaper size={18} />
+            </button>
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
               <Ghost size={18} />
             </button>
@@ -4175,6 +4336,7 @@ export default function App() {
           </div>
         </header>
         {showShare && <ShareModal onClose={() => setShowShare(false)} t={t} messages={messages} />}
+        {showNews && <NewsPanel onClose={() => setShowNews(false)} />}
 
         {/* Incognito banner */}
         {isIncognito && (
