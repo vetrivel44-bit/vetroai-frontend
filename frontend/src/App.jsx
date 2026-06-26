@@ -2340,6 +2340,112 @@ function NewsPanel({ onClose }) {
   );
 }
 
+// ─── LIVE SPORTS SCORES ──────────────────────────────────────────────
+const SPORTS_API_KEY = "090ff94108353371ff5cdcd918e9e321";
+const SPORTS_API_BASE = "https://v3.football.api-sports.io";
+
+const SPORTS_QUERY_RE = /\b(live\s*scor|score|match|football|soccer|premier\s*league|la\s*liga|serie\s*a|bundesliga|champions\s*league|ipl|cricket|nba|basketball|tennis|fifa|epl|ucl|world\s*cup|europa|league|fixture|playing|vs\b|versus)\b/i;
+
+function isSportsQuery(text) {
+  return SPORTS_QUERY_RE.test(text);
+}
+
+async function fetchLiveScores() {
+  try {
+    const res = await fetch(`${SPORTS_API_BASE}/fixtures?live=all`, {
+      headers: { "x-apisports-key": SPORTS_API_KEY }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.response || []).slice(0, 12);
+  } catch { return []; }
+}
+
+async function fetchTodayScores() {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const res = await fetch(`${SPORTS_API_BASE}/fixtures?date=${today}`, {
+      headers: { "x-apisports-key": SPORTS_API_KEY }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.response || []).slice(0, 20);
+  } catch { return []; }
+}
+
+function LiveScoreWidget({ scores, title }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!scores || scores.length === 0) return null;
+  const visible = expanded ? scores : scores.slice(0, 6);
+
+  const getStatusBadge = (fixture) => {
+    const s = fixture.fixture?.status?.short;
+    if (["1H", "2H", "ET", "P", "BT", "LIVE"].includes(s)) return { text: fixture.fixture?.status?.elapsed ? `${fixture.fixture.status.elapsed}'` : "LIVE", cls: "ls-live" };
+    if (s === "HT") return { text: "HT", cls: "ls-ht" };
+    if (s === "FT" || s === "AET" || s === "PEN") return { text: s, cls: "ls-ft" };
+    if (s === "NS") {
+      const t = new Date(fixture.fixture?.date);
+      return { text: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), cls: "ls-ns" };
+    }
+    return { text: s || "—", cls: "ls-other" };
+  };
+
+  return (
+    <div className="ls-widget">
+      <div className="ls-header">
+        <div className="ls-header-left">
+          <span className="ls-header-icon">⚽</span>
+          <span className="ls-header-title">{title || "Live Scores"}</span>
+          <span className="ls-header-count">{scores.length} matches</span>
+        </div>
+        <div className="ls-live-pulse" />
+      </div>
+      <div className="ls-grid">
+        {visible.map((match, idx) => {
+          const home = match.teams?.home;
+          const away = match.teams?.away;
+          const goals = match.goals || {};
+          const league = match.league;
+          const badge = getStatusBadge(match);
+          return (
+            <div key={idx} className="ls-card">
+              <div className="ls-card-league">
+                {league?.logo && <img src={league.logo} alt="" className="ls-league-logo" />}
+                <span>{league?.name || "Unknown"}</span>
+                {league?.country && <span className="ls-league-country">{league.country}</span>}
+              </div>
+              <div className="ls-card-match">
+                <div className="ls-team">
+                  {home?.logo && <img src={home.logo} alt="" className="ls-team-logo" />}
+                  <span className={`ls-team-name ${home?.winner ? "ls-winner" : ""}`}>{home?.name || "TBD"}</span>
+                </div>
+                <div className="ls-score-box">
+                  <span className={`ls-badge ${badge.cls}`}>{badge.text}</span>
+                  <div className="ls-score-nums">
+                    <span className={home?.winner ? "ls-winner" : ""}>{goals.home ?? "–"}</span>
+                    <span className="ls-score-sep">:</span>
+                    <span className={away?.winner ? "ls-winner" : ""}>{goals.away ?? "–"}</span>
+                  </div>
+                </div>
+                <div className="ls-team ls-team-away">
+                  <span className={`ls-team-name ${away?.winner ? "ls-winner" : ""}`}>{away?.name || "TBD"}</span>
+                  {away?.logo && <img src={away.logo} alt="" className="ls-team-logo" />}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {scores.length > 6 && (
+        <button className="ls-show-more" onClick={() => setExpanded(e => !e)}>
+          {expanded ? "Show less" : `Show all ${scores.length} matches`}
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════════════
@@ -3448,7 +3554,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
+    const sportsDetected = isSportsQuery(userQuery);
+    const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
     if (ytContext) {
@@ -3461,6 +3568,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       await handleMultiAI(hist, fd, userQuery, isFirstMsg, ctrl, isActive, reqId);
       return;
     }
+    const sportsPromise = sportsDetected ? fetchLiveScores().then(live => live.length > 0 ? live : fetchTodayScores()) : Promise.resolve(null);
 
     const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const emptyAssistantMsg = {
@@ -3469,6 +3577,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       timestamp: ts,
       provider: selectedProvider,
       ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
+      liveScores: null,
     };
     setMessages([...hist, emptyAssistantMsg]);
 
@@ -3520,6 +3629,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       setStreamingContent("");
 
       if (!isActive()) return;
+
+      const sportsData = await sportsPromise;
+      if (sportsData && sportsData.length > 0) {
+        setMessages(prev => {
+          const u = [...prev];
+          u[u.length - 1] = { ...u[u.length - 1], liveScores: sportsData };
+          return u;
+        });
+      }
 
       if (!bot || !bot.trim()) {
         setMessages(prev => {
@@ -4491,6 +4609,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        /* ── NORMAL AI MESSAGE ── */
                        ) : (
                          <div className="flex-1 min-w-0 msg-row">
+                           {m.liveScores && m.liveScores.length > 0 && (
+                             <LiveScoreWidget scores={m.liveScores} title="Live Scores" />
+                           )}
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.isPending && m.isImageGen
                                ? <MediaGenCard type="image" text={m.content} />
