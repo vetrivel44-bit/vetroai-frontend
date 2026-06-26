@@ -2345,23 +2345,27 @@ const SPORTS_API_KEY = "090ff94108353371ff5cdcd918e9e321";
 const SPORTS_API_BASE = "https://v3.football.api-sports.io";
 
 const SPORTS_QUERY_RE = /\b(live\s*scor|score|match|football|soccer|premier\s*league|la\s*liga|serie\s*a|bundesliga|champions\s*league|ipl|cricket|nba|basketball|tennis|fifa|epl|ucl|world\s*cup|europa|league|fixture|playing|vs\b|versus)\b/i;
+const CRICKET_QUERY_RE = /\b(cricket|ipl|odi|t20|test\s*match|bcci|bpl|psl|big\s*bash|ashes|cwc|wtc|rcb|csk|mi\b|kkr|srh|dc\b|pbks|gt\b|lsg|rr\b|innings|wicket|batsman|bowler|batting|bowling)\b/i;
 
 function isSportsQuery(text) {
   return SPORTS_QUERY_RE.test(text);
 }
+function isCricketQuery(text) {
+  return CRICKET_QUERY_RE.test(text);
+}
 
-async function fetchLiveScores() {
+async function fetchLiveFootball() {
   try {
     const res = await fetch(`${SPORTS_API_BASE}/fixtures?live=all`, {
       headers: { "x-apisports-key": SPORTS_API_KEY }
     });
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.response || []).slice(0, 12);
+    return (data.response || []).slice(0, 8).map(m => ({ ...m, _sport: "football" }));
   } catch { return []; }
 }
 
-async function fetchTodayScores() {
+async function fetchTodayFootball() {
   try {
     const today = new Date().toISOString().split("T")[0];
     const res = await fetch(`${SPORTS_API_BASE}/fixtures?date=${today}`, {
@@ -2369,19 +2373,81 @@ async function fetchTodayScores() {
     });
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.response || []).slice(0, 20);
+    return (data.response || []).slice(0, 12).map(m => ({ ...m, _sport: "football" }));
   } catch { return []; }
 }
 
-function LiveScoreWidget({ scores, title }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!scores || scores.length === 0) return null;
-  const visible = expanded ? scores : scores.slice(0, 4);
+async function fetchLiveCricket(apiBase) {
+  try {
+    const res = await fetch(`${apiBase}/cricket/live`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const matches = data.data?.matches || [];
+    return matches.map(m => ({ ...m, _sport: "cricket" }));
+  } catch { return []; }
+}
 
-  const getStatus = (fixture) => {
-    const s = fixture.fixture?.status?.short;
-    const long = fixture.fixture?.status?.long;
-    const elapsed = fixture.fixture?.status?.elapsed;
+async function fetchAllLiveScores(apiBase, query) {
+  const wantsCricket = isCricketQuery(query);
+  const wantsFootball = !wantsCricket || isSportsQuery(query);
+
+  const promises = [];
+  if (wantsCricket) promises.push(fetchLiveCricket(apiBase));
+  if (wantsFootball) promises.push(fetchLiveFootball().then(live => live.length > 0 ? live : fetchTodayFootball()));
+
+  const results = await Promise.all(promises);
+  return results.flat();
+}
+
+function CricketCard({ match }) {
+  const t1 = match.team1 || {};
+  const t2 = match.team2 || {};
+  const statusText = match.status || "";
+  const isLive = statusText.toLowerCase().includes("live") || statusText.includes("need") || statusText.includes("require") || (t1.overs && !statusText.toLowerCase().includes("won") && !statusText.toLowerCase().includes("drawn"));
+  return (
+    <div className={`ls-card ${isLive ? "ls-card-live" : ""}`}>
+      <div className="ls-card-header">
+        <div className="ls-league-row">
+          <span className="ls-sport-icon">🏏</span>
+          <span className="ls-league-name">{match.series || match.title || "Cricket"}</span>
+          {match.format && <span className="ls-format-tag">{match.format}</span>}
+          {isLive && <span className="ls-live-badge">LIVE</span>}
+        </div>
+        {match.venue && <div className="ls-venue">{match.venue}</div>}
+      </div>
+      <div className="ls-divider" />
+      <div className="ls-cricket-body">
+        <div className="ls-cricket-team">
+          <div className="ls-cricket-team-name">{t1.name || t1.shortName || "Team 1"}</div>
+          <div className="ls-cricket-score">
+            {t1.scoreRaw || (t1.score != null ? `${t1.score}${t1.wickets != null ? "/" + t1.wickets : ""}` : "—")}
+            {t1.overs && <span className="ls-cricket-overs">({t1.overs})</span>}
+          </div>
+        </div>
+        <div className="ls-cricket-team">
+          <div className="ls-cricket-team-name">{t2.name || t2.shortName || "Team 2"}</div>
+          <div className="ls-cricket-score">
+            {t2.scoreRaw || (t2.score != null ? `${t2.score}${t2.wickets != null ? "/" + t2.wickets : ""}` : "—")}
+            {t2.overs && <span className="ls-cricket-overs">({t2.overs})</span>}
+          </div>
+        </div>
+      </div>
+      {statusText && <div className="ls-result">{statusText}</div>}
+    </div>
+  );
+}
+
+function FootballCard({ match }) {
+  const home = match.teams?.home;
+  const away = match.teams?.away;
+  const goals = match.goals || {};
+  const league = match.league;
+  const venue = match.fixture?.venue;
+
+  const getStatus = () => {
+    const s = match.fixture?.status?.short;
+    const long = match.fixture?.status?.long;
+    const elapsed = match.fixture?.status?.elapsed;
     const isLive = ["1H", "2H", "ET", "P", "BT", "LIVE"].includes(s);
     if (isLive) return { label: elapsed ? `${elapsed}'` : "LIVE", sub: long || "In Play", cls: "ls-live", live: true };
     if (s === "HT") return { label: "HT", sub: "Half Time", cls: "ls-ht", live: true };
@@ -2389,88 +2455,75 @@ function LiveScoreWidget({ scores, title }) {
     if (s === "AET") return { label: "AET", sub: "After Extra Time", cls: "ls-ft", live: false };
     if (s === "PEN") return { label: "PEN", sub: "Penalties", cls: "ls-ft", live: false };
     if (s === "NS") {
-      const t = new Date(fixture.fixture?.date);
+      const t = new Date(match.fixture?.date);
       return { label: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), sub: "Kick Off", cls: "ls-ns", live: false };
     }
     return { label: s || "—", sub: long || "", cls: "ls-other", live: false };
   };
 
-  const getResult = (match) => {
+  const status = getStatus();
+  const result = (() => {
     const s = match.fixture?.status?.short;
-    const home = match.teams?.home;
-    const away = match.teams?.away;
-    const gh = match.goals?.home;
-    const ga = match.goals?.away;
     if (!["FT","AET","PEN"].includes(s)) return null;
     if (home?.winner) return `${home.name} won`;
     if (away?.winner) return `${away.name} won`;
-    if (gh === ga) return "Match drawn";
-    return null;
-  };
+    return "Match drawn";
+  })();
 
-  const liveCount = scores.filter(m => {
-    const s = m.fixture?.status?.short;
-    return ["1H","2H","ET","P","BT","LIVE","HT"].includes(s);
-  }).length;
+  return (
+    <div className={`ls-card ${status.live ? "ls-card-live" : ""}`}>
+      <div className="ls-card-header">
+        <div className="ls-league-row">
+          {league?.logo && <img src={league.logo} alt="" className="ls-league-logo" />}
+          <span className="ls-league-name">{league?.name || "League"}</span>
+          {status.live && <span className="ls-live-badge">LIVE</span>}
+        </div>
+        {venue?.name && <div className="ls-venue">{venue.name}{venue.city ? ` · ${venue.city}` : ""}</div>}
+      </div>
+      <div className="ls-divider" />
+      <div className="ls-match-row">
+        <div className="ls-team-side">
+          <div className="ls-team-crest">
+            {home?.logo ? <img src={home.logo} alt="" /> : <span>H</span>}
+          </div>
+          <div className={`ls-team-label ${home?.winner ? "ls-bold" : ""}`}>{home?.name || "TBD"}</div>
+        </div>
+        <div className="ls-score-block">
+          <div className="ls-score-big">
+            <span className={home?.winner ? "ls-bold" : ""}>{goals.home ?? "–"}</span>
+          </div>
+          <div className="ls-status-center">
+            <span className={`ls-status-badge ${status.cls}`}>{status.label}</span>
+            <span className="ls-status-sub">{status.sub}</span>
+          </div>
+          <div className="ls-score-big">
+            <span className={away?.winner ? "ls-bold" : ""}>{goals.away ?? "–"}</span>
+          </div>
+        </div>
+        <div className="ls-team-side ls-team-right">
+          <div className="ls-team-crest">
+            {away?.logo ? <img src={away.logo} alt="" /> : <span>A</span>}
+          </div>
+          <div className={`ls-team-label ${away?.winner ? "ls-bold" : ""}`}>{away?.name || "TBD"}</div>
+        </div>
+      </div>
+      {result && <div className="ls-result">{result}</div>}
+    </div>
+  );
+}
+
+function LiveScoreWidget({ scores }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!scores || scores.length === 0) return null;
+  const visible = expanded ? scores : scores.slice(0, 4);
 
   return (
     <div className="ls-widget">
-      {visible.map((match, idx) => {
-        const home = match.teams?.home;
-        const away = match.teams?.away;
-        const goals = match.goals || {};
-        const league = match.league;
-        const venue = match.fixture?.venue;
-        const status = getStatus(match);
-        const result = getResult(match);
-        return (
-          <div key={idx} className={`ls-card ${status.live ? "ls-card-live" : ""}`}>
-            <div className="ls-card-header">
-              <div className="ls-league-row">
-                {league?.logo && <img src={league.logo} alt="" className="ls-league-logo" />}
-                <span className="ls-league-name">{league?.name || "League"}</span>
-                {status.live && <span className="ls-live-badge">LIVE</span>}
-              </div>
-              {venue?.name && (
-                <div className="ls-venue">{venue.name}{venue.city ? ` · ${venue.city}` : ""}</div>
-              )}
-            </div>
-
-            <div className="ls-divider" />
-
-            <div className="ls-match-row">
-              <div className="ls-team-side">
-                <div className="ls-team-crest">
-                  {home?.logo ? <img src={home.logo} alt="" /> : <span>H</span>}
-                </div>
-                <div className={`ls-team-label ${home?.winner ? "ls-bold" : ""}`}>{home?.name || "TBD"}</div>
-              </div>
-
-              <div className="ls-score-block">
-                <div className="ls-score-big">
-                  <span className={home?.winner ? "ls-bold" : ""}>{goals.home ?? "–"}</span>
-                </div>
-                <div className="ls-status-center">
-                  <span className={`ls-status-badge ${status.cls}`}>{status.label}</span>
-                  <span className="ls-status-sub">{status.sub}</span>
-                </div>
-                <div className="ls-score-big">
-                  <span className={away?.winner ? "ls-bold" : ""}>{goals.away ?? "–"}</span>
-                </div>
-              </div>
-
-              <div className="ls-team-side ls-team-right">
-                <div className="ls-team-crest">
-                  {away?.logo ? <img src={away.logo} alt="" /> : <span>A</span>}
-                </div>
-                <div className={`ls-team-label ${away?.winner ? "ls-bold" : ""}`}>{away?.name || "TBD"}</div>
-              </div>
-            </div>
-
-            {result && <div className="ls-result">{result}</div>}
-          </div>
-        );
-      })}
+      {visible.map((match, idx) =>
+        match._sport === "cricket"
+          ? <CricketCard key={`c-${idx}`} match={match} />
+          : <FootballCard key={`f-${idx}`} match={match} />
+      )}
       {scores.length > 4 && (
         <button className="ls-show-more" onClick={() => setExpanded(e => !e)}>
           {expanded ? "Show less" : `View all ${scores.length} matches`}
@@ -3603,7 +3656,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       await handleMultiAI(hist, fd, userQuery, isFirstMsg, ctrl, isActive, reqId);
       return;
     }
-    const sportsPromise = sportsDetected ? fetchLiveScores().then(live => live.length > 0 ? live : fetchTodayScores()) : Promise.resolve(null);
+    const sportsPromise = sportsDetected ? fetchAllLiveScores(API, userQuery) : Promise.resolve(null);
 
     const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const emptyAssistantMsg = {

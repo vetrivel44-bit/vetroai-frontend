@@ -11332,6 +11332,59 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
+/* Sport icon + format tag */
+.ls-sport-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.ls-format-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(59,130,246,0.1);
+  color: #3b82f6;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* ── Cricket card body ─────────────────────────────────── */
+.ls-cricket-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 0;
+}
+.ls-cricket-team {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ls-cricket-team-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+}
+.ls-cricket-score {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ls-cricket-overs {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
 @media (max-width: 640px) {
   .ls-card {
     padding: 18px 16px;
@@ -11345,5 +11398,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   .ls-score-big { font-size: 28px; }
   .ls-score-block { gap: 10px; }
   .ls-team-label { font-size: 12px; max-width: 100px; }
+  .ls-cricket-score { font-size: 22px; }
+  .ls-cricket-team-name { font-size: 13px; }
 }
 
