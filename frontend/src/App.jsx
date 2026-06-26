@@ -2380,25 +2380,35 @@ function LiveScoreWidget({ scores, title }) {
 
   const getStatusBadge = (fixture) => {
     const s = fixture.fixture?.status?.short;
-    if (["1H", "2H", "ET", "P", "BT", "LIVE"].includes(s)) return { text: fixture.fixture?.status?.elapsed ? `${fixture.fixture.status.elapsed}'` : "LIVE", cls: "ls-live" };
-    if (s === "HT") return { text: "HT", cls: "ls-ht" };
-    if (s === "FT" || s === "AET" || s === "PEN") return { text: s, cls: "ls-ft" };
+    const isLive = ["1H", "2H", "ET", "P", "BT", "LIVE"].includes(s);
+    if (isLive) return { text: fixture.fixture?.status?.elapsed ? `${fixture.fixture.status.elapsed}'` : "LIVE", cls: "ls-live", live: true };
+    if (s === "HT") return { text: "HALF TIME", cls: "ls-ht", live: true };
+    if (s === "FT" || s === "AET" || s === "PEN") return { text: s === "FT" ? "FULL TIME" : s, cls: "ls-ft", live: false };
     if (s === "NS") {
       const t = new Date(fixture.fixture?.date);
-      return { text: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), cls: "ls-ns" };
+      return { text: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), cls: "ls-ns", live: false };
     }
-    return { text: s || "—", cls: "ls-other" };
+    return { text: s || "—", cls: "ls-other", live: false };
   };
+
+  const liveCount = scores.filter(m => {
+    const s = m.fixture?.status?.short;
+    return ["1H","2H","ET","P","BT","LIVE","HT"].includes(s);
+  }).length;
 
   return (
     <div className="ls-widget">
       <div className="ls-header">
         <div className="ls-header-left">
-          <span className="ls-header-icon">⚽</span>
-          <span className="ls-header-title">{title || "Live Scores"}</span>
-          <span className="ls-header-count">{scores.length} matches</span>
+          <div className="ls-header-icon-wrap">
+            <span className="ls-header-icon">⚽</span>
+          </div>
+          <div className="ls-header-text">
+            <span className="ls-header-title">{title || "Live Scores"}</span>
+            <span className="ls-header-sub">{scores.length} matches{liveCount > 0 ? ` · ${liveCount} live now` : ""}</span>
+          </div>
         </div>
-        <div className="ls-live-pulse" />
+        {liveCount > 0 && <div className="ls-live-dot"><span /></div>}
       </div>
       <div className="ls-grid">
         {visible.map((match, idx) => {
@@ -2408,28 +2418,31 @@ function LiveScoreWidget({ scores, title }) {
           const league = match.league;
           const badge = getStatusBadge(match);
           return (
-            <div key={idx} className="ls-card">
-              <div className="ls-card-league">
+            <div key={idx} className={`ls-card ${badge.live ? "ls-card-live" : ""}`}>
+              <div className="ls-card-top">
                 {league?.logo && <img src={league.logo} alt="" className="ls-league-logo" />}
-                <span>{league?.name || "Unknown"}</span>
-                {league?.country && <span className="ls-league-country">{league.country}</span>}
+                <span className="ls-league-name">{league?.name || "League"}</span>
+                <span className={`ls-status ${badge.cls}`}>{badge.text}</span>
               </div>
-              <div className="ls-card-match">
-                <div className="ls-team">
-                  {home?.logo && <img src={home.logo} alt="" className="ls-team-logo" />}
+              <div className="ls-card-body">
+                <div className="ls-team-col">
+                  <div className="ls-team-logo-wrap">
+                    {home?.logo ? <img src={home.logo} alt="" className="ls-team-logo" /> : <span className="ls-team-placeholder">H</span>}
+                  </div>
                   <span className={`ls-team-name ${home?.winner ? "ls-winner" : ""}`}>{home?.name || "TBD"}</span>
                 </div>
-                <div className="ls-score-box">
-                  <span className={`ls-badge ${badge.cls}`}>{badge.text}</span>
+                <div className="ls-score-center">
                   <div className="ls-score-nums">
                     <span className={home?.winner ? "ls-winner" : ""}>{goals.home ?? "–"}</span>
-                    <span className="ls-score-sep">:</span>
+                    <span className="ls-score-dash">-</span>
                     <span className={away?.winner ? "ls-winner" : ""}>{goals.away ?? "–"}</span>
                   </div>
                 </div>
-                <div className="ls-team ls-team-away">
+                <div className="ls-team-col ls-team-col-away">
+                  <div className="ls-team-logo-wrap">
+                    {away?.logo ? <img src={away.logo} alt="" className="ls-team-logo" /> : <span className="ls-team-placeholder">A</span>}
+                  </div>
                   <span className={`ls-team-name ${away?.winner ? "ls-winner" : ""}`}>{away?.name || "TBD"}</span>
-                  {away?.logo && <img src={away.logo} alt="" className="ls-team-logo" />}
                 </div>
               </div>
             </div>
