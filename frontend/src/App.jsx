@@ -2376,19 +2376,36 @@ async function fetchTodayScores() {
 function LiveScoreWidget({ scores, title }) {
   const [expanded, setExpanded] = useState(false);
   if (!scores || scores.length === 0) return null;
-  const visible = expanded ? scores : scores.slice(0, 6);
+  const visible = expanded ? scores : scores.slice(0, 4);
 
-  const getStatusBadge = (fixture) => {
+  const getStatus = (fixture) => {
     const s = fixture.fixture?.status?.short;
+    const long = fixture.fixture?.status?.long;
+    const elapsed = fixture.fixture?.status?.elapsed;
     const isLive = ["1H", "2H", "ET", "P", "BT", "LIVE"].includes(s);
-    if (isLive) return { text: fixture.fixture?.status?.elapsed ? `${fixture.fixture.status.elapsed}'` : "LIVE", cls: "ls-live", live: true };
-    if (s === "HT") return { text: "HALF TIME", cls: "ls-ht", live: true };
-    if (s === "FT" || s === "AET" || s === "PEN") return { text: s === "FT" ? "FULL TIME" : s, cls: "ls-ft", live: false };
+    if (isLive) return { label: elapsed ? `${elapsed}'` : "LIVE", sub: long || "In Play", cls: "ls-live", live: true };
+    if (s === "HT") return { label: "HT", sub: "Half Time", cls: "ls-ht", live: true };
+    if (s === "FT") return { label: "FT", sub: "Full Time", cls: "ls-ft", live: false };
+    if (s === "AET") return { label: "AET", sub: "After Extra Time", cls: "ls-ft", live: false };
+    if (s === "PEN") return { label: "PEN", sub: "Penalties", cls: "ls-ft", live: false };
     if (s === "NS") {
       const t = new Date(fixture.fixture?.date);
-      return { text: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), cls: "ls-ns", live: false };
+      return { label: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), sub: "Kick Off", cls: "ls-ns", live: false };
     }
-    return { text: s || "—", cls: "ls-other", live: false };
+    return { label: s || "—", sub: long || "", cls: "ls-other", live: false };
+  };
+
+  const getResult = (match) => {
+    const s = match.fixture?.status?.short;
+    const home = match.teams?.home;
+    const away = match.teams?.away;
+    const gh = match.goals?.home;
+    const ga = match.goals?.away;
+    if (!["FT","AET","PEN"].includes(s)) return null;
+    if (home?.winner) return `${home.name} won`;
+    if (away?.winner) return `${away.name} won`;
+    if (gh === ga) return "Match drawn";
+    return null;
   };
 
   const liveCount = scores.filter(m => {
@@ -2398,60 +2415,65 @@ function LiveScoreWidget({ scores, title }) {
 
   return (
     <div className="ls-widget">
-      <div className="ls-header">
-        <div className="ls-header-left">
-          <div className="ls-header-icon-wrap">
-            <span className="ls-header-icon">⚽</span>
-          </div>
-          <div className="ls-header-text">
-            <span className="ls-header-title">{title || "Live Scores"}</span>
-            <span className="ls-header-sub">{scores.length} matches{liveCount > 0 ? ` · ${liveCount} live now` : ""}</span>
-          </div>
-        </div>
-        {liveCount > 0 && <div className="ls-live-dot"><span /></div>}
-      </div>
-      <div className="ls-grid">
-        {visible.map((match, idx) => {
-          const home = match.teams?.home;
-          const away = match.teams?.away;
-          const goals = match.goals || {};
-          const league = match.league;
-          const badge = getStatusBadge(match);
-          return (
-            <div key={idx} className={`ls-card ${badge.live ? "ls-card-live" : ""}`}>
-              <div className="ls-card-top">
+      {visible.map((match, idx) => {
+        const home = match.teams?.home;
+        const away = match.teams?.away;
+        const goals = match.goals || {};
+        const league = match.league;
+        const venue = match.fixture?.venue;
+        const status = getStatus(match);
+        const result = getResult(match);
+        return (
+          <div key={idx} className={`ls-card ${status.live ? "ls-card-live" : ""}`}>
+            <div className="ls-card-header">
+              <div className="ls-league-row">
                 {league?.logo && <img src={league.logo} alt="" className="ls-league-logo" />}
                 <span className="ls-league-name">{league?.name || "League"}</span>
-                <span className={`ls-status ${badge.cls}`}>{badge.text}</span>
+                {status.live && <span className="ls-live-badge">LIVE</span>}
               </div>
-              <div className="ls-card-body">
-                <div className="ls-team-col">
-                  <div className="ls-team-logo-wrap">
-                    {home?.logo ? <img src={home.logo} alt="" className="ls-team-logo" /> : <span className="ls-team-placeholder">H</span>}
-                  </div>
-                  <span className={`ls-team-name ${home?.winner ? "ls-winner" : ""}`}>{home?.name || "TBD"}</span>
+              {venue?.name && (
+                <div className="ls-venue">{venue.name}{venue.city ? ` · ${venue.city}` : ""}</div>
+              )}
+            </div>
+
+            <div className="ls-divider" />
+
+            <div className="ls-match-row">
+              <div className="ls-team-side">
+                <div className="ls-team-crest">
+                  {home?.logo ? <img src={home.logo} alt="" /> : <span>H</span>}
                 </div>
-                <div className="ls-score-center">
-                  <div className="ls-score-nums">
-                    <span className={home?.winner ? "ls-winner" : ""}>{goals.home ?? "–"}</span>
-                    <span className="ls-score-dash">-</span>
-                    <span className={away?.winner ? "ls-winner" : ""}>{goals.away ?? "–"}</span>
-                  </div>
+                <div className={`ls-team-label ${home?.winner ? "ls-bold" : ""}`}>{home?.name || "TBD"}</div>
+              </div>
+
+              <div className="ls-score-block">
+                <div className="ls-score-big">
+                  <span className={home?.winner ? "ls-bold" : ""}>{goals.home ?? "–"}</span>
                 </div>
-                <div className="ls-team-col ls-team-col-away">
-                  <div className="ls-team-logo-wrap">
-                    {away?.logo ? <img src={away.logo} alt="" className="ls-team-logo" /> : <span className="ls-team-placeholder">A</span>}
-                  </div>
-                  <span className={`ls-team-name ${away?.winner ? "ls-winner" : ""}`}>{away?.name || "TBD"}</span>
+                <div className="ls-status-center">
+                  <span className={`ls-status-badge ${status.cls}`}>{status.label}</span>
+                  <span className="ls-status-sub">{status.sub}</span>
                 </div>
+                <div className="ls-score-big">
+                  <span className={away?.winner ? "ls-bold" : ""}>{goals.away ?? "–"}</span>
+                </div>
+              </div>
+
+              <div className="ls-team-side ls-team-right">
+                <div className="ls-team-crest">
+                  {away?.logo ? <img src={away.logo} alt="" /> : <span>A</span>}
+                </div>
+                <div className={`ls-team-label ${away?.winner ? "ls-bold" : ""}`}>{away?.name || "TBD"}</div>
               </div>
             </div>
-          );
-        })}
-      </div>
-      {scores.length > 6 && (
+
+            {result && <div className="ls-result">{result}</div>}
+          </div>
+        );
+      })}
+      {scores.length > 4 && (
         <button className="ls-show-more" onClick={() => setExpanded(e => !e)}>
-          {expanded ? "Show less" : `Show all ${scores.length} matches`}
+          {expanded ? "Show less" : `View all ${scores.length} matches`}
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
       )}
