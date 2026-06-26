@@ -1750,7 +1750,7 @@ function DesignCanvas({ onClose }) {
               </SyntaxHighlighter>
             ) : (
               <div className={`design-frame-wrap viewport-${viewport}`}>
-                <iframe title="design-preview" srcDoc={lastDesign.html} sandbox="allow-scripts" className="design-frame" />
+                <iframe title="design-preview" srcDoc={lastDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />
               </div>
             )}
           </div>
