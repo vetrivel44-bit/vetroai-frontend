@@ -941,32 +941,226 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
   );
 }
 
+const CUSTOMIZE_DEFAULTS = {
+  userName: "",
+  profession: "",
+  aboutMe: "",
+  responseTone: "balanced",
+  responseLength: "medium",
+  responseFormat: "auto",
+  codeStyle: "commented",
+  enableMemory: true,
+  customInstructions: "",
+};
+
+const TONE_OPTIONS = [
+  { value: "professional", label: "Professional", icon: "💼" },
+  { value: "friendly", label: "Friendly", icon: "😊" },
+  { value: "balanced", label: "Balanced", icon: "⚖️" },
+  { value: "concise", label: "Concise", icon: "🎯" },
+  { value: "detailed", label: "Detailed", icon: "📚" },
+];
+
+const LENGTH_OPTIONS = [
+  { value: "short", label: "Short", desc: "Brief, to the point" },
+  { value: "medium", label: "Medium", desc: "Good balance" },
+  { value: "long", label: "Long", desc: "Thorough & detailed" },
+];
+
+const FORMAT_OPTIONS = [
+  { value: "auto", label: "Auto", desc: "AI decides best format" },
+  { value: "markdown", label: "Markdown", desc: "Headers, lists, bold" },
+  { value: "plain", label: "Plain text", desc: "No formatting" },
+  { value: "structured", label: "Structured", desc: "Tables & sections" },
+];
+
+const CODE_STYLE_OPTIONS = [
+  { value: "commented", label: "Commented", desc: "With explanations" },
+  { value: "minimal", label: "Minimal", desc: "Code only, no fluff" },
+  { value: "verbose", label: "Verbose", desc: "Step-by-step breakdown" },
+];
+
+function buildSystemPromptFromCustomize(cfg) {
+  const parts = [];
+  if (cfg.userName) parts.push(`The user's name is ${cfg.userName}.`);
+  if (cfg.profession) parts.push(`They are a ${cfg.profession}.`);
+  if (cfg.aboutMe) parts.push(`About them: ${cfg.aboutMe}`);
+
+  const toneMap = { professional: "Use a professional, formal tone.", friendly: "Be warm, friendly, and approachable.", balanced: "", concise: "Be extremely concise — no filler.", detailed: "Be thorough and provide detailed explanations." };
+  if (toneMap[cfg.responseTone]) parts.push(toneMap[cfg.responseTone]);
+
+  const lengthMap = { short: "Keep responses short (2-3 sentences when possible).", medium: "", long: "Provide comprehensive, thorough responses." };
+  if (lengthMap[cfg.responseLength]) parts.push(lengthMap[cfg.responseLength]);
+
+  const fmtMap = { auto: "", markdown: "Format responses using markdown (headers, bold, lists).", plain: "Use plain text only, no markdown formatting.", structured: "Use structured formatting with tables, sections, and clear organization." };
+  if (fmtMap[cfg.responseFormat]) parts.push(fmtMap[cfg.responseFormat]);
+
+  const codeMap = { commented: "When writing code, include helpful comments.", minimal: "When writing code, be minimal — just the code, no extra comments.", verbose: "When writing code, explain each step in detail." };
+  if (codeMap[cfg.codeStyle]) parts.push(codeMap[cfg.codeStyle]);
+
+  if (cfg.customInstructions) parts.push(cfg.customInstructions);
+
+  return parts.filter(Boolean).join(" ");
+}
+
 function SysPromptModal({ onClose, t, value, setValue }) {
-  const [draft, setDraft] = useState(value);
+  const [tab, setTab] = useState("personal");
+  const [cfg, setCfg] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vetroai_customize");
+      return saved ? { ...CUSTOMIZE_DEFAULTS, ...JSON.parse(saved) } : { ...CUSTOMIZE_DEFAULTS, customInstructions: value };
+    } catch { return { ...CUSTOMIZE_DEFAULTS, customInstructions: value }; }
+  });
+
+  const update = (key, val) => setCfg(prev => ({ ...prev, [key]: val }));
+
+  const handleSave = () => {
+    localStorage.setItem("vetroai_customize", JSON.stringify(cfg));
+    setValue(buildSystemPromptFromCustomize(cfg));
+    onClose();
+  };
+
+  const handleReset = () => {
+    setCfg({ ...CUSTOMIZE_DEFAULTS });
+    localStorage.removeItem("vetroai_customize");
+    setValue("");
+    onClose();
+  };
+
+  const tabs = [
+    { id: "personal", label: "About You", icon: <User size={15} /> },
+    { id: "response", label: "Response Style", icon: <Palette size={15} /> },
+    { id: "advanced", label: "Advanced", icon: <SlidersHorizontal size={15} /> },
+  ];
+
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal cust-modal">
         <div className="modal-topbar">
-          <h3 className="modal-title"><BotIcon />{t.systemPrompt}</h3>
+          <h3 className="modal-title"><SlidersHorizontal size={18} />Customize VetroAI</h3>
           <button className="modal-x" onClick={onClose}><XIcon /></button>
         </div>
-        <div className="modal-body">
-          <div className="field-group">
-            <label className="field-label">{t.presets}</label>
-            <div className="preset-list">
-              {SYSTEM_PRESETS.map((p, i) => (
-                <button key={i} className={`preset-item${draft === p ? " sel" : ""}`} onClick={() => setDraft(p)}>{p}</button>
-              ))}
-            </div>
-          </div>
-          <div className="field-group">
-            <label className="field-label">{t.systemPromptLabel}</label>
-            <textarea className="field-textarea" placeholder={t.systemPromptHolder} value={draft} onChange={e => setDraft(e.target.value)} />
-          </div>
-          <div className="modal-footer">
-            <button className="btn-ghost" onClick={() => { setValue(""); onClose(); }}>{t.clearPrompt}</button>
-            <button className="btn-primary" onClick={() => { setValue(draft); onClose(); }}>{t.save}</button>
-          </div>
+
+        <div className="cust-tabs">
+          {tabs.map(tb => (
+            <button key={tb.id} className={`cust-tab ${tab === tb.id ? "cust-tab-active" : ""}`} onClick={() => setTab(tb.id)}>
+              {tb.icon}<span>{tb.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="modal-body cust-body">
+          {tab === "personal" && (
+            <>
+              <div className="cust-section">
+                <div className="cust-section-title">Personal Information</div>
+                <p className="cust-section-desc">Help VetroAI personalize responses for you</p>
+              </div>
+              <div className="field-group">
+                <label className="field-label">Your Name</label>
+                <input className="cust-input" placeholder="e.g. Vetri" value={cfg.userName} onChange={e => update("userName", e.target.value)} />
+              </div>
+              <div className="field-group">
+                <label className="field-label">What do you do?</label>
+                <input className="cust-input" placeholder="e.g. Software Engineer, Student, Designer" value={cfg.profession} onChange={e => update("profession", e.target.value)} />
+              </div>
+              <div className="field-group">
+                <label className="field-label">About You <span className="cust-optional">(optional)</span></label>
+                <textarea className="cust-textarea" placeholder="What should VetroAI know about you? Your interests, goals, what kind of help you usually need…" value={cfg.aboutMe} onChange={e => update("aboutMe", e.target.value)} />
+              </div>
+              <div className="field-group">
+                <label className="field-label">Custom Instructions</label>
+                <textarea className="cust-textarea" placeholder="Any specific instructions for how VetroAI should respond…" value={cfg.customInstructions} onChange={e => update("customInstructions", e.target.value)} />
+                <div className="cust-presets">
+                  {SYSTEM_PRESETS.map((p, i) => (
+                    <button key={i} className={`cust-preset-chip${cfg.customInstructions === p ? " cust-chip-active" : ""}`} onClick={() => update("customInstructions", p)}>{p}</button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === "response" && (
+            <>
+              <div className="cust-section">
+                <div className="cust-section-title">Response Style</div>
+                <p className="cust-section-desc">Control how VetroAI communicates with you</p>
+              </div>
+              <div className="field-group">
+                <label className="field-label">Tone</label>
+                <div className="cust-option-grid">
+                  {TONE_OPTIONS.map(opt => (
+                    <button key={opt.value} className={`cust-option-card${cfg.responseTone === opt.value ? " cust-option-active" : ""}`} onClick={() => update("responseTone", opt.value)}>
+                      <span className="cust-option-icon">{opt.icon}</span>
+                      <span className="cust-option-label">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field-group">
+                <label className="field-label">Response Length</label>
+                <div className="cust-length-row">
+                  {LENGTH_OPTIONS.map(opt => (
+                    <button key={opt.value} className={`cust-length-btn${cfg.responseLength === opt.value ? " cust-length-active" : ""}`} onClick={() => update("responseLength", opt.value)}>
+                      <span className="cust-length-label">{opt.label}</span>
+                      <span className="cust-length-desc">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field-group">
+                <label className="field-label">Format</label>
+                <div className="cust-length-row">
+                  {FORMAT_OPTIONS.map(opt => (
+                    <button key={opt.value} className={`cust-length-btn${cfg.responseFormat === opt.value ? " cust-length-active" : ""}`} onClick={() => update("responseFormat", opt.value)}>
+                      <span className="cust-length-label">{opt.label}</span>
+                      <span className="cust-length-desc">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === "advanced" && (
+            <>
+              <div className="cust-section">
+                <div className="cust-section-title">Advanced Settings</div>
+                <p className="cust-section-desc">Fine-tune AI behavior for specific use cases</p>
+              </div>
+              <div className="field-group">
+                <label className="field-label">Code Style</label>
+                <div className="cust-length-row">
+                  {CODE_STYLE_OPTIONS.map(opt => (
+                    <button key={opt.value} className={`cust-length-btn${cfg.codeStyle === opt.value ? " cust-length-active" : ""}`} onClick={() => update("codeStyle", opt.value)}>
+                      <span className="cust-length-label">{opt.label}</span>
+                      <span className="cust-length-desc">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field-group">
+                <div className="cust-toggle-row">
+                  <div>
+                    <div className="cust-toggle-label">Memory</div>
+                    <div className="cust-toggle-desc">Remember your preferences across conversations</div>
+                  </div>
+                  <button className={`cust-toggle ${cfg.enableMemory ? "cust-toggle-on" : ""}`} onClick={() => update("enableMemory", !cfg.enableMemory)}>
+                    <div className="cust-toggle-thumb" />
+                  </button>
+                </div>
+              </div>
+              <div className="cust-preview">
+                <div className="cust-preview-title">Preview of instructions sent to AI</div>
+                <div className="cust-preview-text">{buildSystemPromptFromCustomize(cfg) || "No custom instructions set."}</div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="modal-footer cust-footer">
+          <button className="btn-ghost" onClick={handleReset}>Reset All</button>
+          <button className="btn-primary" onClick={handleSave}>Save Preferences</button>
         </div>
       </div>
     </div>
