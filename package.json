@@ -4,7 +4,9 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -26,5 +28,8 @@
     "multer": "^2.0.2",
     "serverless-http": "^3.0.0",
     "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.106.0"
   }
 }
