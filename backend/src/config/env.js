@@ -31,6 +31,7 @@ module.exports = {
     mistralModel:        getEnv("MISTRAL_MODEL",        "mistral-small-latest"),
     mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),
     mistralMaxTokens:    Number(getEnv("MISTRAL_MAX_TOKENS",  "8192")),
+    chatgptApiKey:       getEnv("CHATGPT_API_KEY",       ""),
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
     sambanovaApiKey:     getEnv("SAMBANOVA_API_KEY",     ""),
     agnesApiKey:         getEnv("AGNES_API_KEY",         ""),

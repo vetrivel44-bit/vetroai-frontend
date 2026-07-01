@@ -4,10 +4,23 @@ const geminiAdapter = require("../providers/geminiAdapter");
 const mistralAdapter = require("../providers/mistralAdapter");
 const sambanovaAdapter = require("../providers/sambanovaAdapter");
 const agnesAdapter = require("../providers/agnesAdapter");
+const chatgptAdapter = require("../providers/chatgptAdapter");
 
 class ProviderManager {
   constructor() {
     this.providers = {
+      chatgpt: {
+        adapter: chatgptAdapter,
+        weight: 85,
+        score: 85,
+        latency: 0,
+        successRate: 1,
+        consecutiveErrors: 0,
+        isSuspended: false,
+        lastFailure: 0,
+        cooldown: 20000,
+        fallbacks: ["groq", "mistral", "agnes", "sambanova", "gemini"],
+      },
       groq: {
         adapter: groqAdapter,
         weight: 80,
@@ -18,7 +31,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["agnes", "mistral", "sambanova", "gemini"],
+        fallbacks: ["chatgpt", "agnes", "mistral", "sambanova", "gemini"],
       },
       mistral: {
         adapter: mistralAdapter,

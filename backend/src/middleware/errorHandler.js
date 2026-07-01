@@ -25,7 +25,15 @@ function errorHandler(err, req, res, _next) {
 
   if (err instanceof multer.MulterError) {
     statusCode = 400;
-    message = err.code === "LIMIT_FILE_SIZE" ? "Uploaded file is too large" : "Invalid file upload";
+    const multerMessages = {
+      LIMIT_FILE_SIZE: "Uploaded file is too large (max 20MB)",
+      LIMIT_FILE_COUNT: "Too many files (max 10)",
+      LIMIT_UNEXPECTED_FILE: "Unexpected file field name",
+      LIMIT_FIELD_KEY: "Field name too long",
+      LIMIT_FIELD_VALUE: "Field value too long",
+      LIMIT_PART_COUNT: "Too many parts",
+    };
+    message = multerMessages[err.code] || `File upload error: ${err.code}`;
   }
 
   logger.error("request.error", {

@@ -572,7 +572,7 @@ const LANGS = {
   }},
 };
 
-const PROVIDERS = ["Agnes", "Groq", "Gemini", "Mistral", "SambaNova"];
+const PROVIDERS = ["Agnes", "ChatGPT", "Groq", "Gemini", "Mistral", "SambaNova"];
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
@@ -2082,14 +2082,14 @@ function SummaryPanel({ messages, onClose, addToast }) {
     const ctrl = new AbortController();
 
     setLoading(true);
+    const summaryFd = new FormData();
+    summaryFd.append("input", "Create a concise TL;DR summary of this conversation. Use bullet points. Max 150 words.");
+    summaryFd.append("messages", JSON.stringify([{ role: "user", content: userMsgs }]));
+    summaryFd.append("provider", "groq");
+    summaryFd.append("mode", "summarize");
     fetch(API + "/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        input: "Create a concise TL;DR summary of this conversation. Use bullet points. Max 150 words.",
-        messages: JSON.stringify([{ role: "user", content: userMsgs }]),
-        provider: "groq"
-      }),
+      body: summaryFd,
       signal: ctrl.signal
     })
     .then(async res => {
@@ -2610,6 +2610,72 @@ async function fetchAllLiveScores(apiBase, query) {
   return results.flat();
 }
 
+// ─── MEDICAL / HEALTH QUESTION DETECTION & AI DOCTOR API ──────────────────────
+const MEDICAL_QUERY_RE = /\b(symptom|symptoms|disease|diseases|diagnosis|treatment|medicine|medication|drug|drugs|dosage|side effect|prescription|surgery|infection|fever|pain|headache|migraine|diabetes|blood pressure|hypertension|cholesterol|cancer|tumor|allergy|allergies|asthma|arthritis|depression|anxiety|insomnia|fracture|stroke|heart attack|cardiac|pneumonia|bronchitis|anemia|thyroid|kidney|liver|lung|stomach|intestin|hernia|ulcer|vitamin|deficiency|pregnant|pregnancy|contracepti|vaccine|vaccination|antibiotic|antiviral|painkiller|inhaler|insulin|dialysis|transplant|biopsy|MRI|CT scan|X-ray|ultrasound|ECG|EKG|blood test|urine test|BMI|CPR|first aid|wound|burn|rash|swelling|inflammation|nausea|vomiting|diarrhea|constipation|dehydration|obesity|malaria|dengue|typhoid|tuberculosis|HIV|AIDS|hepatitis|epilepsy|paralysis|dementia|alzheimer|parkinson|autism|ADHD|bipolar|schizophrenia|PCOS|endometriosis|menstrual|period pain|osteoporosis|scoliosis|carpal tunnel|vertigo|tinnitus|cataracts|glaucoma|psoriasis|eczema|acne|fungal|bacterial|viral|chronic|acute|benign|malignant|prognosis|pathology|radiology|cardiology|neurology|dermatology|orthopedic|pediatric|gynecolog|oncolog|urolog|gastroenterolog|pulmonolog|endocrinolog|psychiatr|ophthalm|ENT|dental|cavity|root canal|health|medical|doctor|physician|surgeon|hospital|clinic|patient|nursing|pharmacy|ambulance|emergency room|ICU|OPD|checkup|diagnos)\b/i;
+
+const MEDICAL_SPECIALIZATION_MAP = [
+  { re: /\b(brain|neuro|seizure|epilepsy|stroke|paralysis|dementia|alzheimer|parkinson|migraine|headache|concussion|spinal cord)\b/i, spec: "neurosurgery" },
+  { re: /\b(heart|cardiac|cardio|ECG|EKG|heart attack|chest pain|palpitation|arrhythmia|hypertension|blood pressure|cholesterol)\b/i, spec: "cardiology" },
+  { re: /\b(skin|rash|acne|eczema|psoriasis|dermat|fungal infection|hives|mole|wart|vitiligo)\b/i, spec: "dermatology" },
+  { re: /\b(bone|fracture|joint|arthritis|orthoped|spine|scoliosis|osteoporosis|ligament|tendon|knee|hip replacement|carpal tunnel)\b/i, spec: "orthopedics" },
+  { re: /\b(child|infant|baby|toddler|pediatr|newborn|vaccination|growth|developmental)\b/i, spec: "pediatrics" },
+  { re: /\b(pregnan|gynecolog|menstrual|period|PCOS|endometriosis|fertility|ovary|uterus|cervix|contracepti|menopause|obstetric)\b/i, spec: "gynecology" },
+  { re: /\b(cancer|tumor|oncolog|chemotherapy|radiation therapy|malignant|benign|biopsy|lymphoma|leukemia|carcinoma)\b/i, spec: "oncology" },
+  { re: /\b(stomach|intestin|gastro|liver|hepat|pancrea|colon|bowel|diarrhea|constipation|ulcer|GERD|acid reflux|gallbladder|appendix)\b/i, spec: "gastroenterology" },
+  { re: /\b(lung|pulmon|asthma|bronchitis|pneumonia|TB|tuberculosis|breathing|respiratory|COPD|inhaler|oxygen)\b/i, spec: "pulmonology" },
+  { re: /\b(kidney|renal|urolog|bladder|urinary|dialysis|prostate|UTI|kidney stone)\b/i, spec: "urology" },
+  { re: /\b(thyroid|diabetes|insulin|hormone|endocrin|pituitary|adrenal|metaboli)\b/i, spec: "endocrinology" },
+  { re: /\b(eye|vision|ophthalm|cataract|glaucoma|retina|cornea|lasik|myopia)\b/i, spec: "ophthalmology" },
+  { re: /\b(ear|nose|throat|ENT|sinus|tonsil|hearing|vertigo|tinnitus)\b/i, spec: "ent" },
+  { re: /\b(tooth|teeth|dental|cavity|root canal|gum|braces|wisdom tooth|oral)\b/i, spec: "dental" },
+  { re: /\b(mental|psychiatr|depression|anxiety|bipolar|schizophrenia|ADHD|OCD|PTSD|panic attack|therapy|counseling|insomnia)\b/i, spec: "psychiatry" },
+  { re: /\b(surgery|surgeon|operated|operation|surgical|laparoscop|transplant|hernia)\b/i, spec: "general surgery" },
+];
+
+function isMedicalQuery(text) {
+  return MEDICAL_QUERY_RE.test(text);
+}
+
+function detectMedicalSpecialization(text) {
+  for (const { re, spec } of MEDICAL_SPECIALIZATION_MAP) {
+    if (re.test(text)) return spec;
+  }
+  return "general medicine";
+}
+
+let cachedUserLocation = null;
+async function getUserLocation() {
+  if (cachedUserLocation) return cachedUserLocation;
+  try {
+    const res = await fetch("https://ipapi.co/json/");
+    const data = await res.json();
+    if (data.city) {
+      cachedUserLocation = `${data.city}, ${data.region}`;
+      return cachedUserLocation;
+    }
+  } catch (e) {
+    console.warn("Could not fetch user location", e.message);
+  }
+  return "their local area";
+}
+
+async function fetchMedicalAnswer(query, language = "en") {
+  try {
+    const specialization = detectMedicalSpecialization(query);
+    const res = await fetch(`${API}/medical-answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, specialization, language }),
+    });
+    if (!res.ok) return null;
+    const { data } = await res.json();
+    return data;
+  } catch (e) {
+    console.warn("Medical API fetch failed:", e.message);
+    return null;
+  }
+}
+
 function CricketCard({ match }) {
   const t1 = match.team1 || {};
   const t2 = match.team2 || {};
@@ -2737,6 +2803,107 @@ function FootballCard({ match }) {
         </div>
       </div>
       {result && <div className="ls-result">{result}</div>}
+    </div>
+  );
+}
+
+function MedicalInfoCard({ data }) {
+  if (!data || !data.answer) return null;
+  return (
+    <div style={{
+      background: "linear-gradient(145deg, rgba(16,185,129,0.06) 0%, rgba(4,120,87,0.02) 100%)",
+      backdropFilter: "blur(12px)",
+      border: "1px solid rgba(16,185,129,0.15)",
+      borderRadius: "20px",
+      padding: "24px",
+      marginBottom: "20px",
+      position: "relative",
+      overflow: "hidden",
+      boxShadow: "0 8px 32px rgba(0, 0, 0, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.05)",
+      fontFamily: "'Inter', system-ui, sans-serif"
+    }}>
+      {/* Dynamic glowing top accent */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: "3px",
+        background: "linear-gradient(90deg, transparent, #10b981, #34d399, transparent)",
+        opacity: 0.8,
+      }} />
+      
+      {/* Subtle radial glow behind the icon */}
+      <div style={{
+        position: "absolute", top: "-20px", left: "-20px", width: "100px", height: "100px",
+        background: "radial-gradient(circle, rgba(16,185,129,0.15) 0%, transparent 70%)",
+        borderRadius: "50%", pointerEvents: "none"
+      }} />
+
+      <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px", position: "relative" }}>
+        <div style={{
+          width: "42px", height: "42px", borderRadius: "12px",
+          background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.05))",
+          border: "1px solid rgba(16,185,129,0.2)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "20px",
+          boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
+        }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+            <path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" />
+          </svg>
+        </div>
+        <div>
+          <div style={{ 
+            fontWeight: 600, 
+            fontSize: "15px", 
+            letterSpacing: "0.3px",
+            background: "linear-gradient(90deg, #34d399, #10b981)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            display: "inline-block"
+          }}>
+            VetroAI Medical Insight
+          </div>
+          <div style={{ 
+            fontSize: "12px", 
+            color: "rgba(255,255,255,0.45)", 
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            fontWeight: 500,
+            marginTop: "2px"
+          }}>
+            {data.specialization} specialist
+          </div>
+        </div>
+      </div>
+      
+      <div style={{
+        fontSize: "14.5px", 
+        lineHeight: "1.75", 
+        color: "rgba(255,255,255,0.9)",
+        whiteSpace: "pre-wrap",
+        position: "relative",
+        zIndex: 1
+      }}>
+        {data.answer}
+      </div>
+      
+      <div style={{
+        marginTop: "20px", 
+        padding: "12px 16px",
+        background: "linear-gradient(90deg, rgba(245,158,11,0.08) 0%, transparent 100%)",
+        borderLeft: "3px solid rgba(245,158,11,0.6)",
+        borderRadius: "0 8px 8px 0",
+        fontSize: "12.5px", 
+        color: "rgba(245,158,11,0.9)",
+        display: "flex", 
+        alignItems: "center", 
+        gap: "10px",
+        lineHeight: "1.5"
+      }}>
+        <span style={{ fontSize: "18px" }}>⚠️</span>
+        <span>
+          <strong>AI-Generated Information.</strong> Always consult a qualified healthcare professional for medical diagnosis and treatment.
+        </span>
+      </div>
     </div>
   );
 }
@@ -2881,8 +3048,8 @@ export default function App() {
   const isYtMode     = selectedMode === "youtube";
   const isWebMode    = selectedMode === "research" || selectedMode === "web_search";
   const isDeepSearch = selectedMode === "deep_search";
-  const [selFile, setSelFile]               = useState(null);
-  const [filePreview, setFilePreview]       = useState(null);
+  const [selFiles, setSelFiles]             = useState([]);
+  const [filePreviews, setFilePreviews]     = useState([]);
   const [isLoading, setIsLoading]           = useState(false);
   const [isTyping, setIsTyping]             = useState(false);
   const [temperature, setTemperature]       = useState(0.7);
@@ -3061,7 +3228,9 @@ export default function App() {
   const [autoSpeak, setAutoSpeak]   = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
+  const [ttsVoice, setTtsVoice] = useState(localStorage.getItem("vetro_tts_voice") || "en-US-JennyNeural");
 
   // ── Refs ──────────────────────────────────────────────────────────────────────
   const feedRef        = useRef(null);
@@ -3079,6 +3248,8 @@ export default function App() {
   const selectedModeRef  = useRef(selectedMode);
   const systemPromptRef  = useRef(systemPrompt);
   const autoWebSearchRef = useRef(autoWebSearch);
+  const ttsVoiceRef      = useRef(ttsVoice);
+  const autoSpeakRef     = useRef(autoSpeak);
 
   useEffect(() => { inputRef.current = input; }, [input]);
   useEffect(() => { voiceRef.current = isVoiceOpen; }, [isVoiceOpen]);
@@ -3089,6 +3260,8 @@ export default function App() {
   useEffect(() => { autoWebSearchRef.current = autoWebSearch; }, [autoWebSearch]);
   useEffect(() => { window.speechSynthesis?.cancel(); }, []);
   useEffect(() => { localStorage.setItem("vetroai_sysprompt", systemPrompt); }, [systemPrompt]);
+  useEffect(() => { ttsVoiceRef.current = ttsVoice; localStorage.setItem("vetro_tts_voice", ttsVoice); }, [ttsVoice]);
+  useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
   useEffect(() => { localStorage.setItem("vetroai_pins", JSON.stringify(pinnedIds)); }, [pinnedIds]);
   useEffect(() => { localStorage.setItem("vetroai_bookmarks", JSON.stringify(bookmarks)); }, [bookmarks]);
   useEffect(() => { if (userInfo?.email) setMemories(getMemories(userInfo.email)); }, [userInfo]);
@@ -3479,7 +3652,15 @@ export default function App() {
   }, [rxnFor]);
 
   // ── Voice helpers ─────────────────────────────────────────────────────────────
-  const stopSpeak = () => window.speechSynthesis?.cancel();
+  const stopSpeak = () => {
+    window.speechSynthesis?.cancel();
+    if (window.currentAudio) {
+      window.currentAudio.pause();
+      window.currentAudio.currentTime = 0;
+      window.currentAudio = null;
+    }
+    setIsSpeaking(false);
+  };
   const closeVoice = useCallback(() => {
     setIsVoiceOpen(false);
     if (isListening) recogRef.current?.stop();
@@ -3526,33 +3707,72 @@ export default function App() {
   useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom, streamingContent]);
 
   // ── Voice ─────────────────────────────────────────────────────────────────────
-  const speak = txt => {
-    if (!window.speechSynthesis) return; stopSpeak();
-    const c = (txt || "").replace(/[*#_`~]/g, "").replace(/\$\$.*?\$\$/gs, "[equation]").replace(/\$.*?\$/g, "[math]");
+  const speak = async txt => {
+    stopSpeak();
+    // Strip markdown, JSON code blocks, equations, and excess whitespace before TTS
+    let c = (txt || "")
+      .replace(/```[\s\S]*?```/g, "")         // remove all code/json blocks
+      .replace(/`[^`]+`/g, "")                 // remove inline code
+      .replace(/\$\$[\s\S]*?\$\$/g, "[equation]") // block math
+      .replace(/\$[^$]+\$/g, "[math]")          // inline math
+      .replace(/[*#_~]/g, "")                  // markdown symbols
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // markdown links → just label
+      .replace(/\n{2,}/g, ". ")                // paragraph breaks
+      .replace(/\n/g, " ")
+      .trim();
+    // Limit TTS to first 800 chars to keep latency low
+    c = c.slice(0, 800);
     if (!c.trim()) return;
-    const u   = new SpeechSynthesisUtterance(c);
-    const vs  = window.speechSynthesis.getVoices();
 
-    const hasHindi = /[\u0900-\u097F]/.test(c);
-    const hasSpanish = /[áéíóúñÁÉÍÓÚÑ]/.test(c);
-    const targetLang = hasHindi ? "hi" : hasSpanish ? "es" : "en";
+    // Signal to sr.onend that TTS is starting — prevents premature mic restart
+    window.isTTSLoading = true;
 
-    const premiumFemales = ["Aria", "Samantha", "Zira", "Karen", "Victoria", "Tessa", "Google UK English Female", "Google US English", "Amalia", "Monica", "Lekha"];
+    try {
+      try { recogRef.current?.stop(); } catch (err) { swallowError(err); }
+      setIsListening(false);
 
-    let best = vs.find(v => v.lang.startsWith(targetLang) && premiumFemales.some(n => v.name.includes(n)))
-            || vs.find(v => v.lang.startsWith(targetLang) && (v.name.toLowerCase().includes("female") || v.name.includes("Natural") || v.name.includes("Online")))
-            || vs.find(v => v.lang.startsWith(targetLang))
-            || vs.find(v => premiumFemales.some(n => v.name.includes(n)))
-            || vs[0];
+      const response = await fetch(`${API}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: c, voice: ttsVoiceRef.current })
+      });
+      
+      if (!response.ok) throw new Error("TTS API Failed");
 
-    u.voice = best;
-    u.lang = best?.lang || (hasHindi ? 'hi-IN' : hasSpanish ? 'es-ES' : 'en-US');
-    u.pitch = 1.08;
-    u.rate = 1.02;
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      window.currentAudio = audio;
+      window.isTTSLoading = false; // audio element ready, currentAudio guards from here
 
-    u.onstart = () => { try { recogRef.current?.stop(); } catch (err) { swallowError(err); } setIsListening(false); };
-    u.onend   = () => { if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
-    window.speechSynthesis.speak(u);
+      audio.onended = () => {
+        window.currentAudio = null;
+        window.isTTSLoading = false;
+        setIsSpeaking(false);
+        if (voiceRef.current) {
+          setInput("");
+          try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
+        }
+      };
+      audio.onerror = () => { window.currentAudio = null; window.isTTSLoading = false; setIsSpeaking(false); };
+
+      setIsSpeaking(true);
+      await audio.play();
+    } catch (e) {
+      console.error("TTS Error:", e);
+      window.isTTSLoading = false;
+      // Fallback to browser TTS if the backend proxy fails (e.g. not configured yet)
+      if (window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance(c);
+        u.onstart = () => { try { recogRef.current?.stop(); } catch (err) { swallowError(err); } setIsListening(false); setIsSpeaking(true); };
+        u.onend   = () => { setIsSpeaking(false); if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
+        u.onerror = () => { setIsSpeaking(false); };
+        window.speechSynthesis.speak(u);
+      } else {
+        setIsSpeaking(false);
+        addToast("⚠️ Voice playback isn't supported in this browser", "error");
+      }
+    }
   };
 
   useEffect(() => {
@@ -3567,19 +3787,27 @@ export default function App() {
     sr.lang = navigator.language || 'en-US';
 
     sr.onresult = e => {
-      if (window.speechSynthesis?.speaking) return;
+      if (window.currentAudio && !window.currentAudio.paused) return; // backend TTS playing
+      if (window.speechSynthesis?.speaking) return; // browser TTS playing
+      // Accumulate: finalized results (0..resultIndex-1) + current interim/final chunk
       let txt = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
       setInput(txt);
     };
+    const isTTSActive = () =>
+      window.isTTSLoading ||
+      (window.currentAudio && !window.currentAudio.paused) ||
+      window.speechSynthesis?.speaking;
+
     sr.onend = () => {
-      if (voiceRef.current && !loadRef.current && !window.speechSynthesis?.speaking) {
+      if (voiceRef.current && !loadRef.current && !isTTSActive()) {
         const cur = inputRef.current || "";
         if (cur.trim()) {
           submitVoiceRef.current?.(cur);
         } else {
+          // Re-arm mic after a short pause (user just paused speaking)
           setTimeout(() => {
-            if (voiceRef.current && !loadRef.current && !window.speechSynthesis?.speaking) {
+            if (voiceRef.current && !loadRef.current && !isTTSActive()) {
               try { sr.start(); setIsListening(true); } catch (err) { swallowError(err); }
             }
           }, 400);
@@ -3591,7 +3819,7 @@ export default function App() {
     sr.onerror = e => {
       if (e.error === "not-allowed") { setIsListening(false); setIsVoiceOpen(false); addToast("⚠️ Microphone access denied", "error"); }
       if (e.error === "no-speech" || e.error === "network") {
-         if (voiceRef.current && !window.speechSynthesis?.speaking) {
+         if (voiceRef.current && !isTTSActive()) {
              try { sr.start(); setIsListening(true); } catch (err) { swallowError(err); }
          }
       }
@@ -3604,37 +3832,105 @@ export default function App() {
 
   const handleOrb = () => {
     if (isLoading) return;
-    if (window.speechSynthesis?.speaking) { stopSpeak(); setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } }
-    else if (isListening) { recogRef.current?.stop(); }
-    else { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } }
+    const backendTTSPlaying = window.currentAudio && !window.currentAudio.paused;
+    if (backendTTSPlaying || window.speechSynthesis?.speaking) {
+      // Tap to interrupt: stop TTS and re-arm mic
+      stopSpeak();
+      setInput("");
+      try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
+    } else if (isListening) {
+      recogRef.current?.stop();
+    } else {
+      setInput("");
+      try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
+    }
   };
 
-  const handleFileChange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    if (f.size > MAX_FILE_SIZE_MB * 1024 * 1024) { addToast(`⚠️ File too large (max ${MAX_FILE_SIZE_MB}MB)`, "error"); return; }
-    // PDF handling — extract text client-side
-    if (f.type === "application/pdf" || f.name.endsWith(".pdf")) {
-      setIsPdfLoading(true);
-      addToast("📄 Parsing PDF…", "info", 2000);
-      try {
-        const text = await extractPdfText(f);
-        // Create a synthetic text file with PDF content
-        const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
-        const textFile = new File([textBlob], f.name.replace(".pdf", ".txt"), { type: "text/plain" });
-        setSelFile(textFile);
-        setFilePreview(null);
-        addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
-      } catch (err) {
-        addToast("⚠️ Could not parse PDF. Try a text file.", "error");
-      } finally {
-        setIsPdfLoading(false);
+  const MAX_ATTACHMENTS = 10;
+  const addFiles = (files) => {
+    const newFiles = Array.from(files);
+    setSelFiles(prev => {
+      const remaining = MAX_ATTACHMENTS - prev.length;
+      if (remaining <= 0) { addToast(`⚠️ Max ${MAX_ATTACHMENTS} files allowed`, "error"); return prev; }
+      const toAdd = newFiles.slice(0, remaining);
+      if (newFiles.length > remaining) addToast(`⚠️ Only ${remaining} more file(s) allowed`, "error");
+      const validFiles = [];
+      for (const f of toAdd) {
+        if (f.size > MAX_FILE_SIZE_MB * 1024 * 1024) { addToast(`⚠️ ${f.name} too large (max ${MAX_FILE_SIZE_MB}MB)`, "error"); continue; }
+        if (prev.some(ex => ex.name === f.name && ex.size === f.size)) continue;
+        validFiles.push(f);
       }
-      return;
-    }
-    setSelFile(f);
-    if (f.type.startsWith("image/")) { const r = new FileReader(); r.onloadend = () => setFilePreview(r.result); r.readAsDataURL(f); }
-    else { setFilePreview(null); addToast(`📎 ${f.name} attached`, "success", 2000); }
+      if (!validFiles.length) return prev;
+      for (const f of validFiles) {
+        if (f.type.startsWith("image/")) {
+          const r = new FileReader();
+          r.onloadend = () => setFilePreviews(p => [...p, { name: f.name, size: f.size, src: r.result }]);
+          r.readAsDataURL(f);
+        }
+      }
+      return [...prev, ...validFiles];
+    });
   };
+
+  const removeFile = (idx) => {
+    setSelFiles(prev => {
+      const removed = prev[idx];
+      if (removed) setFilePreviews(p => p.filter(fp => !(fp.name === removed.name && fp.size === removed.size)));
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const clearFiles = () => { setSelFiles([]); setFilePreviews([]); };
+
+  const handleFileChange = async e => {
+    const files = Array.from(e.target.files); if (!files.length) return;
+    e.target.value = "";
+    const pdfFiles = files.filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"));
+    const otherFiles = files.filter(f => !(f.type === "application/pdf" || f.name.endsWith(".pdf")));
+    if (pdfFiles.length) {
+      setIsPdfLoading(true);
+      for (const f of pdfFiles) {
+        addToast(`📄 Parsing ${f.name}…`, "info", 2000);
+        try {
+          const text = await extractPdfText(f);
+          const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
+          const textFile = new File([textBlob], f.name.replace(".pdf", ".txt"), { type: "text/plain" });
+          addFiles([textFile]);
+          addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
+        } catch (err) {
+          addToast(`⚠️ Could not parse ${f.name}`, "error");
+        }
+      }
+      setIsPdfLoading(false);
+    }
+    if (otherFiles.length) {
+      addFiles(otherFiles);
+      const imgCount = otherFiles.filter(f => f.type.startsWith("image/")).length;
+      const docCount = otherFiles.length - imgCount;
+      if (docCount > 0) addToast(`📎 ${docCount} file(s) attached`, "success", 2000);
+    }
+  };
+
+  const [isDragOver, setIsDragOver] = useState(false);
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  };
+  const handleDrop = (e) => {
+    e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) addFiles(files);
+  };
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); };
 
   const stopGeneration = () => {
     requestIdRef.current += 1;
@@ -3828,7 +4124,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setStreamStatus("idle");
   };
 
-  const triggerAI = async (hist, fileData = null, ytContext = null) => {
+  const triggerAI = async (hist, filesData = null, ytContext = null) => {
     const reqId = Date.now().toString();
     abortRef.current?.abort();
     const ctrl      = new AbortController(); abortRef.current = ctrl;
@@ -3847,7 +4143,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     const fd = new FormData();
     fd.append("input", userQuery);
-    fd.append("messages", JSON.stringify(hist.slice(-12)));
+    fd.append("messages", JSON.stringify(hist.slice(-12).map(m => {
+      if (!m.files) return m;
+      const { files, ...rest } = m;
+      return { ...rest, files: files.map(f => ({ name: f.name })) };
+    })));
     fd.append("mode", selectedMode);
     fd.append("provider", selectedProvider);
     fd.append("temperature", String(temperature));
@@ -3873,20 +4173,39 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const sportsDetected = isSportsQuery(userQuery);
-    const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected;
+    const medicalDetected = isMedicalQuery(userQuery);
+    const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
+
+    if (medicalDetected) {
+      const location = await getUserLocation();
+      const medSpec = detectMedicalSpecialization(userQuery);
+      finalSystemPrompt += `\n\n[MEDICAL MODE] The user is asking a medical/health question. Provide accurate, detailed medical information as a ${medSpec} specialist would. Structure your response clearly with symptoms, causes, treatments, and when to see a doctor. Always include a disclaimer to consult a healthcare professional.\n\nIMPORTANT LOCALISED DIRECTIVE: The user is located in ${location}. At the end of your response, you MUST suggest 2-3 of the best hospitals or clinics near their location that specialize in this condition. For EACH hospital, you MUST provide a clickable Google Maps link in exactly this format: [Hospital Name](https://www.google.com/maps/search/?api=1&query=Hospital+Name+${location.replace(/\s+/g, '+')}).`;
+      fd.set("systemPrompt", finalSystemPrompt.trim());
+    }
 
     if (ytContext) {
       fd.append("ytContext", JSON.stringify(ytContext));
     }
 
-    if (fileData) fd.append("file", fileData);
+    if (filesData && Array.isArray(filesData) && filesData.length > 0) {
+      const validFiles = filesData.filter(f => f instanceof File || f instanceof Blob);
+      if (validFiles.length !== filesData.length) {
+        console.warn("[UPLOAD] Dropped", filesData.length - validFiles.length, "non-File entries from filesData");
+      }
+      validFiles.forEach(f => fd.append("files", f));
+    } else if (filesData && (filesData instanceof File || filesData instanceof Blob)) {
+      fd.append("files", filesData);
+    } else if (filesData) {
+      console.warn("[UPLOAD] filesData is not a File/Blob:", typeof filesData, filesData);
+    }
 
     if (selectedMode === "multi_ai") {
       await handleMultiAI(hist, fd, userQuery, isFirstMsg, ctrl, isActive, reqId);
       return;
     }
     const sportsPromise = sportsDetected ? fetchAllLiveScores(API, userQuery) : Promise.resolve(null);
+    const medicalPromise = medicalDetected ? fetchMedicalAnswer(userQuery) : Promise.resolve(null);
 
     const ts     = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const emptyAssistantMsg = {
@@ -3896,11 +4215,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       provider: selectedProvider,
       ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
       liveScores: null,
+      medicalData: null,
     };
     setMessages([...hist, emptyAssistantMsg]);
 
     try {
-      addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode });
+      const fileCount = [...fd.entries()].filter(([, v]) => v instanceof File).length;
+      addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode, fileCount });
 
       const res = await fetch(API + "/chat", {
         method: "POST",
@@ -3957,6 +4278,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         });
       }
 
+      const medicalData = await medicalPromise;
+      if (medicalData) {
+        setMessages(prev => {
+          const u = [...prev];
+          u[u.length - 1] = { ...u[u.length - 1], medicalData };
+          return u;
+        });
+      }
+
       if (!bot || !bot.trim()) {
         setMessages(prev => {
           if (prev.length === 0) return prev;
@@ -3968,7 +4298,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           return u;
         });
       } else {
-        if (voiceRef.current || autoSpeak) speak(bot);
+        if (voiceRef.current || autoSpeakRef.current) speak(bot);
         if (isFirstMsg) updateSessionTitle(userQuery, bot);
         generateFollowUps(bot, userQuery);
       }
@@ -4009,7 +4339,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         return u;
       });
     } finally {
-      setSelFile(null); setFilePreview(null);
+      clearFiles();
     }
   };
 
@@ -4026,7 +4356,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
     const text = (prefill || input).trim();
-    if (!text && !selFile) return;
+    if (!text && !selFiles.length) return;
     if (isListening) recogRef.current?.stop();
 
     // Auto-detect Code mode suggestion
@@ -4035,7 +4365,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
     // Image generation intercept
     const imgPrompt = detectImagePrompt(text);
-    if (imgPrompt && !selFile) {
+    if (imgPrompt && !selFiles.length) {
       const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const userMsg = { role: "user", content: text, timestamp: ts };
       const pendingBotMsg = {
@@ -4075,7 +4405,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     // Video generation intercept
     const vidPrompt = detectVideoPrompt(text);
-    if (vidPrompt && !selFile) {
+    if (vidPrompt && !selFiles.length) {
       const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const userMsg = { role: "user", content: text, timestamp: ts };
       const pendingBotMsg = {
@@ -4166,13 +4496,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       return;
     }
 
-    const hist = [...messages, { role: "user", content: text, file: selFile ? { preview: filePreview, name: selFile?.name } : null, timestamp: ts }];
+    const filesToSend = selFiles.length ? [...selFiles] : null;
+    const fileAttachments = selFiles.length ? selFiles.map(f => {
+      const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
+      return { name: f.name, preview: preview?.src || null };
+    }) : null;
+    const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
     setMessages(hist); setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (filesToSend) clearFiles();
 
-    // Web search is handled by the backend (Tavily) — no frontend search needed
-
-    triggerAI(hist, selFile);
+    triggerAI(hist, filesToSend);
   };
 
   const handleKeyDown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isLoading) sendMessage(); } };
@@ -4239,7 +4573,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   });
   const charCount   = input.length;
   const tokenEst    = Math.ceil(charCount / 4);
-  const isEmpty     = !input.trim() && !selFile;
+  const isEmpty     = !input.trim() && !selFiles.length;
   const avatarEl    = <span>{profileData?.avatar || "🧑"}</span>;
 
   // ── AUTH PAGE ──────────────────────────────────────────────────────────────────
@@ -4303,20 +4637,26 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form className="claude-input-box bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)]" onSubmit={sendMessage}>
-        <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" />
-        {filePreview && (
-          <div className="file-prev">
-            <img src={filePreview} alt="" />
-            <button type="button" onClick={() => { setSelFile(null); setFilePreview(null); }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-        )}
-        {selFile && !filePreview && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg-hover)", border: "1px solid var(--border-med)", borderRadius: 10, padding: "6px 12px", width: "fit-content", marginBottom: 10, fontSize: "0.8rem", color: "var(--ink-2)" }}>
-            📄 {selFile.name}
-            <button type="button" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)" }} onClick={() => setSelFile(null)}>✕</button>
+        <form className={`claude-input-box bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)] ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+        <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" multiple />
+        {selFiles.length > 0 && (
+          <div className="multi-file-previews">
+            {selFiles.map((f, idx) => {
+              const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
+              return preview ? (
+                <div key={idx} className="file-prev">
+                  <img src={preview.src} alt={f.name} />
+                  <button type="button" onClick={() => removeFile(idx)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </button>
+                </div>
+              ) : (
+                <div key={idx} className="file-chip">
+                  📄 {f.name}
+                  <button type="button" onClick={() => removeFile(idx)}>✕</button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -4386,7 +4726,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             ) : (
-              <button type="button" className="claude-action-btn voice" onClick={() => setIsVoiceOpen(true)} title="Start Voice Mode">
+              <button type="button" className="claude-action-btn voice" onClick={openVoice} title="Start Voice Mode">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14v-4m4 6V8m4 8V6m4 8V8m4 6v-4" /></svg>
               </button>
             )}
@@ -4399,8 +4739,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             ) : (
               <button
                 type="submit"
-                className={`claude-send-btn ${(!input.trim() && !selFile) ? "claude-send-btn-empty bg-slate-700 md:bg-transparent text-slate-500 md:text-[var(--ink-4)]" : "active bg-amber-500 md:bg-[var(--ink)] text-slate-900 md:text-[var(--bg)]"}`}
-                disabled={!input.trim() && !selFile}
+                className={`claude-send-btn ${(!input.trim() && !selFiles.length) ? "claude-send-btn-empty bg-slate-700 md:bg-transparent text-slate-500 md:text-[var(--ink-4)]" : "active bg-amber-500 md:bg-[var(--ink)] text-slate-900 md:text-[var(--bg)]"}`}
+                disabled={!input.trim() && !selFiles.length}
                 title="Send message"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
@@ -4464,20 +4804,31 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   const renderHomeSearchBox = () => (
     <div className="w-full max-w-[800px] mx-auto px-4">
-      <div className="bg-white border border-solid border-gray-200/80 rounded-[24px] flex flex-col transition-all duration-300"
+      <div className={`bg-white border border-solid border-gray-200/80 rounded-[24px] flex flex-col transition-all duration-300 ${isDragOver ? "ring-2 ring-teal-400 border-teal-300" : ""}`}
+           onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
            style={{
              backgroundColor: "#ffffff",
-             border: "1px solid #e5e7eb",
+             border: isDragOver ? "1px solid #2dd4bf" : "1px solid #e5e7eb",
              borderRadius: "24px",
              padding: "20px 20px 14px 20px",
-             boxShadow: "0 10px 40px rgba(20, 184, 166, 0.04), 0 2px 12px rgba(0, 0, 0, 0.01)"
+             boxShadow: isDragOver ? "0 0 0 3px rgba(45,212,191,0.15)" : "0 10px 40px rgba(20, 184, 166, 0.04), 0 2px 12px rgba(0, 0, 0, 0.01)"
            }}>
-        {selFile && (
-          <div className="flex items-center gap-2 mb-2">
-            <div className="bg-purple-50 text-purple-700 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 font-medium border border-purple-100">
-              <span className="truncate max-w-[150px]">{selFile.name}</span>
-              <button type="button" className="hover:text-purple-900 font-bold" onClick={() => { setSelFile(null); setFilePreview(null); }}>×</button>
-            </div>
+        {selFiles.length > 0 && (
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {selFiles.map((f, idx) => {
+              const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
+              return preview ? (
+                <div key={idx} className="relative group">
+                  <img src={preview.src} alt={f.name} className="h-14 rounded-lg border border-gray-200 object-cover" />
+                  <button type="button" className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white border border-gray-200 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 text-xs shadow-sm" onClick={() => removeFile(idx)}>×</button>
+                </div>
+              ) : (
+                <div key={idx} className="bg-purple-50 text-purple-700 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 font-medium border border-purple-100">
+                  <span className="truncate max-w-[150px]">{f.name}</span>
+                  <button type="button" className="hover:text-purple-900 font-bold" onClick={() => removeFile(idx)}>×</button>
+                </div>
+              );
+            })}
           </div>
         )}
         <textarea
@@ -4495,7 +4846,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0" title="Attach file">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,.pdf,.txt,.md,.csv,.json,.xml,.html,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.rb,.go,.rs,.php,.sql,.yaml,.yml" />
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,.pdf,.txt,.md,.csv,.json,.xml,.html,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.rb,.go,.rs,.php,.sql,.yaml,.yml" multiple />
             <button type="button" className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-solid border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-semibold text-gray-600 transition-colors flex-shrink-0">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               Search <span className="text-gray-400 text-[9px]">&#9660;</span>
@@ -4512,7 +4863,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" onClick={toggleDictation} className={"p-2 rounded-full transition-colors flex-shrink-0 " + (isDictating ? "bg-red-100 text-red-500 animate-pulse" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100")}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
             </button>
-            <button type="submit" onClick={(e) => { e.preventDefault(); sendMessage(e); }} disabled={!input.trim() && !selFile} className="w-9 h-9 bg-[#1a1a1a] hover:bg-black text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center justify-center flex-shrink-0 shadow-sm">
+            <button type="submit" onClick={(e) => { e.preventDefault(); sendMessage(e); }} disabled={!input.trim() && !selFiles.length} className="w-9 h-9 bg-[#1a1a1a] hover:bg-black text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center justify-center flex-shrink-0 shadow-sm">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <rect x="4" y="14" width="3" height="6" rx="1.5" fill="currentColor" opacity="0.6"/>
                 <rect x="10.5" y="8" width="3" height="12" rx="1.5" fill="currentColor"/>
@@ -4848,7 +5199,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
              {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
                   <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
-                    <h2 className="text-[40px] md:text-[44px] font-normal" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
+                    <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
                   </div>
                   <div className="w-full">
                     {renderInputBox()}
@@ -4915,6 +5266,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              </div>
                            ) : (
                              <>
+                               {m.files && m.files.length > 0 && (
+                                 <div className="user-attached-files">
+                                   {m.files.map((f, fi) => f.preview
+                                     ? <img key={fi} src={f.preview} alt={f.name} className="user-att-img" />
+                                     : <span key={fi} className="user-att-chip">📄 {f.name}</span>
+                                   )}
+                                 </div>
+                               )}
                                <div className="chat-user-bubble">{m.content}</div>
                                <div className="user-msg-acts">
                                  <button className="msg-action-btn" onClick={() => { setEditIdx(i); setEditInput(m.content); }} title="Edit message" aria-label="Edit message">
@@ -4933,6 +5292,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                          <div className="flex-1 min-w-0 msg-row">
                            {m.liveScores && m.liveScores.length > 0 && (
                              <LiveScoreWidget scores={m.liveScores} title="Live Scores" />
+                           )}
+                           {m.medicalData && (
+                             <MedicalInfoCard data={m.medicalData} />
                            )}
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.isPending && m.isImageGen
@@ -5131,7 +5493,100 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                  </div>
                </div>
              )}
+      {/* Voice Mode Overlay */}
+      {isVoiceOpen && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-2xl animate-in fade-in duration-300 px-4">
+          <button className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors" onClick={closeVoice}>
+             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+
+          <div className="flex flex-col items-center justify-center gap-10 mt-10 w-full max-w-[420px]">
+            {/* The Animated Orb, with expanding rings while active */}
+            <div className="relative" style={{ width: 340, height: 340 }}>
+              {(isListening || isSpeaking) && [
+                { cls: "r1", size: 180 },
+                { cls: "r2", size: 260 },
+                { cls: "r3", size: 340 },
+              ].map((r, i) => (
+                <div
+                  key={r.cls}
+                  className={`vring ${r.cls} on`}
+                  style={{
+                    top: "50%",
+                    left: "50%",
+                    marginTop: -r.size / 2,
+                    marginLeft: -r.size / 2,
+                    borderColor: isListening ? "rgba(16,185,129,0.35)" : "rgba(99,102,241,0.35)",
+                    animationDelay: `${i * 0.3}s`,
+                  }}
+                />
+              ))}
+              <div
+                className="absolute rounded-full flex items-center justify-center transition-[width,height,background,box-shadow] duration-300"
+                style={{
+                  top: "50%",
+                  left: "50%",
+                  width: isListening ? 150 : 120,
+                  height: isListening ? 150 : 120,
+                  marginTop: isListening ? -75 : -60,
+                  marginLeft: isListening ? -75 : -60,
+                  background: isListening
+                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                    : isSpeaking
+                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                      : 'linear-gradient(135deg, #4b5563 0%, #374151 100%)',
+                  boxShadow: isListening
+                    ? '0 0 60px rgba(16, 185, 129, 0.5), inset 0 0 20px rgba(255,255,255,0.4)'
+                    : isSpeaking
+                      ? '0 0 90px rgba(99, 102, 241, 0.6), inset 0 0 30px rgba(255,255,255,0.5)'
+                      : '0 0 40px rgba(0,0,0,0.3)',
+                  animation: isListening
+                    ? 'voiceOrbPulse 1.1s ease-in-out infinite'
+                    : isSpeaking
+                      ? 'voiceOrbPulse 0.45s ease-in-out infinite'
+                      : 'voiceOrbPulse 3s ease-in-out infinite'
+                }}
+              >
+                {/* Inner glowing core */}
+                <div className="absolute inset-2 bg-white/20 rounded-full blur-md mix-blend-overlay"></div>
+              </div>
+            </div>
+
+            {/* Status text */}
+            <div className="text-white/80 font-medium tracking-wide text-xl -mt-6">
+              {isListening ? "Listening..." : isSpeaking ? "Speaking..." : "Ready"}
+            </div>
+
+            {/* The Custom Voice Selector Pills */}
+            <div className="w-full bg-white/10 rounded-3xl p-4 backdrop-blur-md border border-white/10 flex flex-col items-center">
+              <span className="text-white/40 text-[11px] uppercase tracking-widest font-bold mb-3">AI Persona</span>
+              <div className="grid grid-cols-3 gap-2 w-full">
+                {[
+                  { id: "en-US-JennyNeural", label: "Jenny", icon: "👩" },
+                  { id: "en-US-GuyNeural", label: "Guy", icon: "👨" },
+                  { id: "en-US-AriaNeural", label: "Aria", icon: "👩" },
+                  { id: "en-US-SteffanNeural", label: "Steffan", icon: "👨" },
+                  { id: "en-GB-SoniaNeural", label: "Sonia", icon: "👩", badge: "UK" },
+                  { id: "en-GB-RyanNeural", label: "Ryan", icon: "👨", badge: "UK" }
+                ].map(v => (
+                  <button
+                    key={v.id}
+                    onClick={() => setTtsVoice(v.id)}
+                    className={`relative flex flex-col items-center justify-center gap-1 px-2 py-2.5 rounded-2xl text-[13px] font-medium transition-all duration-200 ${ttsVoice === v.id ? 'bg-white text-black shadow-xl scale-105' : 'text-white/70 hover:bg-white/20 hover:text-white'}`}
+                  >
+                    {v.badge && (
+                      <span className={`absolute top-1 right-1 text-[8px] font-bold px-1 rounded ${ttsVoice === v.id ? 'bg-black/10 text-black/60' : 'bg-white/15 text-white/50'}`}>{v.badge}</span>
+                    )}
+                    <span className="text-lg leading-none">{v.icon}</span>
+                    <span className="truncate w-full text-center">{v.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
+      )}
+      </div>
       </main>
     </div>
   );

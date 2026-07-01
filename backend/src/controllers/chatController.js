@@ -33,6 +33,7 @@ const MODEL_ALIASES = {
 const aiGateway = require("../services/AIGateway");
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
+const medicalService = require("../services/medicalService");
 const { verifyAccessToken } = require("../utils/token");
 
 // Best-effort: resolves a Mongo user id from the bearer token if one is present.
@@ -136,11 +137,99 @@ function getAttachmentContext(file) {
     throw new ApiError(400, "Unsupported attachment type. Use txt, md, csv, json, pdf, or images.");
   }
   if (file.mimetype.startsWith("image/")) {
-    return `[IMAGE ATTACHED: ${file.originalname} (${Math.round(file.size / 1024)}KB)]\nPlease describe or analyze this image as requested by the user.`;
+    return null; // Images are handled separately via Vision API
   }
   const text = file.buffer.toString("utf-8").trim();
   if (!text) return null;
   return `Attached file (${file.originalname}):\n${text.slice(0, 12000)}`;
+}
+
+async function analyzeImagesWithVision(imageFiles, userQuery) {
+  const apiKey = config.chatgptApiKey;
+  if (!apiKey) {
+    throw new ApiError(500, "ChatGPT API key not configured.");
+  }
+
+  // Build content array matching the API's exact format from docs
+  const content = [];
+  content.push({ type: "text", text: userQuery || "What's in these images? Describe them in detail." });
+  for (const file of imageFiles) {
+    const base64 = file.buffer.toString("base64");
+    const dataUrl = `data:${file.mimetype};base64,${base64}`;
+    content.push({ type: "image", url: dataUrl });
+  }
+
+  logger.info("vision.request", {
+    imageCount: imageFiles.length,
+    imageSizes: imageFiles.map(f => `${f.originalname}:${Math.round(f.size / 1024)}KB`),
+    query: userQuery?.slice(0, 100),
+  });
+
+  // Try multiple API endpoints/formats until one works
+  const attempts = [
+    {
+      name: "matagvision2",
+      url: "https://chatgpt-vision1.p.rapidapi.com/matagvision2",
+      host: "chatgpt-vision1.p.rapidapi.com",
+      body: { messages: [{ role: "user", content }], web_access: false },
+    },
+    {
+      name: "gpt4o",
+      url: "https://chatgpt-vision1.p.rapidapi.com/gpt4",
+      host: "chatgpt-vision1.p.rapidapi.com",
+      body: {
+        messages: [{
+          role: "user",
+          content: content.map(c => c.type === "text"
+            ? { type: "text", text: c.text }
+            : { type: "image_url", image_url: { url: c.url } }
+          )
+        }],
+        web_access: false,
+      },
+    },
+  ];
+
+  let lastError;
+  for (const attempt of attempts) {
+    try {
+      logger.info(`vision.trying.${attempt.name}`);
+      const response = await fetch(attempt.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-rapidapi-host": attempt.host,
+          "x-rapidapi-key": apiKey,
+        },
+        body: JSON.stringify(attempt.body),
+      });
+
+      const rawText = await response.text();
+      logger.info(`vision.response.${attempt.name}`, { status: response.status, bodyPreview: rawText.slice(0, 300) });
+
+      if (!response.ok) {
+        lastError = new Error(`${attempt.name}: ${response.status} ${rawText.slice(0, 200)}`);
+        continue;
+      }
+
+      let data;
+      try { data = JSON.parse(rawText); } catch { return rawText; }
+
+      const result = data.result || data.message || data.choices?.[0]?.message?.content
+        || data.response || data.answer || data.output;
+      if (result && typeof result === "string" && result.length > 20) {
+        logger.info(`vision.success.${attempt.name}`, { resultLen: result.length });
+        return result;
+      }
+      // If result is too short or empty, try next endpoint
+      lastError = new Error(`${attempt.name}: Empty or unusable response`);
+    } catch (err) {
+      lastError = err;
+      logger.warn(`vision.failed.${attempt.name}`, { error: err.message });
+    }
+  }
+
+  throw lastError || new Error("All vision API attempts failed");
 }
 
 function sseWrite(res, payload) {
@@ -193,22 +282,32 @@ async function chat(req, res) {
   // Web search flag from frontend (autoWebSearch toggle or explicit web mode)
   const webSearch = String(req.body?.webSearch || "false") === "true";
 
-  const attachmentContext = getAttachmentContext(req.file);
-  if (attachmentContext) {
-    messages.push({ role: "user", content: attachmentContext });
+  const files = [
+    ...(req.files?.files || []),
+    ...(req.files?.file || []),
+    ...(req.file ? [req.file] : []),
+  ];
+  const imageFiles = files.filter(f => f.mimetype.startsWith("image/"));
+  const textFiles = files.filter(f => !f.mimetype.startsWith("image/"));
+  if (files.length > 0) {
+    logger.info("chat.attachments", { count: files.length, images: imageFiles.length, text: textFiles.length });
+  }
+  for (const file of textFiles) {
+    const attachmentContext = getAttachmentContext(file);
+    if (attachmentContext) {
+      messages.push({ role: "user", content: attachmentContext });
+    }
   }
 
   if (!messages.length) throw new ApiError(400, "No valid messages provided");
 
-  // Only meaningful once a DB-backed account exists (MONGO_URI set); offline/local
-  // users always pass through with billingUserId === null.
   const billingUserId = resolveBillingUserId(req);
 
   // Set up SSE headers
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // Important for streaming proxies
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
   if (billingUserId && creditService.isDbAvailable()) {
@@ -221,6 +320,30 @@ async function chat(req, res) {
 
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
+
+  // If images are attached, use Vision API instead of normal AI flow
+  if (imageFiles.length > 0) {
+    try {
+      res.write(`data: ${JSON.stringify({ type: "status", data: `Analyzing ${imageFiles.length} image(s) with Vision AI...` })}\n\n`);
+      const visionResult = await analyzeImagesWithVision(imageFiles, input);
+      // Simulate streaming for smooth UX
+      const chunks = visionResult.split(/(?<=\.\s|\n)/);
+      for (let i = 0; i < chunks.length; i += 2) {
+        const chunk = chunks.slice(i, i + 2).join("");
+        res.write(`data: ${JSON.stringify({ type: "content", data: chunk })}\n\n`);
+        await new Promise(r => setTimeout(r, 15));
+      }
+    } catch (err) {
+      logger.error("chat.vision.failed", { reqId, error: err.message });
+      res.write(`data: ${JSON.stringify({ type: "error", data: "Vision analysis failed: " + err.message })}\n\n`);
+    } finally {
+      cleanup();
+      if (billingUserId) {
+        creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});
+      }
+      return res.end();
+    }
+  }
 
   try {
     await AIOrchestrator.processRequest(reqId, {
@@ -340,4 +463,26 @@ async function getHealth(req, res) {
   });
 }
 
-module.exports = { chat, generateTitle, followUps, getHealth };
+async function medicalAnswer(req, res) {
+  const query = String(req.body?.query || "").trim();
+  if (!query) throw new ApiError(400, "query is required");
+  const specialization = String(req.body?.specialization || "general medicine").slice(0, 60);
+  const language = String(req.body?.language || "en").slice(0, 10);
+
+  const result = await medicalService.fetchMedicalAnswer(query, specialization, language);
+  if (!result) return successResponse(res, "No medical data available", null);
+  return successResponse(res, "Medical answer generated", result);
+}
+
+async function textToSpeech(req, res) {
+  const text = String(req.body?.text || "").trim();
+  if (!text) throw new ApiError(400, "text is required");
+  const voice = String(req.body?.voice || "en-US-JennyNeural").slice(0, 40);
+
+  const { buffer, contentType } = await medicalService.synthesizeSpeech(text.slice(0, 2000), voice);
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Length", buffer.length);
+  return res.send(buffer);
+}
+
+module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech };

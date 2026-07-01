@@ -540,7 +540,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
 
-    const sysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
+    let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
     if (astroContext === "USER_BIRTH_DETAILS_MISSING") {
       finalSysPrompt += `\n\n[ASTROLOGY REQUEST DETECTED]\nThe user is asking about astrology. To provide highly accurate, personalized readings using our FreeAstroAPI integration, you MUST politely ask the user for their birth date (year, month, day), time of birth (hour, minute), and city of birth. Do not make up a horoscope without this data.`;
     } else if (astroContext === "API_ERROR") {
