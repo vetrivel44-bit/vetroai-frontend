@@ -17,16 +17,30 @@ const app = express();
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false, // For development, allow all sources for scripts
+  // Keep CSP disabled only during development. Production gets Helmet's
+  // default CSP instead of allowing arbitrary script sources.
+  contentSecurityPolicy: config.nodeEnv === "development" ? false : undefined,
 }));
+
+const allowedOrigins = config.corsOrigin
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: function (origin, callback) {
-      callback(null, true);
+    origin: (origin, callback) => {
+      // Non-browser requests (health checks, server-to-server calls) have no Origin.
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      logger.info("cors.blocked_origin", { origin });
+      return callback(new Error("CORS origin not allowed"));
     },
     credentials: true,
   })
 );
+
 // Stripe needs the raw, unparsed body to verify webhook signatures — must be
 // registered before the global express.json() parser below.
 app.post(
