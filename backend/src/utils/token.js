@@ -2,8 +2,23 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { config } = require("../config/env");
 
-function getAccessSecret() { return config.jwtSecret || process.env.JWT_SECRET || "vetroai_dev_secret_fallback_2024"; }
-function getRefreshSecret() { return config.jwtRefreshSecret || process.env.JWT_REFRESH_SECRET || "vetroai_dev_refresh_fallback_2024"; }
+function requireSecret(value, name) {
+  if (!value) {
+    throw new Error(`${name} is not configured`);
+  }
+  return value;
+}
+
+function getAccessSecret() {
+  return requireSecret(config.jwtSecret || process.env.JWT_SECRET, "JWT_SECRET");
+}
+
+function getRefreshSecret() {
+  return requireSecret(
+    config.jwtRefreshSecret || process.env.JWT_REFRESH_SECRET,
+    "JWT_REFRESH_SECRET"
+  );
+}
 
 function signAccessToken(userId) {
   return jwt.sign({ userId }, getAccessSecret(), {
