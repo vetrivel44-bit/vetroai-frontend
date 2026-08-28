@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vetroai-frontend",
+  "compatibility_date": "2026-08-28",
+  "observability": {
+    "enabled": true
+  },
+  "build": {
+    "command": "npm --prefix frontend clean-install --progress=false && npm --prefix frontend run build"
+  },
+  "assets": {
+    "directory": "frontend/dist",
+    "not_found_handling": "single-page-application"
+  }
+}
