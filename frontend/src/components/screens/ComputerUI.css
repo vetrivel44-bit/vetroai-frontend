@@ -1,0 +1,213 @@
+.cowork-shell {
+  --cw-bg: #f8f7f3;
+  --cw-panel: #efeee8;
+  --cw-surface: #ffffff;
+  --cw-text: #25231f;
+  --cw-muted: #746f66;
+  --cw-line: #dedbd3;
+  --cw-accent: #c96435;
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--cw-text);
+  background: var(--cw-bg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.cowork-shell *, .cowork-shell *::before, .cowork-shell *::after { box-sizing: border-box; }
+.cowork-shell button, .cowork-shell textarea, .cowork-shell select { font: inherit; }
+.cowork-shell button { cursor: pointer; }
+.cowork-tasks-sidebar {
+  display: flex !important;
+  flex-direction: column;
+  flex: 0 0 272px !important;
+  width: 272px !important;
+  min-width: 272px;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid var(--cw-line);
+  background: var(--cw-panel);
+  transition: width .22s ease, flex-basis .22s ease, min-width .22s ease;
+}
+.cowork-tasks-sidebar.is-closed {
+  flex-basis: 0 !important;
+  width: 0 !important;
+  min-width: 0;
+  border-right: 0;
+}
+.cowork-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at 65% 20%, rgba(210, 132, 86, .055), transparent 34%),
+    var(--cw-bg);
+}
+.cowork-header {
+  height: 64px;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--cw-line);
+  background: rgba(248,247,243,.94);
+  backdrop-filter: blur(14px);
+  z-index: 3;
+}
+.cowork-home-scroll, .cowork-thread-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.cowork-home-scroll {
+  padding: 56px 28px 40px;
+}
+.cowork-home {
+  width: min(100%, 880px);
+  min-height: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.cowork-hero-icon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 17px;
+  color: white;
+  background: linear-gradient(145deg, #302d28, #181713);
+  box-shadow: 0 12px 30px rgba(35,31,26,.18);
+}
+.cowork-title {
+  margin: 0 0 12px;
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: clamp(38px, 5vw, 56px);
+  font-weight: 500;
+  letter-spacing: -.035em;
+  line-height: 1.05;
+  color: var(--cw-text);
+}
+.cowork-subtitle {
+  max-width: 690px;
+  margin: 0 0 34px;
+  color: var(--cw-muted);
+  font-size: 16px;
+  line-height: 1.7;
+}
+.cowork-starter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.cowork-starter-card {
+  min-height: 130px;
+  padding: 18px !important;
+  text-align: left;
+  color: var(--cw-text);
+  border: 1px solid var(--cw-line) !important;
+  border-radius: 18px !important;
+  background: rgba(255,255,255,.82) !important;
+  box-shadow: 0 2px 8px rgba(35,31,26,.035);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.cowork-starter-card:hover {
+  transform: translateY(-2px);
+  border-color: #c8bfb3 !important;
+  box-shadow: 0 10px 28px rgba(35,31,26,.08);
+}
+.cowork-starter-card svg { color: var(--cw-accent) !important; margin-bottom: 12px; }
+.cowork-starter-card > div:nth-of-type(1) {
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.cowork-starter-card > div:nth-of-type(2) {
+  color: var(--cw-muted) !important;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.cowork-composer {
+  position: relative;
+  width: 100%;
+  padding: 13px 14px 11px !important;
+  border: 1px solid #d5d1c8 !important;
+  border-radius: 20px !important;
+  background: var(--cw-surface) !important;
+  box-shadow: 0 14px 38px rgba(48,42,35,.09) !important;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.cowork-composer:focus-within {
+  border-color: #a99e90 !important;
+  box-shadow: 0 16px 44px rgba(48,42,35,.12) !important;
+}
+.cowork-composer textarea {
+  min-height: 58px;
+  color: var(--cw-text) !important;
+  font-size: 15px !important;
+  line-height: 1.55;
+}
+.cowork-composer textarea::placeholder { color: #aaa49a !important; }
+.cowork-footnote {
+  margin: 13px 0 0;
+  color: #8a847a;
+  text-align: center;
+  font-size: 11px;
+}
+.cowork-thread-scroll { padding: 30px 28px; }
+.cowork-thread-grid {
+  width: min(100%, 1080px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 286px;
+  gap: 24px;
+  align-items: start;
+}
+.cowork-bottom-composer {
+  flex: 0 0 auto;
+  padding: 18px 28px 24px;
+  background: linear-gradient(to top, var(--cw-bg) 72%, rgba(248,247,243,0));
+}
+.cowork-bottom-composer > div { width: min(100%, 1080px); margin: 0 auto; }
+.cowork-shell .prose { color: var(--cw-text) !important; }
+.cowork-shell .prose p { margin: 0 0 12px; }
+.cowork-shell .prose pre { max-width: 100%; overflow: auto; border-radius: 14px; }
+.cowork-shell select {
+  min-height: 36px;
+  color: var(--cw-text);
+  border: 1px solid var(--cw-line);
+  border-radius: 11px;
+  background: white;
+}
+@media (max-width: 900px) {
+  .cowork-tasks-sidebar { flex-basis: 232px !important; width: 232px !important; min-width: 232px; }
+  .cowork-thread-grid { grid-template-columns: 1fr; }
+  .cowork-thread-grid > aside { position: static !important; order: -1; }
+}
+@media (max-width: 720px) {
+  .cowork-tasks-sidebar { display: none !important; }
+  .cowork-header { height: 58px; min-height: 58px; padding: 0 12px; }
+  .cowork-home-scroll { padding: 30px 16px 24px; }
+  .cowork-home { justify-content: flex-start; padding-top: 20px; }
+  .cowork-title { font-size: 38px; }
+  .cowork-subtitle { font-size: 14px; margin-bottom: 24px; }
+  .cowork-starter-grid { grid-template-columns: 1fr; }
+  .cowork-starter-card { min-height: 104px; }
+  .cowork-thread-scroll { padding: 20px 14px; }
+  .cowork-bottom-composer { padding: 12px 14px 16px; }
+}
+@media (max-width: 430px) {
+  .cowork-header select { max-width: 130px; }
+  .cowork-header > button:last-child { display: none; }
+  .cowork-title { font-size: 34px; }
+}
