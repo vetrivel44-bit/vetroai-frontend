@@ -230,10 +230,31 @@ export default function ComputerUI({ onClose }) {
     abortRef.current = controller;
 
     try {
+      let taskPrompt = prompt;
+      if (NEARBY_REQUEST.test(prompt)) {
+        setLocationNotice("Requesting your precise location…");
+        const result = await requestCurrentLocation();
+        if (result.location) {
+          const accuracy = Math.round(result.location.accuracy || 0);
+          setLocationNotice("Location allowed" + (accuracy ? " (accuracy about " + accuracy + " m)." : "."));
+          taskPrompt += "\n\n[USER-APPROVED CURRENT LOCATION] Latitude: " + result.location.lat + ", Longitude: " + result.location.lng + ". Use these coordinates only for this nearby request.";
+        } else {
+          const instruction = result.reason === "denied"
+            ? "Location is blocked. Click the lock/site-controls icon beside the address bar, set Location to Allow, then retry."
+            : "Location is unavailable. Check Windows Location Services or provide your city, locality, or PIN code.";
+          setLocationNotice(instruction);
+          taskPrompt += "\n\n[LOCATION UNAVAILABLE] " + instruction + " Do not guess the user's location.";
+        }
+      }
+      const youtubeMatch = prompt.match(YOUTUBE_REQUEST);
+      if (youtubeMatch) {
+        const musicQuery = (youtubeMatch[1] || youtubeMatch[2] || prompt).trim();
+        window.open("https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery), "_blank", "noopener,noreferrer");
+      }
       const body = new FormData();
       body.append("provider", "agnes");
       body.append("mode", "code_exec");
-      body.append("input", prompt);
+      body.append("input", taskPrompt);
       body.append("messages", JSON.stringify(contextMessages));
       body.append("webSearch", "true");
       body.append("safeMode", "true");
@@ -261,7 +282,14 @@ export default function ComputerUI({ onClose }) {
       patchTask(taskId, t => ({
         ...t,
         status: "completed",
-        steps: t.steps.map(s => ({ ...s, status: "done" }))
+        steps: t.steps.map(s => ({ ...s, status: "done" })),
+        messages: t.messages.map(message => message.id === assistantId ? {
+          ...message,
+          exports: [
+            ...(WORD_REQUEST.test(prompt) ? ["word"] : []),
+            ...(SHEET_REQUEST.test(prompt) ? ["spreadsheet"] : [])
+          ]
+        } : message)
       }));
       setFiles([]);
     } catch (error) {
@@ -439,6 +467,13 @@ export default function ComputerUI({ onClose }) {
           <button onClick={() => setShowCapabilities(true)} className="p-2 rounded-lg hover:bg-stone-100" title="Capabilities"><MoreHorizontal size={18} /></button>
         </header>
 
+        {locationNotice && (
+          <div className="cowork-location-notice">
+            <MapPin size={16} /><span>{locationNotice}</span>
+            <button type="button" onClick={() => setLocationNotice("")} aria-label="Dismiss location message"><X size={14} /></button>
+          </div>
+        )}
+
         {!activeTask || activeTask.messages.length === 0 ? (
           <section className="cowork-home-scroll">
             <div className="cowork-home">
@@ -477,7 +512,17 @@ export default function ComputerUI({ onClose }) {
                         ? "max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 text-white px-4 py-3 text-sm"
                         : "min-w-0 flex-1 prose prose-sm max-w-none text-stone-800 leading-7"}>
                         {message.role === "assistant"
-                          ? (message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
+                          ? (message.content ? (
+                            <>
+                              <ReactMarkdown>{message.content}</ReactMarkdown>
+                              {message.exports?.length > 0 && (
+                                <div className="cowork-export-actions">
+                                  {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, message.content)}><Download size={15} /> Download Word document</button>}
+                                  {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, message.content)}><Download size={15} /> Download spreadsheet</button>}
+                                </div>
+                              )}
+                            </>
+                          ) : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
                           : message.content}
                       </div>
                     </div>
