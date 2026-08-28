@@ -1,11 +1,12 @@
 .cowork-shell {
-  --cw-bg: #f8f7f3;
-  --cw-panel: #efeee8;
-  --cw-surface: #ffffff;
-  --cw-text: #25231f;
-  --cw-muted: #746f66;
-  --cw-line: #dedbd3;
-  --cw-accent: #c96435;
+  --cw-bg: #f7f3eb;
+  --cw-panel: #eee8dc;
+  --cw-surface: #fffcf7;
+  --cw-text: #292621;
+  --cw-muted: #746c62;
+  --cw-line: #e3dbcf;
+  --cw-accent: #b65334;
+  --cw-sage: #60796a;
   position: relative;
   display: flex;
   width: 100%;
@@ -46,7 +47,8 @@
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(circle at 65% 20%, rgba(210, 132, 86, .055), transparent 34%),
+    radial-gradient(circle at 70% 18%, rgba(182,83,52,.07), transparent 35%),
+    radial-gradient(circle at 20% 82%, rgba(96,121,106,.055), transparent 30%),
     var(--cw-bg);
 }
 .cowork-header {
@@ -57,7 +59,7 @@
   gap: 10px;
   padding: 0 22px;
   border-bottom: 1px solid var(--cw-line);
-  background: rgba(248,247,243,.94);
+  background: color-mix(in srgb, var(--cw-bg) 92%, transparent);
   backdrop-filter: blur(14px);
   z-index: 3;
 }
@@ -85,8 +87,8 @@
   place-items: center;
   border-radius: 17px;
   color: white;
-  background: linear-gradient(145deg, #302d28, #181713);
-  box-shadow: 0 12px 30px rgba(35,31,26,.18);
+  background: linear-gradient(145deg, var(--cw-accent), var(--cw-sage));
+  box-shadow: 0 12px 30px rgba(93,68,54,.18);
 }
 .cowork-title {
   margin: 0 0 12px;
@@ -117,13 +119,13 @@
   color: var(--cw-text);
   border: 1px solid var(--cw-line) !important;
   border-radius: 18px !important;
-  background: rgba(255,255,255,.82) !important;
+  background: color-mix(in srgb, var(--cw-surface) 88%, transparent) !important;
   box-shadow: 0 2px 8px rgba(35,31,26,.035);
   transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 .cowork-starter-card:hover {
   transform: translateY(-2px);
-  border-color: #c8bfb3 !important;
+  border-color: color-mix(in srgb, var(--cw-accent) 35%, var(--cw-line)) !important;
   box-shadow: 0 10px 28px rgba(35,31,26,.08);
 }
 .cowork-starter-card svg { color: var(--cw-accent) !important; margin-bottom: 12px; }
@@ -141,15 +143,15 @@
   position: relative;
   width: 100%;
   padding: 13px 14px 11px !important;
-  border: 1px solid #d5d1c8 !important;
+  border: 1px solid var(--cw-line) !important;
   border-radius: 20px !important;
   background: var(--cw-surface) !important;
   box-shadow: 0 14px 38px rgba(48,42,35,.09) !important;
   transition: border-color .18s ease, box-shadow .18s ease;
 }
 .cowork-composer:focus-within {
-  border-color: #a99e90 !important;
-  box-shadow: 0 16px 44px rgba(48,42,35,.12) !important;
+  border-color: color-mix(in srgb, var(--cw-accent) 48%, var(--cw-line)) !important;
+  box-shadow: 0 16px 44px rgba(76,59,48,.12), 0 0 0 3px color-mix(in srgb, var(--cw-accent) 9%, transparent) !important;
 }
 .cowork-composer textarea {
   min-height: 58px;
@@ -235,7 +237,7 @@
   color: var(--cw-text);
   border: 1px solid var(--cw-line);
   border-radius: 11px;
-  background: white;
+  background: var(--cw-surface);
 }
 @media (max-width: 900px) {
   .cowork-tasks-sidebar { flex-basis: 232px !important; width: 232px !important; min-width: 232px; }
@@ -446,3 +448,26 @@
   font-weight: 600;
 }
 .cowork-export-actions button:hover { background: #44403c; }
+
+/* Calm Studio theme parity for Computer mode and dark mode. */
+[data-theme="dark"] .cowork-shell {
+  --cw-bg:#1b1916;
+  --cw-panel:#171512;
+  --cw-surface:#27231e;
+  --cw-text:#f5efe5;
+  --cw-muted:#aea397;
+  --cw-line:rgba(245,239,229,.10);
+  --cw-accent:#e28b6c;
+  --cw-sage:#91ad9c;
+}
+.cowork-shell .bg-white,.cowork-shell .bg-stone-50 { background:var(--cw-surface); }
+.cowork-shell .bg-stone-100 { background:color-mix(in srgb,var(--cw-panel) 72%,var(--cw-surface)); }
+.cowork-shell .bg-stone-900,.cowork-export-actions button { background:var(--cw-accent); }
+.cowork-shell .text-stone-400,.cowork-shell .text-stone-500 { color:var(--cw-muted); }
+.cowork-shell .text-stone-600,.cowork-shell .text-stone-700,.cowork-shell .text-stone-800,.cowork-shell .text-stone-900 { color:var(--cw-text); }
+.cowork-shell .border-stone-100,.cowork-shell .border-stone-200 { border-color:var(--cw-line); }
+.cowork-shell .hover\:bg-stone-100:hover,.cowork-shell .hover\:bg-stone-200:hover,.cowork-shell .hover\:bg-stone-200\/70:hover { background:var(--cw-panel); }
+.cowork-export-actions button:hover { background:color-mix(in srgb,var(--cw-accent) 82%,#261b16); }
+[data-theme="dark"] .cowork-composer textarea::placeholder { color:#887e73 !important; }
+[data-theme="dark"] .cowork-starter-card { box-shadow:0 2px 10px rgba(0,0,0,.16); }
+[data-theme="dark"] .cowork-capabilities-modal { box-shadow:0 25px 60px rgba(0,0,0,.46); }

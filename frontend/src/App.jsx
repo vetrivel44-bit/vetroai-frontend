@@ -5474,7 +5474,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
               <Newspaper size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? 'var(--accent-secondary)' : "var(--ink-4)" }}>
               <Ghost size={18} />
             </button>
             {messages.length > 0 && (
@@ -5491,10 +5491,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         {/* Incognito banner */}
         {isIncognito && (
-          <div style={{ background: 'linear-gradient(90deg, #2a1a4a, #1a1a3a)', borderBottom: '1px solid rgba(167,123,245,0.25)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <Ghost size={14} style={{ color: '#A77BF5' }} />
-            <span style={{ fontSize: 12, color: '#C4A8F8', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
-            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#8B6DBF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>Turn off</button>
+          <div className="incognito-banner" style={{ background: 'var(--accent-secondary-soft)', borderBottom: '1px solid color-mix(in srgb, var(--accent-secondary) 28%, transparent)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <Ghost size={14} style={{ color: 'var(--accent-secondary)' }} />
+            <span style={{ fontSize: 12, color: 'var(--ink-2)', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
+            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>Turn off</button>
           </div>
         )}
 
@@ -5542,7 +5542,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        {/* ── AI avatar ── */}
                        {m.role !== 'user' && (
                          <div className="flex-shrink-0 mt-1">
-                           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, var(--accent-secondary) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                              <VetroSparkWhite size={22} />
                            </div>
                          </div>
@@ -5773,7 +5773,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
                      <div className="flex w-full mb-6 justify-start gap-3">
-                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, var(--accent-secondary) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                          <VetroSparkWhite size={22} />
                        </div>
                        <div style={{ paddingTop: 6, color: "var(--ink-3)" }}>
