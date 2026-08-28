@@ -84,99 +84,11 @@ function getAttachmentContext(file) {
     throw new ApiError(400, "Unsupported attachment type. Use txt, md, csv, json, pdf, or images.");
   }
   if (file.mimetype.startsWith("image/")) {
-    return null; // Images are handled separately via Vision API
+    return null; // Browser clients analyze images directly with Puter GPT-5.6 Luna.
   }
   const text = file.buffer.toString("utf-8").trim();
   if (!text) return null;
   return `Attached file (${file.originalname}):\n${text.slice(0, 12000)}`;
-}
-
-async function analyzeImagesWithVision(imageFiles, userQuery) {
-  const apiKey = config.chatgptApiKey;
-  if (!apiKey) {
-    throw new ApiError(500, "ChatGPT API key not configured.");
-  }
-
-  // Build content array matching the API's exact format from docs
-  const content = [];
-  content.push({ type: "text", text: userQuery || "What's in these images? Describe them in detail." });
-  for (const file of imageFiles) {
-    const base64 = file.buffer.toString("base64");
-    const dataUrl = `data:${file.mimetype};base64,${base64}`;
-    content.push({ type: "image", url: dataUrl });
-  }
-
-  logger.info("vision.request", {
-    imageCount: imageFiles.length,
-    imageSizes: imageFiles.map(f => `${f.originalname}:${Math.round(f.size / 1024)}KB`),
-    query: userQuery?.slice(0, 100),
-  });
-
-  // Try multiple API endpoints/formats until one works
-  const attempts = [
-    {
-      name: "matagvision2",
-      url: "https://chatgpt-vision1.p.rapidapi.com/matagvision2",
-      host: "chatgpt-vision1.p.rapidapi.com",
-      body: { messages: [{ role: "user", content }], web_access: false },
-    },
-    {
-      name: "gpt4o",
-      url: "https://chatgpt-vision1.p.rapidapi.com/gpt4",
-      host: "chatgpt-vision1.p.rapidapi.com",
-      body: {
-        messages: [{
-          role: "user",
-          content: content.map(c => c.type === "text"
-            ? { type: "text", text: c.text }
-            : { type: "image_url", image_url: { url: c.url } }
-          )
-        }],
-        web_access: false,
-      },
-    },
-  ];
-
-  let lastError;
-  for (const attempt of attempts) {
-    try {
-      logger.info(`vision.trying.${attempt.name}`);
-      const response = await fetch(attempt.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-rapidapi-host": attempt.host,
-          "x-rapidapi-key": apiKey,
-        },
-        body: JSON.stringify(attempt.body),
-      });
-
-      const rawText = await response.text();
-      logger.info(`vision.response.${attempt.name}`, { status: response.status, bodyPreview: rawText.slice(0, 300) });
-
-      if (!response.ok) {
-        lastError = new Error(`${attempt.name}: ${response.status} ${rawText.slice(0, 200)}`);
-        continue;
-      }
-
-      let data;
-      try { data = JSON.parse(rawText); } catch { return rawText; }
-
-      const result = data.result || data.message || data.choices?.[0]?.message?.content
-        || data.response || data.answer || data.output;
-      if (result && typeof result === "string" && result.length > 20) {
-        logger.info(`vision.success.${attempt.name}`, { resultLen: result.length });
-        return result;
-      }
-      // If result is too short or empty, try next endpoint
-      lastError = new Error(`${attempt.name}: Empty or unusable response`);
-    } catch (err) {
-      lastError = err;
-      logger.warn(`vision.failed.${attempt.name}`, { error: err.message });
-    }
-  }
-
-  throw lastError || new Error("All vision API attempts failed");
 }
 
 async function withRetry(operation, retries = 2, delay = 1000) {
@@ -288,30 +200,6 @@ async function chat(req, res) {
 
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
-
-  // If images are attached, use Vision API instead of normal AI flow
-  if (imageFiles.length > 0) {
-    try {
-      res.write(`data: ${JSON.stringify({ type: "status", data: `Analyzing ${imageFiles.length} image(s) with Vision AI...` })}\n\n`);
-      const visionResult = await analyzeImagesWithVision(imageFiles, input);
-      // Simulate streaming for smooth UX
-      const chunks = visionResult.split(/(?<=\.\s|\n)/);
-      for (let i = 0; i < chunks.length; i += 2) {
-        const chunk = chunks.slice(i, i + 2).join("");
-        res.write(`data: ${JSON.stringify({ type: "content", data: chunk })}\n\n`);
-        await new Promise(r => setTimeout(r, 15));
-      }
-    } catch (err) {
-      logger.error("chat.vision.failed", { reqId, error: err.message });
-      res.write(`data: ${JSON.stringify({ type: "error", data: "Vision analysis failed: " + err.message })}\n\n`);
-    } finally {
-      cleanup();
-      if (billingUserId) {
-        creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});
-      }
-      return res.end();
-    }
-  }
 
   try {
     await AIOrchestrator.processRequest(reqId, {

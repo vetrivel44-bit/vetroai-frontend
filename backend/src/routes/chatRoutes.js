@@ -6,7 +6,6 @@ const { chatLimiter } = require("../middleware/rateLimiters");
 const logger = require("../utils/logger");
 const chatController = require("../controllers/chatController");
 const searchController = require("../controllers/searchController");
-const imageController = require("../controllers/imageController");
 const videoController = require("../controllers/videoController");
 
 const router = express.Router();
@@ -35,7 +34,6 @@ router.post("/chat", chatLimiter, handleUpload, asyncHandler(chatController.chat
 router.post("/generate-title", chatLimiter, asyncHandler(chatController.generateTitle));
 router.post("/follow-ups", chatLimiter, asyncHandler(chatController.followUps));
 router.post("/search", chatLimiter, asyncHandler(searchController.performSearch));
-router.post("/generate-image", chatLimiter, asyncHandler(imageController.generateImage));
 router.post("/generate-video", chatLimiter, asyncHandler(videoController.generateVideo));
 router.get("/video-status/:videoId", asyncHandler(videoController.checkVideoStatus));
 router.post("/medical-answer", chatLimiter, asyncHandler(chatController.medicalAnswer));
