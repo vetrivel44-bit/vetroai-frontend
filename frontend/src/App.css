@@ -11741,3 +11741,44 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
     max-height: 280px !important;
   }
 }
+
+
+/* Theme-aware mention picker: matches the active chat composer in every theme. */
+.plugin-mention-menu {
+  color: var(--ink) !important;
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-str, var(--border)) !important;
+  box-shadow: var(--shadow-lg, 0 18px 55px rgba(0, 0, 0, 0.28)) !important;
+  color-scheme: light dark;
+}
+
+.plugin-mention-title,
+.plugin-mention-option small,
+.plugin-mention-empty {
+  color: var(--ink-3) !important;
+}
+
+.plugin-mention-option {
+  color: var(--ink) !important;
+  background: transparent !important;
+}
+
+.plugin-mention-option:hover,
+.plugin-mention-option.active,
+.plugin-mention-option[aria-selected="true"] {
+  color: var(--ink) !important;
+  background: var(--bg-hover) !important;
+}
+
+.plugin-mention-icon {
+  background: var(--bg-hover) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.plugin-mention-option strong {
+  color: var(--ink) !important;
+}
+
+.plugin-mention-menu::-webkit-scrollbar { width: 6px; }
+.plugin-mention-menu::-webkit-scrollbar-track { background: transparent; }
+.plugin-mention-menu::-webkit-scrollbar-thumb { background: var(--ink-5); border-radius: 999px; }
