@@ -1828,53 +1828,119 @@ function parseDesignResponse(text) {
   // Closed fence, with or without a language tag: ```html ... ``` or ``` ... ```
   let m = text.match(/```(?:html)?\s*\n?([\s\S]*?)```/i);
   if (m && /<(!doctype|html|head|body|div|style)\b/i.test(m[1])) {
-    return { caption: text.slice(0, m.index).trim(), html: injectSmoothScrollbar(m[1].trim()) };
+    return { caption: text.slice(0, m.index).trim(), html: m[1].trim() };
   }
 
   // Unclosed fence — streaming mid-response, or the model never emitted a closing ```
   m = text.match(/```(?:html)?\s*\n?([\s\S]*)/i);
   if (m && /<(!doctype|html|head|body)\b/i.test(m[1])) {
-    return { caption: text.slice(0, m.index).trim(), html: injectSmoothScrollbar(m[1].trim()) };
+    return { caption: text.slice(0, m.index).trim(), html: m[1].trim() };
   }
 
   // No fences at all — model returned raw HTML directly
   const rawStart = text.search(/<(!doctype html|html)\b/i);
   if (rawStart !== -1) {
-    return { caption: text.slice(0, rawStart).trim(), html: injectSmoothScrollbar(text.slice(rawStart).trim()) };
+    return { caption: text.slice(0, rawStart).trim(), html: text.slice(rawStart).trim() };
   }
 
   return { caption: text.trim(), html: "" };
 }
 
+const DESIGN_STARTERS = [
+  {
+    title: "SaaS landing page",
+    detail: "Hero, features and pricing",
+    prompt: "Create a premium SaaS landing page for an AI productivity app with a strong hero, social proof, feature cards, pricing, testimonials and a polished responsive mobile layout.",
+  },
+  {
+    title: "Analytics dashboard",
+    detail: "Metrics, charts and activity",
+    prompt: "Design a modern analytics dashboard for a growing startup with a sidebar, revenue metrics, a CSS-based chart, recent activity and responsive navigation. Make every control interactive.",
+  },
+  {
+    title: "Mobile finance app",
+    detail: "Balance, cards and transfers",
+    prompt: "Design a refined mobile-first personal finance app with balance cards, recent transactions, spending insights and a working quick-transfer interaction.",
+  },
+  {
+    title: "Portfolio site",
+    detail: "Editorial case-study layout",
+    prompt: "Create an editorial product designer portfolio with an expressive hero, selected case studies, about section, subtle motion and a polished contact call-to-action.",
+  },
+];
+
+function designProjectTitle(messages) {
+  const firstPrompt = messages.find(message => message.role === "user")?.content || "Untitled design";
+  const words = firstPrompt.replace(/[^\p{L}\p{N}\s-]/gu, " ").trim().split(/\s+/).filter(Boolean).slice(0, 5);
+  return words.length ? words.join(" ") : "Untitled design";
+}
+
 function DesignCanvas({ onClose }) {
-  const [messages, setMessages] = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_design_history") || "[]"); } catch { return []; } });
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("vetroai_design_history") || "[]");
+      return Array.isArray(saved) ? saved : [];
+    } catch {
+      swallowError();
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [statusText, setStatusText] = useState("Ready to create");
+  const [error, setError] = useState("");
   const [tab, setTab] = useState("preview");
   const [viewport, setViewport] = useState("desktop");
   const [copied, setCopied] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
   const abortRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    try { localStorage.setItem("vetroai_design_history", JSON.stringify(messages.slice(-20))); } catch {}
+    try { localStorage.setItem("vetroai_design_history", JSON.stringify(messages.slice(-14))); } catch { swallowError(); }
   }, [messages]);
 
   const lastDesign = useMemo(() => {
-    const lastAssistant = [...messages].reverse().find(m => m.role === "assistant" && m.content);
-    return lastAssistant ? parseDesignResponse(lastAssistant.content) : { caption: "", html: "" };
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role !== "assistant" || !messages[index].content) continue;
+      const parsed = parseDesignResponse(messages[index].content);
+      if (parsed.html) return { ...parsed, messageIndex: index };
+    }
+    return { caption: "", html: "", messageIndex: -1 };
   }, [messages]);
 
-  const send = async () => {
-    const text = input.trim();
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [messages, statusText]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      abortRef.current?.abort();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const send = async (promptOverride) => {
+    const text = (typeof promptOverride === "string" ? promptOverride : input).trim();
     if (!text || isLoading) return;
     const hist = [...messages, { role: "user", content: text }, { role: "assistant", content: "" }];
     setMessages(hist);
     setInput("");
     setIsLoading(true);
+    setError("");
+    setStatusText(lastDesign.html ? "Applying your changes…" : "Building your design…");
     setTab("preview");
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const isActive = () => abortRef.current === ctrl;
+    const reqId = `design_${Date.now()}`;
+    let requestFailed = false;
     try {
       const fd = new FormData();
       fd.append("input", text);
@@ -1882,97 +1948,244 @@ function DesignCanvas({ onClose }) {
       fd.append("mode", "design");
       fd.append("temperature", "0.7");
       fd.append("maxTokens", "6000");
-      fd.append("reqId", `design_${Date.now()}`);
+      fd.append("reqId", reqId);
       fd.append("webSearch", "false");
       const res = await fetch(API + "/chat", { method: "POST", body: fd, signal: ctrl.signal });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      await readSSEStream(
+      if (!res.ok || !res.body) throw new Error(res.status === 429 ? "Too many requests. Please wait a moment and try again." : `Design service returned ${res.status}.`);
+      const finalText = await readSSEStream(
         res.body.getReader(),
         (acc) => { if (isActive()) setMessages(prev => { const u = [...prev]; u[u.length - 1] = { role: "assistant", content: acc }; return u; }); },
-        () => {},
-        (errMsg) => { if (isActive()) setMessages(prev => { const u = [...prev]; u[u.length - 1] = { role: "assistant", content: `⚠️ ${errMsg}` }; return u; }); },
+        (nextStatus) => { if (isActive()) setStatusText(nextStatus); },
+        (errMsg) => {
+          if (!isActive()) return;
+          requestFailed = true;
+          setError(errMsg);
+          setMessages(prev => { const u = [...prev]; u[u.length - 1] = { role: "assistant", content: `⚠️ ${errMsg}` }; return u; });
+        },
         isActive,
-        `design_${Date.now()}`
+        reqId
       );
+      if (isActive() && !requestFailed && !parseDesignResponse(finalText).html) {
+        requestFailed = true;
+        setError("The design response was incomplete. Your previous preview is safe — please try the update again.");
+      }
     } catch (err) {
       if (err.name !== "AbortError" && isActive()) {
-        setMessages(prev => { const u = [...prev]; u[u.length - 1] = { role: "assistant", content: `⚠️ ${err.message || "Something went wrong."}` }; return u; });
+        requestFailed = true;
+        const message = err.message || "Something went wrong while creating the design.";
+        setError(message);
+        setMessages(prev => { const u = [...prev]; u[u.length - 1] = { role: "assistant", content: `⚠️ ${message}` }; return u; });
       }
     } finally {
-      if (isActive()) setIsLoading(false);
+      if (isActive()) {
+        abortRef.current = null;
+        setIsLoading(false);
+        setStatusText(requestFailed ? "Needs attention" : "Design ready");
+      }
     }
   };
 
-  const copy = () => { navigator.clipboard.writeText(lastDesign.html); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const stop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsLoading(false);
+    setStatusText("Generation stopped");
+    setMessages(prev => {
+      const last = prev[prev.length - 1];
+      return last?.role === "assistant" && !last.content ? prev.slice(0, -1) : prev;
+    });
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(lastDesign.html);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Your browser blocked clipboard access. Use the Code view to select the HTML.");
+    }
+  };
   const download = () => {
     const blob = new Blob([lastDesign.html], { type: "text/html" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "design.html"; a.click();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${designProjectTitle(messages).toLowerCase().replace(/\s+/g, "-")}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
-  const openInNewTab = () => { const w = window.open("", "_blank"); if (w) { w.document.write(lastDesign.html); w.document.close(); } };
+  const openInNewTab = () => {
+    const url = URL.createObjectURL(new Blob([lastDesign.html], { type: "text/html" }));
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) setError("Your browser blocked the preview tab. Allow pop-ups and try again.");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
   const clearChat = () => {
     if (messages.length && !window.confirm("Clear this design conversation?")) return;
+    stop();
     setMessages([]);
-    try { localStorage.removeItem("vetroai_design_history"); } catch {}
+    setError("");
+    setStatusText("Ready to create");
+    setTab("preview");
+    try { localStorage.removeItem("vetroai_design_history"); } catch { swallowError(); }
+    window.setTimeout(() => inputRef.current?.focus(), 50);
   };
+
+  const projectTitle = designProjectTitle(messages);
+  const latestAssistant = [...messages].reverse().find(message => message.role === "assistant" && message.content);
+  const latestCaption = latestAssistant ? parseDesignResponse(latestAssistant.content).caption : "";
 
   return (
     <div className="design-canvas-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="design-canvas" onClick={e => e.stopPropagation()}>
+      <div className="design-canvas" role="dialog" aria-modal="true" aria-label="Vetro Design Studio" onClick={e => e.stopPropagation()}>
         <div className="design-canvas-header">
-          <h3 className="modal-title"><Palette size={16} /> Design <FlaskConical size={12} style={{ color: "var(--ink-4)" }} /></h3>
-          {lastDesign.html && (
-            <div className="design-viewport-toggle">
-              <button className={viewport === "mobile" ? "active" : ""} onClick={() => setViewport("mobile")} title="Mobile"><Smartphone size={14} /></button>
-              <button className={viewport === "tablet" ? "active" : ""} onClick={() => setViewport("tablet")} title="Tablet"><Tablet size={14} /></button>
-              <button className={viewport === "desktop" ? "active" : ""} onClick={() => setViewport("desktop")} title="Desktop"><Monitor size={14} /></button>
+          <div className="design-brand">
+            <span className="design-brand-mark"><Paintbrush size={16} /></span>
+            <div>
+              <h3>Vetro Design</h3>
+              <p title={projectTitle}>{projectTitle}</p>
             </div>
-          )}
-          <div style={{ display: "flex", gap: 6 }}>
+          </div>
+          <div className="design-view-tabs" role="tablist" aria-label="Design view">
+            <button role="tab" aria-selected={tab === "preview"} className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}><Play size={13} /> Preview</button>
+            <button role="tab" aria-selected={tab === "code"} className={tab === "code" ? "active" : ""} onClick={() => setTab("code")} disabled={!lastDesign.html}><Code size={14} /> Code</button>
+          </div>
+          <div className="design-header-actions">
             {lastDesign.html && (
               <>
-                <button className="atab" onClick={() => setTab(tab === "code" ? "preview" : "code")}>{tab === "code" ? "▶ Preview" : "📄 Code"}</button>
-                <button className="atab" onClick={openInNewTab} title="Open in new tab"><ExternalLink size={13} /></button>
-                <button className="atab" onClick={download} title="Download"><Download size={13} /></button>
-                <button className="atab" onClick={copy} style={{ color: copied ? "var(--success)" : undefined }}>{copied ? "✓ Copied" : "Copy"}</button>
+                <button className="design-icon-button" onClick={openInNewTab} title="Open in a new tab" aria-label="Open in a new tab"><ExternalLink size={15} /></button>
+                <button className="design-icon-button" onClick={download} title="Download HTML" aria-label="Download HTML"><Download size={15} /></button>
+                <button className={`design-copy-button ${copied ? "success" : ""}`} onClick={copy}>{copied ? <Check size={14} /> : <Code size={14} />}<span>{copied ? "Copied" : "Copy HTML"}</span></button>
               </>
             )}
-            {messages.length > 0 && (
-              <button className="atab" onClick={clearChat} title="Clear chat"><Trash2 size={13} /></button>
-            )}
-            <button className="modal-x" onClick={onClose}><X size={18} /></button>
+            <button className="design-icon-button" onClick={onClose} title="Close" aria-label="Close Design Studio"><X size={17} /></button>
           </div>
         </div>
         <div className="design-canvas-body">
-          <div className="design-canvas-stage">
-            {!lastDesign.html ? (
-              <div className="design-canvas-empty">
-                <Palette size={28} />
-                <p>{isLoading ? "Designing…" : "Describe a UI below and I'll design it live."}</p>
+          <aside className="design-sidebar">
+            <div className="design-sidebar-heading">
+              <div>
+                <span className={`design-status-dot ${isLoading ? "working" : lastDesign.html ? "ready" : ""}`} />
+                <span>{isLoading ? statusText : lastDesign.html ? "Design ready" : "AI design workspace"}</span>
               </div>
-            ) : tab === "code" ? (
-              <SyntaxHighlighter style={vscDarkPlus} language="html" customStyle={{ margin: 0, flex: 1, fontSize: "0.82rem", height: "100%" }}>
-                {lastDesign.html}
-              </SyntaxHighlighter>
-            ) : (
-              <div className={`design-frame-wrap viewport-${viewport}`}>
-                <iframe title="design-preview" srcDoc={lastDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />
+              {messages.length > 0 && <button onClick={clearChat} title="Start a new design"><Plus size={14} /> New</button>}
+            </div>
+
+            <div className="design-canvas-chat-msgs" aria-live="polite">
+              {messages.length === 0 ? (
+                <div className="design-welcome">
+                  <span className="design-welcome-icon"><Layers size={19} /></span>
+                  <h4>Build a polished interface</h4>
+                  <p>Describe your idea in plain English. Then refine colors, layout and interactions without starting over.</p>
+                  <span className="design-starter-label">Quick starts</span>
+                  <div className="design-starter-list">
+                    {DESIGN_STARTERS.map(starter => (
+                      <button key={starter.title} onClick={() => send(starter.prompt)}>
+                        <span>{starter.title}</span>
+                        <small>{starter.detail}</small>
+                        <ChevronRight size={14} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : messages.map((message, index) => {
+                const parsed = message.role === "assistant" ? parseDesignResponse(message.content || "") : null;
+                const content = message.role === "user"
+                  ? message.content
+                  : parsed?.caption || (parsed?.html ? "I updated the design and kept it ready in Preview." : message.content);
+                if (!content && message.role === "assistant") return null;
+                return (
+                  <div key={`${message.role}-${index}`} className={`design-message design-message-${message.role}`}>
+                    <span className="design-message-label">{message.role === "user" ? "You" : "Vetro AI"}</span>
+                    <p>{content}</p>
+                  </div>
+                );
+              })}
+              {isLoading && (
+                <div className="design-message design-message-assistant design-generating-message">
+                  <span className="design-message-label">Vetro AI</span>
+                  <div><i /><i /><i /><span>{statusText}</span></div>
+                </div>
+              )}
+              {error && !isLoading && <div className="design-inline-error">{error}</div>}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <form className="design-composer" onSubmit={event => { event.preventDefault(); send(); }}>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={event => setInput(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={lastDesign.html ? "Ask for a change…" : "Describe the interface you want…"}
+                disabled={isLoading}
+                rows={3}
+                maxLength={3000}
+              />
+              <div className="design-composer-footer">
+                <span>Shift + Enter for a new line</span>
+                {isLoading ? (
+                  <button type="button" className="design-stop-button" onClick={stop}><span /> Stop</button>
+                ) : (
+                  <button type="submit" className="design-send-button" disabled={!input.trim()}>{lastDesign.html ? "Update" : "Create"}<CornerDownRight size={15} /></button>
+                )}
+              </div>
+            </form>
+          </aside>
+
+          <main className="design-workspace">
+            <div className="design-workspace-toolbar">
+              <div className="design-viewport-toggle" aria-label="Preview size">
+                <button className={viewport === "mobile" ? "active" : ""} onClick={() => setViewport("mobile")} title="Mobile preview" aria-label="Mobile preview"><Smartphone size={14} /><span>Mobile</span></button>
+                <button className={viewport === "tablet" ? "active" : ""} onClick={() => setViewport("tablet")} title="Tablet preview" aria-label="Tablet preview"><Tablet size={14} /><span>Tablet</span></button>
+                <button className={viewport === "desktop" ? "active" : ""} onClick={() => setViewport("desktop")} title="Desktop preview" aria-label="Desktop preview"><Monitor size={14} /><span>Desktop</span></button>
+              </div>
+              <div className="design-workspace-meta">
+                <span>{viewport === "mobile" ? "390 px" : viewport === "tablet" ? "768 px" : "Responsive"}</span>
+                <button onClick={() => setPreviewKey(key => key + 1)} disabled={!lastDesign.html || tab === "code"} title="Reload preview"><RotateCcw size={13} /> Reload</button>
+              </div>
+            </div>
+            <div className={`design-canvas-stage ${tab === "code" ? "showing-code" : ""}`}>
+              {!lastDesign.html ? (
+                <div className={`design-canvas-empty ${isLoading ? "is-loading" : ""}`}>
+                  <div className="design-empty-art">
+                    <span className="design-empty-window"><i /><i /><i /></span>
+                    <span className="design-empty-card one" />
+                    <span className="design-empty-card two" />
+                    <Palette size={25} />
+                  </div>
+                  <h2>{isLoading ? "Creating your interface" : "Your canvas is ready"}</h2>
+                  <p>{isLoading ? "Vetro is composing the layout, styles and interactions." : "Start with a quick template or describe exactly what you want to build."}</p>
+                  {!isLoading && <button onClick={() => inputRef.current?.focus()}>Write a prompt <CornerDownRight size={14} /></button>}
+                  {isLoading && <div className="design-build-progress"><span /></div>}
+                </div>
+              ) : tab === "code" ? (
+                <div className="design-code-view">
+                  <div className="design-code-heading"><span>index.html</span><small>{lastDesign.html.split("\n").length} lines</small></div>
+                  <SyntaxHighlighter style={vscDarkPlus} language="html" showLineNumbers wrapLongLines customStyle={{ margin: 0, flex: 1, fontSize: "0.79rem", minHeight: "100%", background: "#0b0c10", padding: "20px" }}>
+                    {lastDesign.html}
+                  </SyntaxHighlighter>
+                </div>
+              ) : (
+                <div className={`design-frame-wrap viewport-${viewport}`}>
+                  <div className="design-browser-bar"><span /><span /><span /><div>preview.vetro.design</div></div>
+                  <iframe key={previewKey} title="design-preview" srcDoc={injectSmoothScrollbar(lastDesign.html)} sandbox="allow-scripts allow-forms allow-modals allow-popups" referrerPolicy="no-referrer" className="design-frame" />
+                  {isLoading && <div className="design-updating-overlay"><span className="design-spinner" /> <div><strong>Updating design</strong><small>{statusText}</small></div></div>}
+                </div>
+              )}
+            </div>
+            {lastDesign.html && tab === "preview" && (
+              <div className="design-workspace-footer">
+                <span><i className="design-status-dot ready" /> Live preview</span>
+                <p>{latestCaption || "Your generated interface is interactive and ready to refine."}</p>
               </div>
             )}
-          </div>
-          <div className="design-canvas-chat">
-            <div className="design-canvas-chat-msgs">
-              {messages.length === 0 && <p style={{ color: "var(--ink-4)", fontSize: "0.8rem" }}>e.g. "A pricing page with 3 tiers" or "Make the buttons rounded and purple"</p>}
-              {messages.map((m, i) => (
-                <div key={i} className={`design-msg design-msg-${m.role}`}>
-                  {m.role === "user" ? m.content : (m.content ? (parseDesignResponse(m.content).caption || "Updated the design ↑") : (isLoading && i === messages.length - 1 ? "Designing…" : ""))}
-                </div>
-              ))}
-            </div>
-            <form className="design-input-row" onSubmit={e => { e.preventDefault(); send(); }}>
-              <input value={input} onChange={e => setInput(e.target.value)} placeholder="Describe the UI you want…" disabled={isLoading} />
-              <button type="submit" disabled={isLoading || !input.trim()}>Send</button>
-            </form>
-          </div>
+          </main>
         </div>
       </div>
     </div>
