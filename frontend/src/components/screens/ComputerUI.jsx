@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import StructuredResponseRenderer from "../structured/StructuredResponseRenderer";
 import "./ComputerUI.css";
 import {
   ArrowLeft, Bot, Check, CheckCircle2, ChevronDown, Circle, Clock3,
@@ -200,7 +200,12 @@ export default function ComputerUI({ onClose }) {
         "Work through the user's multi-step task and produce finished, useful deliverables.",
         "State what you actually did; never pretend to click, send, purchase, log in, edit local files, or access connected apps unless a real tool result proves it.",
         "For actions unavailable in this browser workspace, provide the exact next action for the user.",
-        "Prefer concise progress, source-aware research, and a final review checklist."
+        "Prefer concise progress, source-aware research, and a final review checklist.",
+        "For current or latest research, use only facts supported by URLs actually returned by web search in this request.",
+        "Never invent reports, benchmarks, publication years, statistics, paper identifiers, quotations, or source links.",
+        "If reliable current sources are unavailable, say so plainly and separate known background from unverified claims.",
+        "Use valid GitHub-Flavored Markdown. Keep every Markdown table on separate lines with a valid header separator.",
+        "Structured comparison JSON is allowed only when it is complete and valid; never print partial JSON or duplicate the same comparison as both JSON and Markdown."
       ].join(" "));
       files.forEach(file => body.append("files", file));
 
@@ -370,7 +375,7 @@ export default function ComputerUI({ onClose }) {
                         ? "max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 text-white px-4 py-3 text-sm"
                         : "min-w-0 flex-1 prose prose-sm max-w-none text-stone-800 leading-7"}>
                         {message.role === "assistant"
-                          ? (message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
+                          ? (message.content ? <StructuredResponseRenderer response={message.content} /> : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
                           : message.content}
                       </div>
                     </div>
