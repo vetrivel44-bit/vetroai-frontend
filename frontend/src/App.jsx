@@ -5374,7 +5374,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col relative h-full w-full overflow-hidden" style={{ backgroundColor: "var(--bg)" }}>
         {showComputer && (
-          <div className="absolute inset-0 z-[120] flex bg-[#fbfaf7]">
+          <div className="fixed inset-0 z-[120] flex bg-[#fbfaf7]">
             <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
           </div>
         )}
