@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import "./ComputerUI.css";
 import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
-  File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, Mic, Monitor, MoreHorizontal,
+  Download, File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, MapPin, Mic, Monitor, MoreHorizontal,
   Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
   Square, Trash2, X, Zap
 } from "lucide-react";
