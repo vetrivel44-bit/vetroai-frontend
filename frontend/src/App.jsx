@@ -3611,8 +3611,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lastMessage: lastBotMsg.slice(0, 600), userQuery: userQuery?.slice(0, 150) || "" }),
       });
+      if (!res.ok) {
+        setFollowUps([]);
+        return;
+      }
       const data = await res.json();
-      setFollowUps(data.suggestions || []);
+      setFollowUps(data?.data?.suggestions || data?.suggestions || []);
     } catch { setFollowUps([]); }
     setFollowUpsLoading(false);
   }, []);
