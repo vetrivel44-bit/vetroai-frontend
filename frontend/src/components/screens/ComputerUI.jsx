@@ -252,13 +252,28 @@ export default function ComputerUI({ onClose }) {
         const musicQuery = (youtubeMatch[1] || youtubeMatch[2] || youtubeMatch[3] || prompt)
           .replace(/^(?:a|the)\s+/i, "")
           .trim();
-        const youtubeUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
-        const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
-        if (opened) {
-          taskPrompt += "\n\n[ACTION RESULT] YouTube was opened in a new tab with search results for: " + musicQuery + ". Tell the user it was opened; do not say you cannot open YouTube.";
+        const desktop = window.vetroDesktop;
+        if (desktop?.playYouTube) {
+          let status = await desktop.getStatus();
+          if (!status?.enabled) status = await desktop.requestControl();
+          if (status?.enabled) {
+            const result = await desktop.playYouTube(musicQuery);
+            taskPrompt += "\n\n[ACTION RESULT] The VetroAI desktop companion opened YouTube and " +
+              (result.clicked ? "clicked the first video for: " : "opened search results for: ") +
+              musicQuery + ". Report this result accurately.";
+          } else {
+            taskPrompt += "\n\n[ACTION RESULT] Desktop control was not approved, so VetroAI did not click YouTube. Ask the user to approve computer control.";
+          }
         } else {
-          setLocationNotice("The browser blocked the YouTube tab. Allow pop-ups for VetroAI and try again.");
-          taskPrompt += "\n\n[ACTION RESULT] The YouTube tab was blocked by the browser's pop-up setting. Tell the user to allow pop-ups for this site.";
+          const youtubeUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
+          const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
+          if (opened) {
+            taskPrompt += "\n\n[ACTION RESULT] YouTube search results were opened for: " + musicQuery +
+              ". This is the web version, so Chrome requires the user to click a result. Do not claim the video was clicked.";
+          } else {
+            setLocationNotice("The browser blocked the YouTube tab. Allow pop-ups for VetroAI and try again.");
+            taskPrompt += "\n\n[ACTION RESULT] The YouTube tab was blocked by the browser's pop-up setting.";
+          }
         }
       }
       const body = new FormData();
