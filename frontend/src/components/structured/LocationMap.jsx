@@ -21,7 +21,12 @@ L.Icon.Default.mergeOptions({
 
 // Cache to store geocoding results and avoid duplicate API calls
 const geocodeCache = new Map();
-const MAPTILER_API_KEY = String(import.meta.env.VITE_MAPTILER_KEY || "").trim();
+// Prefer the deployment environment value. The fallback is the temporary
+// browser key supplied for the current public build and can be removed after
+// VITE_MAPTILER_KEY is configured in Cloudflare Pages.
+const MAPTILER_API_KEY = String(
+  import.meta.env.VITE_MAPTILER_KEY || "X8pVgGsWFhZJyTYpijy1"
+).trim();
 const mapTilerTileUrl = (style, format = "png") =>
   `https://api.maptiler.com/maps/${style}/256/{z}/{x}/{y}.${format}?key=${encodeURIComponent(MAPTILER_API_KEY)}`;
 
