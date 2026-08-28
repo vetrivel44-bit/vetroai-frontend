@@ -26,7 +26,7 @@ function downloadWordDocument(title, markdown) {
   const escaped = String(markdown || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/^### (.+)$/gm, "<h3>$1</h3>").replace(/^## (.+)$/gm, "<h2>$1</h2>").replace(/^# (.+)$/gm, "<h1>$1</h1>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
-  const html = "<!doctype html><html><head><meta charset=\\"utf-8\\"><title>" + title + "</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;margin:42px;color:#222}h1{font-size:22pt}h2{font-size:16pt;margin-top:24px}h3{font-size:13pt;margin-top:18px}</style></head><body>" + escaped + "</body></html>";
+  const html = "<!doctype html><html><head><title>" + title + "</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;margin:42px;color:#222}h1{font-size:22pt}h2{font-size:16pt;margin-top:24px}h3{font-size:13pt;margin-top:18px}</style></head><body>" + escaped + "</body></html>";
   downloadBlob(html, "application/msword", safeFilename(title, "VetroAI-document") + ".doc");
 }
 function markdownTableToCsv(markdown) {
@@ -36,7 +36,7 @@ function markdownTableToCsv(markdown) {
   return data.length ? data : [["VetroAI result"], [String(markdown || "").replace(/[#*_]/g, "")]];
 }
 function downloadSpreadsheet(title, markdown) {
-  const csv = markdownTableToCsv(markdown).map(row => row.map(cell => "\\"" + String(cell).replace(/"/g, "\\"\\"") + "\\"").join(",")).join("\r\n");
+  const csv = markdownTableToCsv(markdown).map(row => row.map(cell => JSON.stringify(String(cell))).join(",")).join("\\r\\n");
   downloadBlob("\ufeff" + csv, "text/csv;charset=utf-8", safeFilename(title, "VetroAI-spreadsheet") + ".csv");
 }
 async function requestCurrentLocation() {
