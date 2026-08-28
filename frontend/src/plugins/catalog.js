@@ -12,6 +12,7 @@ export const PLUGIN_CATALOG = [
     featured: true,
     permissions: ["Send search queries", "Read public webpages"],
     aliases: ["web", "search", "web search"],
+    triggers: ["latest", "current", "today", "news", "weather", "price", "live", "source", "website"],
   },
   {
     id: "data-analyst",
@@ -24,6 +25,7 @@ export const PLUGIN_CATALOG = [
     featured: true,
     permissions: ["Read files you attach", "Create charts in chat"],
     aliases: ["analyst", "data", "data analyst"],
+    triggers: ["analyze data", "analyse data", "dataset", "spreadsheet", "csv", "chart", "graph", "statistics"],
   },
   {
     id: "code-runner",
@@ -36,6 +38,7 @@ export const PLUGIN_CATALOG = [
     featured: true,
     permissions: ["Read code you provide", "Use the code workspace"],
     aliases: ["code", "coder", "code runner"],
+    triggers: ["code", "debug", "program", "function", "script", "error", "stack trace", "algorithm"],
   },
   {
     id: "image-studio",
@@ -48,6 +51,7 @@ export const PLUGIN_CATALOG = [
     featured: true,
     permissions: ["Use prompts you provide", "Create image requests"],
     aliases: ["image", "images", "image studio"],
+    triggers: ["generate image", "create image", "make image", "draw", "illustration", "logo", "poster", "wallpaper"],
   },
   {
     id: "maps",
@@ -59,6 +63,7 @@ export const PLUGIN_CATALOG = [
     color: "#ea580c",
     permissions: ["Use locations you provide", "Read public place data"],
     aliases: ["map", "maps", "places"],
+    triggers: ["near me", "nearby", "directions", "route", "location", "place", "restaurant", "hotel"],
   },
   {
     id: "jobs",
@@ -70,6 +75,7 @@ export const PLUGIN_CATALOG = [
     color: "#0891b2",
     permissions: ["Use career details you provide", "Read public job listings"],
     aliases: ["jobs", "job", "job search"],
+    triggers: ["job", "vacancy", "career", "resume", "cv", "interview", "hiring"],
   },
   {
     id: "sports-live",
@@ -81,6 +87,7 @@ export const PLUGIN_CATALOG = [
     color: "#ca8a04",
     permissions: ["Read public sports feeds"],
     aliases: ["sports", "scores", "live sports"],
+    triggers: ["score", "match", "fixture", "standings", "cricket", "football", "ipl", "league"],
   },
   {
     id: "study-coach",
@@ -92,6 +99,7 @@ export const PLUGIN_CATALOG = [
     color: "#4f46e5",
     permissions: ["Use study details you provide"],
     aliases: ["study", "teacher", "study coach"],
+    triggers: ["explain", "solve", "exam", "revision", "study", "notes", "definition", "question"],
   },
 ];
 
@@ -112,9 +120,28 @@ export function pluginsForPrompt(state, prompt = "") {
   const low = prompt.toLowerCase();
   return PLUGIN_CATALOG.filter((plugin) => {
     const status = state[plugin.id];
-    if (!status?.installed) return false;
-    if (status.enabled) return true;
-    return plugin.aliases.some((alias) => low.includes(`@${alias.toLowerCase()}`));
+    if (!status?.installed || status.enabled === false) return false;
+    const mentioned = plugin.aliases.some((alias) => low.includes(`@${alias.toLowerCase()}`));
+    const relevant = plugin.triggers.some((trigger) => low.includes(trigger));
+    return mentioned || relevant;
   }).map((plugin) => plugin.id);
 }
 
+
+
+export function pluginMentioned(state, prompt, pluginId) {
+  const plugin = PLUGIN_CATALOG.find((item) => item.id === pluginId);
+  const status = state[pluginId];
+  if (!plugin || !status?.installed || status.enabled === false) return false;
+  const low = String(prompt || "").toLowerCase();
+  return plugin.aliases.some((alias) => low.includes(`@${alias.toLowerCase()}`));
+}
+
+export function removePluginMention(prompt, pluginId) {
+  const plugin = PLUGIN_CATALOG.find((item) => item.id === pluginId);
+  if (!plugin) return String(prompt || "").trim();
+  return plugin.aliases
+    .sort((a, b) => b.length - a.length)
+    .reduce((text, alias) => text.replace(new RegExp(`@${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "ig"), ""), String(prompt || ""))
+    .trim();
+}
