@@ -13,7 +13,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -22,6 +22,8 @@ import ThinkingIndicator from "./components/ThinkingIndicator";
 import GlobalSearch from "./components/screens/GlobalSearch";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
+import PluginHub from "./components/screens/PluginHub";
+import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt } from "./plugins/catalog";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 let baseApi = "/api";
@@ -4135,6 +4137,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     if (willWebSearch) setIsWebSearching(true);
 
     const userQuery = hist[hist.length - 1]?.content || "";
+    const requestPlugins = pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
     const fd = new FormData();
@@ -4150,6 +4153,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("maxTokens", String(maxTokens));
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(memories));
+    fd.append("plugins", JSON.stringify(requestPlugins));
 
     let finalSystemPrompt = systemPromptRef.current || "";
     if (currentSpaceId) {
@@ -4170,7 +4174,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     const sportsDetected = isSportsQuery(userQuery);
     const medicalDetected = isMedicalQuery(userQuery);
-    const shouldWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
+    const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
     if (medicalDetected) {
@@ -4757,6 +4761,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [isAgenticMode, setIsAgenticMode] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showPlugins, setShowPlugins] = useState(false);
+  const [pluginState, setPluginState] = useState(loadPluginState);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('chats');
@@ -4767,6 +4773,38 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [renameValue, setRenameValue] = useState('');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const messagesEndRef = useRef(null);
+
+  const enabledPlugins = useMemo(
+    () => PLUGIN_CATALOG.filter((plugin) => pluginState[plugin.id]?.installed && pluginState[plugin.id]?.enabled !== false),
+    [pluginState]
+  );
+
+  const updatePluginState = useCallback((pluginId, updater) => {
+    setPluginState((previous) => {
+      const next = { ...previous, [pluginId]: updater(previous[pluginId] || {}) };
+      savePluginState(next);
+      return next;
+    });
+  }, []);
+
+  const installPlugin = useCallback((pluginId) => {
+    updatePluginState(pluginId, () => ({ installed: true, enabled: true }));
+    const plugin = PLUGIN_CATALOG.find((item) => item.id === pluginId);
+    addToast(`${plugin?.name || "Plugin"} installed and enabled`, "success");
+  }, [addToast, updatePluginState]);
+
+  const togglePlugin = useCallback((pluginId) => {
+    updatePluginState(pluginId, (status) => ({ ...status, installed: true, enabled: status.enabled === false }));
+  }, [updatePluginState]);
+
+  const uninstallPlugin = useCallback((pluginId) => {
+    setPluginState((previous) => {
+      const next = { ...previous };
+      delete next[pluginId];
+      savePluginState(next);
+      return next;
+    });
+  }, []);
 
   const displaySessions = React.useMemo(() => {
     const mock = [
@@ -4830,6 +4868,25 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             })}
           </div>
         )}
+        {enabledPlugins.length > 0 && (
+          <div className="plugin-active-row" aria-label="Enabled plugins">
+            {enabledPlugins.slice(0, 4).map((plugin) => (
+              <button
+                type="button"
+                key={plugin.id}
+                className="plugin-active-chip"
+                style={{ "--chip-color": plugin.color }}
+                onClick={() => setShowPlugins(true)}
+                title={`@${plugin.name} is enabled`}
+              >
+                <Puzzle size={11} /> {plugin.name}
+              </button>
+            ))}
+            {enabledPlugins.length > 4 && (
+              <button type="button" className="plugin-active-chip" onClick={() => setShowPlugins(true)}>+{enabledPlugins.length - 4}</button>
+            )}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           rows="1"
@@ -4853,6 +4910,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" onClick={() => setIsAgenticMode(v => !v)} className={"flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-solid text-xs font-semibold transition-all flex-shrink-0 " + (isAgenticMode ? "bg-purple-50 border-purple-200 text-purple-700 shadow-sm" : "bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-600")}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="12" rx="2" ry="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg>
               Computer
+            </button>
+            <button type="button" onClick={() => setShowPlugins(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-solid border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-semibold text-gray-600 transition-colors flex-shrink-0" title="Manage plugins">
+              <Puzzle size={12} /> Plugins
+              {enabledPlugins.length > 0 && <span className="plugin-toolbar-count">{enabledPlugins.length}</span>}
             </button>
           </div>
           <div className="flex items-center gap-1.5">
@@ -4948,6 +5009,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       <Toast toasts={toasts} />
       {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} />}
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} />}
+      {showPlugins && (
+        <PluginHub
+          pluginState={pluginState}
+          onInstall={installPlugin}
+          onToggle={togglePlugin}
+          onUninstall={uninstallPlugin}
+          onClose={() => { setShowPlugins(false); if (activeNav === "plugins") setActiveNav("chats"); }}
+        />
+      )}
 {showProfile && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} onProfileSaved={setProfileData} />}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={() => setShowBookmarks(false)} onRemove={(id) => setBookmarks(prev => prev.filter(b => b.id !== id))} onClose={() => setShowBookmarks(false)} t={t} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
@@ -5026,6 +5096,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </button>
           <button onClick={() => { setActiveNav('customize'); setShowSysPrompt(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'customize' ? 'active' : ''}`}>
             <SlidersHorizontal size={17} /> Customize
+          </button>
+          <button onClick={() => { setActiveNav('plugins'); setShowPlugins(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'plugins' ? 'active' : ''}`}>
+            <span className="flex items-center gap-3"><Puzzle size={17} /> Plugins</span>
+            {enabledPlugins.length > 0 && <span className="plugin-toolbar-count">{enabledPlugins.length}</span>}
           </button>
         </div>
 

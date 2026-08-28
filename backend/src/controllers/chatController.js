@@ -3,6 +3,7 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
+const { normalizePluginIds } = require("../config/plugins");
 const { performDeepSearch } = require("../services/deepSearchService");
 
 // ── Groq client ───────────────────────────────────────────────────────────────
@@ -244,6 +245,7 @@ async function chat(req, res) {
 
   // Custom system prompt from the frontend
   const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
+  const activePlugins = normalizePluginIds(req.body?.plugins);
 
   // Web search flag from frontend (autoWebSearch toggle or explicit web mode)
   const webSearch = String(req.body?.webSearch || "false") === "true";
@@ -319,6 +321,7 @@ async function chat(req, res) {
       memories,
       systemPrompt,
       webSearch,
+      activePlugins,
       options: { temperature, maxTokens }
     }, res);
   } catch (err) {

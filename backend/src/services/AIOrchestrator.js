@@ -5,6 +5,7 @@ const { performDeepSearch } = require("./deepSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { getAstrologyData, extractBirthDetails } = require("./astrologyService");
 const { config } = require("../config/env");
+const { buildPluginPrompt } = require("../config/plugins");
 const Groq = require("groq-sdk");
 
 class AIOrchestrator {
@@ -552,6 +553,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     }
 
     let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
+    finalSysPrompt += buildPluginPrompt(params.activePlugins);
     if (astroContext === "USER_BIRTH_DETAILS_MISSING") {
       finalSysPrompt += `\n\n[ASTROLOGY REQUEST DETECTED]\nThe user is asking about astrology. To provide highly accurate, personalized readings using our FreeAstroAPI integration, you MUST politely ask the user for their birth date (year, month, day), time of birth (hour, minute), and city of birth. Do not make up a horoscope without this data.`;
     } else if (astroContext === "API_ERROR") {
