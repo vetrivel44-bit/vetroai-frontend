@@ -211,3 +211,145 @@
   .cowork-header > button:last-child { display: none; }
   .cowork-title { font-size: 34px; }
 }
+
+
+/* Scoped utility layer for Computer Mode.
+   The main app does not emit Tailwind utilities, so keep these local. */
+.cowork-shell .flex { display: flex; }
+.cowork-shell .grid { display: grid; }
+.cowork-shell .hidden { display: none; }
+.cowork-shell .block { display: block; }
+.cowork-shell .relative { position: relative; }
+.cowork-shell .absolute { position: absolute; }
+.cowork-shell .fixed { position: fixed; }
+.cowork-shell .inset-0 { inset: 0; }
+.cowork-shell .flex-1 { flex: 1 1 0%; }
+.cowork-shell .flex-shrink-0 { flex-shrink: 0; }
+.cowork-shell .flex-col { flex-direction: column; }
+.cowork-shell .items-center { align-items: center; }
+.cowork-shell .items-start { align-items: flex-start; }
+.cowork-shell .justify-center { justify-content: center; }
+.cowork-shell .justify-between { justify-content: space-between; }
+.cowork-shell .justify-end { justify-content: flex-end; }
+.cowork-shell .min-w-0 { min-width: 0; }
+.cowork-shell .w-full { width: 100%; }
+.cowork-shell .w-8 { width: 2rem; }
+.cowork-shell .h-8 { height: 2rem; }
+.cowork-shell .w-9 { width: 2.25rem; }
+.cowork-shell .h-9 { height: 2.25rem; }
+.cowork-shell .w-10 { width: 2.5rem; }
+.cowork-shell .h-10 { height: 2.5rem; }
+.cowork-shell .max-w-md { max-width: 28rem; }
+.cowork-shell .max-w-4xl { max-width: 56rem; }
+.cowork-shell .max-w-none { max-width: none; }
+.cowork-shell .max-w-\[85\%\] { max-width: 85%; }
+.cowork-shell .overflow-hidden { overflow: hidden; }
+.cowork-shell .overflow-x-auto { overflow-x: auto; }
+.cowork-shell .overflow-y-auto { overflow-y: auto; }
+.cowork-shell .resize-none { resize: none; }
+.cowork-shell .appearance-none { appearance: none; }
+.cowork-shell .pointer-events-none { pointer-events: none; }
+.cowork-shell .gap-1 { gap: .25rem; }
+.cowork-shell .gap-1\.5 { gap: .375rem; }
+.cowork-shell .gap-2 { gap: .5rem; }
+.cowork-shell .gap-2\.5 { gap: .625rem; }
+.cowork-shell .gap-3 { gap: .75rem; }
+.cowork-shell .space-y-1 > * + * { margin-top: .25rem; }
+.cowork-shell .space-y-3 > * + * { margin-top: .75rem; }
+.cowork-shell .space-y-7 > * + * { margin-top: 1.75rem; }
+.cowork-shell .p-2 { padding: .5rem; }
+.cowork-shell .p-3 { padding: .75rem; }
+.cowork-shell .p-4 { padding: 1rem; }
+.cowork-shell .p-6 { padding: 1.5rem; }
+.cowork-shell .px-2 { padding-left: .5rem; padding-right: .5rem; }
+.cowork-shell .px-2\.5 { padding-left: .625rem; padding-right: .625rem; }
+.cowork-shell .px-3 { padding-left: .75rem; padding-right: .75rem; }
+.cowork-shell .px-4 { padding-left: 1rem; padding-right: 1rem; }
+.cowork-shell .py-1 { padding-top: .25rem; padding-bottom: .25rem; }
+.cowork-shell .py-2 { padding-top: .5rem; padding-bottom: .5rem; }
+.cowork-shell .py-2\.5 { padding-top: .625rem; padding-bottom: .625rem; }
+.cowork-shell .py-3 { padding-top: .75rem; padding-bottom: .75rem; }
+.cowork-shell .pb-2 { padding-bottom: .5rem; }
+.cowork-shell .pb-3 { padding-bottom: .75rem; }
+.cowork-shell .pl-3 { padding-left: .75rem; }
+.cowork-shell .pr-8 { padding-right: 2rem; }
+.cowork-shell .mt-0\.5 { margin-top: .125rem; }
+.cowork-shell .mt-1 { margin-top: .25rem; }
+.cowork-shell .mt-2 { margin-top: .5rem; }
+.cowork-shell .mt-4 { margin-top: 1rem; }
+.cowork-shell .mb-1 { margin-bottom: .25rem; }
+.cowork-shell .mb-2 { margin-bottom: .5rem; }
+.cowork-shell .mb-3 { margin-bottom: .75rem; }
+.cowork-shell .mb-4 { margin-bottom: 1rem; }
+.cowork-shell .mb-5 { margin-bottom: 1.25rem; }
+.cowork-shell .mr-1 { margin-right: .25rem; }
+.cowork-shell .mx-auto { margin-left: auto; margin-right: auto; }
+.cowork-shell .border { border: 1px solid var(--cw-line); }
+.cowork-shell .border-0 { border: 0; }
+.cowork-shell .border-t { border-top: 1px solid var(--cw-line); }
+.cowork-shell .border-b { border-bottom: 1px solid var(--cw-line); }
+.cowork-shell .rounded-lg { border-radius: .6rem; }
+.cowork-shell .rounded-xl { border-radius: .8rem; }
+.cowork-shell .rounded-2xl { border-radius: 1rem; }
+.cowork-shell .rounded-3xl { border-radius: 1.5rem; }
+.cowork-shell .rounded-full { border-radius: 999px; }
+.cowork-shell .rounded-br-md { border-bottom-right-radius: .375rem; }
+.cowork-shell .bg-white { background: #fff; }
+.cowork-shell .bg-stone-50 { background: #fafaf9; }
+.cowork-shell .bg-stone-100 { background: #f5f5f4; }
+.cowork-shell .bg-stone-900 { background: #1c1917; }
+.cowork-shell .bg-amber-100 { background: #fef3c7; }
+.cowork-shell .bg-emerald-50 { background: #ecfdf5; }
+.cowork-shell .bg-red-50 { background: #fef2f2; }
+.cowork-shell .bg-black\/40 { background: rgba(0,0,0,.4); }
+.cowork-shell .text-white { color: #fff; }
+.cowork-shell .text-stone-400 { color: #a8a29e; }
+.cowork-shell .text-stone-500 { color: #78716c; }
+.cowork-shell .text-stone-600 { color: #57534e; }
+.cowork-shell .text-stone-700 { color: #44403c; }
+.cowork-shell .text-stone-800 { color: #292524; }
+.cowork-shell .text-stone-900 { color: #1c1917; }
+.cowork-shell .text-amber-600 { color: #d97706; }
+.cowork-shell .text-amber-700 { color: #b45309; }
+.cowork-shell .text-emerald-600 { color: #059669; }
+.cowork-shell .text-emerald-700 { color: #047857; }
+.cowork-shell .text-red-500 { color: #ef4444; }
+.cowork-shell .text-red-600 { color: #dc2626; }
+.cowork-shell .text-red-700 { color: #b91c1c; }
+.cowork-shell .text-xs { font-size: .75rem; }
+.cowork-shell .text-sm { font-size: .875rem; }
+.cowork-shell .text-\[10px\] { font-size: 10px; }
+.cowork-shell .text-\[11px\] { font-size: 11px; }
+.cowork-shell .text-\[15px\] { font-size: 15px; }
+.cowork-shell .font-medium { font-weight: 500; }
+.cowork-shell .font-semibold { font-weight: 650; }
+.cowork-shell .uppercase { text-transform: uppercase; }
+.cowork-shell .capitalize { text-transform: capitalize; }
+.cowork-shell .tracking-wider { letter-spacing: .05em; }
+.cowork-shell .leading-5 { line-height: 1.25rem; }
+.cowork-shell .leading-6 { line-height: 1.5rem; }
+.cowork-shell .leading-7 { line-height: 1.75rem; }
+.cowork-shell .leading-relaxed { line-height: 1.625; }
+.cowork-shell .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cowork-shell .text-left { text-align: left; }
+.cowork-shell .outline-none { outline: none; }
+.cowork-shell .shadow-sm { box-shadow: 0 1px 3px rgba(28,25,23,.08); }
+.cowork-shell .shadow-2xl { box-shadow: 0 25px 60px rgba(28,25,23,.25); }
+.cowork-shell .opacity-0 { opacity: 0; }
+.cowork-shell .disabled\:opacity-30:disabled { opacity: .3; }
+.cowork-shell .disabled\:opacity-35:disabled { opacity: .35; }
+.cowork-shell .animate-spin { animation: cowork-spin .9s linear infinite; }
+.cowork-shell .animate-pulse { animation: cowork-pulse 1.4s ease-in-out infinite; }
+.cowork-shell .backdrop-blur-sm { backdrop-filter: blur(5px); }
+.cowork-shell .group:hover .group-hover\:opacity-100 { opacity: 1; }
+.cowork-shell .hover\:bg-stone-100:hover { background: #f5f5f4; }
+.cowork-shell .hover\:bg-stone-200:hover { background: #e7e5e4; }
+.cowork-shell .hover\:bg-stone-200\/70:hover { background: rgba(231,229,228,.7); }
+.cowork-shell .hover\:bg-red-50:hover { background: #fef2f2; }
+.cowork-shell .hover\:text-red-600:hover { color: #dc2626; }
+@keyframes cowork-spin { to { transform: rotate(360deg); } }
+@keyframes cowork-pulse { 50% { opacity: .45; } }
+@media (min-width: 768px) {
+  .cowork-shell .md\:block { display: block; }
+  .cowork-shell .md\:hidden { display: none; }
+}
