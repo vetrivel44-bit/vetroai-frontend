@@ -237,3 +237,53 @@
 .plugin-detail .plugin-text-button.danger:hover {
   color: #f87171 !important;
 }
+
+
+/* Universal detail-panel contrast: applies to every plugin, including future entries. */
+.plugin-detail,
+.plugin-detail * {
+  text-shadow: none;
+}
+
+.plugin-detail .plugin-detail-category {
+  color: #a78bfa;
+}
+
+.plugin-detail h3 {
+  color: #fafaf9;
+}
+
+.plugin-detail .plugin-detail-tagline {
+  color: #d6d3d1 !important;
+}
+
+.plugin-detail > p:not(.plugin-detail-tagline) {
+  color: #a8a29e !important;
+}
+
+.plugin-detail .plugin-permissions,
+.plugin-detail .plugin-invoke-tip,
+.plugin-detail .plugin-install.secondary {
+  background-color: #fafaf9;
+}
+
+.plugin-detail .plugin-permissions h4,
+.plugin-detail .plugin-permissions div,
+.plugin-detail .plugin-invoke-tip,
+.plugin-detail .plugin-invoke-tip strong {
+  color: #292524 !important;
+}
+
+.plugin-detail .plugin-permissions svg {
+  color: #6d5bd0;
+}
+
+.plugin-detail .plugin-install.secondary {
+  color: #292524 !important;
+  border: 1px solid #d6d3d1;
+}
+
+.plugin-detail .plugin-close {
+  color: #57534e;
+  background: #f5f5f4;
+}
