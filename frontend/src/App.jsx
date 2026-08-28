@@ -582,7 +582,22 @@ const LANGS = {
   }},
 };
 
-const PROVIDERS = ["Auto", "ChatGPT", "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const CLAUDE_FABLE_PROVIDER = "Claude Fable 5";
+const CLAUDE_FABLE_MODEL = "claude-fable-5";
+const PROVIDERS = ["Auto", CLAUDE_FABLE_PROVIDER, "ChatGPT", "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const EFFORT_LEVELS = [
+  { id: "quick", name: "Quick", desc: "Fast, concise answers", icon: Zap, maxTokens: 2048 },
+  { id: "balanced", name: "Balanced", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
+  { id: "deep", name: "Deep", desc: "More analysis and checking", icon: Brain, maxTokens: 8192 },
+  { id: "max", name: "Max", desc: "Hard problems and coding", icon: Rocket, maxTokens: 16384 },
+];
+
+const EFFORT_INSTRUCTIONS = {
+  quick: "Use low reasoning effort. Answer directly and concisely without unnecessary exploration.",
+  balanced: "Use balanced reasoning effort. Think through the important details and give a clear, complete answer.",
+  deep: "Use high reasoning effort. Analyze alternatives, check assumptions, and verify the result before answering.",
+  max: "Use maximum reasoning effort. Work through the problem thoroughly, test the conclusion, and self-check for mistakes before answering.",
+};
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
@@ -2327,7 +2342,7 @@ function SpacesPanel({ spaces, currentSpaceId, onOpenSpace, onNewSpace, onEditSp
 
 // ─── WORKSPACE POPUP ────────────────────────────────────────────────────────────
 
-function WorkspacePopup({ currentMode, currentProvider, onSelectMode, onSelectProvider, onClose, variant }) {
+function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectMode, onSelectProvider, onSelectEffort, onClose, variant }) {
   const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
@@ -2352,43 +2367,96 @@ function WorkspacePopup({ currentMode, currentProvider, onSelectMode, onSelectPr
     summarize: "rgba(245, 158, 11, 0.12)"
   };
 
+  const providerMeta = {
+    Auto: ["V", "Smart routing"],
+    [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · Puter"],
+    ChatGPT: ["G", "General intelligence"],
+    Groq: ["Q", "Fast responses"],
+    Gemini: ["✦", "Google AI"],
+    Mistral: ["M", "Efficient reasoning"],
+    SambaNova: ["S", "High-speed inference"],
+    Agnes: ["A", "VetroAI creative model"],
+  };
+
   return (
     <>
       <div className="overlay" style={{ background: "transparent" }} onClick={handleClose}></div>
       <div className={`workspace-popup${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`}>
         <div className="ws-popup-header">
-          <span className="ws-popup-label">Workspace</span>
-          <div className="ws-provider-tabs">
-            {PROVIDERS.map(p => (
-              <button
-                key={p}
-                className={`ws-provider-tab${currentProvider === p ? " active" : ""}`}
-                onClick={(e) => { e.stopPropagation(); onSelectProvider(p); }}
-              >
-                {p}
-              </button>
-            ))}
+          <div>
+            <strong>Model & effort</strong>
+            <span>Choose how VetroAI should respond</span>
           </div>
+          <button type="button" className="ws-popup-close" onClick={handleClose} aria-label="Close model selector"><X size={16} /></button>
         </div>
-        <div className="ws-popup-grid">
-          {MODES_LIST.map(m => (
-            <div
-              key={m.id}
-              className={`ws-mode-card${currentMode === m.id ? " active" : ""}`}
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                onSelectMode(m.id); 
-                handleClose(); 
-              }}
-            >
-              <div className="ws-mode-icon" style={{ background: modeColors[m.id] || modeColors.normal }}>
-                <ModelIcon id={m.id} size={16} />
-              </div>
-              <div className="ws-mode-name">{m.name}</div>
-              <div className="ws-mode-desc">{m.desc}</div>
-              {currentMode === m.id && <div className="ws-mode-active-badge">Active</div>}
+
+        <div className="ws-popup-scroll">
+          <section className="ws-picker-section">
+            <div className="ws-section-title"><span>Model</span><em>{currentProvider}</em></div>
+            <div className="ws-model-grid">
+              {PROVIDERS.map((provider) => {
+                const [mark, detail] = providerMeta[provider];
+                return (
+                  <button
+                    type="button"
+                    key={provider}
+                    className={`ws-model-option${currentProvider === provider ? " active" : ""}`}
+                    onClick={(event) => { event.stopPropagation(); onSelectProvider(provider); }}
+                  >
+                    <span className={`ws-model-mark model-${provider.toLowerCase().replace(/\s+/g, "-")}`}>{mark}</span>
+                    <span className="ws-model-copy"><strong>{provider}</strong><small>{detail}</small></span>
+                    <span className="ws-choice-check">{currentProvider === provider && <Check size={13} />}</span>
+                  </button>
+                );
+              })}
             </div>
-          ))}
+          </section>
+
+          <section className="ws-picker-section ws-effort-section">
+            <div className="ws-section-title"><span>Effort</span><em>Changes speed and depth</em></div>
+            <div className="ws-effort-grid">
+              {EFFORT_LEVELS.map((effort) => {
+                const EffortIcon = effort.icon;
+                return (
+                  <button
+                    type="button"
+                    key={effort.id}
+                    className={`ws-effort-option${currentEffort === effort.id ? " active" : ""}`}
+                    onClick={(event) => { event.stopPropagation(); onSelectEffort(effort.id); }}
+                  >
+                    <EffortIcon size={15} />
+                    <span><strong>{effort.name}</strong><small>{effort.desc}</small></span>
+                    {currentEffort === effort.id && <Check size={13} />}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="ws-picker-section ws-mode-section">
+            <div className="ws-section-title"><span>Mode</span><em>Specialized workflow</em></div>
+            <div className="ws-popup-grid">
+              {MODES_LIST.map(m => (
+                <button
+                  type="button"
+                  key={m.id}
+                  className={`ws-mode-card${currentMode === m.id ? " active" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectMode(m.id);
+                    handleClose();
+                  }}
+                >
+                  <div className="ws-mode-icon" style={{ background: modeColors[m.id] || modeColors.normal }}>
+                    <ModelIcon id={m.id} size={16} />
+                  </div>
+                  <div className="ws-mode-name">{m.name}</div>
+                  <div className="ws-mode-desc">{m.desc}</div>
+                  {currentMode === m.id && <div className="ws-mode-active-badge"><Check size={11} /></div>}
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
       </div>
     </>
@@ -3122,6 +3190,7 @@ export default function App() {
   const [isTyping, setIsTyping]             = useState(false);
   const [temperature, setTemperature]       = useState(0.7);
   const [maxTokens, setMaxTokens]           = useState(4096);
+  const [selectedEffort, setSelectedEffort] = useState(() => localStorage.getItem("vetroai_effort") || "balanced");
   const [safeMode, setSafeMode]             = useState(true);
   const [lockModelPerChat, setLockModelPerChat] = useState(false);
   const [showScrollDn, setShowScrollDn]     = useState(false);
@@ -3134,6 +3203,10 @@ export default function App() {
   const [streamStatus, setStreamStatus]     = useState("idle"); // idle, preparing, streaming, retrying, recovering, failed
   const [debugLogs, setDebugLogs]           = useState([]);
   const [showDebug, setShowDebug]           = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("vetroai_effort", selectedEffort);
+  }, [selectedEffort]);
 
   const addDebugLog = (event, data = {}) => {
     const entry = { ts: new Date().toLocaleTimeString(), event, ...data };
@@ -4247,13 +4320,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     })));
     fd.append("mode", selectedMode);
     fd.append("provider", selectedProvider);
+    const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
+    const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens);
     fd.append("temperature", String(temperature));
-    fd.append("maxTokens", String(maxTokens));
+    fd.append("maxTokens", String(effectiveMaxTokens));
+    fd.append("effort", selectedEffort);
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(memories));
     fd.append("plugins", JSON.stringify(requestPlugins));
 
     let finalSystemPrompt = systemPromptRef.current || "";
+    finalSystemPrompt = `${finalSystemPrompt}\n\n[REASONING EFFORT: ${selectedEffort.toUpperCase()}]\n${EFFORT_INSTRUCTIONS[selectedEffort] || EFFORT_INSTRUCTIONS.balanced}`.trim();
     if (currentSpaceId) {
       const space = spaces.find(s => s.id === currentSpaceId);
       if (space) {
@@ -4351,6 +4428,59 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     try {
       const fileCount = [...fd.entries()].filter(([, v]) => v instanceof File).length;
       addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode, fileCount });
+
+      // Puter models run directly in the browser using Puter's user-pays flow. This
+      // deliberately bypasses /api/chat: the backend does not own the user's Puter
+      // session and cannot proxy it without an auth token.
+      if (selectedProvider === CLAUDE_FABLE_PROVIDER) {
+        if (!window.puter?.ai?.chat) {
+          throw new Error("Claude Fable 5 could not load. Check your connection and refresh the page.");
+        }
+        if (fileCount > 0) {
+          throw new Error("Claude Fable 5 file uploads are not available yet. Remove the attachment and send the text again.");
+        }
+
+        const puterMessages = hist
+          .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
+          .slice(-12)
+          .map(({ role, content }) => ({ role, content }));
+        if (finalSystemPrompt.trim()) {
+          puterMessages.unshift({ role: "system", content: finalSystemPrompt.trim() });
+        }
+
+        setIsTyping(false);
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+
+        const response = await window.puter.ai.chat(puterMessages, {
+          model: CLAUDE_FABLE_MODEL,
+          stream: true,
+          max_tokens: effectiveMaxTokens,
+        });
+        let bot = "";
+        for await (const part of response) {
+          if (!isActive()) return;
+          const text = typeof part?.text === "string" ? part.text : "";
+          if (!text) continue;
+          bot += text;
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: bot };
+            return next;
+          });
+          setStreamingContent(bot);
+          if (!isScrolling.current) scrollToBottom();
+        }
+
+        if (!bot.trim()) throw new Error("Claude Fable 5 returned an empty response. Please try again.");
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(bot);
+        if (isFirstMsg) updateSessionTitle(userQuery, bot);
+        generateFollowUps(bot, userQuery);
+        return;
+      }
 
       const res = await fetch(API + "/chat", {
         method: "POST",
@@ -4857,6 +4987,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               {showModelPicker && <WorkspacePopup
                 currentMode={selectedMode}
                 currentProvider={selectedProvider}
+                currentEffort={selectedEffort}
                 onSelectMode={(next) => {
                   if (lockModelPerChat && messages.length > 0) {
                     addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
@@ -4865,10 +4996,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   setSelectedMode(next);
                 }}
                 onSelectProvider={setSelectedProvider}
+                onSelectEffort={setSelectedEffort}
                 onClose={() => setShowModelPicker(false)}
               />}
               <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
-                <span>{currentMode.name}</span>
+                <span>{selectedProvider === "Auto" ? currentMode.name : selectedProvider}</span>
+                <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
                 <svg style={{ transform: showModelPicker ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
             </div>
