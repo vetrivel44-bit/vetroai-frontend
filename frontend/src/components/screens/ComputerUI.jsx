@@ -271,8 +271,16 @@ export default function ComputerUI({ onClose }) {
             taskPrompt += "\n\n[ACTION RESULT] YouTube search results were opened for: " + musicQuery +
               ". This is the web version, so Chrome requires the user to click a result. Do not claim the video was clicked.";
           } else {
-            setLocationNotice("The browser blocked the YouTube tab. Allow pop-ups for VetroAI and try again.");
-            taskPrompt += "\n\n[ACTION RESULT] The YouTube tab was blocked by the browser's pop-up setting.";
+            patchTask(taskId, t => ({
+              ...t,
+              status: "completed",
+              steps: t.steps.map(step => ({ ...step, status: "done" })),
+              messages: t.messages.map(message => message.id === assistantId
+                ? { ...message, content: "Opening YouTube search for **" + musicQuery + "** in this tab…" }
+                : message)
+            }));
+            window.location.assign(youtubeUrl);
+            return;
           }
         }
       }
