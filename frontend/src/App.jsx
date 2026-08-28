@@ -5566,7 +5566,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        {/* ── AI avatar ── */}
                        {m.role !== 'user' && (
                          <div className="flex-shrink-0 mt-1">
-                           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, var(--accent-secondary) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, #D97757 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                              <VetroSparkWhite size={22} />
                            </div>
                          </div>
@@ -5797,7 +5797,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
                      <div className="flex w-full mb-6 justify-start gap-3">
-                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, var(--accent-secondary) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, #D97757 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                          <VetroSparkWhite size={22} />
                        </div>
                        <div style={{ paddingTop: 6, color: "var(--ink-3)" }}>

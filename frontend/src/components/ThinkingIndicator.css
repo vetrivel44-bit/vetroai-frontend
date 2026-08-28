@@ -434,7 +434,7 @@
   }
 }
 
-/* Misty Ocean palette: teal activity with a quiet dusty-indigo counterpoint. */
+/* Claude-style palette: restrained coral movement on warm neutral surfaces. */
 .vai-thinking-inner,.vai-thinking-inline {
   background:var(--accent-soft);
   border-color:var(--accent-mid);
