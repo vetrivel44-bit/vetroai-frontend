@@ -4,7 +4,8 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "npm --prefix backend test && npm --prefix frontend run build"
   },
   "dependencies": {
     "@tavily/core": "^0.7.7",

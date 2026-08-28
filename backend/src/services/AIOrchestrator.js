@@ -475,10 +475,21 @@ Choose the single best-fitting visualization block(s) from the formats below:
     
     let currentProviderName = providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
-    const maxAttempts = 3;
+    const attemptedProviders = new Set();
+    const maxAttempts = Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
+
+    if (!currentProviderName || maxAttempts === 0) {
+      logger.error("AIOrchestrator.noConfiguredProvider", { reqId });
+      this.sendVetroEvent(
+        res,
+        "error",
+        "VetroAI is not configured with an AI provider yet. Add at least one provider API key on the backend."
+      );
+      return;
+    }
 
     // Intent detection — also support explicit webSearch flag from frontend
     const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery);
@@ -561,12 +572,13 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     while (attempts < maxAttempts && !success) {
       attempts++;
+      attemptedProviders.add(currentProviderName);
       const adapter = providerManager.getAdapter(currentProviderName);
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
-        const nextProvider = providerManager.getFallbackProvider(currentProviderName);
-        if (nextProvider === currentProviderName) break; // Avoid loop
+        const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
+        if (!nextProvider) break;
         currentProviderName = nextProvider;
         continue;
       }
@@ -613,7 +625,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
         }
         
         if (attempts < maxAttempts) {
-          const nextProvider = providerManager.getFallbackProvider(currentProviderName);
+          const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
+          if (!nextProvider) {
+            this.sendVetroEvent(res, "error", "All configured AI providers are currently unavailable. Please try again shortly.");
+            break;
+          }
           let friendlyMsg = `Issue with ${currentProviderName}. Switching to another model…`;
           if (isRateLimit) {
             friendlyMsg = `Model ${currentProviderName} is temporarily busy. Switching to another AI model…`;
