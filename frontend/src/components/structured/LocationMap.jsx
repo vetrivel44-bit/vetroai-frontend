@@ -1,30 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
-import L from 'leaflet';
+import React, { useState, useEffect, useRef } from 'react';
+import { Map as MapTilerMap, MapStyle, Marker, Popup, config as mapTilerConfig } from '@maptiler/sdk';
 import { Compass, Navigation, Loader2, MapPin, ArrowRight, ExternalLink } from 'lucide-react';
 import { motion } from 'framer-motion';
-import 'leaflet/dist/leaflet.css';
+import '@maptiler/sdk/dist/maptiler-sdk.css';
 import '../../styles/StructuredResponse.css';
 import ImageGallery from './ImageGallery';
-
-// Fix for default marker icons in Leaflet with Vite
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-});
 
 // Cache to store geocoding results and avoid duplicate API calls
 const geocodeCache = new Map();
 // MapTiler is the application's sole map provider.
 const MAPTILER_API_KEY = "X8pVgGsWFhZJyTYpijy1";
-const mapTilerTileUrl = (style, format = "png") =>
-  `https://api.maptiler.com/maps/${style}/256/{z}/{x}/{y}.${format}?key=${encodeURIComponent(MAPTILER_API_KEY)}`;
+mapTilerConfig.apiKey = MAPTILER_API_KEY;
 
 const isValidCoordinate = (point) => {
   if (!point || typeof point !== 'object') return false;
@@ -37,43 +23,49 @@ const normalizeCoordinate = (point, fallbackLabel = '') => isValidCoordinate(poi
   ? { ...point, lat: Number(point.lat), lng: Number(point.lng), label: point.label || fallbackLabel }
   : null;
 
-// Custom Marker Icons
-const startIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: markerShadow,
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
+function MapTilerCanvas({ center, zoom, markers, path, mapType, place }) {
+  const containerRef = useRef(null);
 
-const endIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl: markerShadow,
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
-
-const makePhotoIcon = (url) => new L.DivIcon({
-  className: 'photo-pin-icon',
-  html: `
-    <div class="photo-pin">
-      <div class="photo-pin-ring"><img src="${url}" alt="" /></div>
-      <div class="photo-pin-tail"></div>
-    </div>
-  `,
-  iconSize: [52, 64],
-  iconAnchor: [26, 60],
-  popupAnchor: [0, -58],
-});
-
-const ChangeView = ({ center, zoom, bounds }) => {
-  const map = useMap();
   useEffect(() => {
-    if (bounds && bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [50, 50] });
-    } else if (Array.isArray(center) && center.length === 2 && center.every(Number.isFinite)) {
-      map.setView(center, zoom);
-    }
-  }, [center, zoom, bounds, map]);
-  return null;
-};
+    if (!containerRef.current || !Array.isArray(center)) return undefined;
+    const map = new MapTilerMap({
+      container: containerRef.current,
+      style: mapType === 'satellite' ? MapStyle.HYBRID : MapStyle.STREETS_V4,
+      center: [center[1], center[0]],
+      zoom,
+      navigationControl: true,
+      geolocateControl: true
+    });
+
+    const markerInstances = markers.map((marker, index) => {
+      const color = marker.type === 'start' ? '#2563eb' : index === markers.length - 1 ? '#ef4444' : '#7c3aed';
+      const popup = new Popup({ offset: 28 }).setText(marker.label || place || 'Location');
+      return new Marker({ color }).setLngLat([marker.lng, marker.lat]).setPopup(popup).addTo(map);
+    });
+
+    map.on('load', () => {
+      if (path.length > 1) {
+        map.addSource('vetro-route', {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: path.map(([lat, lng]) => [lng, lat]) } }
+        });
+        map.addLayer({ id: 'vetro-route-line', type: 'line', source: 'vetro-route', paint: { 'line-color': '#4285f4', 'line-width': 5, 'line-opacity': 0.78 } });
+      }
+      if (markers.length > 1) {
+        const lngs = markers.map(marker => marker.lng);
+        const lats = markers.map(marker => marker.lat);
+        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 55, maxZoom: 15 });
+      }
+    });
+
+    return () => {
+      markerInstances.forEach(marker => marker.remove());
+      map.remove();
+    };
+  }, [center, zoom, markers, path, mapType, place]);
+
+  return <div ref={containerRef} className="maptiler-map-canvas" aria-label={`Map of ${place || 'selected locations'}`} />;
+}
 
 const LocationMap = ({ 
   type = "location", 
@@ -249,10 +241,6 @@ const LocationMap = ({
   }, [place, origin, destination, isRoute]);
 
   const safeMarkers = mapData.markers.filter(isValidCoordinate);
-  const bounds = safeMarkers.length > 1
-    ? L.latLngBounds(safeMarkers.map(m => [m.lat, m.lng]))
-    : (safeMarkers.length === 1 ? L.latLngBounds([[safeMarkers[0].lat, safeMarkers[0].lng]]) : null);
-
   const googleMapsUrl = isRoute 
     ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints.length ? `&waypoints=${waypoints.map(w => encodeURIComponent(typeof w === 'string' ? w : w.label)).join('|')}` : ''}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place || (mapData.markers[0] ? `${mapData.markers[0].lat},${mapData.markers[0].lng}` : ""))}`;
@@ -304,44 +292,7 @@ const LocationMap = ({
 
       <div className="map-wrapper">
         <div style={{ height: 'min(400px, 60vh)', minHeight: 220, borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--structured-border)', position: 'relative' }}>
-          <MapContainer 
-            center={mapData.center} 
-            zoom={mapData.zoom} 
-            style={{ height: '100%', width: '100%' }}
-            scrollWheelZoom={false}
-          >
-            <ChangeView center={mapData.center} zoom={mapData.zoom} bounds={bounds} />
-            
-            {/* MapTiler is the primary provider for every map style. */}
-            {mapType === 'street' ? (
-              <TileLayer
-                url={mapTilerTileUrl("streets-v4")}
-                attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                maxZoom={20}
-              />
-            ) : (
-              <TileLayer
-                url={mapTilerTileUrl("hybrid", "jpg")}
-                attribution='&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; OpenStreetMap contributors'
-                maxZoom={19}
-              />
-            )}
-            
-            {mapData.path.length > 1 && (
-              <Polyline positions={mapData.path} color="#4285F4" weight={5} opacity={0.7} />
-            )}
-
-            {safeMarkers.map((m, i) => {
-              const icon = isRoute
-                ? (m.type === 'start' ? startIcon : endIcon)
-                : (mapImages[0]?.url ? makePhotoIcon(mapImages[0].url) : endIcon);
-              return (
-                <Marker key={i} position={[m.lat, m.lng]} icon={icon}>
-                  <Popup><b>{m.label || place}</b></Popup>
-                </Marker>
-              );
-            })}
-          </MapContainer>
+          <MapTilerCanvas center={mapData.center} zoom={mapData.zoom} markers={safeMarkers} path={mapData.path} mapType={mapType} place={place} />
 
           {/* Map Controls */}
           <div style={{
