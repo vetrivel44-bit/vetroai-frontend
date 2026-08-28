@@ -4431,6 +4431,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
+    setPluginMention((previous) => ({ ...previous, open: false, query: "", start: -1, index: 0 }));
     const text = (prefill || input).trim();
     if (!text && !selFiles.length) return;
     if (isListening) recogRef.current?.stop();
@@ -4755,6 +4756,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             updatePluginMention(e.target.value, e.target.selectionStart);
             e.target.style.height = 'auto';
             e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+          }}
+          onBlur={() => {
+            window.setTimeout(() => {
+              setPluginMention((previous) => ({ ...previous, open: false, query: "", start: -1, index: 0 }));
+            }, 120);
           }}
           onKeyDown={(e) => {
             if (pluginMention.open && mentionedPluginOptions.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
