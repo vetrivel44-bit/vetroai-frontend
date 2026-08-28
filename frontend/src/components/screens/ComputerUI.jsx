@@ -13,7 +13,7 @@ const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD 
 const STORE_KEY = "vetroai_cowork_tasks_v2";
 const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share|play|open)\b/i;
 const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i;
-const YOUTUBE_REQUEST = /\b(?:play|open|search)(?:\s+(?:a|the))?\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+)/i;
+const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\bplay\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+))/i;
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
 function safeFilename(value, fallback) { return String(value || fallback).replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-").slice(0, 54) || fallback; }
@@ -249,8 +249,17 @@ export default function ComputerUI({ onClose }) {
       }
       const youtubeMatch = prompt.match(YOUTUBE_REQUEST);
       if (youtubeMatch) {
-        const musicQuery = (youtubeMatch[1] || youtubeMatch[2] || prompt).trim();
-        window.open("https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery), "_blank", "noopener,noreferrer");
+        const musicQuery = (youtubeMatch[1] || youtubeMatch[2] || youtubeMatch[3] || prompt)
+          .replace(/^(?:a|the)\s+/i, "")
+          .trim();
+        const youtubeUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
+        const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
+        if (opened) {
+          taskPrompt += "\n\n[ACTION RESULT] YouTube was opened in a new tab with search results for: " + musicQuery + ". Tell the user it was opened; do not say you cannot open YouTube.";
+        } else {
+          setLocationNotice("The browser blocked the YouTube tab. Allow pop-ups for VetroAI and try again.");
+          taskPrompt += "\n\n[ACTION RESULT] The YouTube tab was blocked by the browser's pop-up setting. Tell the user to allow pop-ups for this site.";
+        }
       }
       const body = new FormData();
       body.append("provider", "agnes");
