@@ -21,6 +21,9 @@ L.Icon.Default.mergeOptions({
 
 // Cache to store geocoding results and avoid duplicate API calls
 const geocodeCache = new Map();
+const MAPTILER_API_KEY = String(import.meta.env.VITE_MAPTILER_KEY || "").trim();
+const mapTilerTileUrl = (style, format = "png") =>
+  `https://api.maptiler.com/maps/${style}/256/{z}/{x}/{y}.${format}?key=${encodeURIComponent(MAPTILER_API_KEY)}`;
 
 const isValidCoordinate = (point) => {
   if (!point || typeof point !== 'object') return false;
@@ -311,26 +314,34 @@ const LocationMap = ({
             {/* Legal Open-Source Tiles (OpenStreetMap & Esri) */}
             {mapType === 'street' ? (
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                subdomains="abcd"
+                url={MAPTILER_API_KEY ? mapTilerTileUrl("streets-v4") : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"}
+                attribution={MAPTILER_API_KEY
+                  ? '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  : '&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+                subdomains={MAPTILER_API_KEY ? undefined : "abcd"}
                 maxZoom={20}
               />
             ) : (
               <>
                 <TileLayer
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                  attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+                  url={MAPTILER_API_KEY ? mapTilerTileUrl("hybrid", "jpg") : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"}
+                  attribution={MAPTILER_API_KEY
+                    ? '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; OpenStreetMap contributors'
+                    : 'Tiles &copy; Esri &mdash; Source: Esri and the GIS User Community'}
                   maxZoom={19}
                 />
-                <TileLayer
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
-                  maxZoom={19}
-                />
-                <TileLayer
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                  maxZoom={19}
-                />
+                {!MAPTILER_API_KEY && (
+                  <>
+                    <TileLayer
+                      url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                      maxZoom={19}
+                    />
+                    <TileLayer
+                      url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                      maxZoom={19}
+                    />
+                  </>
+                )}
               </>
             )}
             
