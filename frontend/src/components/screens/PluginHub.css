@@ -119,3 +119,61 @@
   .plugin-grid { grid-template-columns: 1fr; }
 }
 
+
+
+/* Preserve readable contrast on light plugin surfaces when the app theme is dark. */
+.plugin-tabs button:not(.active) {
+  color: #57534e;
+}
+
+.plugin-tabs button span {
+  color: #57534e;
+}
+
+.plugin-search {
+  color: #57534e;
+}
+
+.plugin-search input {
+  color: #1c1917;
+}
+
+.plugin-search input::placeholder {
+  color: #78716c;
+  opacity: 1;
+}
+
+.plugin-card {
+  color: #1c1917;
+}
+
+.plugin-card-topline strong {
+  color: #1c1917;
+}
+
+.plugin-card-topline small {
+  color: #57534e;
+}
+
+.plugin-card-tagline {
+  color: #44403c;
+}
+
+.plugin-card-description,
+.plugin-card-chevron {
+  color: #57534e;
+}
+
+.plugin-card-footer {
+  color: #44403c;
+}
+
+.plugin-card .plugin-install {
+  color: #ffffff;
+  background: #1c1917;
+}
+
+.plugin-card .plugin-install:hover {
+  background: #292524;
+  opacity: 1;
+}
