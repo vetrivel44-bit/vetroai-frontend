@@ -2659,12 +2659,37 @@ async function getUserLocation() {
 }
 
 async function getPreciseUserLocation() {
-  if (!navigator.geolocation) return null;
+  if (!window.isSecureContext || !navigator.geolocation) {
+    return { location: null, reason: "unsupported" };
+  }
+
+  let permissionState = "prompt";
+  try {
+    const permission = await navigator.permissions?.query({ name: "geolocation" });
+    permissionState = permission?.state || "prompt";
+  } catch {
+    // Some browsers do not expose geolocation through the Permissions API.
+  }
+
+  if (permissionState === "denied") {
+    return { location: null, reason: "denied" };
+  }
+
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => resolve({ lat: coords.latitude, lng: coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      ({ coords }) => resolve({
+        location: {
+          lat: Number(coords.latitude),
+          lng: Number(coords.longitude),
+          accuracy: Number(coords.accuracy) || null
+        },
+        reason: null
+      }),
+      (error) => resolve({
+        location: null,
+        reason: error?.code === 1 ? "denied" : error?.code === 3 ? "timeout" : "unavailable"
+      }),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
   });
 }
@@ -4193,9 +4218,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
-    const nearbyMapsRequest = requestPlugins.includes("maps") && /\b(near me|nearby|closest|around me|current location)\b/i.test(userQuery);
+    const nearbyMapsRequest = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery);
     if (nearbyMapsRequest) {
-      const userLocation = await getPreciseUserLocation();
+      const locationResult = await getPreciseUserLocation();
+      const userLocation = locationResult.location;
       if (userLocation) {
         const placeQuery = removePluginMention(userQuery, "maps")
           .replace(/\b(near me|nearby|closest|around me|current location)\b/ig, "")
@@ -4210,7 +4236,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
         fd.set("systemPrompt", finalSystemPrompt.trim());
       } else {
-        addToast("Allow location access to find places near you.", "info", 4000);
+        const blocked = locationResult.reason === "denied";
+        addToast(
+          blocked
+            ? "Location is blocked. Click the lock icon near the address bar and allow Location."
+            : "Current location is unavailable. Please enter your city or area.",
+          "info",
+          6500
+        );
+        finalSystemPrompt += `\n\n[LOCATION REQUIRED BUT UNAVAILABLE]\nThe user asked for nearby results, but browser location was not available (${locationResult.reason || "unknown"}). Do not guess their city, state, or country and do not recommend places from an assumed location. Ask them to allow browser location access or provide their city, locality, or PIN code.`;
+        fd.set("systemPrompt", finalSystemPrompt.trim());
       }
     }
 
