@@ -37,6 +37,7 @@ if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
   baseApi += "/api";
 }
 const API = baseApi;
+const IS_DEPLOY_PREVIEW = /^deploy-preview-\d+--vetroai\.netlify\.app$/i.test(window.location.hostname);
 // Web search is handled entirely by the backend (Tavily)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const VITE_GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
@@ -3436,7 +3437,9 @@ export default function App() {
       }
 
       if (!res.ok || data.success === false) {
-        setAuthError(readApiError(data));
+        setAuthError(res.status === 401 && authMode === "login"
+          ? "Incorrect email or password. If this is your first time, choose Sign up free."
+          : readApiError(data));
         setAuthLoading(false);
         return;
       }
@@ -3464,6 +3467,17 @@ export default function App() {
     setUser(null); setUserInfo(null); setMessages([]); setCurrentSessionId(null);
     setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthError("");
     addToast("Signed out successfully", "info");
+  };
+
+  const enterDeployPreview = () => {
+    if (!IS_DEPLOY_PREVIEW) return;
+    const accessToken = `local_preview_${Date.now()}`;
+    const info = { name: "Preview visitor", email: "preview@vetroai.local", isLocal: true };
+    localStorage.setItem("token", accessToken);
+    localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+    setUser(accessToken);
+    setUserInfo(info);
+    addToast("Preview mode — account and billing actions are disabled.", "info", 3500);
   };
 
   // ── Session management ────────────────────────────────────────────────────────
@@ -5190,7 +5204,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </div>
 
           {/* Google Sign In */}
-          {GOOGLE_CLIENT_ID ? (
+          {GOOGLE_CLIENT_ID && !IS_DEPLOY_PREVIEW ? (
             <>
               <GoogleLoginButton clientId={GOOGLE_CLIENT_ID} onLogin={handleGoogleLogin} theme={theme} />
               <div className="auth-divider-row"><span /><em>or</em><span /></div>
@@ -5213,6 +5227,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
             </button>
           </form>
+
+          {IS_DEPLOY_PREVIEW && (
+            <>
+              <div className="auth-divider-row"><span /><em>preview</em><span /></div>
+              <button className="auth-preview-btn" type="button" onClick={enterDeployPreview}>
+                View the design without signing in
+              </button>
+              <p className="auth-preview-note">Temporary preview only. Nothing is added to your account.</p>
+            </>
+          )}
 
           <p className="auth-switch-text">
             {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
