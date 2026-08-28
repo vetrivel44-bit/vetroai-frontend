@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   click: (button = "left", double = false) => ipcRenderer.invoke("computer:click", { button, double }),
   typeText: (text) => ipcRenderer.invoke("computer:type", { text }),
   pressKey: (key, modifiers = []) => ipcRenderer.invoke("computer:key", { key, modifiers }),
-  scroll: (amount) => ipcRenderer.invoke("computer:scroll", { amount }),
+  scroll: (amount) => ipcRenderer.invoke("computer:scroll", { amount }),\n  playYouTube: (query) => ipcRenderer.invoke("computer:youtube-play", { query }),
   onStatus: (callback) => {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on("computer:status-changed", handler);
