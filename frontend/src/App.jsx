@@ -4716,7 +4716,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form style={{ position: "relative" }} className={`claude-input-box bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)] ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+        <form style={{ position: "relative" }} className={`claude-input-box mobile-composer bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)] ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
         <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" multiple />
         {selFiles.length > 0 && (
           <div className="multi-file-previews">
@@ -5172,7 +5172,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-screen overflow-hidden font-sans" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+    <div className="vetro-app-shell flex h-screen w-screen overflow-hidden font-sans" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
       {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} />}
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} />}
@@ -5378,7 +5378,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       </nav>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 flex flex-col relative h-full w-full overflow-hidden" style={{ backgroundColor: "var(--bg)" }}>
+      <main className="mobile-chat-main flex-1 flex flex-col relative h-full w-full overflow-hidden" style={{ backgroundColor: "var(--bg)" }}>
         {showComputer && (
           <div className="fixed inset-0 z-[120] flex bg-[#fbfaf7]">
             <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
@@ -5386,9 +5386,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         )}
         
         {/* Top Header */}
-        <header className="chat-header">
+        <header className="chat-header mobile-chat-header">
           <div className="ch-left" style={{ position: "relative" }}>
-            <button type="button" onClick={() => setSidebarMobileOpen(true)} title="Open menu" className="claude-sb-item claude-sb-icon-btn flex md:hidden items-center justify-center rounded-md" style={{ marginRight: 4, width: 30, height: 30 }}>
+            <button type="button" onClick={() => setSidebarMobileOpen(true)} title="Open menu" aria-label="Open menu" className="mobile-menu-button claude-sb-item claude-sb-icon-btn flex md:hidden items-center justify-center rounded-md" style={{ marginRight: 4, width: 30, height: 30 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             {sidebarCollapsed && (
@@ -5411,15 +5411,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               );
             })()}
           </div>
+          <button type="button" className="mobile-chat-brand" onClick={goToChatsHome} aria-label="Start a new VetroAI chat">
+            <span className="mobile-chat-brand-mark"><VetroSparkWhite size={14} /></span>
+            <span>VetroAI</span>
+          </button>
           <div className="ch-right">
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowJobs(true)} title="Jobs" style={{ color: "var(--ink-4)" }}>
+            <button type="button" className="mobile-header-secondary claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowJobs(true)} title="Jobs" style={{ color: "var(--ink-4)" }}>
               <Briefcase size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
+            <button type="button" className="mobile-header-secondary claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
               <Newspaper size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
+            <button type="button" className="mobile-header-secondary claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
               <Ghost size={18} />
+            </button>
+            <button type="button" className="mobile-new-chat-btn" onClick={goToChatsHome} title="New chat" aria-label="New chat">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
             </button>
             {messages.length > 0 && (
               <button type="button" className="share-btn" onClick={() => setShowShare(true)} title="Share chat">
@@ -5443,14 +5450,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         )}
 
         {/* Content Area */}
-        <div className={`flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
+        <div className={`mobile-chat-content flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
           style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, rgba(30,18,60,0.06) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
-                  <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
+                <div className="mobile-chat-empty flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
+                  <div className="mobile-chat-greeting mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
                     <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
                   </div>
-                  <div className="w-full">
+                  <div className="mobile-empty-composer w-full">
                     {renderInputBox()}
                   </div>
                   {suggestionOptions.length > 0 && (
@@ -5477,15 +5484,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   )}
                 </div>
              ) : (
-               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}>
-                   <div style={{ maxWidth: 720, margin: '0 auto', paddingTop: 32 }} className="px-4 sm:px-6">
+               <div className="mobile-conversation-frame" style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+                 <div className="claude-feed-scroll mobile-chat-feed" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}>
+                   <div style={{ maxWidth: 720, margin: '0 auto', paddingTop: 32 }} className="mobile-chat-thread px-4 sm:px-6">
                    {messages.map((m, i) => (
-                     <div key={i} className={`flex w-full mb-6 ${m.role === 'user' ? 'justify-end' : 'justify-start gap-3'}`}>
+                     <div key={i} className={`mobile-message-row ${m.role} flex w-full mb-6 ${m.role === 'user' ? 'justify-end' : 'justify-start gap-3'}`}>
 
                        {/* ── AI avatar ── */}
                        {m.role !== 'user' && (
-                         <div className="flex-shrink-0 mt-1">
+                         <div className="mobile-assistant-avatar flex-shrink-0 mt-1">
                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                              <VetroSparkWhite size={22} />
                            </div>
@@ -5494,7 +5501,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
                        {/* ── USER MESSAGE ── */}
                        {m.role === 'user' ? (
-                         <div className="flex flex-col items-end gap-1 group/user">
+                         <div className="mobile-user-message flex flex-col items-end gap-1 group/user">
                            {editIdx === i ? (
                              <div className="user-edit-wrap">
                                <textarea
@@ -5538,7 +5545,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
                        /* ── NORMAL AI MESSAGE ── */
                        ) : (
-                         <div className="flex-1 min-w-0 msg-row">
+                         <div className="mobile-assistant-message flex-1 min-w-0 msg-row">
                            {m.liveScores && m.liveScores.length > 0 && (
                              <LiveScoreWidget scores={m.liveScores} title="Live Scores" />
                            )}
@@ -5715,8 +5722,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      </div>
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
-                     <div className="flex w-full mb-6 justify-start gap-3">
-                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                     <div className="mobile-loading-row flex w-full mb-6 justify-start gap-3">
+                       <div className="mobile-loading-avatar" style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                          <VetroSparkWhite size={22} />
                        </div>
                        <div style={{ paddingTop: 6, color: "var(--ink-3)" }}>
@@ -5735,8 +5742,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    <div ref={messagesEndRef} />
                    </div>
                  </div>
-                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="px-4 sm:px-6">
-                   <div style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto' }}>
+                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="mobile-composer-dock px-4 sm:px-6">
+                   <div className="mobile-composer-inner" style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto' }}>
                     {renderInputBox()}
                   </div>
                  </div>
