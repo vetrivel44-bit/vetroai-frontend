@@ -4703,7 +4703,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .artifacts-panel {
   position: fixed;
   right: 0; top: 0; bottom: 0;
-  width: min(500px, 45vw);
+  width: min(620px, 46vw);
   background: #0e0e14;
   border-left: 1px solid rgba(255,255,255,0.07);
   display: flex;
@@ -4712,6 +4712,19 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   box-shadow: -8px 0 40px rgba(0,0,0,0.4);
   animation: slideInRight 0.22s cubic-bezier(0.34,1.56,0.64,1);
 }
+.vetro-app-shell > main { transition: margin-right 0.22s ease, width 0.22s ease; }
+.artifact-workspace-open > main { margin-right: min(620px, 46vw); }
+.artifact-heading { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.artifact-eyebrow { color: rgba(255,255,255,.42); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.artifact-header-actions, .artifacts-subbar > div { display: flex; align-items: center; gap: 6px; }
+.artifact-switcher { max-width: 190px; height: 30px; padding: 0 28px 0 9px; border-radius: 7px; border: 1px solid rgba(255,255,255,.1); background: #17171f; color: rgba(255,255,255,.72); font: 500 12px var(--font); }
+.artifact-icon-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.055); color: rgba(255,255,255,.68); cursor: pointer; }
+.artifact-icon-btn:hover { color: #fff; background: rgba(255,255,255,.1); }
+.artifact-editor { flex: 1; width: 100%; min-height: 0; resize: none; border: 0; outline: 0; padding: 18px; background: #0d0d12; color: #e8e8ef; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; tab-size: 2; }
+.artifact-save-btn { background: var(--accent); color: #fff; border-color: transparent; }
+.artifact-footer { height: 34px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-top: 1px solid rgba(255,255,255,.07); color: rgba(255,255,255,.38); font-size: 11px; }
+.artifact-footer button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: rgba(255,255,255,.45); cursor: pointer; font: inherit; }
+.artifact-footer button:hover { color: #ff7b7b; }
 .artifacts-panel * { scroll-behavior: smooth; }
 .artifacts-panel pre {
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent;
@@ -4733,7 +4746,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   background: rgba(255,255,255,0.03);
   flex-shrink: 0;
 }
-.artifacts-tabs { display: flex; gap: 6px; }
+.artifacts-tabs { display: flex; align-items: center; gap: 6px; }
 .atab {
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.6);
@@ -4744,11 +4757,16 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   font-family: var(--font);
   cursor: pointer;
   transition: all var(--tr);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .atab:hover { background: rgba(255,255,255,0.1); color: #fff; }
 .atab.active { background: var(--accent); color: #fff; border-color: transparent; }
 @media (max-width: 768px) {
   .artifacts-panel { width: 100vw; }
+  .artifact-workspace-open > main { margin-right: 0; }
+  .artifact-switcher { max-width: 125px; }
 }
 
 .artifacts-subbar {
