@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import "./ComputerUI.css";
 import {
   ArrowLeft, Bot, Check, CheckCircle2, ChevronDown, Circle, Clock3,
   File, FolderOpen, Globe2, Loader2, Mic, Monitor, MoreHorizontal,
@@ -282,8 +283,8 @@ export default function ComputerUI({ onClose }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full bg-[#f7f6f2] text-stone-900 overflow-hidden">
-      <aside className={`${sidebarOpen ? "w-[260px]" : "w-0"} hidden md:flex flex-col overflow-hidden border-r border-stone-200 bg-[#efeee9] transition-all`}>
+    <div className="cowork-shell">
+      <aside className={`cowork-tasks-sidebar ${sidebarOpen ? "is-open" : "is-closed"}`}>
         <div className="p-3 flex items-center gap-2">
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-stone-200" title="Back to chat"><ArrowLeft size={18} /></button>
           <span className="font-semibold text-sm flex-1">Computer</span>
@@ -314,8 +315,8 @@ export default function ComputerUI({ onClose }) {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 flex flex-col bg-[#fbfaf7]">
-        <header className="h-14 flex items-center gap-3 px-4 border-b border-stone-200 bg-[#fbfaf7]/95">
+      <main className="cowork-main">
+        <header className="cowork-header">
           <button onClick={() => setSidebarOpen(v => !v)} className="hidden md:block p-2 rounded-lg hover:bg-stone-100"><Monitor size={18} /></button>
           <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100"><ArrowLeft size={18} /></button>
           <div className="flex-1 min-w-0">
@@ -339,14 +340,14 @@ export default function ComputerUI({ onClose }) {
         </header>
 
         {!activeTask || activeTask.messages.length === 0 ? (
-          <section className="flex-1 overflow-y-auto px-5 py-10">
-            <div className="max-w-3xl mx-auto min-h-full flex flex-col justify-center">
-              <div className="w-12 h-12 rounded-2xl bg-stone-900 text-white flex items-center justify-center shadow-lg mb-5"><Bot size={24} /></div>
-              <h1 className="text-3xl md:text-4xl font-semibold tracking-tight mb-3">Hand off a task</h1>
-              <p className="text-stone-600 max-w-xl leading-relaxed mb-8">Describe the outcome you want. VetroAI Computer will plan the work, use available web and file context, show progress, and return the result for review.</p>
-              <div className="grid sm:grid-cols-2 gap-3 mb-8">
+          <section className="cowork-home-scroll">
+            <div className="cowork-home">
+              <div className="cowork-hero-icon"><Bot size={24} /></div>
+              <h1 className="cowork-title">Hand off a task</h1>
+              <p className="cowork-subtitle">Describe the outcome you want. VetroAI Computer will plan the work, use available web and file context, show progress, and return the result for review.</p>
+              <div className="cowork-starter-grid">
                 {starterTasks.map(({ icon: Icon, title, prompt }) => (
-                  <button key={title} onClick={e => submit(e, prompt)} className="text-left bg-white border border-stone-200 hover:border-stone-300 rounded-2xl p-4 transition shadow-sm">
+                  <button key={title} onClick={e => submit(e, prompt)} className="cowork-starter-card">
                     <Icon size={18} className="text-amber-700 mb-3" />
                     <div className="font-semibold text-sm mb-1">{title}</div>
                     <div className="text-xs leading-relaxed text-stone-500">{prompt}</div>
@@ -354,13 +355,13 @@ export default function ComputerUI({ onClose }) {
                 ))}
               </div>
               <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} />
-              <p className="text-[11px] text-stone-500 text-center mt-3">Browser workspace only. Direct control of your device requires a separately installed desktop agent or extension.</p>
+              <p className="cowork-footnote">Browser workspace only. Install the VetroAI desktop companion for mouse and keyboard control.</p>
             </div>
           </section>
         ) : (
           <>
-            <section className="flex-1 overflow-y-auto px-4 md:px-7 py-6">
-              <div className="max-w-4xl mx-auto grid lg:grid-cols-[1fr_280px] gap-5">
+            <section className="cowork-thread-scroll">
+              <div className="cowork-thread-grid">
                 <div className="space-y-7 min-w-0">
                   {activeTask.messages.map(message => (
                     <div key={message.id} className={message.role === "user" ? "flex justify-end" : "flex gap-3"}>
@@ -402,7 +403,7 @@ export default function ComputerUI({ onClose }) {
                 </aside>
               </div>
             </section>
-            <div className="px-4 md:px-7 pb-4 bg-gradient-to-t from-[#fbfaf7] via-[#fbfaf7]">
+            <div className="cowork-bottom-composer">
               <div className="max-w-4xl mx-auto">
                 <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} />
               </div>
@@ -431,7 +432,7 @@ export default function ComputerUI({ onClose }) {
 
 function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation }) {
   return (
-    <form onSubmit={submit} className="bg-white border border-stone-200 rounded-2xl shadow-[0_10px_35px_rgba(28,25,23,0.08)] p-3">
+    <form onSubmit={submit} className="cowork-composer">
       {files.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-2">
           {files.map((file, index) => (
