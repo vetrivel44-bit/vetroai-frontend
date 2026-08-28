@@ -54,6 +54,23 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  const allowedOrigin = new URL(APP_URL).origin;
+  const appSession = mainWindow.webContents.session;
+  appSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
+    return permission === "geolocation" && String(requestingOrigin || "").startsWith(allowedOrigin);
+  });
+  appSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission !== "geolocation") return callback(false);
+    dialog.showMessageBox(mainWindow, {
+      type: "question",
+      title: "Allow location access?",
+      buttons: ["Allow this time", "Block"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "VetroAI wants to use your current location",
+      detail: "Location is used only for nearby-place requests. VetroAI will not guess your location if you block access."
+    }).then(result => callback(result.response === 0)).catch(() => callback(false));
+  });
   mainWindow.loadURL(APP_URL);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     require("electron").shell.openExternal(url);
