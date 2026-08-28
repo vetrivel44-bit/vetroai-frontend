@@ -11800,3 +11800,36 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .plugin-mention-menu::-webkit-scrollbar { width: 6px; }
 .plugin-mention-menu::-webkit-scrollbar-track { background: transparent; }
 .plugin-mention-menu::-webkit-scrollbar-thumb { background: var(--ink-5); border-radius: 999px; }
+
+/* Final theme tokens intentionally override legacy feature-specific palettes. */
+:root,
+[data-theme="light"] {
+  --bg:#F8F7F4; --bg-2:#FFFFFF; --bg-sidebar:#F2F0EC; --bg-elevated:#FFFFFF;
+  --bg-hover:#ECE9E4; --bg-active:#E6E1FA;
+  --ink:#1F1D1A; --ink-2:#48443F; --ink-3:#6F6B66; --ink-4:#918B84; --ink-5:#C9C3BC;
+  --accent:#7C5CFC; --accent-soft:rgba(124,92,252,.10); --accent-mid:rgba(124,92,252,.20);
+  --accent-glow:rgba(124,92,252,.12); --accent-rgb:124,92,252;
+  --success:#228B62; --danger:#DC4C4C; --danger-soft:rgba(220,76,76,.10);
+  --border:#E7E4DF; --border-med:#D8D3CC; --border-str:#C6BFB7;
+  --glass-bg:rgba(248,247,244,.88); --glass-border:rgba(31,29,26,.08);
+  color-scheme:light;
+}
+[data-theme="dark"] {
+  --bg:#111014; --bg-2:#19181E; --bg-sidebar:#17161B; --bg-elevated:#1D1C22;
+  --bg-hover:#27252D; --bg-active:#312A51;
+  --ink:#F5F3F8; --ink-2:#D3CFDA; --ink-3:#A49EAB; --ink-4:#77717E; --ink-5:#48434E;
+  --accent:#9A83FF; --accent-soft:rgba(154,131,255,.13); --accent-mid:rgba(154,131,255,.24);
+  --accent-glow:rgba(154,131,255,.14); --accent-rgb:154,131,255;
+  --success:#55B88A; --danger:#F06B6B; --danger-soft:rgba(240,107,107,.12);
+  --border:rgba(255,255,255,.08); --border-med:rgba(255,255,255,.13); --border-str:rgba(255,255,255,.20);
+  --glass-bg:rgba(17,16,20,.88); --glass-border:rgba(255,255,255,.08);
+  color-scheme:dark;
+}
+.artifacts-panel { background:var(--bg-elevated); border-left-color:var(--border); box-shadow:-10px 0 32px rgba(31,29,26,.12); }
+.artifacts-header,.artifacts-subbar { background:var(--bg-elevated); border-color:var(--border); }
+.artifact-eyebrow,.artifact-footer,.artifact-footer button { color:var(--ink-4); }
+.artifact-title { color:var(--ink); }
+.artifact-switcher,.artifact-icon-btn,.atab { background:var(--bg-hover); border-color:var(--border-med); color:var(--ink-3); }
+.artifact-icon-btn:hover,.atab:hover { background:var(--bg-active); color:var(--ink); }
+.atab.active,.artifact-save-btn { background:var(--accent); color:#fff; border-color:transparent; }
+.artifact-footer { border-color:var(--border); }
