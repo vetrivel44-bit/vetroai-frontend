@@ -135,11 +135,10 @@ export function getPluginMentionContext(state, value = "", cursorPosition = valu
   const rawQuery = match[2] || "";
   const query = rawQuery.trimStart();
   const normalizedQuery = query.toLowerCase();
-  const installedPlugins = PLUGIN_CATALOG.filter((plugin) => state?.[plugin.id]?.installed);
-
   // A valid plugin name/alias followed by whitespace is a completed mention.
-  // Later words belong to the prompt and must not continue filtering the picker.
-  const completedMention = installedPlugins.some((plugin) => {
+  // Later words belong to the prompt and must not continue filtering the picker,
+  // even when the known plugin name was typed manually instead of selected.
+  const completedMention = PLUGIN_CATALOG.some((plugin) => {
     const normalizedPluginName = plugin.name.toLowerCase();
     const completedNames = [
       plugin.name,
