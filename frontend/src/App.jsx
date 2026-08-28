@@ -23,7 +23,7 @@ import GlobalSearch from "./components/screens/GlobalSearch";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
 import PluginHub from "./components/screens/PluginHub";
-import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
+import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention, getPluginMentionContext } from "./plugins/catalog";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -4395,6 +4395,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
+    setPluginMention({ open: false, query: "", start: -1, index: 0 });
     const text = (prefill || input).trim();
     if (!text && !selFiles.length) return;
     if (isListening) recogRef.current?.stop();
@@ -4720,6 +4721,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             e.target.style.height = 'auto';
             e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
           }}
+          onBlur={() => setPluginMention({ open: false, query: "", start: -1, index: 0 })}
           onKeyDown={(e) => {
             if (pluginMention.open && mentionedPluginOptions.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
               e.preventDefault();
@@ -4734,7 +4736,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             }
             if (e.key === "Escape" && pluginMention.open) {
               e.preventDefault();
-              setPluginMention((previous) => ({ ...previous, open: false }));
+              setPluginMention({ open: false, query: "", start: -1, index: 0 });
               return;
             }
             if (e.key === "Enter" && !e.shiftKey) {
@@ -4847,15 +4849,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   }, [pluginState, pluginMention.query]);
 
   const updatePluginMention = useCallback((value, cursorPosition) => {
-    const beforeCursor = value.slice(0, cursorPosition ?? value.length);
-    const match = beforeCursor.match(/(^|\s)@([^@\n]*)$/);
-    if (!match) {
-      setPluginMention((previous) => ({ ...previous, open: false }));
+    const context = getPluginMentionContext(pluginState, value, cursorPosition);
+    if (!context) {
+      setPluginMention({ open: false, query: "", start: -1, index: 0 });
       return;
     }
-    const rawQuery = match[2] || "";
-    setPluginMention({ open: true, query: rawQuery.trimStart(), start: beforeCursor.length - rawQuery.length - 1, index: 0 });
-  }, []);
+    setPluginMention({ open: true, query: context.query, start: context.start, index: 0 });
+  }, [pluginState]);
 
   const selectMentionedPlugin = useCallback((plugin) => {
     setPluginState((previous) => {
@@ -5006,6 +5006,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           placeholder="Ask anything..."
           value={input}
           onChange={(e) => { setInput(e.target.value); updatePluginMention(e.target.value, e.target.selectionStart); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'; }}
+          onBlur={() => setPluginMention({ open: false, query: "", start: -1, index: 0 })}
           onKeyDown={(e) => {
             if (pluginMention.open && mentionedPluginOptions.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
               e.preventDefault(); const direction = e.key === 'ArrowDown' ? 1 : -1;
@@ -5014,7 +5015,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             if (pluginMention.open && mentionedPluginOptions.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
               e.preventDefault(); selectMentionedPlugin(mentionedPluginOptions[pluginMention.index] || mentionedPluginOptions[0]); return;
             }
-            if (e.key === 'Escape' && pluginMention.open) { e.preventDefault(); setPluginMention((previous) => ({ ...previous, open: false })); return; }
+            if (e.key === 'Escape' && pluginMention.open) { e.preventDefault(); setPluginMention({ open: false, query: "", start: -1, index: 0 }); return; }
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e); }
           }}
           className="w-full bg-transparent border-none outline-none resize-none text-[16px] md:text-lg text-gray-800 placeholder-gray-400 py-1"

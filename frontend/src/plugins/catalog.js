@@ -127,6 +127,41 @@ export function pluginsForPrompt(state, prompt = "") {
   }).map((plugin) => plugin.id);
 }
 
+export function getPluginMentionContext(state, value = "", cursorPosition = value.length) {
+  const beforeCursor = String(value).slice(0, cursorPosition ?? String(value).length);
+  const match = beforeCursor.match(/(^|\s)@([^@\n]*)$/);
+  if (!match) return null;
+
+  const rawQuery = match[2] || "";
+  const query = rawQuery.trimStart();
+  const normalizedQuery = query.toLowerCase();
+  const installedPlugins = PLUGIN_CATALOG.filter((plugin) => state?.[plugin.id]?.installed);
+
+  // A valid plugin name/alias followed by whitespace is a completed mention.
+  // Later words belong to the prompt and must not continue filtering the picker.
+  const completedMention = installedPlugins.some((plugin) => {
+    const normalizedPluginName = plugin.name.toLowerCase();
+    const completedNames = [
+      plugin.name,
+      ...plugin.aliases.filter((alias) =>
+        !normalizedPluginName.startsWith(`${alias.toLowerCase()} `)
+      ),
+    ];
+
+    return completedNames.some((name) => {
+      const normalizedName = name.toLowerCase();
+      return normalizedQuery.startsWith(normalizedName)
+        && /^\s/.test(query.slice(name.length));
+    });
+  });
+  if (completedMention) return null;
+
+  return {
+    query,
+    start: beforeCursor.length - rawQuery.length - 1,
+  };
+}
+
 
 
 export function pluginMentioned(state, prompt, pluginId) {
