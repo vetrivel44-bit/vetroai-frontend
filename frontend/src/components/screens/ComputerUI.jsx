@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import StructuredResponseRenderer from "../structured/StructuredResponseRenderer";
+import ReactMarkdown from "react-markdown";
 import "./ComputerUI.css";
 import {
-  ArrowLeft, Bot, Check, CheckCircle2, ChevronDown, Circle, Clock3,
-  File, FolderOpen, Globe2, Loader2, Mic, Monitor, MoreHorizontal,
+  ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
+  File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, Mic, Monitor, MoreHorizontal,
   Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
   Square, Trash2, X, Zap
 } from "lucide-react";
@@ -12,6 +12,8 @@ const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? PROD_API : "/api")).replace(/\/+$/, "");
 const STORE_KEY = "vetroai_cowork_tasks_v2";
 const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share)\b/i;
+const READABLE_FILE = /\.(txt|md|csv|json|js|jsx|ts|tsx|py|java|cpp|c|html|css|xml|ya?ml)$/i;
+const MAX_WORKSPACE_FILES = 200;
 
 const makeTask = (title = "New task") => ({
   id: crypto.randomUUID?.() || String(Date.now()),
@@ -70,6 +72,11 @@ export default function ComputerUI({ onClose }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pendingAction, setPendingAction] = useState(null);
   const [dictating, setDictating] = useState(false);
+  const [workspace, setWorkspace] = useState(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState([]);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [showCapabilities, setShowCapabilities] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const textareaRef = useRef(null);
   const fileRef = useRef(null);
   const endRef = useRef(null);
@@ -200,12 +207,7 @@ export default function ComputerUI({ onClose }) {
         "Work through the user's multi-step task and produce finished, useful deliverables.",
         "State what you actually did; never pretend to click, send, purchase, log in, edit local files, or access connected apps unless a real tool result proves it.",
         "For actions unavailable in this browser workspace, provide the exact next action for the user.",
-        "Prefer concise progress, source-aware research, and a final review checklist.",
-        "For current or latest research, use only facts supported by URLs actually returned by web search in this request.",
-        "Never invent reports, benchmarks, publication years, statistics, paper identifiers, quotations, or source links.",
-        "If reliable current sources are unavailable, say so plainly and separate known background from unverified claims.",
-        "Use valid GitHub-Flavored Markdown. Keep every Markdown table on separate lines with a valid header separator.",
-        "Structured comparison JSON is allowed only when it is complete and valid; never print partial JSON or duplicate the same comparison as both JSON and Markdown."
+        "Prefer concise progress, source-aware research, and a final review checklist."
       ].join(" "));
       files.forEach(file => body.append("files", file));
 
@@ -287,6 +289,64 @@ export default function ComputerUI({ onClose }) {
     event.target.value = "";
   };
 
+  const scanDirectory = async (directory, prefix = "", output = []) => {
+    for await (const [name, handle] of directory.entries()) {
+      if (output.length >= MAX_WORKSPACE_FILES) break;
+      const path = prefix ? `${prefix}/${name}` : name;
+      if (handle.kind === "directory") {
+        await scanDirectory(handle, path, output);
+      } else {
+        const file = await handle.getFile();
+        output.push({ name, path, size: file.size, type: file.type, handle });
+      }
+    }
+    return output;
+  };
+
+  const openWorkspace = async () => {
+    if (!window.showDirectoryPicker) {
+      alert("Folder access requires Chrome or Edge on HTTPS. You can still attach individual files.");
+      return;
+    }
+    try {
+      setWorkspaceBusy(true);
+      const handle = await window.showDirectoryPicker({ mode: "readwrite", id: "vetroai-computer-workspace" });
+      const permission = await handle.requestPermission({ mode: "readwrite" });
+      if (permission !== "granted") return;
+      const entries = await scanDirectory(handle);
+      setWorkspace({ name: handle.name, handle });
+      setWorkspaceFiles(entries);
+    } catch (error) {
+      if (error.name !== "AbortError") alert(`Could not open folder: ${error.message}`);
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
+
+  const attachWorkspaceFile = async entry => {
+    try {
+      const file = await entry.handle.getFile();
+      setFiles(prev => [...prev.filter(item => item.name !== file.name), file].slice(0, 10));
+    } catch (error) {
+      alert(`Could not read ${entry.path}: ${error.message}`);
+    }
+  };
+
+  const deleteWorkspaceFile = async () => {
+    if (!deleteTarget || !workspace?.handle) return;
+    try {
+      const segments = deleteTarget.path.split("/");
+      const name = segments.pop();
+      let parent = workspace.handle;
+      for (const segment of segments) parent = await parent.getDirectoryHandle(segment);
+      await parent.removeEntry(name);
+      setWorkspaceFiles(prev => prev.filter(entry => entry.path !== deleteTarget.path));
+      setDeleteTarget(null);
+    } catch (error) {
+      alert(`Could not delete ${deleteTarget.path}: ${error.message}`);
+    }
+  };
+
   return (
     <div className="cowork-shell">
       <aside className={`cowork-tasks-sidebar ${sidebarOpen ? "is-open" : "is-closed"}`}>
@@ -341,7 +401,7 @@ export default function ComputerUI({ onClose }) {
             </select>
             <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-2.5 text-stone-500" />
           </div>
-          <button className="p-2 rounded-lg hover:bg-stone-100"><MoreHorizontal size={18} /></button>
+          <button onClick={() => setShowCapabilities(true)} className="p-2 rounded-lg hover:bg-stone-100" title="Capabilities"><MoreHorizontal size={18} /></button>
         </header>
 
         {!activeTask || activeTask.messages.length === 0 ? (
@@ -350,6 +410,13 @@ export default function ComputerUI({ onClose }) {
               <div className="cowork-hero-icon"><Bot size={24} /></div>
               <h1 className="cowork-title">Hand off a task</h1>
               <p className="cowork-subtitle">Describe the outcome you want. VetroAI Computer will plan the work, use available web and file context, show progress, and return the result for review.</p>
+              <div className="cowork-workspace-bar">
+                <button type="button" onClick={openWorkspace} disabled={workspaceBusy} className="cowork-workspace-button">
+                  {workspaceBusy ? <Loader2 size={16} className="animate-spin" /> : <FolderOpen size={16} />}
+                  {workspace ? workspace.name : "Open a local folder"}
+                </button>
+                <span>Read/write access is requested by your browser and stays limited to the folder you choose.</span>
+              </div>
               <div className="cowork-starter-grid">
                 {starterTasks.map(({ icon: Icon, title, prompt }) => (
                   <button key={title} onClick={e => submit(e, prompt)} className="cowork-starter-card">
@@ -375,7 +442,7 @@ export default function ComputerUI({ onClose }) {
                         ? "max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 text-white px-4 py-3 text-sm"
                         : "min-w-0 flex-1 prose prose-sm max-w-none text-stone-800 leading-7"}>
                         {message.role === "assistant"
-                          ? (message.content ? <StructuredResponseRenderer response={message.content} /> : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
+                          ? (message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
                           : message.content}
                       </div>
                     </div>
@@ -405,6 +472,7 @@ export default function ComputerUI({ onClose }) {
                     </div>
                   )}
                   {activeTask.status === "completed" && <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-2 text-xs text-emerald-700"><Check size={15} /> Ready for your review</div>}
+                  <WorkspaceFiles entries={workspaceFiles} workspace={workspace} busy={workspaceBusy} openWorkspace={openWorkspace} attachFile={attachWorkspaceFile} requestDelete={setDeleteTarget} />
                 </aside>
               </div>
             </section>
@@ -431,8 +499,44 @@ export default function ComputerUI({ onClose }) {
           </div>
         </div>
       )}
+
+      {showCapabilities && <CapabilitiesModal close={() => setShowCapabilities(false)} workspaceReady={Boolean(workspace)} />}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[210] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="w-10 h-10 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-4"><Trash2 size={20} /></div>
+            <h2 className="text-lg font-semibold mb-2">Permanently delete this file?</h2>
+            <p className="text-sm text-stone-600 leading-6 mb-5">{deleteTarget.path}<br />This cannot be undone. VetroAI never deletes workspace files without this manual confirmation.</p>
+            <div className="flex justify-end gap-2"><button onClick={() => setDeleteTarget(null)} className="px-4 py-2 rounded-xl text-sm hover:bg-stone-100">Cancel</button><button onClick={deleteWorkspaceFile} className="px-4 py-2 rounded-xl text-sm bg-stone-900 text-white">Delete permanently</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function WorkspaceFiles({ entries, workspace, busy, openWorkspace, attachFile, requestDelete }) {
+  return <div className="cowork-workspace-panel">
+    <div className="cowork-workspace-heading"><span><HardDrive size={14} /> Workspace</span><button onClick={openWorkspace}>{workspace ? "Change" : "Open"}</button></div>
+    {!workspace ? <p>No local folder connected.</p> : <>
+      <strong>{workspace.name}</strong><p>{entries.length}{entries.length >= MAX_WORKSPACE_FILES ? "+" : ""} files available</p>
+      <div className="cowork-file-list">{entries.slice(0, 12).map(entry => <div key={entry.path} className="cowork-file-row"><button onClick={() => attachFile(entry)} title="Attach to task" disabled={!READABLE_FILE.test(entry.name) && entry.size > 15 * 1024 * 1024}><File size={13} /><span>{entry.path}</span></button><button onClick={() => requestDelete(entry)} title="Delete file"><Trash2 size={13} /></button></div>)}</div>
+    </>}
+    {busy && <p>Reading folder…</p>}
+  </div>;
+}
+
+function CapabilitiesModal({ close, workspaceReady }) {
+  const rows = [
+    [FolderOpen, "Local folder access", workspaceReady ? "Ready" : "Connect folder", "Browser permission required"],
+    [File, "Documents and file analysis", "Ready", "Attach or select workspace files"],
+    [Globe2, "Web research", "Ready", "Runs through the chat backend"],
+    [LockKeyhole, "Delete protection", "Ready", "Manual confirmation required"],
+    [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Needs a signed desktop companion"],
+    [CalendarClock, "Background and scheduled jobs", "Cloud service required", "Needs a durable job runner"],
+    [Zap, "Connectors and parallel sub-agents", "Backend required", "Needs authenticated tool adapters"]
+  ];
+  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
 }
 
 function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation }) {
