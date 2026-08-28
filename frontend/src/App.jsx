@@ -4841,10 +4841,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   const mentionedPluginOptions = useMemo(() => {
     const query = pluginMention.query.toLowerCase();
-    return enabledPlugins.filter((plugin) =>
-      !query || plugin.name.toLowerCase().includes(query) || plugin.category.toLowerCase().includes(query)
-    );
-  }, [enabledPlugins, pluginMention.query]);
+    return PLUGIN_CATALOG
+      .filter((plugin) => pluginState[plugin.id]?.installed)
+      .filter((plugin) => !query || plugin.name.toLowerCase().includes(query) || plugin.category.toLowerCase().includes(query));
+  }, [pluginState, pluginMention.query]);
 
   const updatePluginMention = useCallback((value, cursorPosition) => {
     const beforeCursor = value.slice(0, cursorPosition ?? value.length);
@@ -4858,6 +4858,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   }, []);
 
   const selectMentionedPlugin = useCallback((plugin) => {
+    setPluginState((previous) => {
+      const status = previous[plugin.id] || {};
+      if (status.enabled !== false) return previous;
+      const next = { ...previous, [plugin.id]: { ...status, installed: true, enabled: true } };
+      savePluginState(next);
+      return next;
+    });
     const cursor = textareaRef.current?.selectionStart ?? input.length;
     const start = pluginMention.start >= 0 ? pluginMention.start : cursor;
     const next = `${input.slice(0, start)}@${plugin.name} ${input.slice(cursor)}`;
