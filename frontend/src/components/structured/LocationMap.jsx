@@ -22,6 +22,17 @@ L.Icon.Default.mergeOptions({
 // Cache to store geocoding results and avoid duplicate API calls
 const geocodeCache = new Map();
 
+const isValidCoordinate = (point) => {
+  if (!point || typeof point !== 'object') return false;
+  const lat = Number(point.lat);
+  const lng = Number(point.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+};
+
+const normalizeCoordinate = (point, fallbackLabel = '') => isValidCoordinate(point)
+  ? { ...point, lat: Number(point.lat), lng: Number(point.lng), label: point.label || fallbackLabel }
+  : null;
+
 // Custom Marker Icons
 const startIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
@@ -53,7 +64,7 @@ const ChangeView = ({ center, zoom, bounds }) => {
   useEffect(() => {
     if (bounds && bounds.isValid()) {
       map.fitBounds(bounds, { padding: [50, 50] });
-    } else if (center) {
+    } else if (Array.isArray(center) && center.length === 2 && center.every(Number.isFinite)) {
       map.setView(center, zoom);
     }
   }, [center, zoom, bounds, map]);
@@ -75,7 +86,7 @@ const LocationMap = ({
   const isRoute = type === "route" || (origin && destination);
   
   const [mapData, setMapData] = useState({
-    center: coordinates ? [coordinates.lat, coordinates.lng] : [20.5937, 78.9629],
+    center: isValidCoordinate(coordinates) ? [Number(coordinates.lat), Number(coordinates.lng)] : [20.5937, 78.9629],
     zoom: isRoute ? 6 : 13,
     markers: [],
     path: [],
@@ -121,13 +132,15 @@ const LocationMap = ({
             if (d?.success && d?.data?.[0]) {
               const placeObj = d.data[0];
               if (placeObj.location) {
-                const result = {
+                const result = normalizeCoordinate({
                   lat: placeObj.location.lat,
                   lng: placeObj.location.lng,
                   label: placeObj.name || q
-                };
-                geocodeCache.set(cacheKey, result);
-                return result;
+                });
+                if (result) {
+                  geocodeCache.set(cacheKey, result);
+                  return result;
+                }
               }
             }
             geocodeCache.set(cacheKey, null);
@@ -139,8 +152,8 @@ const LocationMap = ({
         };
 
         if (isRoute) {
-          const start = (origin && typeof origin === 'object') ? origin : await geocode(origin);
-          const end = (destination && typeof destination === 'object') ? destination : await geocode(destination);
+          const start = (origin && typeof origin === 'object') ? normalizeCoordinate(origin, 'Start') : await geocode(origin);
+          const end = (destination && typeof destination === 'object') ? normalizeCoordinate(destination, 'Destination') : await geocode(destination);
 
           if (!isMounted) return;
 
@@ -151,7 +164,7 @@ const LocationMap = ({
 
           const resolvedWaypoints = [];
           for (const wp of waypoints) {
-            const r = typeof wp === 'string' ? await geocode(wp) : wp;
+            const r = typeof wp === 'string' ? await geocode(wp) : normalizeCoordinate(wp);
             if (r) resolvedWaypoints.push(r);
           }
 
@@ -172,8 +185,11 @@ const LocationMap = ({
             error: null
           });
         } else {
-          let markers = points.length > 0 ? points : (coordinates ? [{ ...coordinates, label: place }] : []);
-          let center = coordinates ? [coordinates.lat, coordinates.lng] : [20.5937, 78.9629];
+          const validCoordinates = normalizeCoordinate(coordinates, place);
+          let markers = points.length > 0
+            ? points.map((point) => normalizeCoordinate(point, point?.label || place)).filter(Boolean)
+            : (validCoordinates ? [validCoordinates] : []);
+          let center = validCoordinates ? [validCoordinates.lat, validCoordinates.lng] : [20.5937, 78.9629];
           
           if (!coordinates && points.length === 0 && place) {
             const r = await geocode(place);
@@ -228,9 +244,10 @@ const LocationMap = ({
     return () => { isMounted = false; abortController.abort(); };
   }, [place, origin, destination, isRoute]);
 
-  const bounds = mapData.markers.length > 1 
-    ? L.latLngBounds(mapData.markers.map(m => [m.lat, m.lng])) 
-    : (mapData.markers.length === 1 ? L.latLngBounds([[mapData.markers[0].lat, mapData.markers[0].lng]]) : null);
+  const safeMarkers = mapData.markers.filter(isValidCoordinate);
+  const bounds = safeMarkers.length > 1
+    ? L.latLngBounds(safeMarkers.map(m => [m.lat, m.lng]))
+    : (safeMarkers.length === 1 ? L.latLngBounds([[safeMarkers[0].lat, safeMarkers[0].lng]]) : null);
 
   const googleMapsUrl = isRoute 
     ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints.length ? `&waypoints=${waypoints.map(w => encodeURIComponent(typeof w === 'string' ? w : w.label)).join('|')}` : ''}`
@@ -321,7 +338,7 @@ const LocationMap = ({
               <Polyline positions={mapData.path} color="#4285F4" weight={5} opacity={0.7} />
             )}
 
-            {mapData.markers.map((m, i) => {
+            {safeMarkers.map((m, i) => {
               const icon = isRoute
                 ? (m.type === 'start' ? startIcon : endIcon)
                 : (mapImages[0]?.url ? makePhotoIcon(mapImages[0].url) : endIcon);
