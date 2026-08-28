@@ -106,7 +106,8 @@ export default function ComputerUI({ onClose }) {
   const [permission, setPermission] = useState("ask");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pendingAction, setPendingAction] = useState(null);
-  const [dictating, setDictating] = useState(false);\n  const [locationNotice, setLocationNotice] = useState("");
+  const [dictating, setDictating] = useState(false);
+  const [locationNotice, setLocationNotice] = useState("");
   const [workspace, setWorkspace] = useState(null);
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
