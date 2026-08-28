@@ -2658,6 +2658,17 @@ async function getUserLocation() {
   return "their local area";
 }
 
+async function getPreciseUserLocation() {
+  if (!navigator.geolocation) return null;
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => resolve({ lat: coords.latitude, lng: coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+  });
+}
+
 async function fetchMedicalAnswer(query, language = "en") {
   try {
     const specialization = detectMedicalSpecialization(query);
@@ -4182,6 +4193,27 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
+    const nearbyMapsRequest = requestPlugins.includes("maps") && /\b(near me|nearby|closest|around me|current location)\b/i.test(userQuery);
+    if (nearbyMapsRequest) {
+      const userLocation = await getPreciseUserLocation();
+      if (userLocation) {
+        const placeQuery = removePluginMention(userQuery, "maps")
+          .replace(/\b(near me|nearby|closest|around me|current location)\b/ig, "")
+          .trim() || "places";
+        try {
+          const nearbyResponse = await fetch(`${API}/maps/search?query=${encodeURIComponent(placeQuery)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=6`);
+          const nearbyPayload = await nearbyResponse.json();
+          const nearbyPlaces = nearbyPayload?.success ? nearbyPayload.data : [];
+          finalSystemPrompt += `\n\n[CURRENT LOCATION MAP REQUEST]\nThe user explicitly requested results near their current browser location (${userLocation.lat}, ${userLocation.lng}). Use only these nearby place results when available and include their map links:\n${JSON.stringify(nearbyPlaces).slice(0, 7000)}`;
+        } catch {
+          finalSystemPrompt += `\n\n[CURRENT LOCATION]\nThe user's browser coordinates are ${userLocation.lat}, ${userLocation.lng}. Use them only for this nearby-place request.`;
+        }
+        fd.set("systemPrompt", finalSystemPrompt.trim());
+      } else {
+        addToast("Allow location access to find places near you.", "info", 4000);
+      }
+    }
+
     if (medicalDetected) {
       const location = await getUserLocation();
       const medSpec = detectMedicalSpecialization(userQuery);
@@ -4647,7 +4679,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form className={`claude-input-box bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)] ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+        <form style={{ position: "relative" }} className={`claude-input-box bg-slate-800 md:bg-[rgba(255,255,255,0.03)] border border-slate-700 md:border-[var(--border-str)] ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
         <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" multiple />
         {selFiles.length > 0 && (
           <div className="multi-file-previews">
@@ -4684,10 +4716,27 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           value={input}
           onChange={(e) => {
             setInput(e.target.value);
+            updatePluginMention(e.target.value, e.target.selectionStart);
             e.target.style.height = 'auto';
             e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
           }}
           onKeyDown={(e) => {
+            if (pluginMention.open && mentionedPluginOptions.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+              e.preventDefault();
+              const direction = e.key === "ArrowDown" ? 1 : -1;
+              setPluginMention((previous) => ({ ...previous, index: (previous.index + direction + mentionedPluginOptions.length) % mentionedPluginOptions.length }));
+              return;
+            }
+            if (pluginMention.open && mentionedPluginOptions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+              e.preventDefault();
+              selectMentionedPlugin(mentionedPluginOptions[pluginMention.index] || mentionedPluginOptions[0]);
+              return;
+            }
+            if (e.key === "Escape" && pluginMention.open) {
+              e.preventDefault();
+              setPluginMention((previous) => ({ ...previous, open: false }));
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               sendMessage(e);
@@ -4695,6 +4744,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           }}
           disabled={isLoading}
         />
+        {renderPluginMentionMenu()}
 
         <div className="claude-input-footer">
           <div className="claude-footer-left">
@@ -4770,6 +4820,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
+  const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('chats');
@@ -4784,6 +4835,53 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const enabledPlugins = useMemo(
     () => PLUGIN_CATALOG.filter((plugin) => pluginState[plugin.id]?.installed && pluginState[plugin.id]?.enabled !== false),
     [pluginState]
+  );
+
+
+
+  const mentionedPluginOptions = useMemo(() => {
+    const query = pluginMention.query.toLowerCase();
+    return enabledPlugins.filter((plugin) =>
+      !query || plugin.name.toLowerCase().includes(query) || plugin.category.toLowerCase().includes(query)
+    );
+  }, [enabledPlugins, pluginMention.query]);
+
+  const updatePluginMention = useCallback((value, cursorPosition) => {
+    const beforeCursor = value.slice(0, cursorPosition ?? value.length);
+    const match = beforeCursor.match(/(^|\s)@([^@\n]*)$/);
+    if (!match) {
+      setPluginMention((previous) => ({ ...previous, open: false }));
+      return;
+    }
+    const rawQuery = match[2] || "";
+    setPluginMention({ open: true, query: rawQuery.trimStart(), start: beforeCursor.length - rawQuery.length - 1, index: 0 });
+  }, []);
+
+  const selectMentionedPlugin = useCallback((plugin) => {
+    const cursor = textareaRef.current?.selectionStart ?? input.length;
+    const start = pluginMention.start >= 0 ? pluginMention.start : cursor;
+    const next = `${input.slice(0, start)}@${plugin.name} ${input.slice(cursor)}`;
+    setInput(next);
+    setPluginMention((previous) => ({ ...previous, open: false }));
+    setTimeout(() => {
+      const nextCursor = start + plugin.name.length + 2;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    }, 0);
+  }, [input, pluginMention.start]);
+
+  const renderPluginMentionMenu = () => pluginMention.open && (
+    <div className="plugin-mention-menu" role="listbox" aria-label="Installed plugins">
+      <div className="plugin-mention-title">Installed plugins</div>
+      {mentionedPluginOptions.length ? mentionedPluginOptions.map((plugin, index) => (
+        <button type="button" role="option" aria-selected={index === pluginMention.index}
+          className={`plugin-mention-option ${index === pluginMention.index ? "active" : ""}`}
+          key={plugin.id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectMentionedPlugin(plugin)}>
+          <span className="plugin-mention-icon" style={{ color: plugin.color }}><Puzzle size={16} /></span>
+          <span><strong>{plugin.name}</strong><small>{plugin.category}</small></span>
+        </button>
+      )) : <div className="plugin-mention-empty">No installed plugin matches “{pluginMention.query}”</div>}
+    </div>
   );
 
   const updatePluginState = useCallback((pluginId, updater) => {
@@ -4852,6 +4950,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
            onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
            style={{
              backgroundColor: "#ffffff",
+             position: "relative",
              border: isDragOver ? "1px solid #2dd4bf" : "1px solid #e5e7eb",
              borderRadius: "24px",
              padding: "20px 20px 14px 20px",
@@ -4899,11 +4998,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           rows="1"
           placeholder="Ask anything..."
           value={input}
-          onChange={(e) => { setInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'; }}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e); } }}
+          onChange={(e) => { setInput(e.target.value); updatePluginMention(e.target.value, e.target.selectionStart); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'; }}
+          onKeyDown={(e) => {
+            if (pluginMention.open && mentionedPluginOptions.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              e.preventDefault(); const direction = e.key === 'ArrowDown' ? 1 : -1;
+              setPluginMention((previous) => ({ ...previous, index: (previous.index + direction + mentionedPluginOptions.length) % mentionedPluginOptions.length })); return;
+            }
+            if (pluginMention.open && mentionedPluginOptions.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+              e.preventDefault(); selectMentionedPlugin(mentionedPluginOptions[pluginMention.index] || mentionedPluginOptions[0]); return;
+            }
+            if (e.key === 'Escape' && pluginMention.open) { e.preventDefault(); setPluginMention((previous) => ({ ...previous, open: false })); return; }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e); }
+          }}
           className="w-full bg-transparent border-none outline-none resize-none text-[16px] md:text-lg text-gray-800 placeholder-gray-400 py-1"
           style={{ minHeight: '40px' }}
         />
+        {renderPluginMentionMenu()}
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
           <div className="flex items-center gap-1.5 flex-wrap">
             <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0" title="Attach file">
