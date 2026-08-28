@@ -23,6 +23,7 @@ import GlobalSearch from "./components/screens/GlobalSearch";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
 import PluginHub from "./components/screens/PluginHub";
+import ComputerUI from "./components/screens/ComputerUI";
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -4854,6 +4855,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [isAgenticMode, setIsAgenticMode] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
+  const [showComputer, setShowComputer] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
   const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -5244,7 +5246,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         {/* Main nav */}
         <div className="px-1 flex flex-col gap-0.5">
-          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
+          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
             <MessageSquare size={17} /> Chats
           </button>
           <button onClick={() => { setActiveNav('projects'); setShowSpaces(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'projects' ? 'active' : ''}`}>
@@ -5265,6 +5267,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {/* Products section */}
         <div className="px-1 flex flex-col gap-0.5" style={{ marginTop: 12 }}>
           <p className="claude-sb-group-label text-[11.5px] font-medium px-3 py-1" style={{ color: 'var(--ink-4)' }}>Products</p>
+          <button onClick={() => { setActiveNav('computer'); setShowComputer(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'computer' ? 'active' : ''}`}>
+            <span className="flex items-center gap-3"><Monitor size={17} /> Computer</span>
+            <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
+          </button>
           <button onClick={() => { setActiveNav('code'); setShowPlayground(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'code' ? 'active' : ''}`}>
             <Code size={17} /> Code
           </button>
@@ -5367,6 +5373,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col relative h-full w-full overflow-hidden" style={{ backgroundColor: "var(--bg)" }}>
+        {showComputer && (
+          <div className="absolute inset-0 z-[120] flex bg-[#fbfaf7]">
+            <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
+          </div>
+        )}
         
         {/* Top Header */}
         <header className="chat-header">
