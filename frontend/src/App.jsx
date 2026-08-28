@@ -25,11 +25,12 @@ import JobSearchPanel from "./components/screens/JobSearchPanel";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 let baseApi = "/api";
-if (!import.meta.env.DEV && import.meta.env.VITE_API_BASE_URL) {
-  baseApi = import.meta.env.VITE_API_BASE_URL;
+const configuredApi = import.meta.env.VITE_API_BASE_URL?.trim();
+if (configuredApi) {
+  baseApi = configuredApi.replace(/\/+$/, "");
 }
-if (baseApi.startsWith("http") && !baseApi.endsWith("/api")) {
-  baseApi = baseApi.replace(/\/+$/, "") + "/api";
+if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
+  baseApi += "/api";
 }
 const API = baseApi;
 // Web search is handled entirely by the backend (Tavily)
@@ -48,6 +49,30 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
   const dec = new TextDecoder();
   let lineBuffer = "";
   let accumulated = "";
+  const processLine = (line) => {
+    if (!line.startsWith("data:")) return;
+    const raw = line.slice(5).trim();
+    if (!raw || raw === "[DONE]") return;
+
+    try {
+      const event = JSON.parse(raw);
+      const type = event.type || (event.content ? "content" : null);
+      const data = event.data ?? event.content;
+      if (type === "content" && data) {
+        accumulated += data;
+        onChunk(accumulated);
+      } else if (type === "clear") {
+        accumulated = "";
+        onChunk("");
+      } else if (type === "status" && data) {
+        onStatus(data);
+      } else if (type === "error" && data) {
+        onError(data);
+      }
+    } catch (err) {
+      console.error("SSE parse error:", err, raw, reqId);
+    }
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -58,29 +83,10 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       const lines = lineBuffer.split("\n");
       lineBuffer = lines.pop();
 
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const raw = line.slice(6).trim();
-        if (!raw || raw === "[DONE]") continue;
-
-        try {
-          const { type, data } = JSON.parse(raw);
-          if (type === "content" && data) {
-             accumulated += data;
-             onChunk(accumulated);
-          } else if (type === "clear") {
-             accumulated = "";
-             onChunk("");
-          } else if (type === "status" && data) {
-             onStatus(data);
-          } else if (type === "error" && data) {
-             onError(data);
-          }
-        } catch (err) {
-          console.error("SSE parse error:", err, raw);
-        }
-      }
+      for (const line of lines) processLine(line.replace(/\r$/, ""));
     }
+    lineBuffer += dec.decode();
+    if (lineBuffer.trim()) processLine(lineBuffer.replace(/\r$/, ""));
   } catch (err) {
     console.error("SSE read error:", err);
     throw err;
@@ -572,7 +578,7 @@ const LANGS = {
   }},
 };
 
-const PROVIDERS = ["Agnes", "ChatGPT", "Groq", "Gemini", "Mistral", "SambaNova"];
+const PROVIDERS = ["Auto", "ChatGPT", "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
@@ -2085,7 +2091,7 @@ function SummaryPanel({ messages, onClose, addToast }) {
     const summaryFd = new FormData();
     summaryFd.append("input", "Create a concise TL;DR summary of this conversation. Use bullet points. Max 150 words.");
     summaryFd.append("messages", JSON.stringify([{ role: "user", content: userMsgs }]));
-    summaryFd.append("provider", "groq");
+    summaryFd.append("provider", "Auto");
     summaryFd.append("mode", "summarize");
     fetch(API + "/chat", {
       method: "POST",
@@ -2094,28 +2100,18 @@ function SummaryPanel({ messages, onClose, addToast }) {
     })
     .then(async res => {
       if (!res.ok) throw new Error("Summary failed");
+      if (!res.body) throw new Error("The server returned an empty response stream.");
       const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.slice(6);
-            if (dataStr.trim() === "[DONE]") break;
-            try {
-              const data = JSON.parse(dataStr);
-              if (data.content) {
-                acc += data.content;
-                setSummary(acc);
-              }
-            } catch {}
-          }
-        }
-      }
+      let streamError = "";
+      const result = await readSSEStream(
+        reader,
+        setSummary,
+        () => {},
+        (message) => { streamError = message; },
+        () => !ctrl.signal.aborted,
+        "summary"
+      );
+      if (!result.trim()) throw new Error(streamError || "The AI returned an empty summary.");
     })
     .catch(() => setSummary("Unable to generate summary."))
     .finally(() => setLoading(false));
@@ -3044,7 +3040,7 @@ export default function App() {
   const [copiedAiIdx, setCopiedAiIdx]       = useState(null);
   const [copiedUserIdx, setCopiedUserIdx]   = useState(null);
   const [selectedMode, setSelectedMode]     = useState(MODES[0].id);
-  const [selectedProvider, setSelectedProvider] = useState("Agnes");
+  const [selectedProvider, setSelectedProvider] = useState("Auto");
   const isYtMode     = selectedMode === "youtube";
   const isWebMode    = selectedMode === "research" || selectedMode === "web_search";
   const isDeepSearch = selectedMode === "deep_search";
@@ -4241,6 +4237,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       setIsTyping(false);
       setIsWebSearching(false); // Clear web searching indicator once streaming starts
       setStreamStatus("streaming");
+      let streamError = "";
       const bot = await readSSEStream(
         reader,
         (acc) => {
@@ -4257,6 +4254,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           addDebugLog("SSE.status", { status: statusMsg });
         },
         (errorMsg) => {
+          streamError = errorMsg;
           addToast(errorMsg, "error");
         },
         isActive,
@@ -4288,6 +4286,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (!bot || !bot.trim()) {
+        if (streamError) throw new Error(streamError);
         setMessages(prev => {
           if (prev.length === 0) return prev;
           const u = [...prev];
@@ -5591,6 +5590,3 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     </div>
   );
 }
-
-
-

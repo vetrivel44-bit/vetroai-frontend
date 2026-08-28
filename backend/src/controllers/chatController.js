@@ -12,25 +12,6 @@ if (!config.groqApiKey) {
 const groq = config.groqApiKey ? new Groq({ apiKey: config.groqApiKey }) : null;
 const mistralAvailable = Boolean(config.mistralApiKey);
 
-const MODEL_ALIASES = {
-  fast_chat:    "llama-3.1-8b-instant",
-  vtu_academic: "llama-3.3-70b-versatile",
-  debugger:     "llama-3.3-70b-versatile",
-  creative:     "llama-3.3-70b-versatile",
-  analyst:      "llama-3.3-70b-versatile",
-  web_search:   "llama-3.1-8b-instant",
-  deep_search:  "llama-3.3-70b-versatile",
-  youtube:      "llama-3.3-70b-versatile",
-  translator:   "llama-3.3-70b-versatile",
-  interviewer:  "llama-3.3-70b-versatile",
-  astrology:    "llama-3.1-8b-instant",
-  medical:      "llama-3.3-70b-versatile",
-  vision:       "llama-3.2-11b-vision-preview",
-  code_exec:    "llama-3.3-70b-versatile",
-  persona:      "llama-3.3-70b-versatile",
-};
-
-const aiGateway = require("../services/AIGateway");
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
 const medicalService = require("../services/medicalService");
@@ -62,41 +43,6 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "application/json", "application/javascript",
   "application/pdf", "application/x-pdf",
 ]);
-
-function normalizeModel(inputModel, provider) {
-  const fallbackMap = {
-    groq: "llama-3.1-8b-instant",      // 30K TPM — avoids rate limits on free tier
-    gemini: "gemini-2.0-flash-exp",
-    mistral: "mistral-small-latest",
-    sambanova: "Meta-Llama-3.3-70B-Instruct",
-    agnes: "agnes-2.0-flash"
-  };
-  
-  const fallback = fallbackMap[provider?.toLowerCase()] || "llama-3.3-70b-versatile";
-  if (!inputModel || inputModel.toLowerCase() === provider?.toLowerCase()) return fallback;
-  return MODEL_ALIASES[inputModel] || inputModel;
-}
-
-function sseWrite(res, data) {
-  res.write(`data: ${JSON.stringify(data)}\n\n`);
-}
-
-function routeByMode(mode) {
-  return MODEL_ALIASES[mode] || "mistral";
-}
-
-function routeQuery(input, hasFile) {
-  if (hasFile) return "vision";
-  const low = input.toLowerCase();
-  if (low.includes("code") || low.includes("python") || low.includes("js")) return "debugger";
-  if (low.includes("search") || low.includes("find")) return "web_search";
-  return "fast_chat";
-}
-
-function getAttachmentContext(file) {
-  if (!file) return "";
-  return `\n\n[Attached File: ${file.originalname}]\nContent preview or metadata would be parsed here.`;
-}
 
 function normalizeMessages(rawMessages, input) {
   let parsed = [];
@@ -232,10 +178,6 @@ async function analyzeImagesWithVision(imageFiles, userQuery) {
   throw lastError || new Error("All vision API attempts failed");
 }
 
-function sseWrite(res, payload) {
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
 async function withRetry(operation, retries = 2, delay = 1000) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -254,6 +196,30 @@ async function withRetry(operation, retries = 2, delay = 1000) {
 }
 
 const AIOrchestrator = require("../services/AIOrchestrator");
+
+async function callMistralChat({ messages, temperature = 0.4, maxTokens = 120 }) {
+  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.mistralApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.mistralModel || "mistral-small-latest",
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ApiError(response.status, `Mistral service error: ${detail.slice(0, 200)}`);
+  }
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || "";
+}
 
 // ── MAIN CHAT HANDLER ─────────────────────────────────────────────────────────
 async function chat(req, res) {
@@ -388,6 +354,17 @@ async function generateTitle(req, res) {
     return successResponse(res, "Title generated", { title });
   }
 
+  if (!groq) {
+    const title = firstMessage
+      .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 6)
+      .join(" ")
+      .slice(0, 64) || "New Chat";
+    return successResponse(res, "Title generated", { title });
+  }
+
   const completion = await withRetry(
     () => groq.chat.completions.create({
       model: "llama-3.1-8b-instant",
@@ -409,14 +386,13 @@ async function followUps(req, res) {
   const userQuery = String(req.body?.userQuery || "").trim();
   if (!lastMessage) throw new ApiError(400, "lastMessage is required");
 
-  if (!groq && deepseekAvailable) {
-    const completion = await callDeepSeekChat({
-      model: config.deepseekModel,
+  if (!groq && mistralAvailable) {
+    const completion = await callMistralChat({
       messages: [
         { role: "system", content: "Return exactly 4 concise follow-up questions as a JSON array of strings. No markdown, no extra keys." },
         { role: "user", content: `Original query: ${userQuery}\n\nAssistant answer: ${lastMessage.slice(0, 1400)}` },
       ],
-      temperature: config.deepseekTemperature,
+      temperature: config.mistralTemperature,
       maxTokens: 120,
     });
     let suggestions = [];
@@ -427,6 +403,10 @@ async function followUps(req, res) {
       suggestions = completion.split(/\n+/).map((l) => l.replace(/^[\-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
     }
     return successResponse(res, "Follow-ups generated", { suggestions });
+  }
+
+  if (!groq) {
+    return successResponse(res, "No follow-ups available", { suggestions: [] });
   }
 
   const completion = await withRetry(

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, AreaChart, Area,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -11,17 +11,15 @@ import { Chart as ChartJS, RadialLinearScale, PointElement, LineElement, Filler,
 import { Radar as ChartJSRadar } from 'react-chartjs-2';
 import ReactApexChart from 'react-apexcharts';
 import ReactECharts from 'echarts-for-react';
-import { normalizeDataset, inferChartType, getColorPalette } from '../../utils/dataNormalizer';
+import { normalizeDataset, inferChartType } from '../../utils/dataNormalizer';
 import '../../styles/StructuredResponse.css';
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, ChartTooltip, ChartLegend);
 
 const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) => {
-  if (!data || data.length === 0) return null;
-
   // 1. DATA PIPELINE & INTEGRITY VALIDATION
   const processedData = useMemo(() => {
-    const mappedData = normalizeDataset(data);
+    const mappedData = normalizeDataset(Array.isArray(data) ? data : []);
     
     // Fallback: If dataset is empty after validation
     if (mappedData.length === 0) return [];
@@ -39,6 +37,14 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
     return mappedData;
   }, [data, chartType]);
 
+  // Hook calls must stay above all conditional returns so a streaming response can
+  // safely transition from an empty dataset to a populated one.
+  const effectiveChartType = useMemo(() => {
+    return inferChartType(processedData, chartType);
+  }, [chartType, processedData]);
+
+  if (!data || data.length === 0) return null;
+
   if (processedData.length === 0) {
     return (
       <div style={{ padding: '20px', color: 'var(--ink-3)', textAlign: 'center', background: 'var(--surface-2)', borderRadius: '8px' }}>
@@ -50,11 +56,6 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
   const count = processedData.length;
   const isLargeDataset = count > 15;
   const hasLongLabels = processedData.some(d => d.label.length > 12);
-
-  // 2. ADAPTIVE CHART LAYOUT ENGINE
-  const effectiveChartType = useMemo(() => {
-    return inferChartType(processedData, chartType);
-  }, [chartType, processedData]);
 
   // 3. THEME & COLORS (Premium Palette)
   const colors = [
@@ -388,7 +389,7 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
   };
 
   return (
-    <motion.div 
+    <Motion.div
       className="structured-diagram"
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -415,7 +416,7 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
       <div className="structured-diagram-content">
         {renderChart()}
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 

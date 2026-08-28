@@ -34,7 +34,8 @@ async function* generateStream(messages, options = {}) {
         top_p: 0.9,
         max_tokens: Math.min(options.maxTokens ?? 1024, 8192),
         web_access: false
-      })
+      }),
+      signal: AbortSignal.timeout(25000)
     });
 
     if (!response.ok) {
@@ -49,17 +50,22 @@ async function* generateStream(messages, options = {}) {
     // If it's standard OpenAI format, it's data.choices[0].message.content
     // Since we don't have the exact response schema, let's try standard locations
     let content = "";
-    if (data.result) {
+    if (typeof data.result === "string") {
       content = data.result;
-    } else if (data.message) {
+    } else if (typeof data.message === "string") {
       content = data.message;
+    } else if (typeof data.result?.message === "string") {
+      content = data.result.message;
+    } else if (typeof data.result?.content === "string") {
+      content = data.result.content;
     } else if (data.choices && data.choices[0] && data.choices[0].message) {
-      content = data.choices[0].message.content;
+      content = data.choices[0].message.content || "";
     } else {
       content = JSON.stringify(data);
     }
 
     // Simulate streaming by yielding chunks so the UI doesn't appear frozen
+    content = typeof content === "string" ? content : JSON.stringify(content);
     const chunks = content.split(/(?<=\s)/); // Split by whitespace while keeping the space
     for (let i = 0; i < chunks.length; i += 3) {
       const chunkStr = chunks.slice(i, i + 3).join("");

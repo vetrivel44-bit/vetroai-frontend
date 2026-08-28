@@ -12,12 +12,10 @@ const refreshTokenSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
     },
     revokedAt: {
       type: Date,

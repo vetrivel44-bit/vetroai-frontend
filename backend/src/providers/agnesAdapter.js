@@ -26,7 +26,7 @@ async function generateStream(messages, options = {}) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      timeout: 30000,
+      signal: AbortSignal.timeout(25000),
     });
 
     if (!res.ok) {
