@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Check, X, Zap, Crown, Users2, Loader2, AlertCircle } from 'lucide-react';
 
-let baseApi = "/api";
-if (!import.meta.env.DEV && import.meta.env.VITE_API_BASE_URL) {
-  baseApi = import.meta.env.VITE_API_BASE_URL;
+const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
+let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
+if (import.meta.env.VITE_API_BASE_URL?.trim()) {
+  baseApi = import.meta.env.VITE_API_BASE_URL.trim();
 }
 if (baseApi.startsWith("http") && !baseApi.endsWith("/api")) {
   baseApi = baseApi.replace(/\/+$/, "") + "/api";
