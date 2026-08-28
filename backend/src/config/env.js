@@ -44,6 +44,8 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
+    newsDataApiKey:      getEnv("NEWSDATA_API_KEY",       ""),
+    apiSportsKey:        getEnv("API_SPORTS_KEY",         ""),
     stripeSecretKey:        getEnv("STRIPE_SECRET_KEY",        ""),
     stripePublishableKey:   getEnv("STRIPE_PUBLISHABLE_KEY",   ""),
     stripeWebhookSecret:    getEnv("STRIPE_WEBHOOK_SECRET",    ""),

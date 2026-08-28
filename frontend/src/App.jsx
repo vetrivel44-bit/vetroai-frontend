@@ -584,7 +584,15 @@ const LANGS = {
 
 const CLAUDE_FABLE_PROVIDER = "Claude Fable 5";
 const CLAUDE_FABLE_MODEL = "claude-fable-5";
-const PROVIDERS = ["Auto", CLAUDE_FABLE_PROVIDER, "ChatGPT", "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const PUTER_MODEL_IDS = {
+  [CLAUDE_FABLE_PROVIDER]: CLAUDE_FABLE_MODEL,
+  "GPT-5.6 Sol": "gpt-5.6-sol",
+  "GPT-5.6 Terra": "gpt-5.6-terra",
+  "GPT-5.6 Luna": "gpt-5.6-luna",
+};
+const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"]);
+const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", CLAUDE_FABLE_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
 const EFFORT_LEVELS = [
   { id: "quick", name: "Quick", desc: "Fast, concise answers", icon: Zap, maxTokens: 2048 },
   { id: "balanced", name: "Balanced", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
@@ -2369,8 +2377,10 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
 
   const providerMeta = {
     Auto: ["V", "Smart routing"],
+    "GPT-5.6 Sol": ["S", "Flagship · hardest tasks"],
+    "GPT-5.6 Terra": ["T", "Balanced · everyday work"],
+    "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · Puter"],
-    ChatGPT: ["G", "General intelligence"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     Mistral: ["M", "Efficient reasoning"],
@@ -2479,7 +2489,6 @@ const getStatusLabel = (status, mode) => {
 };
 
 // ─── NEWS PANEL ──────────────────────────────────────────────────────────────
-const NEWS_API_KEY = "pub_7dd8730c7cc543fa9480cc8f82096134";
 const NEWS_CATEGORIES = ["top", "business", "technology", "sports", "entertainment", "health", "science", "politics"];
 
 function NewsPanel({ onClose }) {
@@ -2493,7 +2502,7 @@ function NewsPanel({ onClose }) {
     setLoading(true);
     setError("");
     try {
-      let url = `https://newsdata.io/api/1/latest?apikey=${NEWS_API_KEY}&language=en`;
+      let url = `${API}/news/latest?language=en`;
       if (query) {
         url += `&q=${encodeURIComponent(query)}`;
       } else if (cat && cat !== "top") {
@@ -2643,9 +2652,6 @@ function NewsPanel({ onClose }) {
 }
 
 // ─── LIVE SPORTS SCORES ──────────────────────────────────────────────
-const SPORTS_API_KEY = "090ff94108353371ff5cdcd918e9e321";
-const SPORTS_API_BASE = "https://v3.football.api-sports.io";
-
 const FOOTBALL_QUERY_RE = /\b(football|soccer|premier\s*league|la\s*liga|serie\s*a|bundesliga|champions\s*league|fifa|epl|ucl|europa|messi|ronaldo|neymar|goal\s*keeper)\b/i;
 const CRICKET_QUERY_RE = /\b(cricket|ipl|odi|t20|test\s*match|bcci|bpl|psl|big\s*bash|ashes|cwc|wtc|rcb|csk|mi\b|kkr|srh|dc\b|pbks|gt\b|lsg|rr\b|innings|wicket|batsman|bowler|batting|bowling|virat|rohit|dhoni|sachin)\b/i;
 const GENERIC_SPORTS_RE = /\b(live\s*scor|score|match|playing|vs\b|versus|fixture|world\s*cup|league)\b/i;
@@ -2662,9 +2668,7 @@ function isSportsQuery(text) {
 
 async function fetchLiveFootball() {
   try {
-    const res = await fetch(`${SPORTS_API_BASE}/fixtures?live=all`, {
-      headers: { "x-apisports-key": SPORTS_API_KEY }
-    });
+    const res = await fetch(`${API}/football/fixtures?scope=live`);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.response || []).slice(0, 8).map(m => ({ ...m, _sport: "football" }));
@@ -2673,10 +2677,7 @@ async function fetchLiveFootball() {
 
 async function fetchTodayFootball() {
   try {
-    const today = new Date().toISOString().split("T")[0];
-    const res = await fetch(`${SPORTS_API_BASE}/fixtures?date=${today}`, {
-      headers: { "x-apisports-key": SPORTS_API_KEY }
-    });
+    const res = await fetch(`${API}/football/fixtures?scope=today`);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.response || []).slice(0, 12).map(m => ({ ...m, _sport: "football" }));
@@ -4432,12 +4433,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Puter models run directly in the browser using Puter's user-pays flow. This
       // deliberately bypasses /api/chat: the backend does not own the user's Puter
       // session and cannot proxy it without an auth token.
-      if (selectedProvider === CLAUDE_FABLE_PROVIDER) {
+      const puterModelId = PUTER_MODEL_IDS[selectedProvider];
+      if (puterModelId) {
         if (!window.puter?.ai?.chat) {
-          throw new Error("Claude Fable 5 could not load. Check your connection and refresh the page.");
+          throw new Error(`${selectedProvider} could not load. Check your connection and refresh the page.`);
         }
         if (fileCount > 0) {
-          throw new Error("Claude Fable 5 file uploads are not available yet. Remove the attachment and send the text again.");
+          throw new Error(`${selectedProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
 
         const puterMessages = hist
@@ -4452,11 +4454,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setIsWebSearching(false);
         setStreamStatus("streaming");
 
-        const response = await window.puter.ai.chat(puterMessages, {
-          model: CLAUDE_FABLE_MODEL,
+        const puterOptions = {
+          model: puterModelId,
           stream: true,
           max_tokens: effectiveMaxTokens,
-        });
+        };
+        if (OPENAI_PUTER_PROVIDERS.has(selectedProvider)) {
+          puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
+        }
+        const response = await window.puter.ai.chat(puterMessages, puterOptions);
         let bot = "";
         for await (const part of response) {
           if (!isActive()) return;
@@ -4472,7 +4478,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           if (!isScrolling.current) scrollToBottom();
         }
 
-        if (!bot.trim()) throw new Error("Claude Fable 5 returned an empty response. Please try again.");
+        if (!bot.trim()) throw new Error(`${selectedProvider} returned an empty response. Please try again.`);
         setIsLoading(false);
         setStreamStatus("idle");
         setStreamingContent("");
