@@ -1721,58 +1721,84 @@ const ChartIcon = () => <Ic size={14} d={<><line x1="18" y1="20" x2="18" y2="10"
 // ─── ARTIFACTS / CANVAS PANEL (Claude-style) ──────────────────────────────────
 const ARTIFACT_EXT = { javascript: "js", js: "js", typescript: "ts", python: "py", html: "html", css: "css", json: "json", markdown: "md", jsx: "jsx", tsx: "tsx", sql: "sql" };
 
-function ArtifactsPanel({ artifact, onClose }) {
+function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete, onClose }) {
   const { code, language, title } = artifact;
   const [tab, setTab] = useState(language === "html" ? "preview" : "code");
   const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState(code);
+  const [isEditing, setIsEditing] = useState(false);
+  useEffect(() => {
+    setDraft(code);
+    setTab(language === "html" || language === "svg" ? "preview" : "code");
+    setIsEditing(false);
+  }, [artifact.id, code, language]);
   // Only HTML/SVG have visual output an iframe can render. Plain JS (e.g. Node/Express
   // backend code) has no DOM to preview — feeding it to srcDoc just shows it as flowed,
   // unstyled text since the browser parses it as an HTML document body.
   const previewable = language === "html" || language === "svg";
-  const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const copy = () => { navigator.clipboard.writeText(draft); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const download = () => {
     const ext = ARTIFACT_EXT[language] || "txt";
-    const blob = new Blob([code], { type: "text/plain" });
+    const blob = new Blob([draft], { type: "text/plain" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${(title || "artifact").replace(/[^\w.-]+/g, "_")}.${ext}`; a.click();
   };
   const openInNewTab = () => {
     const w = window.open("", "_blank");
-    if (w) { w.document.write(code); w.document.close(); }
+    if (w) { w.document.write(draft); w.document.close(); }
+  };
+  const saveChanges = () => {
+    onUpdate?.({ ...artifact, code: draft, updatedAt: Date.now() });
+    setIsEditing(false);
   };
   return (
-    <div className="artifacts-panel">
+    <aside className="artifacts-panel" aria-label="Artifact workspace">
       <div className="artifacts-header">
-        <div className="artifacts-tabs">
+        <div className="artifact-heading">
+          <span className="artifact-eyebrow">Artifact</span>
           <span className="artifact-title" title={title}>{title || "Artifact"}</span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="atab" onClick={onClose}>✕</button>
+        <div className="artifact-header-actions">
+          {artifacts.length > 1 && (
+            <select className="artifact-switcher" value={artifact.id} onChange={e => onSelect?.(artifacts.find(a => a.id === e.target.value))} aria-label="Switch artifact">
+              {artifacts.slice().reverse().map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+            </select>
+          )}
+          <button className="artifact-icon-btn" onClick={onClose} title="Close artifact"><X size={16} /></button>
         </div>
       </div>
       <div className="artifacts-subbar">
         <div className="artifacts-tabs">
-          <button className={`atab${tab === "code" ? " active" : ""}`} onClick={() => setTab("code")}>📄 Code</button>
+          <button className={`atab${tab === "code" ? " active" : ""}`} onClick={() => setTab("code")}><Code size={13} /> Code</button>
           {previewable && (
-            <button className={`atab${tab === "preview" ? " active" : ""}`} onClick={() => setTab("preview")}>▶ Preview</button>
+            <button className={`atab${tab === "preview" ? " active" : ""}`} onClick={() => setTab("preview")}><Play size={13} /> Preview</button>
           )}
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {tab === "preview" && (
             <button className="atab" onClick={openInNewTab} title="Open in new tab"><ExternalLink size={13} /></button>
           )}
-          <button className="atab" onClick={download} title="Download"><Download size={13} /></button>
+          {tab === "code" && !isEditing && <button className="atab" onClick={() => setIsEditing(true)}><Pencil size={13} /> Edit</button>}
+          {isEditing && <button className="atab artifact-save-btn" onClick={saveChanges}>Save changes</button>}
+          <button className="artifact-icon-btn" onClick={download} title="Download"><Download size={14} /></button>
           <button className="atab" onClick={copy} style={{ color: copied ? "var(--success)" : undefined }}>{copied ? "✓ Copied" : "Copy"}</button>
         </div>
       </div>
-      {tab === "code" && (
+      {tab === "code" && isEditing && (
+        <textarea className="artifact-editor" value={draft} onChange={e => setDraft(e.target.value)} spellCheck="false" aria-label="Edit artifact source" />
+      )}
+      {tab === "code" && !isEditing && (
         <SyntaxHighlighter style={vscDarkPlus} language={language || "text"} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
-          {code}
+          {draft}
         </SyntaxHighlighter>
       )}
       {tab === "preview" && (
-        <iframe title="artifact-preview" srcDoc={code} sandbox="allow-scripts allow-same-origin" style={{ flex: 1, border: "none", background: "#fff", borderRadius: "0 0 12px 12px", minHeight: 400 }} />
+        <iframe title="artifact-preview" srcDoc={draft} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
       )}
-    </div>
+      <div className="artifact-footer">
+        <span>{language || "text"}{artifact.updatedAt ? " · Edited" : ""}</span>
+        <button onClick={() => onDelete?.(artifact.id)}><Trash2 size={13} /> Delete</button>
+      </div>
+    </aside>
   );
 }
 
@@ -3585,6 +3611,11 @@ export default function App() {
   };
 
   const saveArtifact = useCallback((code, language, title) => {
+    const existing = artifacts.find(a => a.code === code && a.language === (language || "text"));
+    if (existing) {
+      setActiveArtifact(existing);
+      return existing;
+    }
     const artifact = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, code, language: language || "text", title: title || "Untitled artifact", createdAt: Date.now() };
     setArtifacts(prev => {
       const list = [...prev, artifact].slice(-50);
@@ -3592,7 +3623,26 @@ export default function App() {
       return list;
     });
     setActiveArtifact(artifact);
-  }, [user, userKey]);
+    return artifact;
+  }, [artifacts, userKey]);
+
+  const updateArtifact = useCallback((updated) => {
+    setArtifacts(prev => {
+      const list = prev.map(a => a.id === updated.id ? updated : a);
+      try { localStorage.setItem("vetroai_artifacts_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      return list;
+    });
+    setActiveArtifact(updated);
+  }, [userKey]);
+
+  const deleteArtifact = useCallback((id) => {
+    setArtifacts(prev => {
+      const list = prev.filter(a => a.id !== id);
+      try { localStorage.setItem("vetroai_artifacts_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      return list;
+    });
+    setActiveArtifact(null);
+  }, [userKey]);
 
   const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
 
@@ -5172,7 +5222,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-screen overflow-hidden font-sans" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+    <div className={`vetro-app-shell flex h-screen w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
       {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} />}
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} />}
@@ -5216,7 +5266,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           onClose={() => setShowArtifactsGallery(false)}
         />
       )}
-      {activeArtifact && <ArtifactsPanel artifact={activeArtifact} onClose={() => setActiveArtifact(null)} />}
+      {activeArtifact && <ArtifactsPanel artifact={activeArtifact} artifacts={artifacts} onSelect={setActiveArtifact} onUpdate={updateArtifact} onDelete={deleteArtifact} onClose={() => setActiveArtifact(null)} />}
       {showDesign && <DesignCanvas onClose={() => setShowDesign(false)} />}
 
       {/* LEFT SIDEBAR */}
