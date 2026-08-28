@@ -11,7 +11,42 @@ import {
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? PROD_API : "/api")).replace(/\/+$/, "");
 const STORE_KEY = "vetroai_cowork_tasks_v2";
-const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share)\b/i;
+const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share|play|open)\b/i;
+const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i;
+const YOUTUBE_REQUEST = /\b(?:play|open|search)(?:\s+(?:a|the))?\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+)/i;
+const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
+const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
+function safeFilename(value, fallback) { return String(value || fallback).replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-").slice(0, 54) || fallback; }
+function downloadBlob(content, type, filename) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename;
+  document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function downloadWordDocument(title, markdown) {
+  const escaped = String(markdown || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>").replace(/^## (.+)$/gm, "<h2>$1</h2>").replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
+  const html = "<!doctype html><html><head><meta charset=\\"utf-8\\"><title>" + title + "</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;margin:42px;color:#222}h1{font-size:22pt}h2{font-size:16pt;margin-top:24px}h3{font-size:13pt;margin-top:18px}</style></head><body>" + escaped + "</body></html>";
+  downloadBlob(html, "application/msword", safeFilename(title, "VetroAI-document") + ".doc");
+}
+function markdownTableToCsv(markdown) {
+  const rows = String(markdown || "").split("\n").filter(line => /^\s*\|.*\|\s*$/.test(line))
+    .map(line => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim()));
+  const data = rows.filter(row => !row.every(cell => /^:?-{3,}:?$/.test(cell)));
+  return data.length ? data : [["VetroAI result"], [String(markdown || "").replace(/[#*_]/g, "")]];
+}
+function downloadSpreadsheet(title, markdown) {
+  const csv = markdownTableToCsv(markdown).map(row => row.map(cell => "\\"" + String(cell).replace(/"/g, "\\"\\"") + "\\"").join(",")).join("\r\n");
+  downloadBlob("\ufeff" + csv, "text/csv;charset=utf-8", safeFilename(title, "VetroAI-spreadsheet") + ".csv");
+}
+async function requestCurrentLocation() {
+  if (!window.isSecureContext || !navigator.geolocation) return { location: null, reason: "unsupported" };
+  return new Promise(resolve => navigator.geolocation.getCurrentPosition(
+    ({ coords }) => resolve({ location: { lat: Number(coords.latitude), lng: Number(coords.longitude), accuracy: Number(coords.accuracy) || null }, reason: null }),
+    error => resolve({ location: null, reason: error?.code === 1 ? "denied" : error?.code === 3 ? "timeout" : "unavailable" }),
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 }
+  ));
+}
 const READABLE_FILE = /\.(txt|md|csv|json|js|jsx|ts|tsx|py|java|cpp|c|html|css|xml|ya?ml)$/i;
 const MAX_WORKSPACE_FILES = 200;
 
@@ -71,7 +106,7 @@ export default function ComputerUI({ onClose }) {
   const [permission, setPermission] = useState("ask");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pendingAction, setPendingAction] = useState(null);
-  const [dictating, setDictating] = useState(false);
+  const [dictating, setDictating] = useState(false);\n  const [locationNotice, setLocationNotice] = useState("");
   const [workspace, setWorkspace] = useState(null);
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
