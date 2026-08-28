@@ -3,7 +3,8 @@ const screenshot = require("screenshot-desktop");
 const { mouse, keyboard, Button, Key, Point, straightTo } = require("@nut-tree-fork/nut-js");
 
 const APP_URL = process.env.VETROAI_URL || "https://vetroai-frontend.pages.dev";
-let mainWindow;\nlet youtubeWindow;
+let mainWindow;
+let youtubeWindow;
 let controlEnabled = false;
 let stopped = false;
 let lastActionAt = 0;
@@ -165,7 +166,8 @@ ipcMain.handle("computer:scroll", async (_event, action) => {
   const amount = Math.max(-1200, Math.min(1200, finite(action.amount, "amount")));
   if (amount > 0) await mouse.scrollDown(amount); else await mouse.scrollUp(Math.abs(amount));
   return { ok: true };
-});\n
+});
+
 ipcMain.handle("computer:youtube-play", async (_event, action) => {
   requireControl();
   const query = String(action?.query || "").trim().slice(0, 180);
@@ -191,7 +193,7 @@ ipcMain.handle("computer:youtube-play", async (_event, action) => {
 
   const clickFirstVideo = async () => {
     if (!youtubeWindow || youtubeWindow.isDestroyed()) return false;
-    const script = '(() => { const target = document.querySelector("ytd-video-renderer a#thumbnail, ytd-video-renderer a#video-title, a#thumbnail[href*=\\'/watch\\']"); if (!target) return false; target.click(); return true; })()';
+    const script = '(() => { const target = document.querySelector("ytd-video-renderer a#thumbnail, ytd-video-renderer a#video-title"); if (!target) return false; target.click(); return true; })()';
     return youtubeWindow.webContents.executeJavaScript(script, true).catch(() => false);
   };
 
