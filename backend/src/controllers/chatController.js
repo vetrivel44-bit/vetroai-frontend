@@ -389,6 +389,7 @@ async function followUps(req, res) {
   const userQuery = String(req.body?.userQuery || "").trim();
   if (!lastMessage) throw new ApiError(400, "lastMessage is required");
 
+  try {
   if (!groq && mistralAvailable) {
     const completion = await callMistralChat({
       messages: [
@@ -433,7 +434,11 @@ async function followUps(req, res) {
     suggestions = raw.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
   }
 
-  return successResponse(res, "Follow-ups generated", { suggestions });
+    return successResponse(res, "Follow-ups generated", { suggestions });
+  } catch (error) {
+    logger.warn("chat.followUps.failed", { error: error.message });
+    return successResponse(res, "Follow-ups unavailable", { suggestions: [] });
+  }
 }
 
 async function getHealth(req, res) {
