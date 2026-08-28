@@ -782,9 +782,15 @@ function WritingBlockCard({ content }) {
 }
 
 // ─── CODE BLOCK ───────────────────────────────────────────────────────────────
-function CodeBlock({ match, codeString, copyLabel, onSaveArtifact }) {
+function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = false }) {
   const [cp, setCp] = useState(false);
+  const autoOpenedRef = useRef(false);
   const lang = match ? match[1] : 'text';
+  useEffect(() => {
+    if (!autoOpen || !onSaveArtifact || autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    onSaveArtifact();
+  }, [autoOpen, onSaveArtifact]);
   const copy = () => { navigator.clipboard.writeText(codeString); setCp(true); setTimeout(() => setCp(false), 2000); };
   const download = () => {
     const extMap = { javascript:'js', typescript:'ts', python:'py', java:'java', 'c++':'cpp', html:'html', css:'css', sql:'sql' };
@@ -5733,6 +5739,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                              <CodeBlock
                                                match={langMatch}
                                                codeString={codeString}
+                                               autoOpen={i === messages.length - 1 && !isLoading}
                                                onSaveArtifact={isArtifactWorthy ? () => saveArtifact(codeString, langMatch[1], `${langMatch[1]} snippet`) : null}
                                              />
                                            );
