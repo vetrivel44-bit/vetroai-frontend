@@ -26,7 +26,8 @@ import PluginHub from "./components/screens/PluginHub";
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt } from "./plugins/catalog";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-let baseApi = "/api";
+const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
+let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
 const configuredApi = import.meta.env.VITE_API_BASE_URL?.trim();
 if (configuredApi) {
   baseApi = configuredApi.replace(/\/+$/, "");
