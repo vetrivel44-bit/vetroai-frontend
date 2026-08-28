@@ -589,10 +589,13 @@ const PUTER_MODEL_IDS = {
   "GPT-5.6 Sol": "gpt-5.6-sol",
   "GPT-5.6 Terra": "gpt-5.6-terra",
   "GPT-5.6 Luna": "gpt-5.6-luna",
+  "GPT-5.3 Codex": "openai/gpt-5.3-codex",
 };
-const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"]);
+const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", CLAUDE_FABLE_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
+const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
   { id: "quick", name: "Quick", desc: "Fast, concise answers", icon: Zap, maxTokens: 2048 },
   { id: "balanced", name: "Balanced", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
@@ -2380,6 +2383,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Sol": ["S", "Flagship · hardest tasks"],
     "GPT-5.6 Terra": ["T", "Balanced · everyday work"],
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
+    "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · Puter"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
@@ -4433,13 +4437,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Puter models run directly in the browser using Puter's user-pays flow. This
       // deliberately bypasses /api/chat: the backend does not own the user's Puter
       // session and cannot proxy it without an auth token.
-      const puterModelId = PUTER_MODEL_IDS[selectedProvider];
+      const effectivePuterProvider = selectedProvider === "Auto" && fileCount === 0 && shouldUseCodex(userQuery, selectedMode)
+        ? "GPT-5.3 Codex"
+        : selectedProvider;
+      const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
       if (puterModelId) {
         if (!window.puter?.ai?.chat) {
-          throw new Error(`${selectedProvider} could not load. Check your connection and refresh the page.`);
+          throw new Error(`${effectivePuterProvider} could not load. Check your connection and refresh the page.`);
         }
         if (fileCount > 0) {
-          throw new Error(`${selectedProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
+          throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
 
         const puterMessages = hist
@@ -4459,7 +4466,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           stream: true,
           max_tokens: effectiveMaxTokens,
         };
-        if (OPENAI_PUTER_PROVIDERS.has(selectedProvider)) {
+        if (OPENAI_PUTER_PROVIDERS.has(effectivePuterProvider)) {
           puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
         }
         const response = await window.puter.ai.chat(puterMessages, puterOptions);
@@ -4478,7 +4485,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           if (!isScrolling.current) scrollToBottom();
         }
 
-        if (!bot.trim()) throw new Error(`${selectedProvider} returned an empty response. Please try again.`);
+        if (!bot.trim()) throw new Error(`${effectivePuterProvider} returned an empty response. Please try again.`);
         setIsLoading(false);
         setStreamStatus("idle");
         setStreamingContent("");
