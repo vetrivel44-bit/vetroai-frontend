@@ -177,3 +177,63 @@
   background: #292524;
   opacity: 1;
 }
+
+
+.plugin-detail {
+  color: #f5f5f4;
+}
+
+.plugin-detail h3,
+.plugin-permissions h4 {
+  color: #f5f5f4;
+}
+
+.plugin-detail > p,
+.plugin-detail-tagline,
+.plugin-permissions div,
+.plugin-detail .plugin-text-button {
+  color: #a8a29e !important;
+}
+
+.plugin-permissions {
+  color: #1c1917;
+  background: #ffffff;
+  border-color: #e7e5e4;
+}
+
+.plugin-permissions h4 {
+  color: #292524;
+}
+
+.plugin-permissions div {
+  color: #57534e !important;
+}
+
+.plugin-invoke-tip {
+  color: #57534e;
+  background: #f5f2ee;
+}
+
+.plugin-invoke-tip strong {
+  color: #292524;
+}
+
+.plugin-invoke-tip code {
+  color: #ffffff;
+  background: #292524;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.plugin-detail .plugin-install.secondary {
+  color: #1c1917;
+  background: #f5f2ee;
+}
+
+.plugin-detail .plugin-text-button.danger {
+  color: #a8a29e !important;
+}
+
+.plugin-detail .plugin-text-button.danger:hover {
+  color: #f87171 !important;
+}
