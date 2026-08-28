@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
-import { Compass, Navigation, Loader2, MapPin, ArrowRight, ExternalLink } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Compass, Navigation, Loader2, MapPin, ExternalLink, LocateFixed, Map as MapIcon, Satellite } from 'lucide-react';
+import { motion as Motion } from 'framer-motion';
 import 'leaflet/dist/leaflet.css';
 import '../../styles/StructuredResponse.css';
 import ImageGallery from './ImageGallery';
@@ -21,50 +21,84 @@ L.Icon.Default.mergeOptions({
 
 // Cache to store geocoding results and avoid duplicate API calls
 const geocodeCache = new Map();
+const EMPTY_LIST = Object.freeze([]);
 
-const isValidCoordinate = (point) => {
-  if (!point || typeof point !== 'object') return false;
-  const lat = Number(point.lat);
-  const lng = Number(point.lng);
-  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+const toFiniteNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 };
 
-const normalizeCoordinate = (point, fallbackLabel = '') => isValidCoordinate(point)
-  ? { ...point, lat: Number(point.lat), lng: Number(point.lng), label: point.label || fallbackLabel }
-  : null;
+const normalizePoint = (value, fallbackLabel = '') => {
+  if (!value || typeof value !== 'object') return null;
+  const source = value.location && typeof value.location === 'object' ? value.location : value;
+  const lat = toFiniteNumber(source.lat ?? source.latitude);
+  const lng = toFiniteNumber(source.lng ?? source.lon ?? source.longitude);
+  if (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return {
+    ...value,
+    lat,
+    lng,
+    label: value.label || value.name || fallbackLabel || 'Location',
+  };
+};
 
-// Custom Marker Icons
-const startIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: markerShadow,
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
+const isNearbyQuery = (query = '') => /\b(near\s+me|nearby|nearest|closest|around\s+me|close\s+to\s+me)\b/i.test(String(query));
+const cleanNearbyQuery = (query = '') => String(query)
+  .replace(/\b(near\s+me|nearby|nearest|closest|around\s+me|close\s+to\s+me)\b/gi, ' ')
+  .replace(/\s+/g, ' ')
+  .trim() || 'places';
 
-const endIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl: markerShadow,
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
+let cachedCurrentCoordinates = null;
+const getCurrentCoordinates = async () => {
+  if (cachedCurrentCoordinates) return cachedCurrentCoordinates;
 
-const makePhotoIcon = (url) => new L.DivIcon({
-  className: 'photo-pin-icon',
-  html: `
-    <div class="photo-pin">
-      <div class="photo-pin-ring"><img src="${url}" alt="" /></div>
-      <div class="photo-pin-tail"></div>
-    </div>
-  `,
-  iconSize: [52, 64],
-  iconAnchor: [26, 60],
-  popupAnchor: [0, -58],
-});
+  if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    try {
+      const exact = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 7000,
+          maximumAge: 300000,
+        });
+      });
+      cachedCurrentCoordinates = normalizePoint(exact.coords, 'Your location');
+      if (cachedCurrentCoordinates) return cachedCurrentCoordinates;
+    } catch {
+      // Fall through to an approximate IP location when precise permission is unavailable.
+    }
+  }
+
+  try {
+    const response = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) });
+    const data = await response.json();
+    cachedCurrentCoordinates = normalizePoint({
+      lat: data.latitude,
+      lng: data.longitude,
+      label: data.city ? `Near ${data.city}` : 'Your approximate location',
+    });
+    return cachedCurrentCoordinates;
+  } catch {
+    return null;
+  }
+};
+
+const makePinIcon = (type, index = 0) => {
+  const content = type === 'user' ? '' : type === 'start' ? 'A' : type === 'end' ? 'B' : String(index + 1);
+  return new L.DivIcon({
+    className: 'vetro-map-pin-host',
+    html: `<div class="vetro-map-pin ${type || 'place'}"><span>${content}</span></div>`,
+    iconSize: type === 'user' ? [30, 30] : [36, 44],
+    iconAnchor: type === 'user' ? [15, 15] : [18, 42],
+    popupAnchor: type === 'user' ? [0, -14] : [0, -38],
+  });
+};
 
 const ChangeView = ({ center, zoom, bounds }) => {
   const map = useMap();
   useEffect(() => {
     if (bounds && bounds.isValid()) {
       map.fitBounds(bounds, { padding: [50, 50] });
-    } else if (Array.isArray(center) && center.length === 2 && center.every(Number.isFinite)) {
+    } else if (Array.isArray(center) && center.every(Number.isFinite)) {
       map.setView(center, zoom);
     }
   }, [center, zoom, bounds, map]);
@@ -76,17 +110,21 @@ const LocationMap = ({
   place, 
   summary, 
   coordinates, 
-  points = [], 
-  details = [], 
+  points = EMPTY_LIST,
+  details = EMPTY_LIST,
   origin, 
   destination, 
-  waypoints = [], 
+  waypoints = EMPTY_LIST,
   delay = 0 
 }) => {
-  const isRoute = type === "route" || (origin && destination);
+  const pointList = React.useMemo(() => Array.isArray(points) ? points : EMPTY_LIST, [points]);
+  const waypointList = React.useMemo(() => Array.isArray(waypoints) ? waypoints : EMPTY_LIST, [waypoints]);
+  const detailList = React.useMemo(() => Array.isArray(details) ? details : EMPTY_LIST, [details]);
+  const isRoute = Boolean(type === "route" || (origin && destination));
+  const initialCoordinates = normalizePoint(coordinates, place);
   
   const [mapData, setMapData] = useState({
-    center: isValidCoordinate(coordinates) ? [Number(coordinates.lat), Number(coordinates.lng)] : [20.5937, 78.9629],
+    center: initialCoordinates ? [initialCoordinates.lat, initialCoordinates.lng] : [20.5937, 78.9629],
     zoom: isRoute ? 6 : 13,
     markers: [],
     path: [],
@@ -102,7 +140,7 @@ const LocationMap = ({
 
   useEffect(() => {
     // Create a stable string representation of relevant props
-    const currentParams = JSON.stringify({ place, coordinates, points, origin, destination, waypoints, isRoute });
+    const currentParams = JSON.stringify({ place, coordinates, points: pointList, origin, destination, waypoints: waypointList, isRoute });
     
     // Skip if props haven't actually changed (avoids loops during streaming)
     if (currentParams === lastParamsRef.current) return;
@@ -113,47 +151,46 @@ const LocationMap = ({
 
     const initMap = async () => {
       // Avoid flash of loading if we already have data in sync (like coordinates)
-      if (!coordinates && !points.length && !origin && !destination) {
+      if (!coordinates && pointList.length === 0 && !origin && !destination) {
         setMapData(prev => ({ ...prev, loading: true }));
       }
       
       try {
-        const geocode = async (q) => {
+        const geocode = async (q, userLocation = null) => {
           if (!q) return null;
-          const cacheKey = q.trim().toLowerCase();
+          const cacheKey = `${q.trim().toLowerCase()}|${userLocation ? `${userLocation.lat.toFixed(3)},${userLocation.lng.toFixed(3)}` : ''}`;
           if (geocodeCache.has(cacheKey)) {
             return geocodeCache.get(cacheKey);
           }
           try {
-            const res = await fetch(`/api/maps/search?query=${encodeURIComponent(q)}`, {
+            const params = new URLSearchParams({ query: q, limit: userLocation ? '8' : '6' });
+            if (userLocation) {
+              params.set('lat', String(userLocation.lat));
+              params.set('lng', String(userLocation.lng));
+              params.set('radius', '10000');
+            }
+            const res = await fetch(`/api/maps/search?${params.toString()}`, {
               signal: abortController.signal
             });
             const d = await res.json();
-            if (d?.success && d?.data?.[0]) {
-              const placeObj = d.data[0];
-              if (placeObj.location) {
-                const result = normalizeCoordinate({
-                  lat: placeObj.location.lat,
-                  lng: placeObj.location.lng,
-                  label: placeObj.name || q
-                });
-                if (result) {
-                  geocodeCache.set(cacheKey, result);
-                  return result;
-                }
-              }
+            if (d?.success && Array.isArray(d.data)) {
+              const results = d.data
+                .map((placeObj) => normalizePoint(placeObj, q))
+                .filter(Boolean);
+              geocodeCache.set(cacheKey, results);
+              return results;
             }
-            geocodeCache.set(cacheKey, null);
-            return null;
+            geocodeCache.set(cacheKey, []);
+            return [];
           } catch (e) {
-            geocodeCache.set(cacheKey, null);
-            return null;
+            if (e.name !== 'AbortError') geocodeCache.set(cacheKey, []);
+            return [];
           }
         };
 
         if (isRoute) {
-          const start = (origin && typeof origin === 'object') ? normalizeCoordinate(origin, 'Start') : await geocode(origin);
-          const end = (destination && typeof destination === 'object') ? normalizeCoordinate(destination, 'Destination') : await geocode(destination);
+          const start = normalizePoint(origin, 'Start') || (await geocode(origin))?.[0];
+          const end = normalizePoint(destination, 'Destination') || (await geocode(destination))?.[0];
 
           if (!isMounted) return;
 
@@ -163,8 +200,8 @@ const LocationMap = ({
           }
 
           const resolvedWaypoints = [];
-          for (const wp of waypoints) {
-            const r = typeof wp === 'string' ? await geocode(wp) : normalizeCoordinate(wp);
+          for (const wp of waypointList) {
+            const r = normalizePoint(wp) || (typeof wp === 'string' ? (await geocode(wp))?.[0] : null);
             if (r) resolvedWaypoints.push(r);
           }
 
@@ -185,18 +222,31 @@ const LocationMap = ({
             error: null
           });
         } else {
-          const validCoordinates = normalizeCoordinate(coordinates, place);
-          let markers = points.length > 0
-            ? points.map((point) => normalizeCoordinate(point, point?.label || place)).filter(Boolean)
-            : (validCoordinates ? [validCoordinates] : []);
+          const validCoordinates = normalizePoint(coordinates, place);
+          const validPoints = pointList
+            .map((point, index) => normalizePoint(point, `Location ${index + 1}`))
+            .filter(Boolean);
+          let markers = validPoints.length > 0 ? validPoints : (validCoordinates ? [validCoordinates] : []);
           let center = validCoordinates ? [validCoordinates.lat, validCoordinates.lng] : [20.5937, 78.9629];
           
-          if (!coordinates && points.length === 0 && place) {
-            const r = await geocode(place);
+          if (!validCoordinates && validPoints.length === 0 && place) {
+            const nearby = isNearbyQuery(place);
+            const userLocation = nearby ? await getCurrentCoordinates() : null;
+            if (nearby && !userLocation) {
+              setMapData(prev => ({ ...prev, error: 'Allow location access to find places near you.', loading: false }));
+              return;
+            }
+
+            const results = await geocode(nearby ? cleanNearbyQuery(place) : place, userLocation);
             if (!isMounted) return;
-            if (r) {
-              center = [r.lat, r.lng];
-              markers = [{ ...r, label: place }];
+            if (results?.length) {
+              if (nearby && userLocation) {
+                center = [userLocation.lat, userLocation.lng];
+                markers = [{ ...userLocation, type: 'user' }, ...results.map((result) => ({ ...result, type: 'place' }))];
+              } else {
+                center = [results[0].lat, results[0].lng];
+                markers = [results[0]];
+              }
             } else {
               setMapData(prev => ({ ...prev, error: "Location not found", loading: false }));
               return;
@@ -214,7 +264,7 @@ const LocationMap = ({
             error: null
           });
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setMapData(prev => ({ ...prev, error: "Map initialization failed", loading: false }));
         }
@@ -227,7 +277,7 @@ const LocationMap = ({
       isMounted = false;
       abortController.abort();
     };
-  }, [place, coordinates, points, origin, destination, waypoints, isRoute]);
+  }, [place, coordinates, pointList, origin, destination, waypointList, isRoute]);
 
   useEffect(() => {
     const imageQuery = isRoute ? `${origin} to ${destination}` : place;
@@ -244,17 +294,18 @@ const LocationMap = ({
     return () => { isMounted = false; abortController.abort(); };
   }, [place, origin, destination, isRoute]);
 
-  const safeMarkers = mapData.markers.filter(isValidCoordinate);
-  const bounds = safeMarkers.length > 1
-    ? L.latLngBounds(safeMarkers.map(m => [m.lat, m.lng]))
-    : (safeMarkers.length === 1 ? L.latLngBounds([[safeMarkers[0].lat, safeMarkers[0].lng]]) : null);
+  const validMarkers = mapData.markers.filter((marker) => normalizePoint(marker));
+  const bounds = validMarkers.length > 1
+    ? L.latLngBounds(validMarkers.map(m => [m.lat, m.lng]))
+    : null;
+  const destinationMarker = validMarkers.find((marker) => marker.type !== 'user') || null;
 
   const googleMapsUrl = isRoute 
-    ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints.length ? `&waypoints=${waypoints.map(w => encodeURIComponent(typeof w === 'string' ? w : w.label)).join('|')}` : ''}`
-    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place || (mapData.markers[0] ? `${mapData.markers[0].lat},${mapData.markers[0].lng}` : ""))}`;
+    ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(typeof origin === 'string' ? origin : origin?.label || `${origin?.lat},${origin?.lng}`)}&destination=${encodeURIComponent(typeof destination === 'string' ? destination : destination?.label || `${destination?.lat},${destination?.lng}`)}${waypointList.length ? `&waypoints=${waypointList.map(w => encodeURIComponent(typeof w === 'string' ? w : w.label || `${w.lat},${w.lng}`)).join('|')}` : ''}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place || (destinationMarker ? `${destinationMarker.lat},${destinationMarker.lng}` : ""))}`;
 
   return (
-    <motion.div 
+    <Motion.div
       className="structured-location-card"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -279,12 +330,12 @@ const LocationMap = ({
         ) : mapData.error ? (
           <div className="location-error-state">{mapData.error}</div>
         ) : (
-          <p className="location-summary">{summary || (isRoute ? "Dynamic route calculation completed." : "Interactive map location resolved.")}</p>
+          <p className="location-summary">{summary || (isRoute ? "Route endpoints are ready to explore." : validMarkers.length > 1 ? `${validMarkers.length - (validMarkers.some(marker => marker.type === 'user') ? 1 : 0)} nearby places found.` : "Interactive location map ready.")}</p>
         )}
 
-        {details.length > 0 && (
+        {detailList.length > 0 && (
           <div className="location-details-grid">
-            {details.map((d, i) => (
+            {detailList.map((d, i) => (
               <div key={i} className="location-detail-item">
                 <span className="detail-label">{d.label}</span>
                 <span className="detail-value">{d.value}</span>
@@ -299,7 +350,7 @@ const LocationMap = ({
       )}
 
       <div className="map-wrapper">
-        <div style={{ height: 'min(400px, 60vh)', minHeight: 220, borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--structured-border)', position: 'relative' }}>
+        <div className="map-canvas-shell">
           <MapContainer 
             center={mapData.center} 
             zoom={mapData.zoom} 
@@ -308,13 +359,12 @@ const LocationMap = ({
           >
             <ChangeView center={mapData.center} zoom={mapData.zoom} bounds={bounds} />
             
-            {/* Legal Open-Source Tiles (OpenStreetMap & Esri) */}
+            {/* Key-free, production-safe OpenStreetMap and Esri layers. */}
             {mapType === 'street' ? (
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                subdomains="abcd"
-                maxZoom={20}
+                url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                maxZoom={19}
               />
             ) : (
               <>
@@ -338,66 +388,58 @@ const LocationMap = ({
               <Polyline positions={mapData.path} color="#4285F4" weight={5} opacity={0.7} />
             )}
 
-            {safeMarkers.map((m, i) => {
-              const icon = isRoute
-                ? (m.type === 'start' ? startIcon : endIcon)
-                : (mapImages[0]?.url ? makePhotoIcon(mapImages[0].url) : endIcon);
+            {validMarkers.map((m, i) => {
+              const icon = makePinIcon(m.type || (isRoute ? (i === 0 ? 'start' : 'end') : 'place'), i);
               return (
-                <Marker key={i} position={[m.lat, m.lng]} icon={icon}>
-                  <Popup><b>{m.label || place}</b></Popup>
+                <Marker key={`${m.lat}-${m.lng}-${i}`} position={[m.lat, m.lng]} icon={icon}>
+                  <Popup>
+                    <div className="map-popup-content">
+                      <strong>{m.label || place}</strong>
+                      {m.address && <span>{m.address}</span>}
+                      {m.rating && <small>★ {m.rating}{m.reviews ? ` · ${m.reviews} reviews` : ''}</small>}
+                    </div>
+                  </Popup>
                 </Marker>
               );
             })}
           </MapContainer>
 
           {/* Map Controls */}
-          <div style={{
-            position: 'absolute', top: 8, right: 8, zIndex: 1000,
-            display: 'flex', gap: 2, padding: 3,
-            background: 'rgba(20,20,24,0.75)', backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
-          }}>
+          <div className="map-layer-switch" aria-label="Map style">
             <button
-              className={`map-type-btn ${mapType === 'street' ? 'active' : ''}`}
+              className={`map-layer-btn ${mapType === 'street' ? 'active' : ''}`}
               onClick={() => setMapType('street')}
-              style={{
-                padding: '8px 12px', minHeight: 36, fontSize: '11px', borderRadius: 6, border: 'none',
-                background: mapType === 'street' ? '#4285F4' : 'transparent',
-                color: mapType === 'street' ? '#fff' : 'rgba(255,255,255,0.65)',
-                cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s ease'
-              }}
-            >Map</button>
+              aria-pressed={mapType === 'street'}
+            ><MapIcon size={14} /> Map</button>
             <button
-              className={`map-type-btn ${mapType === 'satellite' ? 'active' : ''}`}
+              className={`map-layer-btn ${mapType === 'satellite' ? 'active' : ''}`}
               onClick={() => setMapType('satellite')}
-              style={{
-                padding: '8px 12px', minHeight: 36, fontSize: '11px', borderRadius: 6, border: 'none',
-                background: mapType === 'satellite' ? '#4285F4' : 'transparent',
-                color: mapType === 'satellite' ? '#fff' : 'rgba(255,255,255,0.65)',
-                cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s ease'
-              }}
-            >Satellite</button>
+              aria-pressed={mapType === 'satellite'}
+            ><Satellite size={14} /> Satellite</button>
           </div>
+
+          {validMarkers.some((marker) => marker.type === 'user') && (
+            <div className="map-location-badge"><LocateFixed size={14} /> Using your location</div>
+          )}
         </div>
 
         <div className="map-actions-row">
-          <button className="map-action-btn primary" onClick={() => window.open(googleMapsUrl, '_blank')}>
+          <button className="map-action-btn primary" disabled={!destinationMarker && !isRoute} onClick={() => window.open(googleMapsUrl, '_blank', 'noopener,noreferrer')}>
             <ExternalLink size={16} />
             <span>Open in Google Maps</span>
           </button>
-          <button className="map-action-btn" onClick={() => {
+          <button className="map-action-btn" disabled={!destinationMarker && !isRoute} onClick={() => {
              const dirUrl = isRoute 
                ? googleMapsUrl 
-               : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place || `${mapData.markers[0]?.lat},${mapData.markers[0]?.lng}`)}`;
-             window.open(dirUrl, '_blank');
+               : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place || `${destinationMarker.lat},${destinationMarker.lng}`)}`;
+             window.open(dirUrl, '_blank', 'noopener,noreferrer');
           }}>
             <Compass size={16} />
             <span>Directions</span>
           </button>
         </div>
       </div>
-    </motion.div>
+    </Motion.div>
   );
 };
 
