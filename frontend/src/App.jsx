@@ -23,7 +23,7 @@ import GlobalSearch from "./components/screens/GlobalSearch";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
 import PluginHub from "./components/screens/PluginHub";
-import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt } from "./plugins/catalog";
+import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -4368,7 +4368,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       addToast("Tip: Code detected. Switch to Code mode for optimized coding answers.", "info", 4000);
     }
     // Image generation intercept
-    const imgPrompt = detectImagePrompt(text);
+    const imagePluginInvoked = pluginMentioned(pluginState, text, "image-studio");
+    const cleanImagePrompt = imagePluginInvoked ? removePluginMention(text, "image-studio") : text;
+    const imgPrompt = imagePluginInvoked ? (detectImagePrompt(cleanImagePrompt) || cleanImagePrompt) : detectImagePrompt(text);
     if (imgPrompt && !selFiles.length) {
       const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const userMsg = { role: "user", content: text, timestamp: ts };
