@@ -392,15 +392,31 @@ const detectImagePrompt = (text) => {
   if (!IMAGE_DETECT.test(text)) return null;
   return text.replace(/^.*(generate|create|make|draw|paint|design|render|show me|give me)\s+(an?\s+|the\s+)?(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\s+(of\s+|for\s+|about\s+|showing\s+)?/i, "").trim() || text;
 };
-const generateImageViaAgnes = async (prompt) => {
-  const res = await fetch(`${API}/generate-image`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
-  });
-  if (!res.ok) throw new Error(`Image generation failed (${res.status})`);
-  const json = await res.json();
-  return json?.data?.url;
+const generateImageViaPuter = async (prompt) => {
+  if (!window.puter?.ai?.txt2img) {
+    throw new Error("GPT Image 2 could not load. Check your connection and refresh the page.");
+  }
+  const image = await window.puter.ai.txt2img(prompt, { model: "gpt-image-2" });
+  const src = image?.src || image?.url;
+  if (!src) throw new Error("GPT Image 2 returned an empty image.");
+  return src;
+};
+
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error(`Could not read ${file.name || "the image"}.`));
+  reader.readAsDataURL(file);
+});
+
+const getPuterResponseText = (response) => {
+  if (typeof response === "string") return response;
+  const content = response?.message?.content ?? response?.text ?? response?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => part?.text || part?.content || "").join("");
+  }
+  return "";
 };
 
 
@@ -4440,6 +4456,45 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const effectivePuterProvider = selectedProvider === "Auto" && fileCount === 0 && shouldUseCodex(userQuery, selectedMode)
         ? "GPT-5.3 Codex"
         : selectedProvider;
+      const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
+        .filter((file) => file instanceof File && file.type.startsWith("image/"));
+
+      if (attachedImages.length > 0) {
+        if (!window.puter?.ai?.chat) {
+          throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
+        }
+        setIsTyping(false);
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+        const analyses = [];
+        for (let index = 0; index < attachedImages.length; index++) {
+          if (!isActive()) return;
+          const imageUrl = await fileToDataUrl(attachedImages[index]);
+          const imagePrompt = attachedImages.length > 1
+            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
+            : userQuery || "Analyze this image in detail.";
+          const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
+          const analysis = getPuterResponseText(response);
+          if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
+          analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
+          const combined = analyses.join("\n\n");
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            return next;
+          });
+          setStreamingContent(combined);
+        }
+        const bot = analyses.join("\n\n");
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(bot);
+        if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+        generateFollowUps(bot, userQuery || "Analyze this image");
+        return;
+      }
+
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
       if (puterModelId) {
         if (!window.puter?.ai?.chat) {
@@ -4655,14 +4710,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       if (messages.length === 0) updateSessionTitle(text);
 
       try {
-        const imgUrl = await generateImageViaAgnes(imgPrompt);
+        const imgUrl = await generateImageViaPuter(imgPrompt);
         setMessages(prev => {
           const u = [...prev];
           const idx = u.lastIndexOf(pendingBotMsg);
           if (idx !== -1) {
             u[idx] = {
               role: "assistant",
-              content: `Here's your generated image of **"${imgPrompt}"**:\n\n![${imgPrompt}](${imgUrl})\n\n*Powered by Agnes AI*`,
+              content: `Here's your generated image of **"${imgPrompt}"**:\n\n![${imgPrompt}](${imgUrl})\n\n*Generated with GPT Image 2*`,
               timestamp: ts, isImageGen: true,
             };
           }
