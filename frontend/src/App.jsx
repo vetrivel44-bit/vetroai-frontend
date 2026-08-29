@@ -4320,6 +4320,26 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setStreamStatus("idle");
   };
 
+  const autoExportResponse = async (content, requestId) => {
+    const pendingExport = pendingExportRef.current;
+    if (!pendingExport || pendingExport.requestId !== requestId || !content?.trim()) return;
+
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+      await exportResponse({
+        content,
+        format: pendingExport.format,
+        filename: `vetroai-response-${timestamp}`,
+      });
+      addToast("✓ Download started!", "success", 2000);
+    } catch (error) {
+      console.error("Auto-export failed:", error);
+      addToast(error.message || "Could not create export.", "error");
+    } finally {
+      if (pendingExportRef.current === pendingExport) pendingExportRef.current = null;
+    }
+  };
+
   const triggerAI = async (hist, filesData = null, ytContext = null) => {
     const reqId = Date.now().toString();
     abortRef.current?.abort();
@@ -4553,6 +4573,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (voiceRef.current || autoSpeakRef.current) speak(bot);
         if (isFirstMsg) updateSessionTitle(userQuery, bot);
         generateFollowUps(bot, userQuery);
+        await autoExportResponse(bot, requestId);
         return;
       }
 
@@ -4604,26 +4625,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       if (!isActive()) return;
 
-      // Auto-export if user requested it
-      if (pendingExportRef.current && pendingExportRef.current.requestId === requestId) {
-        try {
-          if (bot) {
-            const { format } = pendingExportRef.current;
-            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-            await exportResponse({
-              content: bot,
-              format,
-              filename: `vetroai-response-${timestamp}`,
-            });
-            addToast("✓ Download started!", "success", 2000);
-          }
-        } catch (error) {
-          console.error("Auto-export failed:", error);
-          addToast(error.message || "Could not create export.", "error");
-        } finally {
-          pendingExportRef.current = null;
-        }
-      }
+      await autoExportResponse(bot, requestId);
 
       const sportsData = await sportsPromise;
       if (sportsData && sportsData.length > 0) {
