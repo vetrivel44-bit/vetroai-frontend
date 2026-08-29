@@ -5,6 +5,8 @@ import './index.css'
 import App from './App.jsx'
 import VoiceCoverLauncher from './components/screens/VoiceCoverLauncher.jsx'
 import './styles/mobilePalette.css'
+import './styles/mobileModelPicker.css'
+import './mobileModelPicker.js'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
