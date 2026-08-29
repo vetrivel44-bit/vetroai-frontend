@@ -49,6 +49,36 @@ function browserPuterModelsTransform() {
         '"Grok 4.6": ["G", "xAI Grok 4.6 · Puter"]'
       );
 
+      // Make Sonar Pro a real item in the visible provider grid too.
+      next = next.replace(
+        /"Grok 4\.6",\s*"Gemini"/,
+        '"Grok 4.6", "Sonar Pro Research", "Gemini"'
+      );
+      if (!next.includes('"Sonar Pro Research": ["P", "Perplexity · live research"]')) {
+        next = next.replace(
+          /("Grok 4\.6":\s*\["G",\s*"xAI Grok 4\.6 · Puter"\],)/,
+          '$1\n    "Sonar Pro Research": ["P", "Perplexity · live research"],'
+        );
+      }
+
+      // Inject one reusable brand-icon renderer. Common providers use their
+      // recognizable marks; Auto/Agnes use the VetroAI mark; SambaNova gets a
+      // clean non-letter waveform fallback rather than another initial badge.
+      if (!next.includes('const PROVIDER_BRAND_ICONS =')) {
+        const brandRenderer = `\n\nconst PROVIDER_BRAND_ICONS = {\n  "GPT-5.6 Sol": "https://cdn.simpleicons.org/openai/10A37F",\n  "GPT-5.6 Terra": "https://cdn.simpleicons.org/openai/10A37F",\n  "GPT-5.6 Luna": "https://cdn.simpleicons.org/openai/10A37F",\n  "GPT-5.3 Codex": "https://cdn.simpleicons.org/openai/10A37F",\n  [CLAUDE_FABLE_PROVIDER]: "https://cdn.simpleicons.org/anthropic/D97757",\n  "Grok 4.6": "https://cdn.simpleicons.org/x/111111",\n  "Sonar Pro Research": "https://cdn.simpleicons.org/perplexity/20B2AA",\n  Gemini: "https://cdn.simpleicons.org/googlegemini/8E75B2",\n  Mistral: "https://cdn.simpleicons.org/mistralai/FF7000",\n};\n\nconst ProviderBrandIcon = ({ provider, fallback }) => {\n  if (provider === "Auto" || provider === "Agnes") {\n    return (\n      <span style={{ width: 18, height: 18, overflow: "hidden", display: "block" }}>\n        <img src="/logo.png" alt="VetroAI" style={{ height: 18, width: "auto", maxWidth: "none", display: "block" }} />\n      </span>\n    );\n  }\n\n  if (provider === "SambaNova") {\n    return (\n      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-label="SambaNova">\n        <path d="M2.5 5.2C5.1 2.6 7.7 2.6 10.3 5.2C12.1 7 13.9 7 15.5 5.4" stroke="#7C3AED" strokeWidth="1.8" strokeLinecap="round"/>\n        <path d="M2.5 9C5.1 6.4 7.7 6.4 10.3 9C12.1 10.8 13.9 10.8 15.5 9.2" stroke="#7C3AED" strokeWidth="1.8" strokeLinecap="round"/>\n        <path d="M2.5 12.8C5.1 10.2 7.7 10.2 10.3 12.8C12.1 14.6 13.9 14.6 15.5 13" stroke="#7C3AED" strokeWidth="1.8" strokeLinecap="round"/>\n      </svg>\n    );\n  }\n\n  const src = PROVIDER_BRAND_ICONS[provider];\n  if (!src) return <span aria-hidden="true">{fallback || "✦"}</span>;\n  return (\n    <img\n      src={src}\n      alt=""\n      width="18"\n      height="18"\n      loading="lazy"\n      style={{ width: 18, height: 18, objectFit: "contain", display: "block" }}\n      onError={(event) => { event.currentTarget.style.display = "none"; }}\n    />\n  );\n};`;
+
+        next = next.replace(
+          /(const PROVIDERS = \[[^\n]+\];)/,
+          `$1${brandRenderer}`
+        );
+      }
+
+      // Replace the old first-letter mark in the workspace model selector.
+      next = next.replace(
+        '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`}>{mark}</span>',
+        '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`} style={{ background: "#fff", border: "1px solid rgba(17,24,39,.08)", boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}><ProviderBrandIcon provider={provider} fallback={mark} /></span>'
+      );
+
       return { code: next, map: null };
     },
   };
