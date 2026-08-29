@@ -15,6 +15,7 @@ import './styles/mobileComposerColorFix.css'
 import './styles/richOutputTools.css'
 import './mobileModelPicker.js'
 import './mobileActiveModelBadges.js'
+import './universalDownloads.js'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
