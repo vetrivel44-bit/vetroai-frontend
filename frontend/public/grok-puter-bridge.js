@@ -58,7 +58,10 @@
     const url = typeof input === "string" ? input : input?.url || "";
     const body = init?.body;
     const isChatRequest = /\/api\/chat(?:\?|$)/i.test(url);
-    const isLegacyGroq = body instanceof FormData && String(body.get("provider") || "") === LEGACY_PROVIDER;
+    const provider = body instanceof FormData ? String(body.get("provider") || "") : "";
+    // Multi-AI still uses the lowercase internal id `groq`. The normal model
+    // selector is transformed at build time to direct Puter Grok 4.6.
+    const isLegacyGroq = provider.toLowerCase() === "groq";
 
     if (!isChatRequest || !isLegacyGroq) {
       return originalFetch(input, init);
@@ -76,7 +79,6 @@
 
       const text = responseText(result).trim();
       if (!text) throw new Error("Grok 4.6 returned an empty response.");
-
       return sseResponse([{ type: "content", data: text }]);
     } catch (error) {
       if (error?.name === "AbortError") throw error;
@@ -87,6 +89,8 @@
     }
   };
 
+  // Backward-compatible UI rename for any cached bundle that still renders
+  // the old label. New builds already contain Grok 4.6 via the Vite transform.
   const renameVisibleGroq = (root = document.body) => {
     if (!root) return;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
