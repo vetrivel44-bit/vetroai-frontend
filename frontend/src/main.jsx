@@ -8,6 +8,7 @@ import './styles/mobilePalette.css'
 import './styles/mobileModelPicker.css'
 import './styles/modelPickerViewportFix.css'
 import './styles/mobileActiveModelBadges.css'
+import './styles/perplexityDarkMobile.css'
 import './mobileModelPicker.js'
 import './mobileActiveModelBadges.js'
 
