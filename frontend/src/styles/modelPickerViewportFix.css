@@ -1,68 +1,64 @@
-/* Keep the Model & effort picker fully usable on short laptop viewports.
-   Loaded after App.css/mobile picker styles so these are final desktop safeguards. */
+/* Desktop Model & Effort picker: compact, centered and fully reachable on laptops.
+   Keeps every existing model / effort / mode; only presentation and scrolling change. */
 @media (min-width: 769px) {
+  .workspace-overlay,
+  .workspace-popup-overlay {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 18px !important;
+    overflow: hidden !important;
+  }
+
   .workspace-popup {
-    width: min(920px, calc(100vw - 32px)) !important;
-    max-width: calc(100vw - 32px) !important;
-    height: auto !important;
-    max-height: calc(100dvh - 32px) !important;
+    position: fixed !important;
+    inset: 50% auto auto 50% !important;
+    transform: translate(-50%, -50%) !important;
+    width: min(860px, calc(100vw - 48px)) !important;
+    max-width: calc(100vw - 48px) !important;
+    height: min(680px, calc(100dvh - 48px)) !important;
+    max-height: calc(100dvh - 48px) !important;
+    margin: 0 !important;
     display: flex !important;
     flex-direction: column !important;
     overflow: hidden !important;
+    border-radius: 18px !important;
   }
 
   .workspace-popup .ws-popup-header {
     flex: 0 0 auto !important;
-    position: relative;
-    z-index: 2;
+    position: sticky !important;
+    top: 0;
+    z-index: 4;
+    padding: 14px 18px 12px !important;
   }
 
   .workspace-popup .ws-popup-scroll {
-    flex: 1 1 auto !important;
+    flex: 1 1 0 !important;
     min-height: 0 !important;
+    height: 0 !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
-    padding-bottom: 24px !important;
+    padding: 10px 16px 22px !important;
+  }
+
+  .workspace-popup .ws-picker-section {
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
   }
 
   .workspace-popup .ws-model-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
   }
 
   .workspace-popup .ws-effort-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 8px !important;
   }
 
-  .workspace-popup .ws-picker-section:last-child {
-    padding-bottom: 16px !important;
-  }
-}
-
-/* Compact vertical rhythm on common 1366x768-class laptop screens. */
-@media (min-width: 769px) and (max-height: 800px) {
-  .workspace-popup {
-    max-height: calc(100dvh - 20px) !important;
-  }
-
-  .workspace-popup .ws-popup-header {
-    padding-top: 12px !important;
-    padding-bottom: 12px !important;
-  }
-
-  .workspace-popup .ws-popup-scroll {
-    padding-top: 10px !important;
-    padding-bottom: 18px !important;
-  }
-
-  .workspace-popup .ws-picker-section {
-    padding-top: 10px !important;
-    padding-bottom: 10px !important;
-  }
-
-  .workspace-popup .ws-model-grid,
-  .workspace-popup .ws-effort-grid {
+  .workspace-popup .ws-mode-grid {
     gap: 8px !important;
   }
 
@@ -71,10 +67,75 @@
   .workspace-popup .ws-mode-card {
     min-height: 0 !important;
   }
+
+  .workspace-popup .ws-model-option {
+    padding: 10px 12px !important;
+  }
+
+  .workspace-popup .ws-effort-option,
+  .workspace-popup .ws-mode-card {
+    padding: 10px 12px !important;
+  }
+
+  .workspace-popup .ws-picker-section:last-child {
+    padding-bottom: 18px !important;
+  }
 }
 
-@media (min-width: 769px) and (max-width: 900px) {
+/* 1366x768 and similarly short laptop displays: deliberately compact.
+   The scroll body remains the only scrolling region, so the first and last
+   controls can always be selected without the popup leaving the viewport. */
+@media (min-width: 769px) and (max-height: 820px) {
+  .workspace-popup {
+    width: min(820px, calc(100vw - 40px)) !important;
+    height: calc(100dvh - 28px) !important;
+    max-height: calc(100dvh - 28px) !important;
+    border-radius: 16px !important;
+  }
+
+  .workspace-popup .ws-popup-header {
+    padding: 10px 16px !important;
+  }
+
+  .workspace-popup .ws-popup-scroll {
+    padding: 6px 14px 18px !important;
+  }
+
+  .workspace-popup .ws-picker-section {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+
+  .workspace-popup .ws-model-grid,
+  .workspace-popup .ws-effort-grid,
+  .workspace-popup .ws-mode-grid {
+    gap: 7px !important;
+  }
+
+  .workspace-popup .ws-model-option,
+  .workspace-popup .ws-effort-option,
+  .workspace-popup .ws-mode-card {
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+}
+
+/* Narrow desktop/tablet landscape: preserve readability instead of squeezing cards. */
+@media (min-width: 769px) and (max-width: 1000px) {
+  .workspace-popup {
+    width: min(760px, calc(100vw - 32px)) !important;
+  }
   .workspace-popup .ws-model-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
+}
+
+/* Very short browser windows get an even smaller safe inset. */
+@media (min-width: 769px) and (max-height: 620px) {
+  .workspace-popup {
+    height: calc(100dvh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+  }
+  .workspace-popup .ws-popup-header { padding: 8px 14px !important; }
+  .workspace-popup .ws-popup-scroll { padding: 4px 12px 14px !important; }
 }
