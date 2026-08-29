@@ -61,11 +61,10 @@ function browserPuterModelsTransform() {
         );
       }
 
-      // Inject one reusable brand-icon renderer. Common providers use their
-      // recognizable marks; Auto/Agnes use the VetroAI mark; SambaNova gets a
-      // clean non-letter waveform fallback rather than another initial badge.
+      // Bundle provider marks with VetroAI itself instead of hotlinking CDNs.
+      // This prevents CSP/network failures from leaving empty black icon tiles.
       if (!next.includes('const PROVIDER_BRAND_ICONS =')) {
-        const brandRenderer = `\n\nconst PROVIDER_BRAND_ICONS = {\n  "GPT-5.6 Sol": "https://cdn.simpleicons.org/openai/FFFFFF",\n  "GPT-5.6 Terra": "https://cdn.simpleicons.org/openai/FFFFFF",\n  "GPT-5.6 Luna": "https://cdn.simpleicons.org/openai/FFFFFF",\n  "GPT-5.3 Codex": "https://cdn.simpleicons.org/openai/FFFFFF",\n  [CLAUDE_FABLE_PROVIDER]: "https://cdn.simpleicons.org/claude/D97757",\n  "Grok 4.6": "https://cdn.simpleicons.org/x/FFFFFF",\n  "Sonar Pro Research": "https://www.perplexity.ai/favicon.svg",\n  Gemini: "https://cdn.simpleicons.org/googlegemini/8E75B2",\n  Mistral: "https://cdn.simpleicons.org/mistralai/FF7000",\n};\n\nconst ProviderBrandIcon = ({ provider, fallback }) => {\n  if (provider === "Auto" || provider === "Agnes") {\n    return (\n      <span style={{ width: 18, height: 18, overflow: "hidden", display: "block" }}>\n        <img src="/logo.png" alt="VetroAI" style={{ height: 18, width: "auto", maxWidth: "none", display: "block" }} />\n      </span>\n    );\n  }\n\n  if (provider === "SambaNova") {\n    return (\n      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-label="SambaNova">\n        <path d="M2.5 5.2C5.1 2.6 7.7 2.6 10.3 5.2C12.1 7 13.9 7 15.5 5.4" stroke="#A78BFA" strokeWidth="1.8" strokeLinecap="round"/>\n        <path d="M2.5 9C5.1 6.4 7.7 6.4 10.3 9C12.1 10.8 13.9 10.8 15.5 9.2" stroke="#A78BFA" strokeWidth="1.8" strokeLinecap="round"/>\n        <path d="M2.5 12.8C5.1 10.2 7.7 10.2 10.3 12.8C12.1 14.6 13.9 14.6 15.5 13" stroke="#A78BFA" strokeWidth="1.8" strokeLinecap="round"/>\n      </svg>\n    );\n  }\n\n  const src = PROVIDER_BRAND_ICONS[provider];\n  if (!src) return <span aria-hidden="true" style={{ color: "#fff" }}>{fallback || "✦"}</span>;\n  return (\n    <img\n      src={src}\n      alt=""\n      width="18"\n      height="18"\n      loading="lazy"\n      style={{ width: 18, height: 18, objectFit: "contain", display: "block" }}\n      onError={(event) => { event.currentTarget.style.display = "none"; }}\n    />\n  );\n};`;
+        const brandRenderer = `\n\nconst PROVIDER_BRAND_ICONS = {\n  "GPT-5.6 Sol": "/model-icons/openai.svg",\n  "GPT-5.6 Terra": "/model-icons/openai.svg",\n  "GPT-5.6 Luna": "/model-icons/openai.svg",\n  "GPT-5.3 Codex": "/model-icons/openai.svg",\n  [CLAUDE_FABLE_PROVIDER]: "/model-icons/claude.svg",\n  "Grok 4.6": "/model-icons/grok.svg",\n  "Sonar Pro Research": "/model-icons/perplexity.svg",\n  Gemini: "/model-icons/gemini.svg",\n  Mistral: "/model-icons/mistral.svg",\n  SambaNova: "/model-icons/sambanova.svg",\n};\n\nconst ProviderBrandIcon = ({ provider, fallback }) => {\n  if (provider === "Auto" || provider === "Agnes") {\n    return (\n      <span style={{ width: 18, height: 18, overflow: "hidden", display: "block" }}>\n        <img src="/logo.png" alt="VetroAI" style={{ height: 18, width: "auto", maxWidth: "none", display: "block" }} />\n      </span>\n    );\n  }\n\n  const src = PROVIDER_BRAND_ICONS[provider];\n  if (!src) return <span aria-hidden="true" style={{ color: "#fff" }}>{fallback || "✦"}</span>;\n  return (\n    <>\n      <img\n        src={src}\n        alt=""\n        width="18"\n        height="18"\n        style={{ width: 18, height: 18, objectFit: "contain", display: "block" }}\n        onError={(event) => {\n          event.currentTarget.style.display = "none";\n          const fallbackNode = event.currentTarget.nextElementSibling;\n          if (fallbackNode) fallbackNode.style.display = "block";\n        }}\n      />\n      <span aria-hidden="true" style={{ color: "#fff", display: "none", fontWeight: 800 }}>{fallback || "✦"}</span>\n    </>\n  );\n};`;
 
         next = next.replace(
           /(const PROVIDERS = \[[^\n]+\];)/,
@@ -73,11 +72,11 @@ function browserPuterModelsTransform() {
         );
       }
 
-      // Replace the old first-letter mark in the workspace model selector.
-      // Keep the icon tile black so every provider mark has strong contrast.
+      // Replace old letter badges with brand marks. The tile remains black for
+      // maximum visibility; local SVGs carry high-contrast provider colors.
       next = next.replace(
         '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`}>{mark}</span>',
-        '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`} style={{ background: "#09090b", color: "#fff", border: "1px solid rgba(255,255,255,.14)", boxShadow: "0 2px 5px rgba(0,0,0,.22)" }}><ProviderBrandIcon provider={provider} fallback={mark} /></span>'
+        '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`} style={{ background: "#09090b", color: "#fff", border: "1px solid rgba(255,255,255,.16)", boxShadow: "0 2px 5px rgba(0,0,0,.22)" }}><ProviderBrandIcon provider={provider} fallback={mark} /></span>'
       );
 
       return { code: next, map: null };
