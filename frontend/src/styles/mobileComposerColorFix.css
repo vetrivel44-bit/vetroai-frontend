@@ -1,4 +1,4 @@
-/* Keep the mobile home composer and the quick actions below it on one neutral dark palette. */
+/* Keep the mobile home composer neutral dark, with suggestion chips black. */
 @media (max-width: 768px) {
   .input-box,
   .claude-input-box {
@@ -26,23 +26,26 @@
     box-shadow: none !important;
   }
 
-  /* Write / Learn / Code / Lifestyle row: same surface colour as composer. */
+  /* Write / Learn / Code / Lifestyle suggestion buttons: pure black, no green/tinted surface. */
   .claude-pill,
   .sug,
   .followup-chip,
   .welcome-card,
   .quick-action,
   .quick-action-chip {
-    background: #151516 !important;
+    background: #000000 !important;
+    background-color: #000000 !important;
     background-image: none !important;
     border-color: #29292c !important;
     box-shadow: none !important;
   }
 
+  /* Keep the suggestion-row canvas itself black/transparent rather than tinted. */
   .claude-empty-suggestions,
   .suggestions,
   .suggestion-row,
   .quick-actions {
-    background: transparent !important;
+    background: #000000 !important;
+    background-image: none !important;
   }
 }
