@@ -1,0 +1,48 @@
+/* Keep the mobile home composer and the quick actions below it on one neutral dark palette. */
+@media (max-width: 768px) {
+  .input-box,
+  .claude-input-box {
+    background: #151516 !important;
+    border-color: #29292c !important;
+  }
+
+  /* Remove the blue/blue-grey lower strip visible inside the composer. */
+  .input-bottom,
+  .input-actions,
+  .composer-actions,
+  .claude-input-actions,
+  .input-tools,
+  .input-box > div,
+  .claude-input-box > div {
+    background-color: #151516 !important;
+    background-image: none !important;
+  }
+
+  .mode-pill,
+  .mode-pill-btn,
+  .mob-mode-chip {
+    background: #151516 !important;
+    border-color: #29292c !important;
+    box-shadow: none !important;
+  }
+
+  /* Write / Learn / Code / Lifestyle row: same surface colour as composer. */
+  .claude-pill,
+  .sug,
+  .followup-chip,
+  .welcome-card,
+  .quick-action,
+  .quick-action-chip {
+    background: #151516 !important;
+    background-image: none !important;
+    border-color: #29292c !important;
+    box-shadow: none !important;
+  }
+
+  .claude-empty-suggestions,
+  .suggestions,
+  .suggestion-row,
+  .quick-actions {
+    background: transparent !important;
+  }
+}
