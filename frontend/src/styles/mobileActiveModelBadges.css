@@ -1,4 +1,27 @@
 @media (max-width: 768px) {
+  /* Each assistant row uses the provider logo for the model that produced it. */
+  .msg.assistant[data-model-used] .msg-avatar,
+  .msg.assistant[data-model-used] .avatar,
+  .msg.assistant[data-model-used] .message-avatar,
+  .msg.assistant[data-model-used] .assistant-avatar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    background: rgba(23, 30, 42, .98) !important;
+    border: 1px solid rgba(190, 201, 224, .15) !important;
+    box-shadow: 0 5px 16px rgba(2, 6, 14, .24) !important;
+  }
+
+  .msg.assistant[data-model-used] .response-model-icon {
+    display: block !important;
+    width: 68% !important;
+    height: 68% !important;
+    max-width: 30px !important;
+    max-height: 30px !important;
+    object-fit: contain !important;
+  }
+
   .msg.assistant[data-model-used] .msg-body::before {
     content: "Used: " attr(data-model-used);
     display: inline-flex;
