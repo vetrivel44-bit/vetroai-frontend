@@ -1,0 +1,68 @@
+/* VetroAI mobile model-icon + spacing hardening.
+   Loaded last so stale component-specific rules cannot reintroduce the cramped UI. */
+@media (max-width: 768px) {
+  .chat-header {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+    gap: 14px !important;
+  }
+  .chat-header .ch-left,
+  .chat-header .ch-right {
+    gap: 12px !important;
+    min-width: 0;
+  }
+  .chat-header .ch-right { margin-left: auto; }
+
+  .input-box,
+  .claude-input-box {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .input-bottom,
+  .input-actions,
+  .composer-actions,
+  .claude-input-actions,
+  .input-tools {
+    gap: 12px !important;
+  }
+  .mode-pill,
+  .mode-pill-btn {
+    margin-left: 2px;
+    margin-right: 2px;
+  }
+
+  /* Icons inserted by mobileModelPicker.js. */
+  .vetro-model-brand-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    object-fit: contain;
+    display: block;
+  }
+  .mobile-model-row-icon.vetro-model-brand-icon,
+  .mobile-selected-icon .vetro-model-brand-icon {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+  }
+
+  /* The header model chip gets its icon from --vetro-model-icon, set centrally by JS. */
+  .chat-header[data-active-model]::after { content: none !important; }
+  .mobile-active-model-chip::before,
+  .chat-header .mode-pill-btn::before {
+    content: "";
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    background-image: var(--vetro-model-icon, none);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+  }
+
+  @media (max-width: 390px) {
+    .chat-header { padding-left: 14px !important; padding-right: 14px !important; gap: 10px !important; }
+    .chat-header .ch-left, .chat-header .ch-right { gap: 9px !important; }
+    .input-bottom, .input-actions, .composer-actions, .claude-input-actions, .input-tools { gap: 9px !important; }
+  }
+}
