@@ -1,5 +1,6 @@
 (() => {
   const RESEARCH_MODEL = "perplexity/sonar-pro";
+  const RESEARCH_LABEL = "Sonar Pro Research";
   const RESEARCH_MODES = new Set([
     "research",
     "deep_research",
@@ -9,6 +10,19 @@
     "analyst",
   ]);
   const previousFetch = window.fetch.bind(window);
+
+  const announceResearchModel = (form) => {
+    const mode = String(form?.get?.("mode") || "research").toLowerCase().trim();
+    window.dispatchEvent(new CustomEvent("vetroai:model-used", {
+      detail: {
+        label: RESEARCH_LABEL,
+        model: RESEARCH_MODEL,
+        provider: "Perplexity",
+        mode,
+        source: "research",
+      },
+    }));
+  };
 
   const getText = (response) => {
     if (typeof response === "string") return response;
@@ -105,6 +119,7 @@ ${question || "Continue the research from the conversation context."}`;
             throw new Error("Puter.js is unavailable. Refresh the page and try Research again.");
           }
 
+          announceResearchModel(form);
           send({ type: "status", data: "Planning research with Sonar Pro…" });
           await Promise.resolve();
 
