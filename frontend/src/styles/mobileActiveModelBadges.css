@@ -1,50 +1,51 @@
+/* Provider/model logo shown beside every assistant response.
+   This intentionally applies on desktop and mobile. */
+.provider-response-avatar {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  flex: 0 0 36px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-top: 4px !important;
+}
+
+.provider-response-avatar > div,
+.provider-response-avatar > span {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  background: #151516 !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  box-shadow: none !important;
+}
+
+.provider-response-avatar .response-model-icon {
+  display: block !important;
+  width: 24px !important;
+  height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  object-fit: contain !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
 @media (max-width: 768px) {
-  /* Each assistant row uses the provider logo for the model that produced it. */
-  .msg.assistant[data-model-used] .msg-avatar,
-  .msg.assistant[data-model-used] .avatar,
-  .msg.assistant[data-model-used] .message-avatar,
-  .msg.assistant[data-model-used] .assistant-avatar {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    overflow: hidden !important;
-    background: rgba(23, 30, 42, .98) !important;
-    border: 1px solid rgba(190, 201, 224, .15) !important;
-    box-shadow: 0 5px 16px rgba(2, 6, 14, .24) !important;
+  .provider-response-avatar {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
   }
 
-  .msg.assistant[data-model-used] .response-model-icon {
-    display: block !important;
-    width: 68% !important;
-    height: 68% !important;
-    max-width: 30px !important;
-    max-height: 30px !important;
-    object-fit: contain !important;
-  }
-
-  .msg.assistant[data-model-used] .msg-body::before {
-    content: "Used: " attr(data-model-used);
-    display: inline-flex;
-    align-items: center;
-    align-self: flex-start;
-    max-width: 78vw;
-    margin: 0 0 6px;
-    padding: 3px 8px;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    border-radius: 999px;
-    border: 1px solid rgba(155,140,255,.18);
-    background: rgba(139,124,246,.07);
-    color: #8f9fc4;
-    font-size: .63rem;
-    font-weight: 700;
-    letter-spacing: .01em;
-  }
-
-  .msg.assistant[data-model-used="Sonar Pro Research"] .msg-body::before {
-    border-color: rgba(101,210,216,.25);
-    background: rgba(101,210,216,.08);
-    color: #84dce0;
+  .provider-response-avatar > div,
+  .provider-response-avatar > span {
+    background: #151516 !important;
+    border-color: #29292c !important;
   }
 }
