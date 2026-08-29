@@ -75,6 +75,7 @@ app.use("/api/maps", mapsRoutes);
 app.use("/api/debug", require("./routes/debugRoutes"));
 app.use("/api/code", require("./routes/codeRoutes"));
 app.use("/api/cricket", require("./routes/cricketRoutes"));
+app.use("/api/voice-cover", require("./routes/voiceCoverRoutes"));
 app.use("/api", require("./routes/externalDataRoutes"));
 app.use("/api", chatRoutes);
 
