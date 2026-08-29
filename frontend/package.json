@@ -23,6 +23,7 @@
     "apexcharts": "^5.11.0",
     "chart.js": "^4.5.1",
     "d3": "^7.9.0",
+    "docx": "^9.7.1",
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
     "framer-motion": "^12.38.0",
@@ -40,7 +41,8 @@
     "recharts": "^3.8.1",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0"
+    "remark-math": "^6.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

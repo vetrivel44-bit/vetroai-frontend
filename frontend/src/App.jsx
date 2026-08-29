@@ -15,6 +15,9 @@ import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
+import GeneratedImageResult from "./components/GeneratedImageResult";
+import { isImageEditRequest, editImageViaPuter } from "./utils/imageEditing";
+import { exportResponse } from "./utils/documentExports";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
@@ -3225,6 +3228,7 @@ export default function App() {
   const [showScrollDn, setShowScrollDn]     = useState(false);
   const [reactions, setReactions]           = useState({});
   const [msgFeedback, setMsgFeedback]       = useState({});
+  const [exportMenuIdx, setExportMenuIdx]   = useState(null);
   const [rxnFor, setRxnFor]                 = useState(null);
   const [streamingContent, setStreamingContent] = useState("");
   // FIX 1: track auto-continuation status
@@ -4839,6 +4843,53 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       return;
     }
 
+    // Image-to-image editing: detect if user wants to edit an uploaded image
+    if (selFiles.length > 0 && isImageEditRequest(text)) {
+      const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const userMsg = { role: "user", content: text, timestamp: ts };
+      const pendingBotMsg = {
+        role: "assistant",
+        content: "Editing your image...",
+        timestamp: ts,
+        isImageEdit: true,
+        isPending: true,
+      };
+      setMessages(prev => [...prev, userMsg, pendingBotMsg]);
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      if (messages.length === 0) updateSessionTitle(text);
+      if (selFiles) clearFiles();
+
+      try {
+        const editedImageUrl = await editImageViaPuter(text, selFiles);
+        setMessages(prev => {
+          const u = [...prev];
+          const idx = u.lastIndexOf(pendingBotMsg);
+          if (idx !== -1) {
+            u[idx] = {
+              role: "assistant",
+              content: `Here's your edited image:`,
+              generatedImageUrl: editedImageUrl,
+              generatedImagePrompt: text,
+              timestamp: ts,
+              isImageEdit: true,
+            };
+          }
+          return u;
+        });
+      } catch (err) {
+        setMessages(prev => {
+          const u = [...prev];
+          const idx = u.lastIndexOf(pendingBotMsg);
+          if (idx !== -1) {
+            u[idx] = { role: "assistant", content: `Image editing failed: ${err.message}`, timestamp: ts };
+          }
+          return u;
+        });
+      }
+      return;
+    }
+
     const filesToSend = selFiles.length ? [...selFiles] : null;
     const fileAttachments = selFiles.length ? selFiles.map(f => {
       const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
@@ -4891,6 +4942,28 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const handleFeedback = (idx, type) => {
     setMsgFeedback(prev => ({ ...prev, [idx]: type }));
     addToast(type === "up" ? "👍 Thanks for the feedback!" : "👎 Thanks! We'll improve.", "success", 2000);
+  };
+
+  const handleExportResponse = async (idx, format) => {
+    const msg = messages[idx];
+    if (!msg || !msg.content) {
+      addToast("No content to export.", "error");
+      return;
+    }
+    try {
+      setExportMenuIdx(null);
+      addToast("Preparing your download...", "info", 2000);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+      await exportResponse({
+        content: msg.content,
+        format,
+        filename: `vetroai-response-${timestamp}`,
+      });
+      addToast("✓ Downloaded successfully!", "success", 2000);
+    } catch (error) {
+      console.error("Export failed:", error);
+      addToast(error.message || "Could not create export.", "error");
+    }
   };
 
   // Manual "continue" — kept as fallback for edge cases
@@ -5817,17 +5890,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                ? <MediaGenCard type="image" text={m.content} />
                                : m.isPending && m.isVideoGen
                                ? <MediaGenCard type="video" text={m.content} />
-                               : m.isImageGen && m.generatedImageUrl
-                               ? <div className="generated-image-result">
-                                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                                   <img
-                                     src={m.generatedImageUrl}
-                                     alt={m.generatedImagePrompt || "Generated image"}
-                                     loading="eager"
-                                     style={{ display: "block", width: "100%", maxWidth: 768, height: "auto", marginTop: 14, borderRadius: 14 }}
-                                   />
-                                   <p style={{ marginTop: 14, fontStyle: "italic", color: "var(--ink-3)" }}>Generated with GPT Image 2</p>
-                                 </div>
+                               : m.isPending && m.isImageEdit
+                               ? <MediaGenCard type="image" text={m.content} />
+                               : (m.isImageGen || m.isImageEdit) && m.generatedImageUrl
+                               ? <GeneratedImageResult 
+                                   src={m.generatedImageUrl}
+                                   prompt={m.generatedImagePrompt || "Generated image"}
+                                   onError={addToast}
+                                 />
                                : m.isMultiAi
                                ? (() => {
                                   const doneCount = m.models.filter(md => md.status === 'done').length;
@@ -5981,6 +6051,55 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <button className="msg-action-btn" onClick={() => shareAiMsg(m.content)} title="Share response" aria-label="Share">
                                  <ShareIcon /><span>Share</span>
                                </button>
+                               <div style={{ position: "relative" }}>
+                                 <button
+                                   className="msg-action-btn"
+                                   onClick={() => setExportMenuIdx(exportMenuIdx === i ? null : i)}
+                                   title="Download response"
+                                   aria-label="Download response"
+                                   style={{ display: "flex", alignItems: "center", gap: 4 }}
+                                 >
+                                   <Download size={16} />
+                                   <ChevronDown size={14} />
+                                 </button>
+                                 {exportMenuIdx === i && (
+                                   <div
+                                     style={{
+                                       position: "absolute",
+                                       top: "100%",
+                                       left: 0,
+                                       marginTop: 4,
+                                       backgroundColor: "var(--bg-secondary, #f5f5f5)",
+                                       border: "1px solid var(--border-color, #ddd)",
+                                       borderRadius: 8,
+                                       boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                                       zIndex: 1000,
+                                       minWidth: 120,
+                                       cursor: "pointer",
+                                     }}
+                                   >
+                                     {["txt", "md", "csv", "pdf", "docx", "xlsx"].map((fmt) => (
+                                       <button
+                                         key={fmt}
+                                         className="msg-action-btn"
+                                         onClick={() => handleExportResponse(i, fmt)}
+                                         style={{
+                                           display: "block",
+                                           width: "100%",
+                                           textAlign: "left",
+                                           padding: "8px 12px",
+                                           border: "none",
+                                           backgroundColor: "transparent",
+                                           cursor: "pointer",
+                                           fontSize: 14,
+                                         }}
+                                       >
+                                         {fmt.toUpperCase()}
+                                       </button>
+                                     ))}
+                                   </div>
+                                 )}
+                               </div>
                                <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Like" aria-label="Like response">
                                  <ThumbsUpIcon />
                                </button>
