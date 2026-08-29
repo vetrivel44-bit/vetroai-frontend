@@ -7,6 +7,32 @@ const clean = (value) => String(value ?? "").trim();
 const safeName = (name) => (clean(name) || "vetroai-response").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "");
 const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// Detect natural language export requests (e.g., "Give as PDF", "Download as XLSX")
+const EXPORT_DETECT_RE = /\b(give|provide|export|download|save|make|create|output|put|send|output|render|convert)\b.{0,20}\b(as|in|to|format|file|document|spreadsheet|pdf|docx?|xlsx?|csv|markdown|txt|text|word)\b/i;
+
+export const detectExportFormat = (text = "") => {
+  if (!EXPORT_DETECT_RE.test(text)) return null;
+  
+  // Map common phrases to formats
+  const text_lower = text.toLowerCase();
+  const aliases = {
+    pdf: ["pdf"],
+    docx: ["word", "docx", "doc", "document"],
+    xlsx: ["excel", "spreadsheet", "xlsx", "xls"],
+    csv: ["csv"],
+    txt: ["text", "txt", "plain"],
+    md: ["markdown", "md"],
+  };
+  
+  for (const [format, patterns] of Object.entries(aliases)) {
+    if (patterns.some(p => text_lower.includes(p))) {
+      return format;
+    }
+  }
+  
+  return null;
+};
+
 // Parse markdown headers (# ## ###)
 const parseMarkdownHeaders = (text) => {
   const lines = text.split(/\r?\n/);

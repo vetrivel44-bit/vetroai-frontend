@@ -17,7 +17,7 @@ import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, P
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 import GeneratedImageResult from "./components/GeneratedImageResult";
 import { isImageEditRequest, editImageViaPuter } from "./utils/imageEditing";
-import { exportResponse } from "./utils/documentExports";
+import { exportResponse, detectExportFormat } from "./utils/documentExports";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
@@ -3249,6 +3249,7 @@ export default function App() {
   const abortRef     = useRef(null);
   const requestIdRef = useRef(0);
   const transcriptCacheRef = useRef(new Map());
+  const pendingExportRef = useRef(null);
 
   // ── Web search ────────────────────────────────────────────────────────────────
   const [isWebSearching, setIsWebSearching] = useState(false);
@@ -4610,6 +4611,28 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       if (!isActive()) return;
 
+      // Auto-export if user requested it
+      if (pendingExportRef.current && pendingExportRef.current.timestamp === requestIdRef.current) {
+        try {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg && lastMsg.role === "assistant" && lastMsg.content) {
+            const { format } = pendingExportRef.current;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+            await exportResponse({
+              content: lastMsg.content,
+              format,
+              filename: `vetroai-response-${timestamp}`,
+            });
+            addToast("✓ Download started!", "success", 2000);
+          }
+        } catch (error) {
+          console.error("Auto-export failed:", error);
+          addToast(error.message || "Could not create export.", "error");
+        } finally {
+          pendingExportRef.current = null;
+        }
+      }
+
       const sportsData = await sportsPromise;
       if (sportsData && sportsData.length > 0) {
         setMessages(prev => {
@@ -4895,6 +4918,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
       return { name: f.name, preview: preview?.src || null };
     }) : null;
+    
+    // Detect export format request
+    const exportFormat = detectExportFormat(text);
+    if (exportFormat) {
+      pendingExportRef.current = { format: exportFormat, timestamp: new Date().getTime() };
+    }
+    
     const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
     setMessages(hist); setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
