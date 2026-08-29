@@ -28,15 +28,8 @@ function browserPuterModelsTransform() {
 
       next = next.replace(/"Groq"/g, '"Grok 4.6"');
       next = next.replace(/\bGroq\s*:\s*\["Q",\s*"Fast responses"\]/g, '"Grok 4.6": ["G", "xAI Grok 4.6 · Puter"]');
-
-      next = next.replace(
-        /"Grok 4\.6",\s*"Gemini",\s*"Mistral"/,
-        '"Grok 4.6", "Sonar Pro Research", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.5 Flash-Lite", "Mistral"'
-      );
-      next = next.replace(
-        /"Grok 4\.6",\s*"Sonar Pro Research",\s*"Gemini",\s*"Mistral"/,
-        '"Grok 4.6", "Sonar Pro Research", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.5 Flash-Lite", "Mistral"'
-      );
+      next = next.replace(/"Grok 4\.6",\s*"Gemini",\s*"Mistral"/, '"Grok 4.6", "Sonar Pro Research", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.5 Flash-Lite", "Mistral"');
+      next = next.replace(/"Grok 4\.6",\s*"Sonar Pro Research",\s*"Gemini",\s*"Mistral"/, '"Grok 4.6", "Sonar Pro Research", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.5 Flash-Lite", "Mistral"');
 
       const detailsAnchor = /("Grok 4\.6":\s*\["G",\s*"xAI Grok 4\.6 · Puter"\],)/;
       if (!next.includes('"Sonar Pro Research": ["P", "Perplexity · live research"]')) next = next.replace(detailsAnchor, '$1\n    "Sonar Pro Research": ["P", "Perplexity · live research"],');
@@ -47,10 +40,24 @@ function browserPuterModelsTransform() {
         next = next.replace(/(const PROVIDERS = \[[^\n]+\];)/, `$1${brandRenderer}`);
       }
 
+      next = next.replace('<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`}>{mark}</span>', '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`} style={{ background: "#09090b", color: "#fff", border: "1px solid rgba(255,255,255,.16)", boxShadow: "0 2px 5px rgba(0,0,0,.22)" }}><ProviderBrandIcon provider={provider} fallback={mark} /></span>');
+
+      // Puter models can read PDFs because App.jsx already converts PDFs to text.
+      // Also read text/CSV/JSON/source-code attachments client-side and inject their
+      // contents into the current user message instead of rejecting all files.
       next = next.replace(
-        '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`}>{mark}</span>',
-        '<span className={`ws-model-mark model-${provider.toLowerCase().replace(/\\s+/g, "-")}`} style={{ background: "#09090b", color: "#fff", border: "1px solid rgba(255,255,255,.16)", boxShadow: "0 2px 5px rgba(0,0,0,.22)" }}><ProviderBrandIcon provider={provider} fallback={mark} /></span>'
+        /if \(fileCount > 0\) \{\s*throw new Error\(`\$\{effectivePuterProvider\} file uploads are not available yet\. Remove the attachment and send the text again\.`\);\s*\}/,
+        `let puterFileContext = "";\n        if (fileCount > 0) {\n          const attachedDocs = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])\n            .filter((file) => file instanceof File && !file.type.startsWith("image/"));\n          for (const file of attachedDocs) {\n            const lower = (file.name || "").toLowerCase();\n            const textLike = file.type.startsWith("text/") || /\\.(txt|md|csv|json|js|jsx|ts|tsx|py|java|c|cpp|h|hpp|css|html|xml|yaml|yml|sql|log)$/i.test(lower);\n            if (!textLike) throw new Error(\`Cannot extract text from \${file.name} yet. Upload PDF, TXT, CSV, JSON, Markdown, or a source-code file.\`);\n            const text = (await file.text()).trim();\n            if (text) puterFileContext += \`\\n\\n--- ATTACHED FILE: \${file.name} ---\\n\${text.slice(0, 30000)}\`;\n          }\n        }`
       );
+      next = next.replace(
+        /const puterMessages = hist\s*\.filter/,
+        'const puterMessages = hist\\n          .filter'
+      );
+      next = next.replace(
+        /if \(finalSystemPrompt\.trim\(\)\) \{\s*puterMessages\.unshift\(\{ role: "system", content: finalSystemPrompt\.trim\(\) \}\);\s*\}/,
+        `if (puterFileContext) {\n          const lastUser = [...puterMessages].reverse().find((message) => message.role === "user");\n          if (lastUser) lastUser.content = \`${'${lastUser.content}'}\\n\\n[ATTACHMENTS]\${puterFileContext}\`;\n        }\n        if (finalSystemPrompt.trim()) {\n          puterMessages.unshift({ role: "system", content: finalSystemPrompt.trim() });\n        }`
+      );
+
       return { code: next, map: null };
     },
   };
