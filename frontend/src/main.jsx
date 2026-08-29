@@ -10,6 +10,7 @@ import './styles/modelPickerViewportFix.css'
 import './styles/mobileActiveModelBadges.css'
 import './styles/perplexityDarkMobile.css'
 import './styles/mobileIconSpacingFix.css'
+import './styles/mobileMonochromePolish.css'
 import './mobileModelPicker.js'
 import './mobileActiveModelBadges.js'
 
