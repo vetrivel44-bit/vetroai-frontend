@@ -12,6 +12,7 @@ import './styles/perplexityDarkMobile.css'
 import './styles/mobileIconSpacingFix.css'
 import './styles/mobileMonochromePolish.css'
 import './styles/mobileComposerColorFix.css'
+import './styles/richOutputTools.css'
 import './mobileModelPicker.js'
 import './mobileActiveModelBadges.js'
 
