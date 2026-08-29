@@ -1,7 +1,6 @@
 // Keeps every visible assistant response tied to the model selected when that
-// response row first appears. Works with the current App.jsx feed structure on
-// both desktop and mobile (the old implementation targeted legacy .msg.assistant
-// markup, so it never found the actual avatar).
+// response row first appears. This is deliberately DOM-level so it also covers
+// streaming/pending rows without waiting for App.jsx to finish a response.
 
 const MODEL_ICON_RULES = [
   [/^auto$|normal chat/i, '/logo.png'],
@@ -19,64 +18,75 @@ function modelIconSrc(label = '') {
   return MODEL_ICON_RULES.find(([rx]) => rx.test(String(label)))?.[1] || '/logo.png';
 }
 
+function cleanModelLabel(value = '') {
+  // The desktop pill can contain the effort badge too (e.g. "GPT-5.6 Sol Quick").
+  return String(value).replace(/\s+(Quick|Balanced|Deep)\s*$/i, '').trim();
+}
+
 function currentDisplayedModel() {
-  const headerModel = document.querySelector('.chat-header')?.dataset?.activeModel?.trim();
+  const headerModel = cleanModelLabel(document.querySelector('.chat-header')?.dataset?.activeModel || '');
   if (headerModel) return headerModel;
 
-  const pickerModel = document.querySelector('.mode-pill-btn span')?.textContent?.trim();
-  if (pickerModel) return pickerModel;
-
   const activeOption = document.querySelector('.ws-model-option.active .ws-model-copy strong')?.textContent?.trim();
-  return activeOption || 'Auto';
+  if (activeOption) return cleanModelLabel(activeOption);
+
+  const picker = document.querySelector('.mode-pill-btn');
+  const pickerModel = picker?.dataset?.model || picker?.querySelector('span')?.textContent || picker?.textContent || '';
+  return cleanModelLabel(pickerModel) || 'Auto';
 }
 
 function assistantRows() {
-  // Current App.jsx renders each assistant body as .msg-row. Its avatar wrapper
-  // is the immediately preceding sibling inside the same flex message row.
   return [...document.querySelectorAll('.msg-row')];
 }
 
 function avatarForRow(row) {
   const messageLine = row?.parentElement;
   if (!messageLine) return null;
-  const candidate = row.previousElementSibling;
-  if (candidate && candidate !== row) return candidate;
-  return messageLine.querySelector('.msg-avatar, .avatar, .message-avatar, .assistant-avatar');
+
+  // Current App.jsx: avatar wrapper is the sibling immediately before .msg-row.
+  const previous = row.previousElementSibling;
+  if (previous && previous !== row) return previous;
+
+  return messageLine.querySelector('.provider-response-avatar, .msg-avatar, .avatar, .message-avatar, .assistant-avatar');
 }
 
-function syncAssistantRow(row, label, force = false) {
-  if (!row || !label) return;
-  if (!force && row.dataset.modelUsed) label = row.dataset.modelUsed;
-  else row.dataset.modelUsed = label;
-
-  const avatarWrap = avatarForRow(row);
+function renderProviderAvatar(avatarWrap, label) {
   if (!avatarWrap) return;
+  const normalized = cleanModelLabel(label) || 'Auto';
+  const src = modelIconSrc(normalized);
 
   avatarWrap.classList.add('provider-response-avatar');
-  avatarWrap.dataset.responseModel = label;
-  avatarWrap.title = `Response by ${label}`;
-  avatarWrap.setAttribute('aria-label', `Response by ${label}`);
+  avatarWrap.dataset.responseModel = normalized;
+  avatarWrap.title = `Response by ${normalized}`;
+  avatarWrap.setAttribute('aria-label', `Response by ${normalized}`);
 
-  // Replace the hard-coded VetroSparkWhite avatar rendered by App.jsx.
-  let icon = avatarWrap.querySelector('.response-model-icon');
+  let icon = avatarWrap.querySelector(':scope > .response-model-icon');
   if (!icon) {
     icon = document.createElement('img');
     icon.className = 'response-model-icon';
-    icon.alt = `${label} logo`;
     icon.decoding = 'async';
     avatarWrap.replaceChildren(icon);
   }
 
-  const src = modelIconSrc(label);
-  if (icon.getAttribute('src') !== src) icon.src = src;
+  icon.alt = `${normalized} logo`;
+  if (icon.getAttribute('src') !== src) icon.setAttribute('src', src);
   icon.onerror = () => {
-    if (!icon.src.endsWith('/logo.png')) icon.src = '/logo.png';
+    icon.onerror = null;
+    icon.setAttribute('src', '/logo.png');
   };
 }
 
+function syncAssistantRow(row, fallbackLabel, force = false) {
+  if (!row) return;
+  let label = cleanModelLabel(fallbackLabel || currentDisplayedModel());
+  if (!force && row.dataset.modelUsed) label = row.dataset.modelUsed;
+  else row.dataset.modelUsed = label;
+  renderProviderAvatar(avatarForRow(row), label);
+}
+
 function syncNewAssistantRows() {
-  const label = currentDisplayedModel();
-  assistantRows().forEach((row) => syncAssistantRow(row, row.dataset.modelUsed || label));
+  const selected = currentDisplayedModel();
+  assistantRows().forEach((row) => syncAssistantRow(row, row.dataset.modelUsed || selected));
 }
 
 function markLatestAssistant(label, force = true) {
@@ -85,23 +95,32 @@ function markLatestAssistant(label, force = true) {
   if (row) syncAssistantRow(row, label || currentDisplayedModel(), force);
 }
 
-// If another integration reports the exact model actually used, prefer it for
-// the newest response (important for Auto/routing and Puter models).
+// Exact model-used events win over the selected-model fallback (important for Auto).
 window.addEventListener('vetroai:model-used', (event) => {
   const label = event?.detail?.label || event?.detail?.model || '';
   if (!label) return;
-  [0, 60, 180, 400].forEach((delay) => {
+  [0, 60, 180, 400, 900].forEach((delay) => {
     window.setTimeout(() => markLatestAssistant(label, true), delay);
   });
 });
 
+let syncQueued = false;
 const responseObserver = new MutationObserver(() => {
-  window.queueMicrotask(syncNewAssistantRows);
+  if (syncQueued) return;
+  syncQueued = true;
+  window.requestAnimationFrame(() => {
+    syncQueued = false;
+    syncNewAssistantRows();
+  });
 });
 
 function startModelBadgeObserver() {
   responseObserver.observe(document.body, { childList: true, subtree: true });
   syncNewAssistantRows();
+
+  // React streaming can recreate the hard-coded avatar without a useful model
+  // event. A small safety sync makes the provider logo self-healing.
+  window.setInterval(syncNewAssistantRows, 1000);
 }
 
 if (document.readyState === 'loading') {
