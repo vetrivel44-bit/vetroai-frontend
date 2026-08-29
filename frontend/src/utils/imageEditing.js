@@ -9,25 +9,15 @@ const fileToDataUrl = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
-const normalizeImageResult = async (image) => {
-  const src = image?.src || image?.url;
-  if (!src) throw new Error("GPT Image 2 returned an empty image.");
-  if (!src.startsWith("blob:")) return src;
-  const response = await fetch(src);
-  if (!response.ok) throw new Error("GPT Image 2 returned an unreadable image.");
-  return fileToDataUrl(await response.blob());
-};
-
-export const editImageViaPuter = async (prompt, inputFiles) => {
-  if (!window.puter?.ai?.txt2img) throw new Error("GPT Image 2 could not load. Refresh and try again.");
+export const editImageViaBackend = async (prompt, inputFiles, apiBase) => {
   const images = (inputFiles || []).filter((file) => file instanceof File && file.type.startsWith("image/"));
   if (!images.length) throw new Error("Attach an image to edit.");
-
-  const identityPrompt = `Edit the supplied image instead of recreating it. Preserve the original person's identity and face exactly: facial geometry, eyes, nose, lips, jawline, skin tone, hairline, expression, age, body proportions, pose, camera perspective, lighting and all unchanged details. Do not beautify, restyle, regenerate, face-swap, or alter the original person unless the user explicitly requests that exact change. Make only this requested edit: ${prompt}`;
-  const inputImages = await Promise.all(images.map(fileToDataUrl));
-  const result = await window.puter.ai.txt2img(identityPrompt, {
-    model: "gpt-image-2",
-    input_images: inputImages,
-  });
-  return normalizeImageResult(result);
+  const form = new FormData();
+  form.append("prompt", prompt);
+  form.append("image", images[0]);
+  const response = await fetch(`${apiBase}/images/generate`, { method: "POST", body: form });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || "Image editing failed.");
+  if (!data.image) throw new Error("Image editing returned no image.");
+  return data.image;
 };

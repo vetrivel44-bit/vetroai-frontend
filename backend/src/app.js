@@ -72,6 +72,7 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/sessions", chatSessionRoutes);
 app.use("/api/billing", require("./routes/billingRoutes"));
 app.use("/api/maps", mapsRoutes);
+app.use("/api/images", require("./routes/imageRoutes"));
 app.use("/api/debug", require("./routes/debugRoutes"));
 app.use("/api/code", require("./routes/codeRoutes"));
 app.use("/api/cricket", require("./routes/cricketRoutes"));
