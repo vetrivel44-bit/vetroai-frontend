@@ -10,6 +10,28 @@ const MODEL_TASKS = {
   coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Grok 4.6', 'Gemini']),
 };
 
+// Single source of truth for provider/model branding on mobile. Never fall back
+// to unrelated Lucide action icons (the old Mistral briefcase regression).
+const MODEL_ICON_RULES = [
+  [/^auto$/i, '/logo.png'],
+  [/^gpt-|openai|codex/i, '/model-icons/openai.svg'],
+  [/claude/i, '/model-icons/claude.svg'],
+  [/grok|xai/i, '/model-icons/grok.svg'],
+  [/sonar|perplexity/i, '/model-icons/perplexity.svg'],
+  [/gemini|google/i, '/model-icons/gemini.svg'],
+  [/mistral/i, '/model-icons/mistral.svg'],
+  [/sambanova/i, '/model-icons/sambanova.svg'],
+];
+const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/logo.png';
+const makeModelIcon = (label, extraClass = '') => {
+  const img = document.createElement('img');
+  img.src = modelIconSrc(label);
+  img.alt = '';
+  img.setAttribute('aria-hidden', 'true');
+  img.className = `vetro-model-brand-icon ${extraClass}`.trim();
+  return img;
+};
+
 let activeTask = 'all';
 let searchTerm = '';
 let lastActualModel = '';
@@ -26,6 +48,17 @@ function setHeaderModel(label) {
   if (!header) return;
   header.dataset.activeModel = label;
   header.title = `Active model: ${label}`;
+  header.style.setProperty('--vetro-model-icon', `url("${modelIconSrc(label)}")`);
+
+  // Replace any accidental action/default icon inside the visible model badge.
+  const badge = header.querySelector('.mode-pill-btn, .mobile-active-model-chip');
+  if (badge) {
+    badge.dataset.model = label;
+    const stale = badge.querySelector('.vetro-header-model-icon');
+    if (stale) stale.remove();
+    const icon = makeModelIcon(label, 'vetro-header-model-icon');
+    badge.prepend(icon);
+  }
 }
 
 function syncHeaderModel() {
@@ -39,12 +72,8 @@ function syncHeaderModel() {
 }
 
 function cloneModelIcon(option) {
-  const original = option?.querySelector('.ws-model-mark');
-  if (!original) return document.createElement('span');
-  const clone = original.cloneNode(true);
-  clone.removeAttribute('style');
-  clone.classList.add('mobile-model-row-icon');
-  return clone;
+  const name = modelNameFromOption(option) || 'Auto';
+  return makeModelIcon(name, 'mobile-model-row-icon');
 }
 
 function syncSelectedModel() {
