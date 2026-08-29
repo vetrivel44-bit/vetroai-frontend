@@ -4612,14 +4612,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       if (!isActive()) return;
 
       // Auto-export if user requested it
-      if (pendingExportRef.current && pendingExportRef.current.timestamp === requestIdRef.current) {
+      if (pendingExportRef.current && pendingExportRef.current.requestId === requestId) {
         try {
-          const lastMsg = messages[messages.length - 1];
-          if (lastMsg && lastMsg.role === "assistant" && lastMsg.content) {
+          if (bot) {
             const { format } = pendingExportRef.current;
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
             await exportResponse({
-              content: lastMsg.content,
+              content: bot,
               format,
               filename: `vetroai-response-${timestamp}`,
             });
@@ -4922,7 +4921,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // Detect export format request
     const exportFormat = detectExportFormat(text);
     if (exportFormat) {
-      pendingExportRef.current = { format: exportFormat, timestamp: new Date().getTime() };
+      pendingExportRef.current = { format: exportFormat, requestId: requestIdRef.current + 1 };
     }
     
     const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
