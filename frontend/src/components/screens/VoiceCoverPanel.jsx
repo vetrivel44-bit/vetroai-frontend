@@ -14,6 +14,17 @@ function validateAudio(file) {
   return "";
 }
 
+async function readErrorMessage(response) {
+  const raw = await response.text().catch(() => "");
+  if (!raw) return `Voice cover request failed (${response.status}).`;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.message || parsed?.detail || raw;
+  } catch {
+    return raw.length > 700 ? `${raw.slice(0, 700)}…` : raw;
+  }
+}
+
 export default function VoiceCoverPanel({apiBase,authToken,onClose,addToast}) {
   const [songFile,setSongFile]=useState(null);
   const [songName,setSongName]=useState("");
@@ -51,7 +62,7 @@ export default function VoiceCoverPanel({apiBase,authToken,onClose,addToast}) {
       const body=new FormData();body.append("song",songFile);body.append("referenceVoice",voiceFile);body.append("songName",songName);body.append("outputFormat",exportFormat);body.append("consent","true");
       setStage("Separating Vocals");
       const response=await fetch(`${apiBase}/voice-cover/process`,{method:"POST",signal:controller.signal,headers:authToken?{Authorization:`Bearer ${authToken}`} : undefined,body});
-      if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data?.message||"Self-voice processing failed.");}
+      if(!response.ok) throw new Error(await readErrorMessage(response));
       setStage("Learning My Voice");
       const audioBlob=await response.blob();
       setStage("Converting Singer");
