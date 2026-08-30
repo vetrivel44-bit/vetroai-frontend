@@ -9,7 +9,6 @@ function browserPuterModelsTransform() {
     transform(code, id) {
       if (!id.replaceAll('\\', '/').endsWith('/src/App.jsx')) return null;
       let next = code;
-      next = next.replace(/^const VITE_GROQ_KEY = import\.meta\.env\.VITE_GROQ_API_KEY \|\| "";\s*$/m, '');
       const addModelAfterCodex = (label, model) => { if (!next.includes(`"${label}": "${model}"`)) next = next.replace(/("GPT-5\.3 Codex"\s*:\s*"openai\/gpt-5\.3-codex",?)/, `$1\n  "${label}": "${model}",`); };
       addModelAfterCodex('Sonar Pro Research', 'perplexity/sonar-pro'); addModelAfterCodex('Gemini 3.1 Pro', 'gemini-3.1-pro-preview'); addModelAfterCodex('Gemini 3.7 Flash', 'gemini-3.7-flash'); addModelAfterCodex('Gemini 3.5 Flash-Lite', 'gemini-3.5-flash-lite'); addModelAfterCodex('Claude Sonnet 5', 'claude-sonnet-5'); addModelAfterCodex('Claude Haiku 4.5', 'claude-haiku-4-5'); addModelAfterCodex('Claude Opus 5', 'claude-opus-5');
       next = next.replace(/"Groq",\s*"Gemini",\s*"Mistral"/, '"Groq", "Sonar Pro Research", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.5 Flash-Lite", "Claude Sonnet 5", "Claude Haiku 4.5", "Claude Opus 5", "Mistral"').replace(/"Gemini 3\.5 Flash-Lite",\s*"Mistral"/, '"Gemini 3.5 Flash-Lite", "Claude Sonnet 5", "Claude Haiku 4.5", "Claude Opus 5", "Mistral"');
