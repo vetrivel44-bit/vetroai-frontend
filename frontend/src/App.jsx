@@ -4464,6 +4464,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
+      if (selectedProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0) {
+        throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");
+      }
+
       if (attachedImages.length > 0) {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
