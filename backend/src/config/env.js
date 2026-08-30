@@ -32,7 +32,7 @@ module.exports = {
     mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),
     mistralMaxTokens:    Number(getEnv("MISTRAL_MAX_TOKENS",  "8192")),
     chatgptApiKey:       getEnv("CHATGPT_API_KEY",       ""),
-    fableRapidApiKey:    getEnv("FABLE_RAPIDAPI_KEY",    ""),
+    fableRapidApiKey:    getEnv("FABLE_RAPIDAPI_KEY",    getEnv("CHATGPT_API_KEY", "")),
     fableApiHost:        getEnv("FABLE_API_HOST",        "claude-fable-5-api.p.rapidapi.com"),
     fableApiUrl:         getEnv("FABLE_API_URL",         "https://claude-fable-5-api.p.rapidapi.com/n9zkopuh8fn4eqyi5xy5bqr3tt66mkt3"),
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
