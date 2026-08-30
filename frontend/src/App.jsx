@@ -607,9 +607,7 @@ const LANGS = {
 };
 
 const CLAUDE_FABLE_PROVIDER = "Claude Fable 5";
-const CLAUDE_FABLE_MODEL = "claude-fable-5";
 const PUTER_MODEL_IDS = {
-  [CLAUDE_FABLE_PROVIDER]: CLAUDE_FABLE_MODEL,
   "GPT-5.6 Sol": "gpt-5.6-sol",
   "GPT-5.6 Terra": "gpt-5.6-terra",
   "GPT-5.6 Luna": "gpt-5.6-luna",
@@ -2408,7 +2406,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Terra": ["T", "Balanced · everyday work"],
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
-    [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · Puter"],
+    [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     Mistral: ["M", "Efficient reasoning"],
@@ -4348,7 +4346,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       return { ...rest, files: files.map(f => ({ name: f.name })) };
     })));
     fd.append("mode", selectedMode);
-    fd.append("provider", selectedProvider);
+    fd.append("provider", selectedProvider === CLAUDE_FABLE_PROVIDER ? "fable" : selectedProvider);
     const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
     const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens);
     fd.append("temperature", String(temperature));
@@ -4458,9 +4456,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const fileCount = [...fd.entries()].filter(([, v]) => v instanceof File).length;
       addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode, fileCount });
 
-      // Puter models run directly in the browser using Puter's user-pays flow. This
-      // deliberately bypasses /api/chat: the backend does not own the user's Puter
-      // session and cannot proxy it without an auth token.
+      // GPT and Codex models run directly in the browser using Puter's user-pays flow.
+      // Claude Fable 5 is intentionally excluded and routed through the backend so
+      // its RapidAPI credential never reaches the browser.
       const effectivePuterProvider = selectedProvider === "Auto" && fileCount === 0 && shouldUseCodex(userQuery, selectedMode)
         ? "GPT-5.3 Codex"
         : selectedProvider;
