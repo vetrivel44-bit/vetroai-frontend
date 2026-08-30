@@ -6,6 +6,7 @@ const providerManager = require("../src/services/ProviderManager");
 
 const providerKeys = {
   chatgpt: "chatgptApiKey",
+  fable: "fableRapidApiKey",
   groq: "groqApiKey",
   mistral: "mistralApiKey",
   agnes: "agnesApiKey",
