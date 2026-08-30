@@ -6,6 +6,7 @@ const mistralAdapter = require("../providers/mistralAdapter");
 const sambanovaAdapter = require("../providers/sambanovaAdapter");
 const agnesAdapter = require("../providers/agnesAdapter");
 const chatgptAdapter = require("../providers/chatgptAdapter");
+const fableAdapter = require("../providers/fableAdapter");
 
 class ProviderManager {
   constructor() {
@@ -21,6 +22,18 @@ class ProviderManager {
         lastFailure: 0,
         cooldown: 20000,
         fallbacks: ["groq", "mistral", "agnes", "sambanova", "gemini"],
+      },
+      fable: {
+        adapter: fableAdapter,
+        weight: 95,
+        score: 95,
+        latency: 0,
+        successRate: 1,
+        consecutiveErrors: 0,
+        isSuspended: false,
+        lastFailure: 0,
+        cooldown: 20000,
+        fallbacks: ["chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini"],
       },
       groq: {
         adapter: groqAdapter,
@@ -94,6 +107,7 @@ class ProviderManager {
   isConfigured(providerName) {
     const configured = {
       chatgpt: Boolean(config.chatgptApiKey),
+      fable: Boolean(config.fableRapidApiKey),
       groq: Boolean(config.groqApiKey),
       mistral: Boolean(config.mistralApiKey),
       agnes: Boolean(config.agnesApiKey),
