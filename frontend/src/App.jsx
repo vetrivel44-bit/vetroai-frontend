@@ -39,7 +39,6 @@ if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
 const API = baseApi;
 // Web search is handled entirely by the backend (Tavily)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
-const VITE_GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || "";
 
 
 
