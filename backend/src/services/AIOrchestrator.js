@@ -474,13 +474,28 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const { messages, mode, provider: preferredProvider, options, memories } = params;
     const userQuery = messages[messages.length - 1]?.content || "";
     
-    let currentProviderName = providerManager.getBestProvider(mode, preferredProvider);
+    const strictFable = String(preferredProvider || "").toLowerCase() === "fable";
+    let currentProviderName = strictFable
+      ? (providerManager.isConfigured("fable") ? "fable" : null)
+      : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
-    const maxAttempts = Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
+    const maxAttempts = strictFable
+      ? (currentProviderName ? 1 : 0)
+      : Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
+
+    if (strictFable && !currentProviderName) {
+      logger.error("AIOrchestrator.fableNotConfigured", { reqId });
+      this.sendVetroEvent(
+        res,
+        "error",
+        "Claude Fable 5 API is not configured on the backend. Add a valid RapidAPI key and subscription."
+      );
+      return;
+    }
 
     if (!currentProviderName || maxAttempts === 0) {
       logger.error("AIOrchestrator.noConfiguredProvider", { reqId });
@@ -579,6 +594,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
+        if (strictFable) {
+          this.sendVetroEvent(res, "error", "Claude Fable 5 API adapter is unavailable on the backend.");
+          break;
+        }
         const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
         if (!nextProvider) break;
         currentProviderName = nextProvider;
@@ -626,6 +645,15 @@ Choose the single best-fitting visualization block(s) from the formats below:
           logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }
         
+        if (strictFable) {
+          this.sendVetroEvent(
+            res,
+            "error",
+            "Claude Fable 5 API request failed. Check the backend RapidAPI key, subscription, and endpoint."
+          );
+          break;
+        }
+
         if (attempts < maxAttempts) {
           const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
           if (!nextProvider) {
