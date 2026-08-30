@@ -594,6 +594,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
+        if (strictFable) {
+          this.sendVetroEvent(res, "error", "Claude Fable 5 API adapter is unavailable on the backend.");
+          break;
+        }
         const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
         if (!nextProvider) break;
         currentProviderName = nextProvider;
