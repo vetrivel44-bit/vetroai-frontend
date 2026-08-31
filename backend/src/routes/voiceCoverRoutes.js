@@ -46,6 +46,45 @@ router.post("/mix", upload.single("convertedVocals"), async (req, res) => {
   return jsonError(res, 501, "Connect AUDIO_MIXER_URL using its documented multipart API, sending the converted vocal bytes plus the instrumental reference, and return { url }.", "MIXER_ADAPTER_REQUIRED");
 });
 
+// One-shot pipeline used by the Voice Cover panel: separate the song into
+// vocals/instrumental, build a voice profile from the reference sample,
+// convert the vocals to that voice, then remix. Each stage requires its own
+// provider; every provider is deliberately validated up front so a partially
+// configured deployment fails fast with a specific, actionable error instead
+// of a generic 404/500 partway through the pipeline.
+router.post(
+  "/process",
+  upload.fields([
+    { name: "song", maxCount: 1 },
+    { name: "referenceVoice", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const song = req.files?.song?.[0];
+    const referenceVoice = req.files?.referenceVoice?.[0];
+    const { outputFormat = "mp3", consent } = req.body || {};
+
+    if (consent !== "true") return jsonError(res, 400, "Confirm that the reference recording is your voice or you have explicit permission to use it.", "VOICE_CONSENT_REQUIRED");
+    if (!song) return jsonError(res, 400, "Upload the song audio you are permitted to process.", "SONG_REQUIRED");
+    if (!referenceVoice) return jsonError(res, 400, "Record or upload your own voice first.", "VOICE_SAMPLE_REQUIRED");
+    if (!["mp3", "wav"].includes(outputFormat)) return jsonError(res, 400, "Output format must be mp3 or wav.", "BAD_OUTPUT_FORMAT");
+
+    if (!process.env.AUDIO_SEPARATOR_URL) {
+      return jsonError(res, 501, "Audio stem separator is not configured. Configure AUDIO_SEPARATOR_URL for a Demucs/UVR-compatible service.", "SEPARATOR_NOT_CONFIGURED");
+    }
+    if (!process.env.VOICE_PROFILE_PROVIDER_URL || !process.env.VOICE_PROFILE_PROVIDER_KEY) {
+      return jsonError(res, 501, "Custom voice profile provider is not configured. Add a provider that supports authorized user-created voices and returns a compatible voice ID.", "VOICE_PROVIDER_NOT_CONFIGURED");
+    }
+    if (!process.env.VOICE_CONVERSION_PROVIDER_URL) {
+      return jsonError(res, 501, "Speech-to-speech voice conversion is not configured. Configure VOICE_CONVERSION_PROVIDER_URL for a singing voice conversion service.", "CONVERSION_NOT_CONFIGURED");
+    }
+    if (!process.env.AUDIO_MIXER_URL) {
+      return jsonError(res, 501, "Audio mixer is not configured. Configure AUDIO_MIXER_URL for an FFmpeg/media worker.", "MIXER_NOT_CONFIGURED");
+    }
+
+    return jsonError(res, 501, "Connect the configured separator, voice profile, conversion and mixer providers using their documented APIs to complete the pipeline. Provider-specific parameters are deliberately not invented.", "PIPELINE_ADAPTER_REQUIRED");
+  }
+);
+
 router.use((err, _req, res, _next) => {
   if (err?.code === "LIMIT_FILE_SIZE") return jsonError(res, 413, "Audio file exceeds the 50 MB limit.", "FILE_TOO_LARGE");
   return jsonError(res, 400, err?.message || "Audio upload failed.", "AUDIO_UPLOAD_ERROR");
