@@ -320,8 +320,11 @@ DESIGN STANDARDS (non-negotiable)
 7. Responsive — use relative units, flex-wrap, and a couple of @media breakpoints (e.g. max-width: 640px) instead of fixed pixel widths everywhere.
 8. Micro-interactions — hover states, button press feedback (active:scale or similar), smooth scrolling, small CSS entrance animations where they add polish without being gratuitous.
 9. Structure semantic HTML (header/nav/main/section/footer), not div soup.
+10. Functional behavior — every visible navigation item, tab, menu, filter, modal, form, and primary/secondary action must work using concise inline vanilla JavaScript. Never ship decorative controls that do nothing. Include useful empty, loading, success, and validation states when the product concept needs them.
+11. Composition quality — create a complete, intentional screen rather than one small card floating in a large empty canvas. Use a realistic content density, balanced section rhythm, and a clear responsive layout. If the user asks for a small component, present it in a polished component-showcase setting with relevant states and variants.
+12. Accessibility — use semantic controls, associated labels, keyboard-friendly interactions, visible focus styles, sufficient text contrast, and reduced-motion support. Avoid low-contrast gray text and tiny unreadable labels.
 
-Before finishing, mentally check: every class referenced in the HTML has a matching rule in <style>; nothing relies on an external script to render correctly. Think like you're building a Dribbble-shot, not a Bootstrap starter template. Default to dark, moody, premium aesthetics with vivid accent colors unless the brief calls for something else.`;
+Before finishing, mentally test the page at 390px and 1440px widths and click through every control. Check that every class has a matching rule in <style>, text remains readable, the viewport is meaningfully filled, and nothing relies on an external script to render correctly. Think like you're shipping a real product, not a Bootstrap starter template. Choose the visual direction that best fits the brief instead of forcing the same dark purple aesthetic onto every design.`;
     }
 
     // Web context
