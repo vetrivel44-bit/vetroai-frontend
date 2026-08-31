@@ -2,6 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import "./ComputerUI.css";
 import {
+  availableWorkspaceContextSlots,
+  formatWorkspaceCompletion,
+  parseWorkspaceManifest,
+  requiresWorkspace,
+  sanitizeProgressStatus,
+  shouldIgnoreWorkspaceDirectory,
+} from "./computerExecution";
+import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
   Download, File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, MapPin, Mic, Monitor, MoreHorizontal,
   Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
@@ -11,7 +19,7 @@ import {
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? PROD_API : "/api")).replace(/\/+$/, "");
 const STORE_KEY = "vetroai_cowork_tasks_v2";
-const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share|play|open)\b/i;
+const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share|play|open|build|create|edit|fix|implement|modify|rename|write)\b/i;
 const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i;
 const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\bplay\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+))/i;
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
@@ -39,6 +47,43 @@ function downloadSpreadsheet(title, markdown) {
   const csv = markdownTableToCsv(markdown).map(row => row.map(cell => JSON.stringify(String(cell))).join(",")).join("\\r\\n");
   downloadBlob("\ufeff" + csv, "text/csv;charset=utf-8", safeFilename(title, "VetroAI-spreadsheet") + ".csv");
 }
+async function writeWorkspaceManifest(rootHandle, manifest) {
+  const writtenPaths = [];
+  for (const file of manifest.files) {
+    const parts = file.path.split("/");
+    const filename = parts.pop();
+    let directory = rootHandle;
+    for (const part of parts) directory = await directory.getDirectoryHandle(part, { create: true });
+    const fileHandle = await directory.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    try {
+      await writable.write(file.content);
+      await writable.close();
+    } catch (error) {
+      await writable.abort?.();
+      throw error;
+    }
+    writtenPaths.push(file.path);
+  }
+  return writtenPaths;
+}
+async function verifyWorkspaceFiles(rootHandle, files) {
+  const invalid = [];
+  for (const expected of files) {
+    try {
+      const parts = expected.path.split("/");
+      const filename = parts.pop();
+      let directory = rootHandle;
+      for (const part of parts) directory = await directory.getDirectoryHandle(part);
+      const fileHandle = await directory.getFileHandle(filename);
+      const writtenFile = await fileHandle.getFile();
+      if (await writtenFile.text() !== expected.content) invalid.push(expected.path);
+    } catch {
+      invalid.push(expected.path);
+    }
+  }
+  return invalid;
+}
 async function requestCurrentLocation() {
   if (!window.isSecureContext || !navigator.geolocation) return { location: null, reason: "unsupported" };
   return new Promise(resolve => navigator.geolocation.getCurrentPosition(
@@ -49,6 +94,9 @@ async function requestCurrentLocation() {
 }
 const READABLE_FILE = /\.(txt|md|csv|json|js|jsx|ts|tsx|py|java|cpp|c|html|css|xml|ya?ml)$/i;
 const MAX_WORKSPACE_FILES = 200;
+const MAX_CHAT_FILES = 10;
+const MAX_CONTEXT_FILE_SIZE = 180 * 1024;
+const MAX_CONTEXT_TOTAL_SIZE = 1.5 * 1024 * 1024;
 
 const makeTask = (title = "New task") => ({
   id: crypto.randomUUID?.() || String(Date.now()),
@@ -68,7 +116,16 @@ const starterTasks = [
   { icon: Zap, title: "Complete a project", prompt: "Turn my goal into a detailed plan, work through it step by step, and give me finished deliverables for review." }
 ];
 
-const buildPlan = (prompt, files) => {
+const buildPlan = (prompt, files, workspaceName = "", workspaceMode = requiresWorkspace(prompt)) => {
+  if (workspaceMode) {
+    return [
+      { id: "understand", label: "Understand the requested outcome", status: "pending" },
+      { id: "workspace", label: workspaceName ? `Inspect ${workspaceName}` : "Connect a writable local workspace", status: "pending" },
+      { id: "work", label: "Prepare the requested file changes", status: "pending" },
+      { id: "write", label: "Write changes to the connected workspace", status: "pending" },
+      { id: "review", label: "Rescan and verify the written files", status: "pending" },
+    ];
+  }
   const steps = [
     { id: "understand", label: "Understand the goal and constraints", status: "pending" },
     ...(files.length ? [{ id: "files", label: `Read ${files.length} attached file${files.length > 1 ? "s" : ""}`, status: "pending" }] : []),
@@ -86,6 +143,7 @@ function StepIcon({ status }) {
   if (status === "done") return <CheckCircle2 size={16} className="text-emerald-600" />;
   if (status === "active") return <Loader2 size={16} className="animate-spin text-amber-600" />;
   if (status === "failed") return <X size={16} className="text-red-500" />;
+  if (status === "blocked") return <LockKeyhole size={16} className="text-amber-600" />;
   return <Circle size={16} className="text-stone-300" />;
 }
 
@@ -160,7 +218,7 @@ export default function ComputerUI({ onClose }) {
     });
   };
 
-  const readStream = async (response, taskId, assistantId) => {
+  const readStream = async (response, taskId, assistantId, publishContent = true) => {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("The server did not return a stream.");
     const decoder = new TextDecoder();
@@ -182,15 +240,19 @@ export default function ComputerUI({ onClose }) {
           const data = event.data ?? event.content;
           if (type === "content" && data) {
             content += data;
-            patchTask(taskId, t => ({
-              ...t,
-              messages: t.messages.map(m => m.id === assistantId ? { ...m, content } : m)
-            }));
+            if (publishContent) {
+              patchTask(taskId, t => ({
+                ...t,
+                messages: t.messages.map(m => m.id === assistantId ? { ...m, content } : m)
+              }));
+            }
           } else if (type === "status" && data) {
+            const detail = sanitizeProgressStatus(data);
+            if (!detail) continue;
             patchTask(taskId, t => {
               const activeIndex = t.steps.findIndex(s => s.status === "active");
               if (activeIndex < 0) return t;
-              return { ...t, steps: t.steps.map((s, i) => i === activeIndex ? { ...s, detail: String(data) } : s) };
+              return { ...t, steps: t.steps.map((s, i) => i === activeIndex ? { ...s, detail } : s) };
             });
           } else if (type === "error" && data) {
             throw new Error(String(data));
@@ -215,12 +277,40 @@ export default function ComputerUI({ onClose }) {
     const assistantId = `a-${Date.now()}`;
     const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt };
     const contextMessages = [...task.messages, userMessage].map(({ role, content }) => ({ role, content }));
-    const plan = buildPlan(prompt, files).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
+    const workspaceTask = permission !== "plan" && requiresWorkspace(prompt);
+    const plan = buildPlan(prompt, files, workspace?.name, workspaceTask).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
+
+    if (workspaceTask && !workspace?.handle) {
+      patchTask(taskId, t => ({
+        ...t,
+        title: t.messages.length ? t.title : prompt.slice(0, 54),
+        status: "blocked",
+        blocker: "workspace",
+        completion: null,
+        files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
+        steps: plan.map((step, index) => ({
+          ...step,
+          status: index === 0 ? "done" : index === 1 ? "blocked" : "pending",
+          detail: index === 1 ? "Folder access is required before files can be created or changed." : undefined,
+        })),
+        messages: [...t.messages, userMessage, {
+          id: assistantId,
+          role: "assistant",
+          content: "I can build this, but I have not started because **no writable local folder is connected**. Open a project folder first; then I can create the files and only mark the task complete after they are written and verified.",
+          action: "open-workspace",
+          retryPrompt: prompt,
+        }],
+      }));
+      setQuery("");
+      return;
+    }
 
     patchTask(taskId, t => ({
       ...t,
       title: t.messages.length ? t.title : prompt.slice(0, 54),
       status: "running",
+      blocker: null,
+      completion: null,
       files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
       steps: plan,
       messages: [...t.messages, userMessage, { id: assistantId, role: "assistant", content: "" }]
@@ -232,6 +322,11 @@ export default function ComputerUI({ onClose }) {
 
     try {
       let taskPrompt = prompt;
+      if (workspaceTask) {
+        const knownFiles = workspaceFiles.slice(0, 80).map(file => file.path).join(", ");
+        taskPrompt += `\n\n[CONNECTED WRITABLE WORKSPACE] ${workspace.name}.` +
+          (knownFiles ? ` Existing files include: ${knownFiles}.` : " The workspace is currently empty.");
+      }
       if (NEARBY_REQUEST.test(prompt)) {
         setLocationNotice("Requesting your precise location…");
         const result = await requestCurrentLocation();
@@ -284,6 +379,23 @@ export default function ComputerUI({ onClose }) {
           }
         }
       }
+      const workspaceContext = workspaceTask
+        ? await collectWorkspaceContext(workspaceFiles, availableWorkspaceContextSlots(files.length, MAX_CHAT_FILES))
+        : [];
+      if (workspaceTask) {
+        patchTask(taskId, t => ({
+          ...t,
+          steps: t.steps.map(step => step.id === "workspace"
+            ? {
+                ...step,
+                status: "done",
+                detail: workspaceContext.length
+                  ? `${workspaceContext.length} relevant source file${workspaceContext.length === 1 ? "" : "s"} read`
+                  : "Connected workspace inspected",
+              }
+            : step.id === "work" ? { ...step, status: "active" } : step),
+        }));
+      }
       const body = new FormData();
       body.append("provider", "agnes");
       body.append("mode", "code_exec");
@@ -293,28 +405,75 @@ export default function ComputerUI({ onClose }) {
       body.append("safeMode", "true");
       body.append("systemPrompt", [
         "You are VetroAI Computer, a careful Cowork-style task agent.",
-        "Work through the user's multi-step task and produce finished, useful deliverables.",
+        "Work through the user's task and produce finished, useful deliverables instead of a generic tutorial.",
         "State what you actually did; never pretend to click, send, purchase, log in, edit local files, or access connected apps unless a real tool result proves it.",
         "For actions unavailable in this browser workspace, provide the exact next action for the user.",
-        "Prefer concise progress, source-aware research, and a final review checklist."
+        workspaceTask
+          ? "A writable workspace is connected and relevant existing source files are attached when available. Return exactly one fenced `vetro-workspace` JSON block with this shape: {\"summary\":\"what was built\",\"files\":[{\"path\":\"relative/path.ext\",\"content\":\"complete file contents\"}]}. Preserve compatible project structure, include complete contents for every file to create or replace, and do not claim files were written; the client will verify the writes."
+          : "Prefer a concise, direct result. Do not include internal provider, routing, or failover details."
       ].join(" "));
       files.forEach(file => body.append("files", file));
+      workspaceContext.forEach(({ file, path }) => body.append("files", file, path));
 
-      patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
+      if (!workspaceTask) {
+        patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
+      }
       const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
       if (!response.ok) {
         let message = `Server error: ${response.status}`;
         try {
           const data = await response.json();
           message = data.message || data.error || message;
-        } catch {}
+        } catch {
+          // The response may be plain text; keep the HTTP status fallback.
+        }
         throw new Error(message);
       }
 
-      await readStream(response, taskId, assistantId);
+      const content = await readStream(response, taskId, assistantId, !workspaceTask);
+      if (!content.trim()) throw new Error("The task returned no usable result.");
+
+      if (workspaceTask) {
+        const manifest = parseWorkspaceManifest(content);
+        if (!manifest) {
+          throw new Error("No executable workspace changes were returned, so no files were modified.");
+        }
+        patchTask(taskId, t => ({
+          ...t,
+          steps: t.steps.map(step => step.id === "workspace" || step.id === "work"
+            ? { ...step, status: "done", detail: undefined }
+            : step.id === "write" ? { ...step, status: "active", detail: "Writing generated files…" } : step),
+        }));
+        const writtenPaths = await writeWorkspaceManifest(workspace.handle, manifest);
+        patchTask(taskId, t => ({
+          ...t,
+          steps: t.steps.map(step => step.id === "write"
+            ? { ...step, status: "done", detail: `${writtenPaths.length} file${writtenPaths.length === 1 ? "" : "s"} written` }
+            : step.id === "review" ? { ...step, status: "active", detail: "Rescanning workspace…" } : step),
+        }));
+        const invalid = await verifyWorkspaceFiles(workspace.handle, manifest.files);
+        if (invalid.length) throw new Error(`Workspace verification failed for: ${invalid.join(", ")}`);
+        const entries = await scanDirectory(workspace.handle);
+        setWorkspaceFiles(entries);
+        patchTask(taskId, t => ({
+          ...t,
+          status: "completed",
+          blocker: null,
+          completion: { verified: true, kind: "workspace", files: writtenPaths },
+          steps: t.steps.map(step => ({ ...step, status: "done", detail: step.id === "review" ? "All written files verified" : step.detail })),
+          messages: t.messages.map(message => message.id === assistantId
+            ? { ...message, content: formatWorkspaceCompletion(manifest, writtenPaths) }
+            : message),
+        }));
+        setFiles([]);
+        return;
+      }
+
       patchTask(taskId, t => ({
         ...t,
         status: "completed",
+        blocker: null,
+        completion: { verified: true, kind: WORD_REQUEST.test(prompt) || SHEET_REQUEST.test(prompt) ? "download" : "answer" },
         steps: t.steps.map(s => ({ ...s, status: "done" })),
         messages: t.messages.map(message => message.id === assistantId ? {
           ...message,
@@ -330,6 +489,7 @@ export default function ComputerUI({ onClose }) {
       patchTask(taskId, t => ({
         ...t,
         status: stopped ? "stopped" : "failed",
+        completion: null,
         steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s),
         messages: t.messages.map(m => m.id === assistantId && !m.content
           ? { ...m, content: stopped ? "Task stopped. You can edit the instruction and run it again." : `I couldn't complete this task: ${error.message}` }
@@ -344,6 +504,10 @@ export default function ComputerUI({ onClose }) {
     event?.preventDefault();
     const prompt = (suggestion || query).trim();
     if (!prompt || running) return;
+    if (permission !== "plan" && requiresWorkspace(prompt) && !workspace?.handle) {
+      execute(prompt);
+      return;
+    }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
       setPendingAction(prompt);
       return;
@@ -390,6 +554,7 @@ export default function ComputerUI({ onClose }) {
       if (output.length >= MAX_WORKSPACE_FILES) break;
       const path = prefix ? `${prefix}/${name}` : name;
       if (handle.kind === "directory") {
+        if (shouldIgnoreWorkspaceDirectory(name)) continue;
         await scanDirectory(handle, path, output);
       } else {
         const file = await handle.getFile();
@@ -399,24 +564,67 @@ export default function ComputerUI({ onClose }) {
     return output;
   };
 
+  const collectWorkspaceContext = async (entries, maxFiles = MAX_CHAT_FILES) => {
+    const context = [];
+    let totalSize = 0;
+    const candidates = entries
+      .filter(entry => READABLE_FILE.test(entry.name) && entry.size <= MAX_CONTEXT_FILE_SIZE)
+      .sort((a, b) => {
+        const priority = path => /(^|\/)(package\.json$|vite\.config\.[^/]+$|src\/|app\/)/i.test(path) ? 0 : 1;
+        return priority(a.path) - priority(b.path) || a.path.localeCompare(b.path);
+      });
+    for (const entry of candidates) {
+      if (context.length >= maxFiles || totalSize + entry.size > MAX_CONTEXT_TOTAL_SIZE) break;
+      const file = await entry.handle.getFile();
+      context.push({ file, path: entry.path });
+      totalSize += file.size;
+    }
+    return context;
+  };
+
   const openWorkspace = async () => {
     if (!window.showDirectoryPicker) {
       alert("Folder access requires Chrome or Edge on HTTPS. You can still attach individual files.");
-      return;
+      return null;
     }
     try {
       setWorkspaceBusy(true);
       const handle = await window.showDirectoryPicker({ mode: "readwrite", id: "vetroai-computer-workspace" });
       const permission = await handle.requestPermission({ mode: "readwrite" });
-      if (permission !== "granted") return;
+      if (permission !== "granted") return null;
       const entries = await scanDirectory(handle);
-      setWorkspace({ name: handle.name, handle });
+      const nextWorkspace = { name: handle.name, handle };
+      setWorkspace(nextWorkspace);
       setWorkspaceFiles(entries);
+      return nextWorkspace;
     } catch (error) {
       if (error.name !== "AbortError") alert(`Could not open folder: ${error.message}`);
+      return null;
     } finally {
       setWorkspaceBusy(false);
     }
+  };
+
+  const prepareWorkspaceRetry = async message => {
+    const nextWorkspace = await openWorkspace();
+    if (!nextWorkspace || !activeTask) return;
+    setQuery(message.retryPrompt || "");
+    patchTask(activeTask.id, t => ({
+      ...t,
+      status: "ready",
+      blocker: null,
+      steps: t.steps.map(step => step.id === "workspace"
+        ? { ...step, status: "done", detail: `Connected ${nextWorkspace.name}` }
+        : step.status === "blocked" ? { ...step, status: "pending", detail: undefined } : step),
+      messages: t.messages.map(item => item.id === message.id
+        ? {
+            ...item,
+            action: null,
+            content: `Workspace **${nextWorkspace.name}** is connected. The original task is ready in the composer—review it and press Send to run the verified file workflow.`,
+          }
+        : item),
+    }));
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
   const attachWorkspaceFile = async entry => {
@@ -521,9 +729,9 @@ export default function ComputerUI({ onClose }) {
                 <span>Read/write access is requested by your browser and stays limited to the folder you choose.</span>
               </div>
               <div className="cowork-starter-grid">
-                {starterTasks.map(({ icon: Icon, title, prompt }) => (
+                {starterTasks.map(({ icon, title, prompt }) => (
                   <button key={title} onClick={e => submit(e, prompt)} className="cowork-starter-card">
-                    <Icon size={18} className="text-amber-700 mb-3" />
+                    {React.createElement(icon, { size: 18, className: "text-amber-700 mb-3" })}
                     <div className="font-semibold text-sm mb-1">{title}</div>
                     <div className="text-xs leading-relaxed text-stone-500">{prompt}</div>
                   </button>
@@ -552,6 +760,13 @@ export default function ComputerUI({ onClose }) {
                                 <div className="cowork-export-actions">
                                   {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, message.content)}><Download size={15} /> Download Word document</button>}
                                   {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, message.content)}><Download size={15} /> Download spreadsheet</button>}
+                                </div>
+                              )}
+                              {message.action === "open-workspace" && (
+                                <div className="cowork-blocker-actions">
+                                  <button type="button" onClick={() => prepareWorkspaceRetry(message)}>
+                                    <FolderOpen size={15} /> Open a project folder
+                                  </button>
                                 </div>
                               )}
                             </>
@@ -584,8 +799,8 @@ export default function ComputerUI({ onClose }) {
                       {activeTask.files.map(file => <div key={file.name} className="flex items-center gap-2 text-xs text-stone-600 py-1"><File size={13} /> <span className="truncate">{file.name}</span></div>)}
                     </div>
                   )}
-                  {activeTask.status === "completed" && <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-2 text-xs text-emerald-700"><Check size={15} /> Ready for your review</div>}
-                  <WorkspaceFiles entries={workspaceFiles} workspace={workspace} busy={workspaceBusy} openWorkspace={openWorkspace} attachFile={attachWorkspaceFile} requestDelete={setDeleteTarget} />
+                  {activeTask.status === "completed" && activeTask.completion?.verified && <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-2 text-xs text-emerald-700"><Check size={15} /> Verified result ready for review</div>}
+                  <WorkspaceFiles required={activeTask.blocker === "workspace"} entries={workspaceFiles} workspace={workspace} busy={workspaceBusy} openWorkspace={openWorkspace} attachFile={attachWorkspaceFile} requestDelete={setDeleteTarget} />
                 </aside>
               </div>
             </section>
@@ -628,10 +843,10 @@ export default function ComputerUI({ onClose }) {
   );
 }
 
-function WorkspaceFiles({ entries, workspace, busy, openWorkspace, attachFile, requestDelete }) {
-  return <div className="cowork-workspace-panel">
+function WorkspaceFiles({ entries, workspace, busy, openWorkspace, attachFile, requestDelete, required }) {
+  return <div className={`cowork-workspace-panel ${required ? "is-required" : ""}`}>
     <div className="cowork-workspace-heading"><span><HardDrive size={14} /> Workspace</span><button onClick={openWorkspace}>{workspace ? "Change" : "Open"}</button></div>
-    {!workspace ? <p>No local folder connected.</p> : <>
+    {!workspace ? <p>{required ? "A writable folder is required to continue this task." : "No folder needed for this task. Connect one when you want VetroAI to create or edit local files."}</p> : <>
       <strong>{workspace.name}</strong><p>{entries.length}{entries.length >= MAX_WORKSPACE_FILES ? "+" : ""} files available</p>
       <div className="cowork-file-list">{entries.slice(0, 12).map(entry => <div key={entry.path} className="cowork-file-row"><button onClick={() => attachFile(entry)} title="Attach to task" disabled={!READABLE_FILE.test(entry.name) && entry.size > 15 * 1024 * 1024}><File size={13} /><span>{entry.path}</span></button><button onClick={() => requestDelete(entry)} title="Delete file"><Trash2 size={13} /></button></div>)}</div>
     </>}
@@ -649,7 +864,7 @@ function CapabilitiesModal({ close, workspaceReady }) {
     [CalendarClock, "Background and scheduled jobs", "Cloud service required", "Needs a durable job runner"],
     [Zap, "Connectors and parallel sub-agents", "Backend required", "Needs authenticated tool adapters"]
   ];
-  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
+  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([icon, name, status, detail]) => <div key={name}>{React.createElement(icon, { size: 18 })}<span><strong>{name}</strong><small>{detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
 }
 
 function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation }) {

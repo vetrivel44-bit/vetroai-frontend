@@ -37,6 +37,9 @@ if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
   baseApi += "/api";
 }
 const API = baseApi;
+// The production backend currently does not expose billing routes. Keep the
+// automatic account-status request off until the matching backend is deployed.
+const BILLING_API_ENABLED = import.meta.env.VITE_BILLING_API_ENABLED === "true";
 // Web search is handled entirely by the backend (Tavily)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -3577,6 +3580,7 @@ export default function App() {
 
   // ── Billing status (plan + credit balance) ───────────────────────────────────
   const refreshBillingStatus = useCallback(async () => {
+    if (!BILLING_API_ENABLED) return;
     const token = localStorage.getItem("token");
     if (!token || token.startsWith("local_")) return;
     try {

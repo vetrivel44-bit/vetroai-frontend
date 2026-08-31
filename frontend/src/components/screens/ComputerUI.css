@@ -186,6 +186,14 @@
   font-weight: 650;
 }
 .cowork-workspace-panel { margin-top: 16px; padding-top: 14px; border-top: 1px solid #f0eee9; }
+.cowork-workspace-panel.is-required {
+  margin-inline: -8px;
+  padding: 12px 8px 0;
+  border-top-color: #f59e0b;
+  border-radius: 12px;
+  background: #fffbeb;
+}
+.cowork-workspace-panel.is-required > p { color: #92400e; font-weight: 600; line-height: 1.45; }
 .cowork-workspace-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
 .cowork-workspace-heading span { display: flex; align-items: center; gap: 6px; color: var(--cw-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .cowork-workspace-heading button { border: 0; color: var(--cw-accent); background: none; font-size: 11px; font-weight: 650; }
@@ -446,3 +454,19 @@
   font-weight: 600;
 }
 .cowork-export-actions button:hover { background: #44403c; }
+.cowork-blocker-actions {
+  margin-top: 16px;
+}
+.cowork-blocker-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  color: #fff;
+  border: 0;
+  border-radius: 11px;
+  background: #b45309;
+  font-size: 12px;
+  font-weight: 650;
+}
+.cowork-blocker-actions button:hover { background: #92400e; }
