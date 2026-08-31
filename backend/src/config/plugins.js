@@ -31,6 +31,14 @@ const PLUGIN_CATALOG = Object.freeze({
     name: "Study Coach",
     instruction: "Teach in simple terms and format exam answers for scoring: direct definition, key points, and a short example when useful.",
   },
+  "voice-cover": {
+    name: "Voice Cover",
+    instruction: "When the user wants to turn a song into a cover in their own voice, point them to the Voice Cover studio in the sidebar. Do not attempt to generate or transform audio directly in chat.",
+  },
+  booking: {
+    name: "Booking",
+    instruction: "When the user wants to book a session or consultation, collect the service, preferred date and time, and contact details, then clearly confirm what was booked.",
+  },
 });
 
 function normalizePluginIds(rawPlugins) {

@@ -2,12 +2,14 @@ import React, { useMemo, useState } from "react";
 import {
   BarChart3,
   BriefcaseBusiness,
+  CalendarClock,
   Check,
   ChevronRight,
   Globe2,
   GraduationCap,
   Image,
   MapPinned,
+  Mic,
   Plus,
   Search,
   ShieldCheck,
@@ -28,6 +30,8 @@ const ICONS = {
   briefcase: BriefcaseBusiness,
   trophy: Trophy,
   study: GraduationCap,
+  mic: Mic,
+  calendar: CalendarClock,
 };
 
 function PluginIcon({ plugin, size = 22 }) {

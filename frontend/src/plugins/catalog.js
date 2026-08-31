@@ -101,6 +101,30 @@ export const PLUGIN_CATALOG = [
     aliases: ["study", "teacher", "study coach"],
     triggers: ["explain", "solve", "exam", "revision", "study", "notes", "definition", "question"],
   },
+  {
+    id: "voice-cover",
+    name: "Voice Cover",
+    tagline: "Sing any song in your own voice",
+    description: "Point users to the Voice Cover studio to turn a permitted song into a cover using their own voice.",
+    category: "Creative",
+    icon: "mic",
+    color: "#9333ea",
+    permissions: ["Open the Voice Cover studio"],
+    aliases: ["voice cover", "voice", "cover"],
+    triggers: ["voice cover", "sing in my voice", "cover song", "voice clone", "singing voice", "my voice"],
+  },
+  {
+    id: "booking",
+    name: "Booking",
+    tagline: "Schedule a session or consultation",
+    description: "Help users book a session by collecting the service, preferred date and time, and contact details.",
+    category: "Productivity",
+    icon: "calendar",
+    color: "#0ea5e9",
+    permissions: ["Use scheduling details you provide", "Send booking confirmations"],
+    aliases: ["booking", "book", "schedule"],
+    triggers: ["book a", "schedule a", "appointment", "consultation", "reserve a slot", "book a call"],
+  },
 ];
 
 export function loadPluginState() {
