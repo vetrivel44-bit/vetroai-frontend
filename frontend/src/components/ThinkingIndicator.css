@@ -433,3 +433,32 @@
     animation-duration: 0.01s !important;
   }
 }
+
+/* Claude-style palette: restrained coral movement on warm neutral surfaces. */
+.vai-thinking-inner,.vai-thinking-inline {
+  background:var(--accent-soft);
+  border-color:var(--accent-mid);
+}
+.vai-thinking-glow {
+  background:linear-gradient(135deg,var(--accent-soft),var(--accent-secondary-soft),transparent);
+}
+.vai-thinking-text {
+  background-image:linear-gradient(120deg,var(--accent),var(--accent-secondary) 56%,var(--accent));
+}
+.vai-dot { background:linear-gradient(135deg,var(--accent),var(--accent-secondary)); }
+.vai-thinking-inline-text { color:var(--accent); }
+.vai-thinking-shimmer { background:var(--accent-soft); }
+.vai-thinking-shimmer::after {
+  background:linear-gradient(90deg,transparent,var(--accent),var(--accent-secondary),transparent);
+}
+.vai-orbit-dot-1 { background:var(--accent); box-shadow:0 0 8px var(--accent); }
+.vai-orbit-dot-2 { background:var(--accent-secondary); box-shadow:0 0 8px var(--accent-secondary); }
+.vai-orbit-dot-3 { background:color-mix(in srgb,var(--accent) 45%,var(--accent-secondary)); box-shadow:0 0 8px var(--accent-soft); }
+[data-theme="dark"] .vai-thinking-inner,[data-theme="dark"] .vai-thinking-inline {
+  background:var(--accent-soft);
+  border-color:var(--accent-mid);
+  box-shadow:0 0 24px rgba(var(--accent-rgb),.06);
+}
+[data-theme="dark"] .vai-thinking-glow {
+  background:linear-gradient(135deg,var(--accent-soft),var(--accent-secondary-soft),transparent);
+}

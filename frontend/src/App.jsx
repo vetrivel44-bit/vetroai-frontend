@@ -37,6 +37,7 @@ if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
   baseApi += "/api";
 }
 const API = baseApi;
+const IS_DEPLOY_PREVIEW = /^deploy-preview-\d+--vetroai\.netlify\.app$/i.test(window.location.hostname);
 // Web search is handled entirely by the backend (Tavily)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -3535,7 +3536,9 @@ export default function App() {
       }
 
       if (!res.ok || data.success === false) {
-        setAuthError(readApiError(data));
+        setAuthError(res.status === 401 && authMode === "login"
+          ? "Incorrect email or password. If this is your first time, choose Sign up free."
+          : readApiError(data));
         setAuthLoading(false);
         return;
       }
@@ -3563,6 +3566,17 @@ export default function App() {
     setUser(null); setUserInfo(null); setMessages([]); setCurrentSessionId(null);
     setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthError("");
     addToast("Signed out successfully", "info");
+  };
+
+  const enterDeployPreview = () => {
+    if (!IS_DEPLOY_PREVIEW) return;
+    const accessToken = `local_preview_${Date.now()}`;
+    const info = { name: "Preview visitor", email: "preview@vetroai.local", isLocal: true };
+    localStorage.setItem("token", accessToken);
+    localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+    setUser(accessToken);
+    setUserInfo(info);
+    addToast("Preview mode — account and billing actions are disabled.", "info", 3500);
   };
 
   // ── Session management ────────────────────────────────────────────────────────
@@ -5402,7 +5416,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </div>
 
           {/* Google Sign In */}
-          {GOOGLE_CLIENT_ID ? (
+          {GOOGLE_CLIENT_ID && !IS_DEPLOY_PREVIEW ? (
             <>
               <GoogleLoginButton clientId={GOOGLE_CLIENT_ID} onLogin={handleGoogleLogin} theme={theme} />
               <div className="auth-divider-row"><span /><em>or</em><span /></div>
@@ -5425,6 +5439,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
             </button>
           </form>
+
+          {IS_DEPLOY_PREVIEW && (
+            <>
+              <div className="auth-divider-row"><span /><em>preview</em><span /></div>
+              <button className="auth-preview-btn" type="button" onClick={enterDeployPreview}>
+                View the design without signing in
+              </button>
+              <p className="auth-preview-note">Temporary preview only. Nothing is added to your account.</p>
+            </>
+          )}
 
           <p className="auth-switch-text">
             {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
@@ -5686,7 +5710,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
               <Newspaper size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? 'var(--accent-secondary)' : "var(--ink-4)" }}>
               <Ghost size={18} />
             </button>
             {messages.length > 0 && (
@@ -5703,10 +5727,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         {/* Incognito banner */}
         {isIncognito && (
-          <div style={{ background: 'linear-gradient(90deg, #2a1a4a, #1a1a3a)', borderBottom: '1px solid rgba(167,123,245,0.25)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <Ghost size={14} style={{ color: '#A77BF5' }} />
-            <span style={{ fontSize: 12, color: '#C4A8F8', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
-            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#8B6DBF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>Turn off</button>
+          <div className="incognito-banner" style={{ background: 'var(--accent-secondary-soft)', borderBottom: '1px solid color-mix(in srgb, var(--accent-secondary) 28%, transparent)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <Ghost size={14} style={{ color: 'var(--accent-secondary)' }} />
+            <span style={{ fontSize: 12, color: 'var(--ink-2)', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
+            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>Turn off</button>
           </div>
         )}
 
@@ -5754,7 +5778,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        {/* ── AI avatar ── */}
                        {m.role !== 'user' && (
                          <div className="flex-shrink-0 mt-1">
-                           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, #D97757 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                              <VetroSparkWhite size={22} />
                            </div>
                          </div>
@@ -5996,7 +6020,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
                      <div className="flex w-full mb-6 justify-start gap-3">
-                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg, var(--accent) 0%, #D97757 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                          <VetroSparkWhite size={22} />
                        </div>
                        <div style={{ paddingTop: 6, color: "var(--ink-3)" }}>
