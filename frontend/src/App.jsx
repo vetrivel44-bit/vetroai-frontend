@@ -884,6 +884,60 @@ function TypingIndicator({ text = "" }) {
   );
 }
 
+const THINK_PHASES = {
+  deep_search: ["Searching sources…", "Reading the results…", "Synthesizing an answer…"],
+  research:    ["Searching sources…", "Reading the results…", "Synthesizing an answer…"],
+  debugger:    ["Reading your code…", "Tracing the issue…", "Drafting a fix…"],
+  summarize:   ["Reading the material…", "Condensing the key points…"],
+  analyst:     ["Reading the data…", "Crunching the numbers…", "Building the report…"],
+  multi_ai:    ["Consulting experts…", "Comparing answers…", "Synthesizing…"],
+  default:     ["Reading your question…", "Thinking…", "Drafting a response…"],
+};
+
+// streamStatus is either a placeholder phase name or a real message the
+// backend pushed (provider routing, retries, tool use — see AIOrchestrator's
+// sendVetroEvent(res, "status", ...) calls). Only the placeholders fall back
+// to the canned phase cycling below; a real message always takes priority.
+const STREAM_STATUS_PLACEHOLDERS = new Set(["preparing", "streaming", "idle", "retrying", "recovering", "failed"]);
+
+// Live "thinking" state shown before the first token arrives: a soft pulsing
+// orb, a label that advances every couple of seconds (or shows the backend's
+// real status the moment one arrives), and a running timer — replaces the
+// old bare three-dot indicator.
+function ThinkingBlock({ mode, status }) {
+  const phases = THINK_PHASES[mode] || THINK_PHASES.default;
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    setSeconds(0);
+    const id = setInterval(() => setSeconds(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [mode]);
+  const liveStatus = status && !STREAM_STATUS_PLACEHOLDERS.has(status) ? status : null;
+  const phaseIdx = Math.min(Math.floor(seconds / 2), phases.length - 1);
+  const label = liveStatus || phases[phaseIdx];
+  return (
+    <div className="think-block">
+      <span className="think-orb" aria-hidden="true"><span className="think-orb-core" /></span>
+      <span className="think-label" key={label}>{label}</span>
+      <span className="think-time">{seconds}s</span>
+    </div>
+  );
+}
+
+// Once the answer starts streaming, the live block above is replaced by this
+// small settled pill so every completed message keeps a permanent, honest
+// record of how long the model took before it started answering.
+function ThoughtSummary({ ms }) {
+  if (!ms) return null;
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  return (
+    <div className="thought-pill">
+      <SparkleIcon />
+      <span>Thought for {seconds}s</span>
+    </div>
+  );
+}
+
 function FollowUpChips({ suggestions, loading, onSelect }) {
   if (loading) return (
     <div className="followup-row">{[1, 2, 3].map(i => <div key={i} className="followup-chip skeleton" />)}</div>
@@ -2498,21 +2552,6 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
   );
 }
 
-// Helper to format real-time SSE stream status updates
-const getStatusLabel = (status, mode) => {
-  if (!status || status === "preparing" || status === "streaming" || status === "idle") {
-    switch(mode) {
-      case "deep_search": return "Searching sources…";
-      case "debugger": return "Reading your code…";
-      case "summarize": return "Condensing…";
-      case "analyst": return "Crunching data…";
-      case "multi_ai": return "Consulting experts…";
-      default: return "Thinking…";
-    }
-  }
-  return status;
-};
-
 // ─── NEWS PANEL ──────────────────────────────────────────────────────────────
 const NEWS_CATEGORIES = ["top", "business", "technology", "sports", "entertainment", "health", "science", "politics"];
 
@@ -3417,6 +3456,7 @@ export default function App() {
   const autoWebSearchRef = useRef(autoWebSearch);
   const ttsVoiceRef      = useRef(ttsVoice);
   const autoSpeakRef     = useRef(autoSpeak);
+  const thinkStartRef    = useRef(null);
 
   useEffect(() => { inputRef.current = input; }, [input]);
   useEffect(() => { voiceRef.current = isVoiceOpen; }, [isVoiceOpen]);
@@ -3425,6 +3465,19 @@ export default function App() {
   useEffect(() => { selectedModeRef.current = selectedMode; }, [selectedMode]);
   useEffect(() => { systemPromptRef.current = systemPrompt; }, [systemPrompt]);
   useEffect(() => { autoWebSearchRef.current = autoWebSearch; }, [autoWebSearch]);
+  // Captures how long the assistant "thought" before its first token, so
+  // completed messages can show a "Thought for Ns" summary above the answer.
+  // Called once per turn at each stream's first content update, outside any
+  // setMessages updater — a setState updater must stay a pure function of
+  // its previous-state argument (React 18 StrictMode double-invokes it in
+  // dev specifically to catch impurities), so the ref mutation happens here
+  // instead, and the already-computed value is merged in as plain data.
+  const takeThinkingMs = () => {
+    if (!thinkStartRef.current) return null;
+    const elapsedMs = Date.now() - thinkStartRef.current;
+    thinkStartRef.current = null;
+    return elapsedMs;
+  };
   useEffect(() => { window.speechSynthesis?.cancel(); }, []);
   useEffect(() => { localStorage.setItem("vetroai_sysprompt", systemPrompt); }, [systemPrompt]);
   useEffect(() => { ttsVoiceRef.current = ttsVoice; localStorage.setItem("vetro_tts_voice", ttsVoice); }, [ttsVoice]);
@@ -4328,6 +4381,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
     setFollowUps([]); setIsContinuing(false);
+    thinkStartRef.current = Date.now();
 
     // Show web searching indicator if web search will be triggered
     const willWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
@@ -4487,9 +4541,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
           analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
           const combined = analyses.join("\n\n");
+          const thinkingMs = takeThinkingMs();
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            const old = next[next.length - 1];
+            next[next.length - 1] = { ...old, content: combined, provider: "GPT-5.6 Luna", ...(thinkingMs != null && old.thinkingMs == null ? { thinkingMs } : null) };
             return next;
           });
           setStreamingContent(combined);
@@ -4540,9 +4596,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           const text = typeof part?.text === "string" ? part.text : "";
           if (!text) continue;
           bot += text;
+          const thinkingMs = takeThinkingMs();
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: bot };
+            const old = next[next.length - 1];
+            next[next.length - 1] = { ...old, content: bot, ...(thinkingMs != null && old.thinkingMs == null ? { thinkingMs } : null) };
             return next;
           });
           setStreamingContent(bot);
@@ -4582,8 +4640,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         reader,
         (acc) => {
           if (!isActive()) return;
+          const thinkingMs = takeThinkingMs();
           setMessages(prev => {
-            const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+            const u = [...prev];
+            const old = u[u.length - 1];
+            u[u.length - 1] = { ...old, content: acc, ...(thinkingMs != null && old.thinkingMs == null ? { thinkingMs } : null) };
+            return u;
           });
           setStreamingContent(acc);
           if (!isScrolling.current) scrollToBottom();
@@ -5813,6 +5875,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.medicalData && (
                              <MedicalInfoCard data={m.medicalData} />
                            )}
+                           {!m.isMultiAi && <ThoughtSummary ms={m.thinkingMs} />}
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.isPending && m.isImageGen
                                ? <MediaGenCard type="image" text={m.content} />
@@ -5935,16 +5998,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   );
                                })()
                                : !m.content && isLoading
-                               ? <div style={{ paddingTop: 4, color: "var(--ink-3)" }}>
-                                   <div className="flex gap-2 items-center">
-                                     <div className="flex gap-1 items-center">
-                                       <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)' }} />
-                                       <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.15s' }} />
-                                       <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.3s' }} />
-                                     </div>
-                                     <span style={{ fontSize: 13 }}>{getStatusLabel(streamStatus, selectedMode)}</span>
-                                   </div>
-                                 </div>
+                               ? <ThinkingBlock mode={selectedMode} status={streamStatus} />
                                : hasStructuredContent(m.content)
                                  ? <StructuredResponseRenderer response={m.content} />
                                  : isWritingBlock(m.content)
@@ -5999,16 +6053,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                          <VetroSparkWhite size={22} />
                        </div>
-                       <div style={{ paddingTop: 6, color: "var(--ink-3)" }}>
-                         <div className="flex gap-2 items-center">
-                           <div className="flex gap-1 items-center">
-                             <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)' }}></span>
-                             <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.15s' }}></span>
-                             <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.3s' }}></span>
-                           </div>
-                           <span style={{ fontSize: 13 }}>{getStatusLabel(streamStatus, selectedMode)}</span>
-                         </div>
-                       </div>
+                       <ThinkingBlock mode={selectedMode} status={streamStatus} />
                      </div>
                    )}
 

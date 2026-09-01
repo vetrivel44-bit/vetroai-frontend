@@ -3725,6 +3725,21 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .typing span:nth-child(3){animation-delay:0.36s}
 .typing-label{font-size:0.75rem;color:var(--ink-4);font-style:italic}
 
+/* Thinking — live pre-stream state + settled per-message summary pill */
+.think-block{display:flex;align-items:center;gap:10px;padding:10px 4px;animation:thinkIn .25s ease-out both}
+.think-orb{position:relative;width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background:color-mix(in srgb, var(--accent) 16%, transparent);box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent)}
+.think-orb::before{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid color-mix(in srgb, var(--accent) 45%, transparent);animation:thinkRing 1.8s ease-out infinite}
+.think-orb-core{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:thinkPulse 1.6s ease-in-out infinite}
+.think-label{font-size:0.82rem;color:var(--ink-3);animation:thinkFade .35s ease-out both}
+.think-time{margin-left:auto;font-size:0.72rem;color:var(--ink-5);font-variant-numeric:tabular-nums}
+@keyframes thinkIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+@keyframes thinkFade{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+@keyframes thinkPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.7}}
+@keyframes thinkRing{0%{transform:scale(.7);opacity:.6}100%{transform:scale(1.5);opacity:0}}
+
+.thought-pill{display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;padding:5px 11px 5px 9px;border-radius:999px;background:var(--bg-hover);border:1px solid var(--border-med);color:var(--ink-4);font-size:0.75rem;font-weight:500;animation:thinkIn .3s ease-out both}
+.thought-pill svg{width:12px;height:12px;color:var(--accent);opacity:.85}
+
 /* Edit box */
 .edit-box{background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:var(--r-lg);padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm);width:100%}
 .edit-box textarea{background:transparent;color:var(--ink);font-size:0.94rem;line-height:1.7;resize:vertical;min-height:56px;width:100%}
