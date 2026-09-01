@@ -155,7 +155,11 @@ function ChessBoard({ chess, orientation = "w", lastMove, selected, legalTargets
               >
                 {fi === 0 && <span className="ca-coord ca-coord-rank">{rank}</span>}
                 {ri === 7 && <span className="ca-coord ca-coord-file">{file}</span>}
-                {cell && <span className={`ca-piece ca-piece-${cell.color}`}>{PIECE_UNICODE[cell.color][cell.type]}</span>}
+                {cell && (
+                  <span className={`ca-coin ca-coin-${cell.color} ${cell.type === "k" || cell.type === "q" ? "ca-coin-royal" : ""}`}>
+                    <span className="ca-coin-face">{PIECE_UNICODE[cell.color][cell.type]}</span>
+                  </span>
+                )}
                 {isLegal && !cell && <span className="ca-dot" />}
                 {isLegal && cell && <span className="ca-ring" />}
               </div>
@@ -222,7 +226,9 @@ function CapturedRow({ verboseHistory, side }) {
   return (
     <div className="ca-captured">
       {captured.map((type, i) => (
-        <span key={i} className={`ca-captured-piece ca-piece-${opp}`}>{PIECE_UNICODE[opp][type]}</span>
+        <span key={i} className={`ca-coin ca-coin-sm ca-coin-${opp}`}>
+          <span className="ca-coin-face">{PIECE_UNICODE[opp][type]}</span>
+        </span>
       ))}
     </div>
   );
