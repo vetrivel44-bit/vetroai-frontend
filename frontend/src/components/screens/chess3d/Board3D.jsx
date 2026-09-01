@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useState, Suspense } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, useCursor, ContactShadows } from "@react-three/drei";
-import { getBoardTexture } from "./boardTexture";
+import * as THREE from "three";
+import { getBoardTexture, getFrameTexture } from "./boardTexture";
 import Piece3D from "./Piece3D";
 import "./chess3d.css";
 
@@ -49,6 +50,12 @@ function Highlight({ x, z, color, opacity = 0.35, shape = "square", size = 0.96,
 
 function Scene({ chess, lastMove, selected, legalTargets, onSquareClick, interactive, inCheck }) {
   const texture = useMemo(() => getBoardTexture(), []);
+  const frameTexture = useMemo(() => {
+    const t = getFrameTexture().clone();
+    t.needsUpdate = true;
+    t.repeat.set(3, 1);
+    return t;
+  }, []);
 
   // `chess` is a stable, mutated-in-place instance (see useChessGame in
   // ChessArena.jsx) — its identity never changes, so fen() is what actually
@@ -76,11 +83,12 @@ function Scene({ chess, lastMove, selected, legalTargets, onSquareClick, interac
 
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <hemisphereLight args={["#fff3dd", "#241a10", 0.45]} />
+      <ambientLight intensity={0.72} />
+      <hemisphereLight args={["#fff8ea", "#3a2a18", 0.6]} />
       <directionalLight
-        position={[4, 8, 5]}
-        intensity={1.2}
+        position={[3.5, 9, 6]}
+        intensity={2.0}
+        color="#fff4e0"
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-5}
@@ -88,34 +96,35 @@ function Scene({ chess, lastMove, selected, legalTargets, onSquareClick, interac
         shadow-camera-top={5}
         shadow-camera-bottom={-5}
       />
-      <directionalLight position={[-5, 4, -4]} intensity={0.3} />
+      <directionalLight position={[-5, 5, -3]} intensity={0.55} color="#dbe8ff" />
+      <directionalLight position={[0, 3, -7]} intensity={0.4} color="#fff4e0" />
 
       {/* frame */}
       <mesh position={[0, -0.11, 4.24]} receiveShadow castShadow>
         <boxGeometry args={[9, 0.22, 0.5]} />
-        <meshStandardMaterial color="#2b1c10" roughness={0.5} />
+        <meshPhysicalMaterial map={frameTexture} roughness={0.32} clearcoat={0.5} clearcoatRoughness={0.25} />
       </mesh>
       <mesh position={[0, -0.11, -4.24]} receiveShadow castShadow>
         <boxGeometry args={[9, 0.22, 0.5]} />
-        <meshStandardMaterial color="#2b1c10" roughness={0.5} />
+        <meshPhysicalMaterial map={frameTexture} roughness={0.32} clearcoat={0.5} clearcoatRoughness={0.25} />
       </mesh>
       <mesh position={[4.24, -0.11, 0]} receiveShadow castShadow>
         <boxGeometry args={[0.5, 0.22, 9]} />
-        <meshStandardMaterial color="#2b1c10" roughness={0.5} />
+        <meshPhysicalMaterial map={frameTexture} roughness={0.32} clearcoat={0.5} clearcoatRoughness={0.25} />
       </mesh>
       <mesh position={[-4.24, -0.11, 0]} receiveShadow castShadow>
         <boxGeometry args={[0.5, 0.22, 9]} />
-        <meshStandardMaterial color="#2b1c10" roughness={0.5} />
+        <meshPhysicalMaterial map={frameTexture} roughness={0.32} clearcoat={0.5} clearcoatRoughness={0.25} />
       </mesh>
       <mesh position={[0, -0.27, 0]} receiveShadow>
         <boxGeometry args={[9.7, 0.12, 9.7]} />
-        <meshStandardMaterial color="#190f08" roughness={0.65} />
+        <meshStandardMaterial color="#241209" roughness={0.6} />
       </mesh>
 
       {/* board surface */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[8, 8]} />
-        <meshPhysicalMaterial map={texture} roughness={0.3} clearcoat={0.32} clearcoatRoughness={0.28} />
+        <meshPhysicalMaterial map={texture} roughness={0.28} clearcoat={0.45} clearcoatRoughness={0.22} />
       </mesh>
 
       {squares.map((square) => {
@@ -167,21 +176,21 @@ function Scene({ chess, lastMove, selected, legalTargets, onSquareClick, interac
 export default function Board3D({ chess, orientation = "w", ...rest }) {
   return (
     <div className="ca-board3d-wrap">
-      <Canvas shadows camera={{ position: [0, 8.1, 9.0], fov: 38 }} gl={{ antialias: true }}>
-        <color attach="background" args={["#14100d"]} />
-        <fog attach="fog" args={["#14100d", 14, 24]} />
+      <Canvas shadows camera={{ position: [0, 5.6, 10.8], fov: 42 }} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }}>
+        <color attach="background" args={["#22180f"]} />
+        <fog attach="fog" args={["#22180f", 18, 28]} />
         <group rotation={[0, orientation === "b" ? Math.PI : 0, 0]}>
           <Suspense fallback={null}>
             <Scene chess={chess} orientation={orientation} {...rest} />
           </Suspense>
         </group>
         <OrbitControls
-          target={[0, 0, -0.35]}
+          target={[0, 0.1, -0.3]}
           enablePan={false}
-          minDistance={7}
-          maxDistance={13}
-          minPolarAngle={0.35}
-          maxPolarAngle={0.62}
+          minDistance={9}
+          maxDistance={15}
+          minPolarAngle={0.55}
+          maxPolarAngle={0.78}
         />
       </Canvas>
     </div>

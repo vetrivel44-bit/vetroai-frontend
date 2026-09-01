@@ -49,7 +49,7 @@ export default function Piece3D({ type, color, x, z, lifted, glow }) {
         <mesh geometry={getRookTopCap().geo} material={material} position={[0, getRookTopCap().y, 0]} />
       )}
       {type === "r" && extras && extras.transforms.map((t, i) => (
-        <mesh key={i} geometry={extras.geo} material={material} position={[t.x, t.y, t.z]} castShadow />
+        <mesh key={i} geometry={extras.geo} material={material} position={[t.x, t.y, t.z]} rotation={[0, -t.angle, 0]} castShadow />
       ))}
       {type === "q" && extras && extras.transforms.map((t, i) => (
         <mesh key={i} geometry={extras.geo} material={accentGold} position={[t.x, t.y, t.z]} castShadow />
