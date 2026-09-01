@@ -5,6 +5,7 @@ import {
   ChevronLeft, Loader2, Shuffle, Flag, Bot, Sparkles,
 } from "lucide-react";
 import { CHESS_MODELS, getModel, requestAIMove } from "../../utils/chessAI";
+import Board3D from "./chess3d/Board3D";
 import "./ChessArena.css";
 
 // ─── constants ──────────────────────────────────────────────────────────────
@@ -12,7 +13,6 @@ const PIECE_UNICODE = {
   w: { p: "♙", n: "♘", b: "♗", r: "♖", q: "♕", k: "♔" },
   b: { p: "♟", n: "♞", b: "♝", r: "♜", q: "♛", k: "♚" },
 };
-const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const LEADERBOARD_KEY = "vetroai_chess_leaderboard_v1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -114,61 +114,6 @@ function useAIMoveEngine() {
 
   const cancel = useCallback(() => abortRef.current?.abort(), []);
   return { thinking, commentary, setCommentary, doOneMove, cancel, mountedRef };
-}
-
-// ─── board ───────────────────────────────────────────────────────────────
-function ChessBoard({ chess, orientation = "w", lastMove, selected, legalTargets, onSquareClick, interactive, inCheck }) {
-  const boardRows = chess.board();
-  const rows = orientation === "w" ? boardRows : [...boardRows].reverse().map((r) => [...r].reverse());
-  const rankLabels = orientation === "w" ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8];
-  const fileLabels = orientation === "w" ? FILES : [...FILES].reverse();
-  const kingSquare = inCheck
-    ? boardRows.flat().find((cell) => cell && cell.type === "k" && cell.color === chess.turn())?.square ?? null
-    : null;
-
-  return (
-    <div className="ca-board">
-      {rows.map((row, ri) => (
-        <div className="ca-board-row" key={ri}>
-          {row.map((cell, fi) => {
-            const file = fileLabels[fi];
-            const rank = rankLabels[ri];
-            const square = `${file}${rank}`;
-            const fileIndex = FILES.indexOf(file);
-            const dark = (fileIndex + rank) % 2 === 1;
-            const isSelected = selected === square;
-            const isLegal = legalTargets?.includes(square);
-            const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square);
-            const isCheck = kingSquare === square;
-            return (
-              <div
-                key={square}
-                className={[
-                  "ca-sq",
-                  dark ? "ca-sq-dark" : "ca-sq-light",
-                  isSelected ? "ca-sq-selected" : "",
-                  isLastMove ? "ca-sq-lastmove" : "",
-                  isCheck ? "ca-sq-check" : "",
-                  interactive ? "ca-sq-interactive" : "",
-                ].filter(Boolean).join(" ")}
-                onClick={() => interactive && onSquareClick?.(square)}
-              >
-                {fi === 0 && <span className="ca-coord ca-coord-rank">{rank}</span>}
-                {ri === 7 && <span className="ca-coord ca-coord-file">{file}</span>}
-                {cell && (
-                  <span className={`ca-coin ca-coin-${cell.color} ${cell.type === "k" || cell.type === "q" ? "ca-coin-royal" : ""}`}>
-                    <span className="ca-coin-face">{PIECE_UNICODE[cell.color][cell.type]}</span>
-                  </span>
-                )}
-                {isLegal && !cell && <span className="ca-dot" />}
-                {isLegal && cell && <span className="ca-ring" />}
-              </div>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // ─── small shared bits ──────────────────────────────────────────────────────
@@ -341,7 +286,7 @@ function AIvAI({ onExit }) {
       <div className="ca-play-body">
         <div className="ca-board-col">
           <CapturedRow verboseHistory={verboseHistory} side="b" />
-          <ChessBoard chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
+          <Board3D chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
           <CapturedRow verboseHistory={verboseHistory} side="w" />
           <ResultBanner status={status} whiteId={whiteModel} blackId={blackModel} />
           <CommentaryBubble commentary={commentary} />
@@ -458,7 +403,7 @@ function Spectator({ onExit }) {
       <div className="ca-play-body">
         <div className="ca-board-col">
           <CapturedRow verboseHistory={verboseHistory} side="b" />
-          <ChessBoard chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
+          <Board3D chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
           <CapturedRow verboseHistory={verboseHistory} side="w" />
           <ResultBanner status={status} whiteId={whiteModel} blackId={blackModel} />
           <CommentaryBubble commentary={commentary} />
@@ -586,7 +531,7 @@ function PlayerVsAI({ onExit }) {
       <div className="ca-play-body">
         <div className="ca-board-col">
           <CapturedRow verboseHistory={verboseHistory} side={aiColor} />
-          <ChessBoard
+          <Board3D
             chess={chess}
             orientation={playerColor}
             lastMove={lastMove}
