@@ -13,7 +13,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -24,6 +24,7 @@ import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
 import PluginHub from "./components/screens/PluginHub";
 import ComputerUI from "./components/screens/ComputerUI";
+import ChessArena from "./components/screens/ChessArena";
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -5130,6 +5131,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
+  const [showChess, setShowChess] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
   const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -5520,7 +5522,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         {/* Main nav */}
         <div className="px-1 flex flex-col gap-0.5">
-          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
+          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); setShowChess(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
             <MessageSquare size={17} /> Chats
           </button>
           <button onClick={() => { setActiveNav('projects'); setShowSpaces(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'projects' ? 'active' : ''}`}>
@@ -5550,6 +5552,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </button>
           <button onClick={() => { setActiveNav('design'); setShowDesign(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'design' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Palette size={17} /> Design</span>
+            <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
+          </button>
+          <button onClick={() => { setActiveNav('chess'); setShowChess(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chess' ? 'active' : ''}`}>
+            <span className="flex items-center gap-3"><Swords size={17} /> Chess Arena</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
           </button>
         </div>
@@ -5650,6 +5656,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {showComputer && (
           <div className="fixed inset-0 z-[120] flex bg-[#fbfaf7]">
             <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
+          </div>
+        )}
+        {showChess && (
+          <div className="fixed inset-0 z-[120] flex">
+            <ChessArena onClose={() => { setShowChess(false); setActiveNav("chats"); }} />
           </div>
         )}
         
