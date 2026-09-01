@@ -1,7 +1,11 @@
 // Chess Arena — AI move engine.
-// Talks to the existing /api/chat endpoint the same way the rest of VetroAI does
-// (FormData + SSE), but keeps the request/response loop self-contained so the
-// Chess Arena screen never touches the main chat session state.
+// Most models talk to the existing /api/chat endpoint the same way the rest
+// of VetroAI does (FormData + SSE). Mistral, Groq, Gemini, and OpenRouter
+// instead go through a dedicated /api/chess/move endpoint with its own
+// CHESS_*_API_KEY credentials on the backend — completely separate from the
+// main chat's provider keys, so wiring chess up never changes chat behavior.
+// Either way the request/response loop is self-contained here so the Chess
+// Arena screen never touches the main chat session state.
 
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
@@ -18,7 +22,12 @@ export const CHESS_MODELS = [
   { id: "groq", name: "Groq", tagline: "Lightning-fast, aggressive style", color: "#10b981", avatar: "Q" },
   { id: "mistral", name: "Mistral", tagline: "Efficient European technician", color: "#f97316", avatar: "M" },
   { id: "sambanova", name: "SambaNova", tagline: "Bold, high-throughput challenger", color: "#ec4899", avatar: "S" },
+  { id: "openrouter", name: "OpenRouter", tagline: "Multi-model gateway — versatile challenger", color: "#6366f1", avatar: "O" },
 ];
+
+// These four run through the dedicated /api/chess/move endpoint (their own
+// backend API keys); everything else still goes through the shared /api/chat.
+const DEDICATED_CHESS_PROVIDERS = new Set(["mistral", "groq", "gemini", "openrouter"]);
 
 export function getModel(id) {
   return CHESS_MODELS.find((m) => m.id === id) || CHESS_MODELS[0];
@@ -69,6 +78,18 @@ async function fetchAIText(provider, prompt, { temperature = 0.7, maxTokens = 15
   if (buffer.trim()) processSSELine(buffer.replace(/\r$/, ""), state);
   if (state.error) throw new Error(state.error);
   return state.text;
+}
+
+async function fetchDedicatedChessText(provider, prompt, { temperature = 0.75, maxTokens = 160, signal } = {}) {
+  const res = await fetch(`${CHESS_API}/chess/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, prompt, temperature, maxTokens }),
+    signal,
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.success) throw new Error(body?.message || `Chess AI request failed (${res.status})`);
+  return body.data?.text || "";
 }
 
 function normalizeMoveToken(s) {
@@ -146,7 +167,9 @@ export async function requestAIMove({ providerId, chess, color, signal }) {
 
   let text = "";
   try {
-    text = await fetchAIText(providerId, prompt, { temperature: 0.75, maxTokens: 160, signal: timeoutCtrl.signal });
+    text = DEDICATED_CHESS_PROVIDERS.has(providerId)
+      ? await fetchDedicatedChessText(providerId, prompt, { temperature: 0.75, maxTokens: 160, signal: timeoutCtrl.signal })
+      : await fetchAIText(providerId, prompt, { temperature: 0.75, maxTokens: 160, signal: timeoutCtrl.signal });
   } catch (err) {
     if (signal?.aborted) throw err;
     text = "";
