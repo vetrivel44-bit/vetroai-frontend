@@ -33,16 +33,29 @@ test("Claude Fable 5 cannot fall through to Puter image analysis", () => {
 });
 
 test("Claude Fable 5 backend requests are strict and never use provider fallback", () => {
-  assert.match(
-    orchestratorSource,
-    /const strictFable = String\(preferredProvider \|\| ""\)\.toLowerCase\(\) === "fable"/
-  );
+  const strictTable = orchestratorSource.match(/const STRICT_PROVIDERS = \{([\s\S]*?)\n\};/)?.[1] || "";
+  assert.ok(strictTable, "STRICT_PROVIDERS table was not found");
+  assert.match(strictTable, /\bfable:/, "Fable must stay on the strict, no-fallback route");
 
-  const strictFailure = orchestratorSource.indexOf("if (strictFable) {");
+  const strictFailure = orchestratorSource.indexOf("if (strictProvider) {");
   const fallback = orchestratorSource.indexOf(
     "providerManager.getFallbackProvider(currentProviderName"
   );
 
-  assert.ok(strictFailure >= 0, "Strict Fable failure branch was not found");
-  assert.ok(fallback > strictFailure, "Strict Fable failure must stop before provider fallback");
+  assert.ok(strictFailure >= 0, "Strict provider failure branch was not found");
+  assert.ok(fallback > strictFailure, "Strict provider failure must stop before provider fallback");
+});
+
+test("Plugsky is mapped to its own strict route and never swapped for another model", () => {
+  assert.match(
+    appSource,
+    /selectedProvider === PLUGSKY_PROVIDER \? "plugsky"/,
+    "Plugsky must be sent to the backend as the \"plugsky\" provider"
+  );
+
+  const puterMap = appSource.match(/const PUTER_MODEL_IDS = \{([\s\S]*?)\n\};/)?.[1] || "";
+  assert.doesNotMatch(puterMap, /plugsky/i, "Plugsky must not be routed through Puter");
+
+  const strictTable = orchestratorSource.match(/const STRICT_PROVIDERS = \{([\s\S]*?)\n\};/)?.[1] || "";
+  assert.match(strictTable, /\bplugsky:/, "Plugsky must be on the strict, no-fallback route");
 });

@@ -117,6 +117,25 @@ class ProviderManager {
     }
   }
 
+  // Maps whatever the frontend sent ("Plugsky", "Claude Fable 5", " AGNES ")
+  // onto an internal provider key. Returns null for "auto"/empty selections and
+  // for names this backend does not know about.
+  normalizeProviderName(providerName) {
+    const raw = String(providerName ?? "").trim().toLowerCase();
+    if (!raw || raw === "auto" || raw === "undefined" || raw === "null") return null;
+    const alias = ProviderManager.PROVIDER_ALIASES[raw] || raw;
+    return this.providers[alias] ? alias : null;
+  }
+
+  // An explicit user pick is a retry request: drop any active suspension so the
+  // chosen provider actually gets attempted instead of being silently skipped.
+  clearSuspension(providerName) {
+    const p = this.providers[providerName];
+    if (!p) return;
+    p.isSuspended = false;
+    p.consecutiveErrors = 0;
+  }
+
   isConfigured(providerName) {
     const configured = {
       plugsky: Boolean(config.plugskyApiKey),
@@ -158,9 +177,9 @@ class ProviderManager {
 
   getBestProvider(mode, preferredProvider) {
     // If user explicitly chose a provider, try it first if not suspended
-    if (preferredProvider && !["undefined", "auto"].includes(preferredProvider.toLowerCase())) {
-      const pref = preferredProvider.toLowerCase();
-      if (this.providers[pref] && this.isConfigured(pref)) {
+    const pref = this.normalizeProviderName(preferredProvider);
+    if (pref) {
+      if (this.isConfigured(pref)) {
         // Unsuspend if cooldown has passed
         const p = this.providers[pref];
         if (p.isSuspended && Date.now() - p.lastFailure > p.cooldown) {
@@ -289,5 +308,14 @@ class ProviderManager {
     return stats;
   }
 }
+
+ProviderManager.PROVIDER_ALIASES = {
+  "claude fable 5": "fable",
+  "claude fable": "fable",
+  "agnes 2.0": "agnes",
+  "samba nova": "sambanova",
+  "gpt": "chatgpt",
+  "openai": "chatgpt",
+};
 
 module.exports = new ProviderManager();

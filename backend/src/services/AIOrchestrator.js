@@ -8,6 +8,27 @@ const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const Groq = require("groq-sdk");
 
+// Providers that must never be substituted with another model when the user picks
+// them explicitly. Their value to the user is the specific model (Fable's RapidAPI
+// route, Plugsky's visible reasoning stream), so a silent hand-off to whichever
+// provider happens to rank highest is a bug, not a graceful degradation.
+const STRICT_PROVIDERS = {
+  fable: {
+    notConfiguredMessage:
+      "Claude Fable 5 API is not configured on the backend. Add a valid RapidAPI key and subscription.",
+    adapterMissingMessage: "Claude Fable 5 API adapter is unavailable on the backend.",
+    requestFailedMessage:
+      "Claude Fable 5 API request failed. Check the backend RapidAPI key, subscription, and endpoint.",
+  },
+  plugsky: {
+    notConfiguredMessage:
+      "Plugsky is not configured on the backend. Add a valid PLUGSKY_API_KEY (see PLUGSKY_BASE_URL and PLUGSKY_MODEL).",
+    adapterMissingMessage: "Plugsky adapter is unavailable on the backend.",
+    requestFailedMessage:
+      "Plugsky request failed. Check the backend PLUGSKY_API_KEY, PLUGSKY_BASE_URL, and PLUGSKY_MODEL.",
+  },
+};
+
 class AIOrchestrator {
   constructor() {
     this.VISUALIZATION_TRIGGERS = [
@@ -500,26 +521,44 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const { messages, mode, provider: preferredProvider, options, memories } = params;
     const userQuery = messages[messages.length - 1]?.content || "";
     
-    const strictFable = String(preferredProvider || "").toLowerCase() === "fable";
-    let currentProviderName = strictFable
-      ? (providerManager.isConfigured("fable") ? "fable" : null)
-      : providerManager.getBestProvider(mode, preferredProvider);
+    // An explicit provider pick from the UI must never be silently swapped for a
+    // different model. Strict providers (Fable, Plugsky) are the whole reason the
+    // user chose them — their credentials and their visible-thinking stream are
+    // not interchangeable — so they run alone or report why they could not.
+    const requestedProvider = providerManager.normalizeProviderName(preferredProvider);
+    const strictProvider = requestedProvider ? STRICT_PROVIDERS[requestedProvider] : null;
+
+    let currentProviderName = null;
+    let selectionNotice = null;
+
+    if (requestedProvider && providerManager.isConfigured(requestedProvider)) {
+      // The pick itself is a retry request — never skip it over a stale suspension.
+      providerManager.clearSuspension(requestedProvider);
+      currentProviderName = requestedProvider;
+    } else if (!strictProvider) {
+      currentProviderName = providerManager.getBestProvider(mode, requestedProvider);
+      if (requestedProvider && currentProviderName && currentProviderName !== requestedProvider) {
+        selectionNotice = `${requestedProvider} is unavailable right now — answering with ${currentProviderName} instead.`;
+        logger.warn("AIOrchestrator.preferredProviderUnavailable", {
+          reqId,
+          requested: requestedProvider,
+          using: currentProviderName,
+        });
+      }
+    }
+
     let attempts = 0;
     const attemptedProviders = new Set();
-    const maxAttempts = strictFable
+    const maxAttempts = strictProvider
       ? (currentProviderName ? 1 : 0)
       : Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
 
-    if (strictFable && !currentProviderName) {
-      logger.error("AIOrchestrator.fableNotConfigured", { reqId });
-      this.sendVetroEvent(
-        res,
-        "error",
-        "Claude Fable 5 API is not configured on the backend. Add a valid RapidAPI key and subscription."
-      );
+    if (strictProvider && !currentProviderName) {
+      logger.error("AIOrchestrator.strictProviderNotConfigured", { reqId, provider: requestedProvider });
+      this.sendVetroEvent(res, "error", strictProvider.notConfiguredMessage);
       return;
     }
 
@@ -531,6 +570,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
         "VetroAI is not configured with an AI provider yet. Add at least one provider API key on the backend."
       );
       return;
+    }
+
+    if (selectionNotice) {
+      this.sendVetroEvent(res, "status", selectionNotice);
     }
 
     // Intent detection — also support explicit webSearch flag from frontend
@@ -626,8 +669,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
-        if (strictFable) {
-          this.sendVetroEvent(res, "error", "Claude Fable 5 API adapter is unavailable on the backend.");
+        if (strictProvider) {
+          this.sendVetroEvent(res, "error", strictProvider.adapterMissingMessage);
           break;
         }
         const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
@@ -677,12 +720,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
           logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }
         
-        if (strictFable) {
-          this.sendVetroEvent(
-            res,
-            "error",
-            "Claude Fable 5 API request failed. Check the backend RapidAPI key, subscription, and endpoint."
-          );
+        if (strictProvider) {
+          this.sendVetroEvent(res, "error", strictProvider.requestFailedMessage);
           break;
         }
 
