@@ -19,6 +19,7 @@ import StructuredResponseRenderer from "./components/structured/StructuredRespon
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
+import ThinkingPanel from "./components/ThinkingPanel";
 import GlobalSearch from "./components/screens/GlobalSearch";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
@@ -49,10 +50,17 @@ const MAX_FILE_SIZE_MB = 25;
 
 // Shared SSE reader for the chat stream — used by the main chat flow and by
 // standalone panels (e.g. DesignCanvas) that talk to /api/chat independently.
-const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId) => {
+// `onReasoning(text, { isThinking, durationMs })` receives the model's streamed
+// chain of thought — native reasoning tokens, or the contents of a <think> block
+// the backend stripped out of the answer. Optional; older callers can omit it.
+const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId, onReasoning) => {
   const dec = new TextDecoder();
   let lineBuffer = "";
   let accumulated = "";
+  let reasoning = "";
+  const emitReasoning = (isThinking, durationMs = null) => {
+    onReasoning?.(reasoning, { isThinking, durationMs });
+  };
   const processLine = (line) => {
     if (!line.startsWith("data:")) return;
     const raw = line.slice(5).trim();
@@ -67,7 +75,16 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onChunk(accumulated);
       } else if (type === "clear") {
         accumulated = "";
+        reasoning = "";
         onChunk("");
+        emitReasoning(false);
+      } else if (type === "reasoning_start") {
+        emitReasoning(true);
+      } else if (type === "reasoning" && data) {
+        reasoning += data;
+        emitReasoning(true);
+      } else if (type === "reasoning_end") {
+        emitReasoning(false, Number(data) || null);
       } else if (type === "status" && data) {
         onStatus(data);
       } else if (type === "error" && data) {
@@ -93,8 +110,10 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
     if (lineBuffer.trim()) processLine(lineBuffer.replace(/\r$/, ""));
   } catch (err) {
     console.error("SSE read error:", err);
+    emitReasoning(false);
     throw err;
   }
+  emitReasoning(false);
   return accumulated;
 };
 
@@ -615,7 +634,8 @@ const PUTER_MODEL_IDS = {
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const PLUGSKY_PROVIDER = "Plugsky";
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -2407,6 +2427,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
+    [PLUGSKY_PROVIDER]: ["P", "Visible thinking · Plugsky"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     Mistral: ["M", "Efficient reasoning"],
@@ -3664,7 +3685,7 @@ export default function App() {
 
   const loadSession = id => {
     const s = sessions.find(x => x.id === id);
-    if (s) { setMessages(s.messages || []); setCurrentSessionId(id); stopSpeak(); setIsSidebarOpen(false); isScrolling.current = false; setFollowUps([]); }
+    if (s) { setMessages((s.messages || []).map(m => (m.isThinking ? { ...m, isThinking: false } : m))); setCurrentSessionId(id); stopSpeak(); setIsSidebarOpen(false); isScrolling.current = false; setFollowUps([]); }
   };
 
   const newChat = useCallback((spaceIdOverride) => {
@@ -4346,7 +4367,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       return { ...rest, files: files.map(f => ({ name: f.name })) };
     })));
     fd.append("mode", selectedMode);
-    fd.append("provider", selectedProvider === CLAUDE_FABLE_PROVIDER ? "fable" : selectedProvider);
+    fd.append(
+      "provider",
+      selectedProvider === CLAUDE_FABLE_PROVIDER ? "fable"
+        : selectedProvider === PLUGSKY_PROVIDER ? "plugsky"
+        : selectedProvider
+    );
     const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
     const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens);
     fd.append("temperature", String(temperature));
@@ -4599,7 +4625,23 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           addToast(errorMsg, "error");
         },
         isActive,
-        reqId
+        reqId,
+        (reasoningText, { isThinking, durationMs }) => {
+          if (!isActive()) return;
+          setMessages(prev => {
+            if (prev.length === 0) return prev;
+            const u = [...prev];
+            const last = u[u.length - 1];
+            u[u.length - 1] = {
+              ...last,
+              reasoning: reasoningText,
+              isThinking,
+              thinkingMs: durationMs ?? last.thinkingMs ?? null,
+            };
+            return u;
+          });
+          if (!isScrolling.current) scrollToBottom();
+        }
       );
 
       setIsLoading(false);
@@ -4680,6 +4722,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       });
     } finally {
       clearFiles();
+      // Aborted, failed or completed — the thinking panel must settle either way.
+      setMessages(prev => {
+        if (prev.length === 0 || !prev[prev.length - 1].isThinking) return prev;
+        const u = [...prev];
+        u[u.length - 1] = { ...u[u.length - 1], isThinking: false };
+        return u;
+      });
     }
   };
 
@@ -5824,6 +5873,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.medicalData && (
                              <MedicalInfoCard data={m.medicalData} />
                            )}
+                           {(m.reasoning || m.isThinking) && (
+                             <ThinkingPanel
+                               reasoning={m.reasoning}
+                               isThinking={Boolean(m.isThinking)}
+                               durationMs={m.thinkingMs}
+                             />
+                           )}
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.isPending && m.isImageGen
                                ? <MediaGenCard type="image" text={m.content} />
@@ -5945,7 +6001,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   </div>
                                   );
                                })()
-                               : !m.content && isLoading
+                               : !m.content && isLoading && !m.isThinking && !m.reasoning
                                ? <div style={{ paddingTop: 4, color: "var(--ink-3)" }}>
                                    <div className="flex gap-2 items-center">
                                      <div className="flex gap-1 items-center">

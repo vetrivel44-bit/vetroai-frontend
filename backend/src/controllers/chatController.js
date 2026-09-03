@@ -143,6 +143,8 @@ async function chat(req, res) {
   const safeMode = String(req.body?.safeMode || "false") === "true";
   const temperature = Number(req.body?.temperature ?? 0.7);
   const maxTokens = Number(req.body?.maxTokens ?? 2048);
+  // Drives how deep the streamed <think> block goes (see AIOrchestrator.buildThinkingPrompt).
+  const effort = String(req.body?.effort || "balanced").slice(0, 16);
   
   // Basic input sanitization
   const input = sanitizePrompt(req.body?.input || "", safeMode);
@@ -210,6 +212,7 @@ async function chat(req, res) {
       systemPrompt,
       webSearch,
       activePlugins,
+      effort,
       options: { temperature, maxTokens }
     }, res);
   } catch (err) {

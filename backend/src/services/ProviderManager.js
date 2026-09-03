@@ -7,6 +7,7 @@ const sambanovaAdapter = require("../providers/sambanovaAdapter");
 const agnesAdapter = require("../providers/agnesAdapter");
 const chatgptAdapter = require("../providers/chatgptAdapter");
 const fableAdapter = require("../providers/fableAdapter");
+const plugskyAdapter = require("../providers/plugskyAdapter");
 
 class ProviderManager {
   constructor() {
@@ -21,7 +22,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["groq", "mistral", "agnes", "sambanova", "gemini"],
+        fallbacks: ["plugsky", "groq", "mistral", "agnes", "sambanova", "gemini"],
       },
       fable: {
         adapter: fableAdapter,
@@ -33,7 +34,19 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini"],
+        fallbacks: ["plugsky", "chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini"],
+      },
+      plugsky: {
+        adapter: plugskyAdapter,
+        weight: 105,
+        score: 105,
+        latency: 0,
+        successRate: 1,
+        consecutiveErrors: 0,
+        isSuspended: false,
+        lastFailure: 0,
+        cooldown: 20000,
+        fallbacks: ["fable", "chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini"],
       },
       groq: {
         adapter: groqAdapter,
@@ -45,7 +58,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["chatgpt", "agnes", "mistral", "sambanova", "gemini"],
+        fallbacks: ["plugsky", "chatgpt", "agnes", "mistral", "sambanova", "gemini"],
       },
       mistral: {
         adapter: mistralAdapter,
@@ -57,7 +70,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["groq", "sambanova", "agnes", "gemini"],
+        fallbacks: ["plugsky", "groq", "sambanova", "agnes", "gemini"],
       },
       agnes: {
         adapter: agnesAdapter,
@@ -69,7 +82,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["mistral", "groq", "sambanova", "gemini"],
+        fallbacks: ["plugsky", "mistral", "groq", "sambanova", "gemini"],
       },
       sambanova: {
         adapter: sambanovaAdapter,
@@ -81,7 +94,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["groq", "mistral", "agnes", "gemini"],
+        fallbacks: ["plugsky", "groq", "mistral", "agnes", "gemini"],
       },
       gemini: {
         adapter: geminiAdapter,
@@ -93,7 +106,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["groq", "mistral", "agnes", "sambanova"],
+        fallbacks: ["plugsky", "groq", "mistral", "agnes", "sambanova"],
       },
     };
 
@@ -106,6 +119,7 @@ class ProviderManager {
 
   isConfigured(providerName) {
     const configured = {
+      plugsky: Boolean(config.plugskyApiKey),
       chatgpt: Boolean(config.chatgptApiKey),
       fable: Boolean(config.fableRapidApiKey),
       groq: Boolean(config.groqApiKey),
@@ -203,7 +217,7 @@ class ProviderManager {
 
   getFallbackProvider(failedProvider, excludedProviders = []) {
     const p = this.providers[failedProvider];
-    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["gemini", "sambanova", "mistral", "groq", "agnes"];
+    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["plugsky", "gemini", "sambanova", "mistral", "groq", "agnes"];
     const excluded = new Set([failedProvider, ...excludedProviders]);
 
     // Auto-expire cooled-down suspensions first

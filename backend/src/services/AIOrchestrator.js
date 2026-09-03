@@ -47,6 +47,32 @@ class AIOrchestrator {
     ];
   }
 
+  // ── Thinking ("extended reasoning") prompt ──────────────────────────────────
+  // Providers that natively stream reasoning tokens are already covered by
+  // pipeStream. For everything else we ask the model to open with a <think>
+  // block, which pipeStream strips out of the answer and streams to the
+  // thinking panel instead. Deliberately skipped for trivial turns so a
+  // "hi" doesn't grow a paragraph of visible deliberation.
+  buildThinkingPrompt(effort = "balanced") {
+    const depth = {
+      quick:    "1-2 short sentences",
+      balanced: "2-4 short sentences",
+      deep:     "a short paragraph covering alternatives and assumptions",
+      max:      "a thorough pass over alternatives, assumptions, edge cases, and a self-check",
+    }[effort] || "2-4 short sentences";
+
+    return `
+
+# THINKING PROCESS
+Before your answer, write your reasoning inside a single <think>...</think> block:
+- Open the reply with <think>, reason in first person about how you will tackle the request (${depth}), then close with </think>.
+- Inside the block: restate what is actually being asked, note constraints or traps, weigh the options you considered, and check your conclusion.
+- Never mention the thinking block itself, and never reference it from the answer — the user reads it in a separate panel.
+- Use exactly one block per reply, always at the very start. Never reopen it later.
+- Skip the block entirely for greetings, small talk, and one-word replies.
+- After </think>, write the final answer normally. The answer must stand on its own.`;
+  }
+
   needsWebSearch(q) {
     return this.SEARCH_TRIGGERS.some(rx => rx.test(q));
   }
@@ -569,6 +595,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
     finalSysPrompt += buildPluginPrompt(params.activePlugins);
+    // Only ask for an explicit <think> block when the turn is substantial enough
+    // to warrant one; native reasoning models stream their own regardless.
+    const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12;
+    if (wantsThinking) {
+      finalSysPrompt += this.buildThinkingPrompt(params.effort);
+    }
     if (astroContext === "USER_BIRTH_DETAILS_MISSING") {
       finalSysPrompt += `\n\n[ASTROLOGY REQUEST DETECTED]\nThe user is asking about astrology. To provide highly accurate, personalized readings using our FreeAstroAPI integration, you MUST politely ask the user for their birth date (year, month, day), time of birth (hour, minute), and city of birth. Do not make up a horoscope without this data.`;
     } else if (astroContext === "API_ERROR") {
@@ -686,72 +718,160 @@ Choose the single best-fitting visualization block(s) from the formats below:
     res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
   }
 
+  // ── Thinking / reasoning helpers ────────────────────────────────────────────
+  // Some models expose reasoning as a dedicated SSE field (`delta.reasoning_content`),
+  // others inline it as a <think>…</think> block inside the normal content stream.
+  // Both are routed to the same "reasoning" event so the UI panel is provider-agnostic.
+  static get THINK_TAGS() {
+    return ["<think>", "<thinking>", "</think>", "</thinking>"];
+  }
+
+  // Length of the trailing run of `text` that could still grow into a <think> tag.
+  // Held back so a tag split across two chunks is never leaked into the answer.
+  partialTagLength(text) {
+    const max = Math.min(text.length, 11);
+    for (let i = max; i > 0; i--) {
+      const suffix = text.slice(-i).toLowerCase();
+      if (!suffix.startsWith("<")) continue;
+      if (AIOrchestrator.THINK_TAGS.some((tag) => tag.startsWith(suffix))) return i;
+    }
+    return 0;
+  }
+
+  // Splits a content chunk into visible answer text and <think> reasoning text.
+  // `state` ({ inside, buf }) is carried across chunks by the caller.
+  splitThinkingTags(chunk, state) {
+    state.buf += chunk;
+    let content = "";
+    let reasoning = "";
+
+    for (;;) {
+      if (!state.inside) {
+        const open = state.buf.match(/<think(?:ing)?>/i);
+        if (open) {
+          content += state.buf.slice(0, open.index);
+          state.buf = state.buf.slice(open.index + open[0].length);
+          state.inside = true;
+          continue;
+        }
+        const hold = this.partialTagLength(state.buf);
+        content += state.buf.slice(0, state.buf.length - hold);
+        state.buf = hold ? state.buf.slice(state.buf.length - hold) : "";
+        break;
+      }
+
+      const close = state.buf.match(/<\/think(?:ing)?>/i);
+      if (close) {
+        reasoning += state.buf.slice(0, close.index);
+        state.buf = state.buf.slice(close.index + close[0].length);
+        state.inside = false;
+        continue;
+      }
+      const hold = this.partialTagLength(state.buf);
+      reasoning += state.buf.slice(0, state.buf.length - hold);
+      state.buf = hold ? state.buf.slice(state.buf.length - hold) : "";
+      break;
+    }
+
+    return { content, reasoning };
+  }
+
+  // Whatever is still buffered when the stream ends belongs to whichever
+  // channel we were in — an unterminated <think> block stays reasoning.
+  flushThinkingTags(state) {
+    const rest = state.buf;
+    state.buf = "";
+    if (!rest) return { content: "", reasoning: "" };
+    return state.inside ? { content: "", reasoning: rest } : { content: rest, reasoning: "" };
+  }
+
+  // Reasoning field names used by OpenAI-compatible providers (Plugsky, Groq
+  // reasoning models, DeepSeek-R1 style deployments).
+  reasoningFromDelta(delta) {
+    if (!delta || typeof delta !== "object") return "";
+    const value = delta.reasoning_content ?? delta.reasoning ?? delta.thinking ?? "";
+    return typeof value === "string" ? value : "";
+  }
+
   async pipeStream(stream, res, provider) {
     let fullContent = "";
+    let fullReasoning = "";
     const decoder = new TextDecoder();
     let buffer = "";
+
+    const think = { inside: false, buf: "" };
+    let reasoningStartedAt = 0;
+    let reasoningClosed = false;
+
+    const closeReasoning = () => {
+      if (!reasoningStartedAt || reasoningClosed) return;
+      reasoningClosed = true;
+      this.sendVetroEvent(res, "reasoning_end", String(Date.now() - reasoningStartedAt));
+    };
+
+    const emit = (parts) => {
+      if (!parts) return;
+      let { content = "", reasoning = "" } = parts;
+
+      if (content) {
+        const split = this.splitThinkingTags(content, think);
+        content = split.content;
+        if (split.reasoning) reasoning += split.reasoning;
+      }
+
+      if (reasoning) {
+        if (!reasoningStartedAt) {
+          reasoningStartedAt = Date.now();
+          this.sendVetroEvent(res, "reasoning_start", "");
+        }
+        fullReasoning += reasoning;
+        this.sendVetroEvent(res, "reasoning", reasoning);
+      }
+
+      if (content) {
+        if (content.trim()) closeReasoning();
+        fullContent += content;
+        this.sendVetroEvent(res, "content", content);
+      }
+    };
 
     const processTextChunk = (textChunk) => {
       buffer += textChunk;
       const lines = buffer.split("\n");
       buffer = lines.pop(); // Keep partial line
-      
-      let chunkContent = "";
+
+      const merged = { content: "", reasoning: "" };
       for (const line of lines) {
         if (!line.trim()) continue;
-        const content = this.normalizeChunk(line, provider);
-        if (content) {
-          chunkContent += content;
-        }
+        const parts = this.normalizeChunkParts(line, provider);
+        merged.content += parts.content;
+        merged.reasoning += parts.reasoning;
       }
-      return chunkContent;
+      return merged;
+    };
+
+    const readChunk = (chunk) => {
+      // SDK object payloads (e.g. the Groq SDK) are already parsed.
+      if (typeof chunk === "object" && !Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
+        return this.normalizeChunkParts(chunk, provider);
+      }
+      const text = (chunk instanceof Uint8Array || Buffer.isBuffer(chunk))
+        ? decoder.decode(chunk, { stream: true })
+        : String(chunk);
+      return processTextChunk(text);
     };
 
     try {
       // 1. Handle Async Iterables (SDKs or Web ReadableStreams)
       if (Symbol.asyncIterator in stream) {
         for await (const chunk of stream) {
-          // If it is an SDK object payload (e.g. from Groq SDK), process directly
-          if (typeof chunk === "object" && !Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
-            const content = this.normalizeChunk(chunk, provider);
-            if (content) {
-              fullContent += content;
-              this.sendVetroEvent(res, "content", content);
-            }
-          } else {
-            // Otherwise, decode binary/text data and parse by line
-            const text = (chunk instanceof Uint8Array || Buffer.isBuffer(chunk))
-              ? decoder.decode(chunk, { stream: true })
-              : String(chunk);
-            const content = processTextChunk(text);
-            if (content) {
-              fullContent += content;
-              this.sendVetroEvent(res, "content", content);
-            }
-          }
+          emit(readChunk(chunk));
         }
       }
       // 2. Handle Node.js Readable streams
       else if (stream.on) {
         await new Promise((resolve, reject) => {
-          stream.on("data", (chunk) => {
-            if (typeof chunk === "object" && !Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
-              const content = this.normalizeChunk(chunk, provider);
-              if (content) {
-                fullContent += content;
-                this.sendVetroEvent(res, "content", content);
-              }
-            } else {
-              const text = (chunk instanceof Uint8Array || Buffer.isBuffer(chunk))
-                ? decoder.decode(chunk, { stream: true })
-                : String(chunk);
-              const content = processTextChunk(text);
-              if (content) {
-                fullContent += content;
-                this.sendVetroEvent(res, "content", content);
-              }
-            }
-          });
+          stream.on("data", (chunk) => emit(readChunk(chunk)));
           stream.on("end", resolve);
           stream.on("error", reject);
         });
@@ -763,23 +883,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
-            const text = decoder.decode(value, { stream: true });
-            const content = processTextChunk(text);
-            if (content) {
-              fullContent += content;
-              this.sendVetroEvent(res, "content", content);
-            }
+            emit(processTextChunk(decoder.decode(value, { stream: true })));
           }
           // Flush remaining bytes from decoder
           const finalText = decoder.decode();
-          if (finalText) {
-            const content = processTextChunk(finalText);
-            if (content) {
-              fullContent += content;
-              this.sendVetroEvent(res, "content", content);
-            }
-          }
+          if (finalText) emit(processTextChunk(finalText));
         } catch (readerErr) {
           reader.cancel?.();
           throw readerErr;
@@ -788,15 +896,18 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
       // Flush remaining buffer
       if (buffer && buffer.trim()) {
-        const content = this.normalizeChunk(buffer, provider);
-        if (content) {
-          fullContent += content;
-          this.sendVetroEvent(res, "content", content);
-        }
+        emit(this.normalizeChunkParts(buffer, provider));
       }
+      emit(this.flushThinkingTags(think));
     } catch (err) {
       logger.error(`AIOrchestrator.pipeStream.error [${provider}]`, { error: err.message });
       throw err;
+    } finally {
+      closeReasoning();
+    }
+
+    if (fullReasoning) {
+      logger.info(`AIOrchestrator.pipeStream.reasoning [${provider}]`, { chars: fullReasoning.length });
     }
 
     // Check for truncation (simplistic check)
@@ -804,7 +915,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
       logger.info("AIOrchestrator: Truncation detected");
       this.sendVetroEvent(res, "status", "Finishing long response...");
     }
-    
+
     return fullContent;
   }
 
@@ -816,8 +927,15 @@ Choose the single best-fitting visualization block(s) from the formats below:
     return false;
   }
 
+  // Back-compat shim: callers that only care about visible answer text.
   normalizeChunk(chunk, provider) {
-    if (!chunk) return null;
+    return this.normalizeChunkParts(chunk, provider).content || null;
+  }
+
+  // Returns { content, reasoning } for a single SDK chunk or raw SSE line.
+  normalizeChunkParts(chunk, provider) {
+    const empty = { content: "", reasoning: "" };
+    if (!chunk) return empty;
 
     // Decode binary buffers/arrays into strings first
     if (chunk instanceof Uint8Array || Buffer.isBuffer(chunk)) {
@@ -827,18 +945,19 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // 1. Handle SDK Object Chunks (e.g. Groq SDK returned choices)
     if (typeof chunk === "object") {
       const delta = chunk.choices?.[0]?.delta;
-      if (delta?.content) return delta.content;
-      
+      const reasoning = this.reasoningFromDelta(delta) || this.reasoningFromDelta(chunk);
+      if (delta?.content) return { content: delta.content, reasoning };
+
       const part = chunk.candidates?.[0]?.content?.parts?.[0];
-      if (part?.text) return part.text;
-      
-      if (chunk.text) return chunk.text;
-      return null;
+      if (part?.text) return { content: part.text, reasoning };
+
+      if (chunk.text) return { content: chunk.text, reasoning };
+      return reasoning ? { content: "", reasoning } : empty;
     }
 
     // 2. Handle String Chunks (Mistral, SambaNova, Gemini raw text stream)
     const rawText = chunk;
-    
+
     // Handle Gemini raw JSON stream (often wrapped in [ ])
     if (provider === "gemini") {
       try {
@@ -846,47 +965,50 @@ Choose the single best-fitting visualization block(s) from the formats below:
         if (text.startsWith(",") || text.startsWith("[") || text.startsWith("]")) {
            // Handle common JSON stream artifacts
            const cleaned = text.replace(/^[,\[\]\s]+|[,\[\]\s]+$/g, "");
-           if (!cleaned) return null;
+           if (!cleaned) return empty;
            const json = JSON.parse(cleaned);
-           return json.candidates?.[0]?.content?.parts?.[0]?.text || "";
+           return { content: json.candidates?.[0]?.content?.parts?.[0]?.text || "", reasoning: "" };
         }
         const json = JSON.parse(text);
-        return json.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return { content: json.candidates?.[0]?.content?.parts?.[0]?.text || "", reasoning: "" };
       } catch { /* Fall through to raw text if parsing fails */ }
     }
 
     // Handle SSE comments (e.g. ": OPENROUTER PROCESSING")
     if (rawText.trim().startsWith(":")) {
-      return null;
+      return empty;
     }
 
     // Handle standard SSE format (data: {...})
     if (rawText.includes("data: ")) {
       const lines = rawText.split("\n");
       let content = "";
+      let reasoning = "";
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || trimmed === "data: [DONE]") continue;
         if (trimmed.startsWith("data: ")) {
           try {
             const json = JSON.parse(trimmed.slice(6));
-            const text = json.choices?.[0]?.delta?.content || "";
+            const delta = json.choices?.[0]?.delta;
+            const text = delta?.content || "";
             content += text;
+            reasoning += this.reasoningFromDelta(delta);
             if (text) logger.info(`normalizeChunk [${provider}]`, { text });
           } catch (e) {
             // Partial JSON or garbage
           }
         }
       }
-      return content || null;
+      return { content, reasoning };
     }
 
     // If using SSE provider, ignore comments or heartbeats that don't contain "data: "
-    if (provider === "groq" || provider === "mistral" || provider === "sambanova" || provider === "agnes") {
-      return null;
+    if (["groq", "mistral", "sambanova", "agnes", "plugsky"].includes(provider)) {
+      return empty;
     }
 
-    return rawText;
+    return { content: rawText, reasoning: "" };
   }
 }
 
