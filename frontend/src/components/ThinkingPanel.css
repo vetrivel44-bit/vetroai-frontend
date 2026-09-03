@@ -1,0 +1,187 @@
+/* ══════════════════════════════════════════════════════════════
+   VETROAI — THINKING PANEL
+   Collapsible chain-of-thought shown above the assistant answer.
+   ══════════════════════════════════════════════════════════════ */
+
+.vai-tp {
+  max-width: 100%;
+  margin: 0 0 10px;
+  animation: vaiTpIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes vaiTpIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Header ─────────────────────────────────────────────────── */
+.vai-tp-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 8px;
+  border: 1px solid var(--border-med, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+  color: var(--ink-3, #8e8e93);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.vai-tp-header:hover {
+  color: var(--ink-2, #c8c8cc);
+  border-color: var(--border-med, rgba(255, 255, 255, 0.14));
+}
+
+.vai-tp-header:focus-visible {
+  outline: 2px solid var(--accent, #60a5fa);
+  outline-offset: 2px;
+}
+
+.vai-tp-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vai-tp.is-open .vai-tp-chevron { transform: rotate(90deg); }
+
+.vai-tp-spark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent, #60a5fa);
+  opacity: 0.75;
+}
+
+.vai-tp.is-active .vai-tp-spark {
+  opacity: 1;
+  animation: vaiTpSpin 2.6s linear infinite;
+}
+
+@keyframes vaiTpSpin {
+  from { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(180deg) scale(1.14); }
+  to   { transform: rotate(360deg) scale(1); }
+}
+
+/* Shimmer sweep across the label while reasoning is still streaming. */
+.vai-tp-label { white-space: nowrap; }
+
+.vai-tp.is-active .vai-tp-label {
+  background: linear-gradient(
+    90deg,
+    var(--ink-3, #8e8e93) 0%,
+    var(--ink, #f0f0f2) 45%,
+    var(--ink-3, #8e8e93) 90%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: vaiTpShimmer 2.1s linear infinite;
+}
+
+@keyframes vaiTpShimmer {
+  from { background-position: 140% 0; }
+  to   { background-position: -60% 0; }
+}
+
+/* ─── Trailing dots ──────────────────────────────────────────── */
+.vai-tp-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.vai-tp-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  animation: vaiTpPulse 1.3s ease-in-out infinite;
+}
+
+.vai-tp-dots i:nth-child(2) { animation-delay: 0.18s; }
+.vai-tp-dots i:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes vaiTpPulse {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50%      { opacity: 1;    transform: translateY(-2px); }
+}
+
+/* ─── Body ───────────────────────────────────────────────────── */
+.vai-tp-body-wrap {
+  overflow: hidden;
+  animation: vaiTpExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes vaiTpExpand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.vai-tp-body {
+  margin: 8px 0 2px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--border-str, rgba(255, 255, 255, 0.18));
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.vai-tp.is-active .vai-tp-body {
+  border-left-color: var(--accent-mid, rgba(96, 165, 250, 0.25));
+}
+
+.vai-tp-text {
+  margin: 0;
+  color: var(--ink-3, #8e8e93);
+  font-size: 13.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vai-tp-placeholder { font-style: italic; opacity: 0.75; }
+
+/* Blinking caret at the tail of the streaming reasoning. */
+.vai-tp-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent, #60a5fa);
+  animation: vaiTpBlink 1s step-end infinite;
+}
+
+@keyframes vaiTpBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .vai-tp-header { font-size: 12px; padding: 5px 10px 5px 7px; }
+  .vai-tp-text   { font-size: 13px; }
+  .vai-tp-body   { max-height: 240px; padding-left: 12px; }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .vai-tp,
+  .vai-tp-body-wrap,
+  .vai-tp.is-active .vai-tp-spark,
+  .vai-tp.is-active .vai-tp-label,
+  .vai-tp-dots i,
+  .vai-tp-caret {
+    animation: none;
+  }
+  .vai-tp.is-active .vai-tp-label {
+    -webkit-text-fill-color: currentColor;
+    color: var(--ink-2, #c8c8cc);
+  }
+}

@@ -14,9 +14,11 @@ test("Claude Fable 5 is excluded from every Puter text model route", () => {
   const puterMap = appSource.match(/const PUTER_MODEL_IDS = \{([\s\S]*?)\n\};/)?.[1] || "";
   assert.ok(puterMap, "Puter model map was not found");
   assert.doesNotMatch(puterMap, /fable|claude/i);
+  // The provider field sent to the backend must map Fable to the strict "fable"
+  // route, ahead of any other provider mapping in the same expression.
   assert.match(
     appSource,
-    /fd\.append\("provider", selectedProvider === CLAUDE_FABLE_PROVIDER \? "fable" : selectedProvider\)/
+    /fd\.append\(\s*"provider",\s*selectedProvider === CLAUDE_FABLE_PROVIDER \? "fable"/
   );
 });
 

@@ -5,6 +5,7 @@ const { config } = require("../src/config/env");
 const providerManager = require("../src/services/ProviderManager");
 
 const providerKeys = {
+  plugsky: "plugskyApiKey",
   chatgpt: "chatgptApiKey",
   fable: "fableRapidApiKey",
   groq: "groqApiKey",
