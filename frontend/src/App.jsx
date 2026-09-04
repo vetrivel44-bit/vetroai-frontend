@@ -3155,17 +3155,44 @@ export default function App() {
   const [showPass, setShowPass]   = useState(false);
 
   // Google login
-  const handleGoogleLogin = useCallback((credentialResponse) => {
+  const handleGoogleLogin = useCallback(async (credentialResponse) => {
+    const credential = credentialResponse?.credential;
+    if (!credential) { addToast("Google login failed. Please try again.", "error"); return; }
+
+    let payload;
     try {
-      const payload = JSON.parse(atob(credentialResponse.credential.split(".")[1]));
-      const token = credentialResponse.credential;
-      const info = { name: payload.name, email: payload.email, picture: payload.picture };
-      localStorage.setItem("token", token);
-      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-      setUser(token);
-      setUserInfo(info);
-      addToast(`Welcome, ${payload.name}! 🎉`, "success", 3000);
-    } catch { addToast("Google login failed. Please try again.", "error"); }
+      payload = JSON.parse(atob(credential.split(".")[1]));
+    } catch { addToast("Google login failed. Please try again.", "error"); return; }
+
+    const info = { name: payload.name, email: payload.email, picture: payload.picture };
+
+    // Exchange the Google credential for our own access/refresh tokens. The raw
+    // Google ID token expires in about an hour and can't be refreshed here, so
+    // using it as the session token logs people out mid-use.
+    let sessionToken = credential;
+    try {
+      const res = await fetch(API + "/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: credential }),
+      });
+      const data = await res.json();
+      if (res.ok && data?.data?.accessToken) {
+        sessionToken = data.data.accessToken;
+        if (data.data.refreshToken) localStorage.setItem("refreshToken", data.data.refreshToken);
+        if (data.data.user?.name) info.name = data.data.user.name;
+        if (data.data.user?.email) info.email = data.data.user.email;
+      }
+    } catch {
+      // Backend unreachable — fall back to the Google credential so sign-in
+      // still works offline; it is verified server-side when it is used.
+    }
+
+    localStorage.setItem("token", sessionToken);
+    localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+    setUser(sessionToken);
+    setUserInfo(info);
+    addToast(`Welcome, ${info.name || "back"}! 🎉`, "success", 3000);
   }, []);
 
   // Load Google GSI script (silently skip if blocked/unavailable in region).
@@ -3685,7 +3712,19 @@ export default function App() {
 
   const loadSession = id => {
     const s = sessions.find(x => x.id === id);
-    if (s) { setMessages((s.messages || []).map(m => (m.isThinking ? { ...m, isThinking: false } : m))); setCurrentSessionId(id); stopSpeak(); setIsSidebarOpen(false); isScrolling.current = false; setFollowUps([]); }
+    if (s) {
+      // Drop any in-flight answer from the chat we're leaving — without this its
+      // remaining chunks land in the session the user just opened.
+      requestIdRef.current += 1;
+      abortRef.current?.abort();
+      setIsLoading(false); setIsTyping(false);
+      setMessages((s.messages || []).map(m => (m.isThinking ? { ...m, isThinking: false } : m)));
+      setCurrentSessionId(id); stopSpeak(); setIsSidebarOpen(false);
+      isScrolling.current = false;
+      // These are keyed by message index, so they belong to the chat being left —
+      // carrying them over marked unrelated replies as liked/reacted.
+      setFollowUps([]); setMsgFeedback({}); setReactions({}); setStreamingContent("");
+    }
   };
 
   const newChat = useCallback((spaceIdOverride) => {
@@ -3793,25 +3832,24 @@ export default function App() {
   };
 
   const togglePin = (e, id) => {
-    e.stopPropagation();
-    setPinnedIds(p => {
-      const pinned = p.includes(id) ? p.filter(x => x !== id) : [id, ...p];
-      addToast(p.includes(id) ? "Unpinned" : "📌 Pinned", "info", 1500);
-      return pinned;
-    });
+    e?.stopPropagation();
+    // The toast lives outside the updater so React's double-invoke in StrictMode
+    // can't fire it twice.
+    const wasPinned = pinnedIds.includes(id);
+    setPinnedIds(p => (p.includes(id) ? p.filter(x => x !== id) : [id, ...p]));
+    addToast(wasPinned ? "Unpinned" : "📌 Pinned", "info", 1500);
   };
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────────
+  const bookmarkId = (msg) => `${msg.timestamp}_${(msg.content || "").slice(0, 60)}`;
   const toggleBookmark = (msg) => {
-    setBookmarks(prev => {
-      const id = `${msg.timestamp}_${msg.content?.slice(0, 20)}`;
-      const exists = prev.find(b => b.id === id);
-      if (exists) { addToast("Bookmark removed", "info", 1500); return prev.filter(b => b.id !== id); }
-      addToast("🔖 Bookmarked!", "success", 1500);
-      return [...prev, { id, ...msg }];
-    });
+    const id = bookmarkId(msg);
+    const exists = bookmarks.some(b => b.id === id);
+    // Toast outside the updater so StrictMode's double-invoke can't fire it twice.
+    setBookmarks(prev => (exists ? prev.filter(b => b.id !== id) : [...prev, { ...msg, id }]));
+    addToast(exists ? "Bookmark removed" : "🔖 Bookmarked!", exists ? "info" : "success", 1500);
   };
-  const isBookmarked  = (msg) => { const id = `${msg.timestamp}_${msg.content?.slice(0, 20)}`; return bookmarks.some(b => b.id === id); };
+  const isBookmarked  = (msg) => bookmarks.some(b => b.id === bookmarkId(msg));
   const removeBookmark = (id) => setBookmarks(prev => prev.filter(b => b.id !== id));
 
 
@@ -5291,10 +5329,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const ta = parseInt(a.id, 10) || 0, tb = parseInt(b.id, 10) || 0;
         return recentsSortMode === 'oldest' ? ta - tb : tb - ta;
       });
-      return sorted.map(s => ({ id: s.id, title: s.title || 'Untitled' })).slice(0, 10);
+      // Pinned chats always stay at the top and are never cut off by the 10-row limit.
+      const pinned = sorted.filter(s => pinnedIds.includes(s.id));
+      const rest = sorted.filter(s => !pinnedIds.includes(s.id));
+      return [...pinned, ...rest.slice(0, 10)].map(s => ({
+        id: s.id,
+        title: s.title || 'Untitled',
+        pinned: pinnedIds.includes(s.id),
+      }));
     }
     return mock;
-  }, [sessions, recentsSortMode]);
+  }, [sessions, recentsSortMode, pinnedIds]);
 
   const goToChatsHome = () => {
     setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false);
@@ -5505,7 +5550,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         />
       )}
 {showProfile && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} onProfileSaved={setProfileData} />}
-      {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={() => setShowBookmarks(false)} onRemove={(id) => setBookmarks(prev => prev.filter(b => b.id !== id))} onClose={() => setShowBookmarks(false)} t={t} />}
+      {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={(bm) => { navigator.clipboard?.writeText(bm.content).then(() => addToast("Bookmark copied", "success", 1500), swallowError); }} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
       {showSysPrompt && <SysPromptModal onClose={() => setShowSysPrompt(false)} t={t} value={systemPrompt} setValue={setSystemPrompt} />}
       {confirmDelete && <ConfirmDialog message={confirmDelete.message} onConfirm={confirmDeleteSession} onCancel={() => setConfirmDelete(null)} />}
@@ -5645,7 +5690,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   />
                 ) : (
                   <button onClick={() => { loadSession(session.id); setActiveNav('chats'); }} className={`claude-sb-recent text-left px-3 py-[9px] text-[13px] rounded-md truncate transition-colors w-full ${!isMock ? "pr-8" : ""} ${isActive ? 'active' : ''}`}>
-                    {session.title}
+                    {session.pinned && <span aria-hidden="true" style={{ marginRight: 5 }}>📌</span>}{session.title}
                   </button>
                 )}
                 {!isMock && !isRenaming && (
@@ -5655,6 +5700,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 )}
                 {openRecentMenuId === session.id && (
                   <div className="claude-popover" style={{ position: "absolute", top: "calc(100% + 2px)", right: 4, zIndex: 30 }}>
+                    <button onClick={(e) => { togglePin(e, session.id); setOpenRecentMenuId(null); }} className="claude-popover-item">
+                      <Star size={13} /> {session.pinned ? 'Unpin' : 'Pin'}
+                    </button>
                     <button onClick={() => { setRenamingId(session.id); setRenameValue(session.title); setOpenRecentMenuId(null); }} className="claude-popover-item">
                       <Pencil size={13} /> Rename
                     </button>
@@ -6055,6 +6103,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <button className={`msg-action-btn${msgFeedback[i] === 'down' ? ' feedback-down' : ''}`} onClick={() => handleFeedback(i, 'down')} title="Dislike" aria-label="Dislike response">
                                  <ThumbsDnIcon />
                                </button>
+                               <button
+                                 className={`msg-action-btn${isBookmarked(m) ? ' bookmarked' : ''}`}
+                                 onClick={() => toggleBookmark(m)}
+                                 title={isBookmarked(m) ? "Remove bookmark" : "Bookmark response"}
+                                 aria-label={isBookmarked(m) ? "Remove bookmark" : "Bookmark response"}
+                                 aria-pressed={isBookmarked(m)}
+                               >
+                                 <BookmarkIcon />
+                               </button>
                              </div>
                            )}
                          </div>
@@ -6079,9 +6136,40 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      </div>
                    )}
 
+                   {/* Follow-up suggestions for the latest answer */}
+                   {!isLoading && messages.length > 0 && messages[messages.length - 1].role === "assistant" && (followUpsLoading || followUps.length > 0) && (
+                     <div className="followup-row" role="list" aria-label="Suggested follow-up questions">
+                       {followUpsLoading
+                         ? [0, 1, 2].map(i => <span key={i} className="followup-chip skeleton" style={{ "--d": `${i * 0.08}s` }} />)
+                         : followUps.map((q, i) => (
+                           <button
+                             key={`${i}_${q}`}
+                             role="listitem"
+                             className="followup-chip"
+                             style={{ "--d": `${i * 0.06}s` }}
+                             title={q}
+                             onClick={() => { setFollowUps([]); sendMessage(null, q); }}
+                           >
+                             <CornerDownRight size={13} />{q}
+                           </button>
+                         ))}
+                     </div>
+                   )}
+
                    <div ref={messagesEndRef} />
                    </div>
                  </div>
+                 {showScrollDn && (
+                   <button
+                     type="button"
+                     className="scroll-btn"
+                     onClick={scrollToBottom}
+                     title="Jump to latest"
+                     aria-label="Scroll to latest message"
+                   >
+                     <ArrowDown size={16} />
+                   </button>
+                 )}
                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="px-4 sm:px-6">
                    <div style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto' }}>
                     {renderInputBox()}

@@ -3,7 +3,7 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
-const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
+const { signAccessToken, signRefreshToken, verifyRefreshToken, hashToken } = require("../utils/token");
 
 // ── DB availability check ─────────────────────────────────────────────────────
 const mongoose = require("mongoose");
@@ -30,7 +30,7 @@ async function issueTokens(userId) {
   const refreshToken = signRefreshToken(userId);
   if (isDbAvailable()) {
     try {
-      await RefreshToken.create({ userId, tokenHash: require("crypto").createHash("sha256").update(refreshToken).digest("hex"), expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000) });
+      await RefreshToken.create({ userId, tokenHash: hashToken(refreshToken), expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000) });
     } catch { /* DB unavailable, skip */ }
   }
   return { accessToken, refreshToken };
@@ -156,20 +156,75 @@ async function googleLogin(req, res) {
   return successResponse(res, "Google login successful (offline mode)", { user: { id: stored.id, email, name, picture }, ...tokens });
 }
 
+// A refresh token is only tracked in Mongo for DB-backed accounts; offline
+// (in-memory) users have nothing stored, so the JWT signature is all we have.
+function isTrackedUser(userId) {
+  return isDbAvailable() && mongoose.isValidObjectId(userId);
+}
+
 async function refreshToken(req, res) {
   const { refreshToken: inputToken } = req.validated.body;
   let decoded;
   try { decoded = verifyRefreshToken(inputToken); }
   catch { throw new ApiError(401, "Invalid or expired refresh token"); }
+
+  // Rotate: each refresh token is single-use, so replaying an old one after the
+  // real client has refreshed — or after a logout — is refused. A token with no
+  // record at all is still accepted (offline accounts, or a login whose record
+  // write lost a race with a Mongo blip); revocation is what the record proves.
+  if (isTrackedUser(decoded.userId)) {
+    let stored = null;
+    try {
+      stored = await RefreshToken.findOne({ userId: decoded.userId, tokenHash: hashToken(inputToken) });
+    } catch (err) {
+      logger.warn("auth.refresh.lookup_failed", { message: err.message });
+    }
+    if (stored && (stored.revokedAt || stored.expiresAt <= new Date())) {
+      logger.warn("auth.refresh.replayed", { userId: String(decoded.userId) });
+      throw new ApiError(401, "Refresh token has been revoked");
+    }
+    if (stored) {
+      stored.revokedAt = new Date();
+      await stored.save().catch(() => {});
+    }
+  }
+
   const tokens = await issueTokens(decoded.userId);
   return successResponse(res, "Token refreshed", tokens);
 }
 
 async function logout(req, res) {
+  const { refreshToken: inputToken } = req.validated.body;
+  let decoded = null;
+  try { decoded = verifyRefreshToken(inputToken); } catch { /* already unusable */ }
+
+  if (decoded && isTrackedUser(decoded.userId)) {
+    try {
+      await RefreshToken.updateOne(
+        { userId: decoded.userId, tokenHash: hashToken(inputToken), revokedAt: null },
+        { $set: { revokedAt: new Date() } }
+      );
+      logger.info("auth.logout.revoked", { userId: decoded.userId });
+    } catch (err) {
+      logger.warn("auth.logout.revoke_failed", { message: err.message });
+    }
+  }
   return successResponse(res, "Logged out successfully", null);
 }
 
 async function logoutAll(req, res) {
+  const userId = req.user?._id || req.user?.id;
+  if (isTrackedUser(userId)) {
+    try {
+      const result = await RefreshToken.updateMany(
+        { userId, revokedAt: null },
+        { $set: { revokedAt: new Date() } }
+      );
+      logger.info("auth.logoutAll.revoked", { userId: String(userId), count: result.modifiedCount });
+    } catch (err) {
+      logger.warn("auth.logoutAll.revoke_failed", { message: err.message });
+    }
+  }
   return successResponse(res, "Logged out from all devices", null);
 }
 

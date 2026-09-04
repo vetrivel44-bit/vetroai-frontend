@@ -8,7 +8,18 @@ function notFoundHandler(req, res) {
 }
 
 function errorHandler(err, req, res, _next) {
-  if (res.headersSent) return;
+  // Headers are already out (a streaming/SSE response failed mid-flight), so the
+  // status can't be changed any more. Close the response instead of returning
+  // silently — otherwise the socket stays open and the client hangs forever.
+  if (res.headersSent) {
+    logger.error("request.error.afterHeaders", {
+      method: req.method,
+      path: req.originalUrl,
+      message: err.message,
+    });
+    if (!res.writableEnded) res.end();
+    return;
+  }
 
   let statusCode = err.statusCode || 500;
   let message = err.message || "Internal server error";

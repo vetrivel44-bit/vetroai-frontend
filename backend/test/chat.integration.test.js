@@ -60,3 +60,22 @@ test("title and follow-up endpoints remain usable without Groq", async (t) => {
   assert.equal(followUpResponse.status, 200);
   assert.deepEqual(followUpBody.data.suggestions, []);
 });
+
+test("processRequest reports failure when no provider is configured, so the turn is not billed", async () => {
+  clearProviderKeys();
+  config.fableRapidApiKey = "";
+  config.plugskyApiKey = "";
+  const orchestrator = require("../src/services/AIOrchestrator");
+
+  const written = [];
+  const res = { write: (chunk) => written.push(chunk), end: () => {}, writableEnded: false };
+
+  const answered = await orchestrator.processRequest("test_req", {
+    messages: [{ role: "user", content: "Hello" }],
+    mode: "normal",
+    options: { temperature: 0.7, maxTokens: 256 },
+  }, res);
+
+  assert.equal(answered, false, "an unanswered turn must not report success");
+  assert.match(written.join(""), /not configured with an AI provider/i);
+});

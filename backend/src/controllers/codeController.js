@@ -48,6 +48,16 @@ async function executeCode(req, res) {
     timeout: 20000 // 20 second timeout
   };
 
+  // Destroying the request on timeout also fires its "error" handler, so both
+  // paths would answer the same request and the second send would throw
+  // ERR_HTTP_HEADERS_SENT. Only the first outcome wins.
+  let settled = false;
+  const respond = (send) => {
+    if (settled) return;
+    settled = true;
+    send();
+  };
+
   const wandboxReq = https.request(options, (wandboxRes) => {
     let responseData = "";
 
@@ -59,17 +69,20 @@ async function executeCode(req, res) {
       try {
         if (wandboxRes.statusCode !== 200) {
           logger.error("Wandbox API error", { status: wandboxRes.statusCode, data: responseData });
-          return res.status(502).json({ error: `Compiler API responded with status ${wandboxRes.statusCode}` });
+          return respond(() => res.status(502).json({ error: `Compiler API responded with status ${wandboxRes.statusCode}` }));
         }
 
         const data = JSON.parse(responseData);
-        
+
         // Extract messages and output
         const compileOut = data.compiler_message || "";
         const runOut     = data.program_output || data.program_message || "";
-        const exitCode   = parseInt(data.status, 10) ?? 0;
+        // Wandbox omits "status" on success. parseInt gives NaN there, and NaN
+        // survives ?? — it serialized to a null exit code instead of 0.
+        const parsedExit = parseInt(data.status, 10);
+        const exitCode   = Number.isNaN(parsedExit) ? 0 : parsedExit;
 
-        return res.json({
+        return respond(() => res.json({
           compile: {
             output: compileOut
           },
@@ -77,22 +90,22 @@ async function executeCode(req, res) {
             output: runOut,
             code: exitCode
           }
-        });
+        }));
       } catch (err) {
         logger.error("Failed to parse Wandbox response", { error: err.message, raw: responseData });
-        return res.status(502).json({ error: "Failed to parse compiler response." });
+        return respond(() => res.status(502).json({ error: "Failed to parse compiler response." }));
       }
     });
   });
 
   wandboxReq.on("error", (err) => {
     logger.error("Wandbox request failed", { error: err.message });
-    return res.status(504).json({ error: "Compiler service timed out or was unreachable." });
+    return respond(() => res.status(504).json({ error: "Compiler service timed out or was unreachable." }));
   });
 
   wandboxReq.on("timeout", () => {
+    respond(() => res.status(504).json({ error: "Compiler execution timed out." }));
     wandboxReq.destroy();
-    return res.status(504).json({ error: "Compiler execution timed out." });
   });
 
   wandboxReq.write(postData);
