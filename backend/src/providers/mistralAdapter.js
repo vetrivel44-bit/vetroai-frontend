@@ -2,11 +2,12 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
 
-const mistralAvailable = Boolean(config.mistralApiKey);
-
 async function generateStream(messages, options = {}) {
-  if (!mistralAvailable) {
-    throw new ApiError(500, "Mistral API key not configured.");
+  // Read the key at call time, not at module load. ProviderManager.isConfigured
+  // checks it dynamically, so a snapshot taken here could disagree with it and
+  // leave the orchestrator routing to an adapter that then refuses the work.
+  if (!config.mistralApiKey) {
+    throw new ApiError(500, "Mistral API key not configured on the backend.");
   }
 
   const { temperature, maxTokens, model } = options;

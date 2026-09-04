@@ -510,6 +510,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
       ? (currentProviderName ? 1 : 0)
       : Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
+    // Remembers why the last provider gave up, so the message the user sees
+    // names the real cause instead of always blaming capacity.
+    let lastFailure = null;
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
 
@@ -531,6 +534,20 @@ Choose the single best-fitting visualization block(s) from the formats below:
         "VetroAI is not configured with an AI provider yet. Add at least one provider API key on the backend."
       );
       return false;
+    }
+
+    // The user picked a specific model but the backend has no key for it, so the
+    // request is quietly being served by something else. Say so rather than
+    // letting them believe they are talking to their choice.
+    const requested = String(preferredProvider || "").toLowerCase();
+    if (requested && !["undefined", "auto", ""].includes(requested)
+        && providerManager.getAdapter(requested) && !providerManager.isConfigured(requested)) {
+      logger.warn("AIOrchestrator.requestedProviderUnconfigured", { reqId, requested });
+      this.sendVetroEvent(
+        res,
+        "status",
+        `${this.providerLabel(requested)} is not configured on the backend — using ${this.providerLabel(currentProviderName)} instead.`
+      );
     }
 
     // Intent detection — also support explicit webSearch flag from frontend
@@ -668,11 +685,18 @@ Choose the single best-fitting visualization block(s) from the formats below:
         logger.error(`AIOrchestrator.error [${currentProviderName}]`, { reqId, error: err.message });
         providerManager.updateMetrics(currentProviderName, false, Date.now() - startTime);
         
-        const isRateLimit = /rate limit|429|too many requests/i.test(err.message);
-        const isTimeout = /timeout|timed out|ECONNRESET|ENOTFOUND/i.test(err.message);
-        
+        const failure = this.classifyProviderError(err.message);
+        const isRateLimit = failure.kind === "rate_limit";
+        const isTimeout = failure.kind === "network";
+        lastFailure = { provider: currentProviderName, ...failure };
+        logger.warn("AIOrchestrator.providerFailure", { reqId, provider: currentProviderName, kind: failure.kind });
+
         if (isRateLimit) {
           providerManager.suspendProvider(currentProviderName, "Rate limit reached");
+        } else if (["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind)) {
+          // Retrying a key or model-name problem just burns the user's time —
+          // park the provider so the fallback chain moves on immediately.
+          providerManager.suspendProvider(currentProviderName, `Configuration problem: ${failure.kind}`);
         } else if (isTimeout) {
           logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }
@@ -707,7 +731,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
           const backoffTime = Math.pow(2, attempts) * 1000;
           await new Promise(resolve => setTimeout(resolve, backoffTime));
         } else {
-          this.sendVetroEvent(res, "error", "All available AI models are currently at capacity. Please try again in 30 seconds.");
+          this.sendVetroEvent(res, "error", this.describeFinalFailure(lastFailure, attemptedProviders));
         }
       }
     }
@@ -719,6 +743,96 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
   sendVetroEvent(res, type, data) {
     res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  }
+
+  // Works out what actually went wrong with a provider call. Every failure used
+  // to be reported to the user as "all models are at capacity, try again in 30
+  // seconds", which is only true for a rate limit — for a bad API key or an
+  // unknown model name, retrying can never help and the message just hides the
+  // real problem from whoever can fix it.
+  classifyProviderError(message = "") {
+    const text = String(message);
+    // "Incorrect API key provided" is OpenAI's wording, "invalid_api_key" is
+    // Groq/Mistral's — cover the whole family rather than one phrasing.
+    // A key that was never set at all — distinct from one the provider rejected.
+    if (/not configured|no api key|api key (is )?(missing|not set)/i.test(text)) {
+      return {
+        kind: "unconfigured",
+        retryable: false,
+        userMessage: (p) => `${p} has no API key configured on the backend. Add one, or pick a model that is set up.`,
+      };
+    }
+    if (/\b(401|403)\b|unauthorized|forbidden|(invalid|incorrect|missing|bad)[ _-]?api[ _-]?key|authentication|invalid token|api[ _-]?key[ _-]?(not|is)[ _-]?(valid|provided)/i.test(text)) {
+      return {
+        kind: "auth",
+        retryable: false,
+        userMessage: (p) => `${p} rejected the backend's API key. The key is missing, expired, or not valid for this model.`,
+      };
+    }
+    if (/\b(402)\b|quota|insufficient[ _-]?(funds|balance|credit|quota)|billing|payment required|exceeded your current/i.test(text)) {
+      return {
+        kind: "quota",
+        retryable: false,
+        userMessage: (p) => `${p} has no quota left on the backend account. Top up the plan or switch to another model.`,
+      };
+    }
+    if (/rate limit|\b429\b|too many requests/i.test(text)) {
+      return {
+        kind: "rate_limit",
+        retryable: true,
+        userMessage: (p) => `${p} is rate limited right now. Try again in about 30 seconds, or pick another model.`,
+      };
+    }
+    if (/\b(400|404)\b|model[ _-]?not[ _-]?found|unknown model|does not exist|decommissioned|deprecated/i.test(text)) {
+      return {
+        kind: "bad_model",
+        retryable: false,
+        userMessage: (p) => `${p} rejected the request — the configured model name looks wrong or is no longer available.`,
+      };
+    }
+    if (/timeout|timed out|ECONNRESET|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|socket hang up|fetch failed|network/i.test(text)) {
+      return {
+        kind: "network",
+        retryable: true,
+        userMessage: (p) => `The backend could not reach ${p}. Check its network access, then try again.`,
+      };
+    }
+    if (/\b(5\d\d)\b|service unavailable|overloaded|capacity/i.test(text)) {
+      return {
+        kind: "upstream",
+        retryable: true,
+        userMessage: (p) => `${p} is having trouble on its side. Try again shortly, or pick another model.`,
+      };
+    }
+    return {
+      kind: "unknown",
+      retryable: true,
+      userMessage: (p) => `${p} failed to answer. Try again, or pick another model.`,
+    };
+  }
+
+  // The message shown once every attempt has been used up.
+  describeFinalFailure(lastFailure, attemptedProviders) {
+    if (!lastFailure) {
+      return "VetroAI could not reach an AI model. Please try again shortly.";
+    }
+    const label = this.providerLabel(lastFailure.provider);
+    const tried = [...attemptedProviders];
+    const base = lastFailure.userMessage(label);
+    // Only mention a fallback chain when one was actually walked, otherwise the
+    // "and N others" reads as noise on a single-provider backend.
+    if (tried.length > 1) {
+      return `${base} VetroAI also tried ${tried.length - 1} other model${tried.length > 2 ? "s" : ""} without success.`;
+    }
+    return base;
+  }
+
+  providerLabel(name) {
+    const labels = {
+      chatgpt: "ChatGPT", fable: "Claude Fable 5", plugsky: "Plugsky", groq: "Groq",
+      mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini",
+    };
+    return labels[name] || name || "The AI model";
   }
 
   // ── Thinking / reasoning helpers ────────────────────────────────────────────
