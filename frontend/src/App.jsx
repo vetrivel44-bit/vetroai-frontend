@@ -3155,17 +3155,44 @@ export default function App() {
   const [showPass, setShowPass]   = useState(false);
 
   // Google login
-  const handleGoogleLogin = useCallback((credentialResponse) => {
+  const handleGoogleLogin = useCallback(async (credentialResponse) => {
+    const credential = credentialResponse?.credential;
+    if (!credential) { addToast("Google login failed. Please try again.", "error"); return; }
+
+    let payload;
     try {
-      const payload = JSON.parse(atob(credentialResponse.credential.split(".")[1]));
-      const token = credentialResponse.credential;
-      const info = { name: payload.name, email: payload.email, picture: payload.picture };
-      localStorage.setItem("token", token);
-      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-      setUser(token);
-      setUserInfo(info);
-      addToast(`Welcome, ${payload.name}! 🎉`, "success", 3000);
-    } catch { addToast("Google login failed. Please try again.", "error"); }
+      payload = JSON.parse(atob(credential.split(".")[1]));
+    } catch { addToast("Google login failed. Please try again.", "error"); return; }
+
+    const info = { name: payload.name, email: payload.email, picture: payload.picture };
+
+    // Exchange the Google credential for our own access/refresh tokens. The raw
+    // Google ID token expires in about an hour and can't be refreshed here, so
+    // using it as the session token logs people out mid-use.
+    let sessionToken = credential;
+    try {
+      const res = await fetch(API + "/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: credential }),
+      });
+      const data = await res.json();
+      if (res.ok && data?.data?.accessToken) {
+        sessionToken = data.data.accessToken;
+        if (data.data.refreshToken) localStorage.setItem("refreshToken", data.data.refreshToken);
+        if (data.data.user?.name) info.name = data.data.user.name;
+        if (data.data.user?.email) info.email = data.data.user.email;
+      }
+    } catch {
+      // Backend unreachable — fall back to the Google credential so sign-in
+      // still works offline; it is verified server-side when it is used.
+    }
+
+    localStorage.setItem("token", sessionToken);
+    localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+    setUser(sessionToken);
+    setUserInfo(info);
+    addToast(`Welcome, ${info.name || "back"}! 🎉`, "success", 3000);
   }, []);
 
   // Load Google GSI script (silently skip if blocked/unavailable in region).

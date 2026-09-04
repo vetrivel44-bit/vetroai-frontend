@@ -1,8 +1,27 @@
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const asyncHandler = require("./asyncHandler");
 const ApiError = require("../utils/apiError");
+const logger = require("../utils/logger");
+const { config } = require("../config/env");
 const { verifyAccessToken } = require("../utils/token");
+
+const googleClient = new OAuth2Client(config.googleClientId);
+
+// Reads a JWT's payload WITHOUT validating it. Only ever used to decide which
+// verifier a token should be handed to — never to trust anything it says.
+function peekJwtPayload(token) {
+  try {
+    return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+  } catch {
+    return null;
+  }
+}
+
+function isGoogleIssuer(iss) {
+  return typeof iss === "string" && /(^|\.)accounts\.google\.com$|googleapis/.test(iss.replace(/^https?:\/\//, ""));
+}
 
 const authMiddleware = asyncHandler(async (req, _res, next) => {
   const authHeader = req.headers.authorization;
@@ -23,17 +42,39 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
     return next();
   }
 
-  // ── Google OAuth JWT (issued by Google GSI) ───────────────────────────────────
-  // Google JWTs are long and contain dots — check for "iss" claim without verifying signature
-  // (we already decoded the payload client-side; the token is still valid for auth purposes)
-  if (token.split(".").length === 3 && token.length > 400) {
+  // ── Google ID token (issued by Google Identity Services) ─────────────────────
+  // The signature MUST be verified. Decoding the payload proves nothing: anyone
+  // can mint a JWT claiming iss "accounts.google.com" and any sub/email they
+  // like, which previously authenticated them as that user.
+  if (token.split(".").length === 3 && isGoogleIssuer(peekJwtPayload(token)?.iss)) {
+    if (!config.googleClientId) {
+      throw new ApiError(401, "Google sign-in is not configured on this server");
+    }
+    let payload;
     try {
-      const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
-      if (payload.iss && (payload.iss.includes("accounts.google.com") || payload.iss.includes("googleapis"))) {
-        req.user = { id: payload.sub || payload.email, _id: payload.sub || payload.email, name: payload.name, email: payload.email, isGoogle: true };
-        return next();
-      }
-    } catch { /* fall through to normal JWT check */ }
+      const ticket = await googleClient.verifyIdToken({ idToken: token, audience: config.googleClientId });
+      payload = ticket.getPayload();
+    } catch (err) {
+      logger.warn("auth.google.verify_failed", { message: err.message });
+      throw new ApiError(401, "Invalid or expired Google token");
+    }
+    if (!payload?.sub) throw new ApiError(401, "Invalid Google token");
+
+    // Prefer the account this Google identity maps to, so billing and cloud
+    // sessions resolve to the same user the /api/auth/google exchange creates.
+    let user = null;
+    try {
+      if (payload.email) user = await User.findOne({ email: payload.email }).select("-password");
+    } catch (err) { logger.warn("auth.google.lookup_failed", { message: err.message }); }
+
+    req.user = user || {
+      id: payload.sub,
+      _id: payload.sub,
+      name: payload.name,
+      email: payload.email,
+      isGoogle: true,
+    };
+    return next();
   }
 
   // ── Standard JWT (issued by our own backend) ──────────────────────────────────
