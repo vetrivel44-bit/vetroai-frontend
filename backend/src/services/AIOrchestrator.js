@@ -520,7 +520,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         "error",
         "Claude Fable 5 API is not configured on the backend. Add a valid RapidAPI key and subscription."
       );
-      return;
+      return false;
     }
 
     if (!currentProviderName || maxAttempts === 0) {
@@ -530,7 +530,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         "error",
         "VetroAI is not configured with an AI provider yet. Add at least one provider API key on the backend."
       );
-      return;
+      return false;
     }
 
     // Intent detection — also support explicit webSearch flag from frontend
@@ -712,6 +712,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
     res.end();
+    // Tells the caller whether the user actually received an answer — a request
+    // that exhausted every provider must not be billed.
+    return success;
   }
 
   sendVetroEvent(res, type, data) {
@@ -885,14 +888,16 @@ Choose the single best-fitting visualization block(s) from the formats below:
             if (done) break;
             emit(processTextChunk(decoder.decode(value, { stream: true })));
           }
-          // Flush remaining bytes from decoder
-          const finalText = decoder.decode();
-          if (finalText) emit(processTextChunk(finalText));
         } catch (readerErr) {
           reader.cancel?.();
           throw readerErr;
         }
       }
+
+      // Flush any bytes the decoder is still holding (a multi-byte character
+      // split across the last two chunks) — applies to every branch above.
+      const finalText = decoder.decode();
+      if (finalText) emit(processTextChunk(finalText));
 
       // Flush remaining buffer
       if (buffer && buffer.trim()) {
@@ -979,31 +984,35 @@ Choose the single best-fitting visualization block(s) from the formats below:
       return empty;
     }
 
-    // Handle standard SSE format (data: {...})
-    if (rawText.includes("data: ")) {
+    // Handle standard SSE format (`data: {...}` or `data:{...}`)
+    if (/^[ \t]*data:/m.test(rawText)) {
       const lines = rawText.split("\n");
       let content = "";
       let reasoning = "";
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") continue;
-        if (trimmed.startsWith("data: ")) {
-          try {
-            const json = JSON.parse(trimmed.slice(6));
-            const delta = json.choices?.[0]?.delta;
-            const text = delta?.content || "";
-            content += text;
-            reasoning += this.reasoningFromDelta(delta);
-            if (text) logger.info(`normalizeChunk [${provider}]`, { text });
-          } catch (e) {
-            // Partial JSON or garbage
-          }
+        if (!trimmed) continue;
+        // The space after "data:" is optional in SSE — several OpenAI-compatible
+        // gateways emit `data:{...}` and those frames were being dropped.
+        const match = trimmed.match(/^data:\s?(.*)$/);
+        if (!match) continue;
+        const payload = match[1].trim();
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta;
+          const text = delta?.content || "";
+          content += text;
+          reasoning += this.reasoningFromDelta(delta);
+          if (text) logger.info(`normalizeChunk [${provider}]`, { text });
+        } catch {
+          // Partial JSON or garbage
         }
       }
       return { content, reasoning };
     }
 
-    // If using SSE provider, ignore comments or heartbeats that don't contain "data: "
+    // If using SSE provider, ignore comments or heartbeats that carry no data frame
     if (["groq", "mistral", "sambanova", "agnes", "plugsky"].includes(provider)) {
       return empty;
     }

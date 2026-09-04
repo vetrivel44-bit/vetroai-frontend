@@ -203,8 +203,9 @@ async function chat(req, res) {
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
 
+  let answered = false;
   try {
-    await AIOrchestrator.processRequest(reqId, {
+    answered = await AIOrchestrator.processRequest(reqId, {
       messages,
       mode,
       provider,
@@ -214,7 +215,7 @@ async function chat(req, res) {
       activePlugins,
       effort,
       options: { temperature, maxTokens }
-    }, res);
+    }, res) === true;
   } catch (err) {
     logger.error("chat.request.failed", { reqId, error: err.message });
     // AIOrchestrator already tries to send an error event, but we ensure it's closed
@@ -223,7 +224,9 @@ async function chat(req, res) {
     }
   } finally {
     cleanup();
-    if (billingUserId) {
+    // Only bill a turn that actually produced an answer — a request that
+    // exhausted every provider, or failed outright, is free.
+    if (billingUserId && answered) {
       creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});
     }
     res.end();

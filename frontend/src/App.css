@@ -889,6 +889,8 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 .msg-action-btn span { line-height: 1; }
 .msg-action-btn.feedback-up  { color: #4F7CFF; }
 .msg-action-btn.feedback-down { color: #ef4444; }
+.msg-action-btn.bookmarked { color: #f59e0b; }
+.msg-action-btn.bookmarked svg { fill: currentColor; }
 
 /* User message inline edit */
 .user-edit-wrap { max-width: 75%; width: 100%; }

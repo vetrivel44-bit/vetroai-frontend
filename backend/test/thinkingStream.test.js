@@ -85,3 +85,67 @@ test("the thinking prompt scales with the requested effort", () => {
   assert.match(orchestrator.buildThinkingPrompt("max"), /edge cases/);
   assert.match(orchestrator.buildThinkingPrompt(), /<think>/);
 });
+
+// ── SSE frame parsing ────────────────────────────────────────────────────────
+// The space after "data:" is optional in the SSE spec; several OpenAI-compatible
+// gateways omit it, and those frames used to be dropped entirely.
+const compactDataLine = (delta) => `data:${JSON.stringify({ choices: [{ delta }] })}\n`;
+
+test("frames written as data:{...} with no space are not dropped", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([
+    compactDataLine({ content: "Hello " }),
+    compactDataLine({ content: "world" }),
+    "data:[DONE]\n",
+  ]), res, "plugsky");
+
+  assert.equal(joined(res.events, "content"), "Hello world");
+});
+
+test("compact frames carry reasoning deltas too", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([
+    compactDataLine({ reasoning_content: "weighing options" }),
+    compactDataLine({ content: "Answer" }),
+  ]), res, "plugsky");
+
+  assert.equal(joined(res.events, "reasoning"), "weighing options");
+  assert.equal(joined(res.events, "content"), "Answer");
+});
+
+test("spaced and compact frames mix in one stream", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([
+    dataLine({ content: "one " }),
+    compactDataLine({ content: "two " }),
+    dataLine({ content: "three" }),
+    "data: [DONE]\n",
+  ]), res, "groq");
+
+  assert.equal(joined(res.events, "content"), "one two three");
+});
+
+test("a multi-byte character split across chunks is not lost", async () => {
+  const res = makeRes();
+  const payload = Buffer.from(dataLine({ content: "café ☕" }));
+  // Cut inside the 3 bytes of "☕" so the decoder has to carry state across
+  // chunks rather than emitting a replacement character.
+  const cut = payload.indexOf(Buffer.from("☕")) + 1;
+  await orchestrator.pipeStream(sseLines([
+    payload.subarray(0, cut),
+    payload.subarray(cut),
+  ]), res, "plugsky");
+
+  assert.equal(joined(res.events, "content"), "café ☕");
+});
+
+test("SSE comments and blank keep-alive lines produce no content", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([
+    ": ping\n",
+    "\n",
+    dataLine({ content: "real text" }),
+  ]), res, "plugsky");
+
+  assert.equal(joined(res.events, "content"), "real text");
+});
