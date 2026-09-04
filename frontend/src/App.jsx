@@ -631,11 +631,13 @@ const PUTER_MODEL_IDS = {
   "GPT-5.6 Terra": "gpt-5.6-terra",
   "GPT-5.6 Luna": "gpt-5.6-luna",
   "GPT-5.3 Codex": "openai/gpt-5.3-codex",
+  "DeepSeek V4 Pro": "deepseek/deepseek-v4-pro",
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
 const PLUGSKY_PROVIDER = "Plugsky";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, DEEPSEEK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -2428,6 +2430,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
     [PLUGSKY_PROVIDER]: ["P", "Visible thinking · Plugsky"],
+    [DEEPSEEK_PROVIDER]: ["D", "Open reasoning · strong at code"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     Mistral: ["M", "Efficient reasoning"],
