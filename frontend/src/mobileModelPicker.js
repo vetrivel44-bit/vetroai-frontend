@@ -6,8 +6,8 @@ const MOBILE_MODEL_QUERY = window.matchMedia('(max-width: 768px)');
 
 const MODEL_TASKS = {
   writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'Mistral', 'Agnes']),
-  research: new Set(['GPT-5.6 Sol', 'Claude Fable 5', 'Groq', 'Sonar Pro Research', 'Gemini']),
-  coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Groq', 'Gemini']),
+  research: new Set(['GPT-5.6 Sol', 'Claude Fable 5', 'Groq', 'Sonar Pro Research', 'Gemini', 'DeepSeek V4 Pro']),
+  coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Groq', 'Gemini', 'DeepSeek V4 Pro']),
 };
 
 // Single source of truth for provider/model branding on mobile. Never fall back
@@ -21,6 +21,7 @@ const MODEL_ICON_RULES = [
   [/gemini|google/i, '/model-icons/gemini.svg'],
   [/mistral/i, '/model-icons/mistral.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
+  [/deepseek/i, '/model-icons/deepseek.svg'],
 ];
 const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/logo.png';
 const makeModelIcon = (label, extraClass = '') => {
