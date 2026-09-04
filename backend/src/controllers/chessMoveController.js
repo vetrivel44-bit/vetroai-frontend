@@ -102,8 +102,12 @@ function providerTable() {
 
 async function chessMove(req, res) {
   const provider = String(req.body?.provider || "").toLowerCase().trim();
-  const prompt = String(req.body?.prompt || "").trim();
-  const temperature = Number(req.body?.temperature ?? 0.75);
+  // A board position plus move history is well under this; the cap just stops a
+  // client from turning the arena into an open-ended prompt relay.
+  const prompt = String(req.body?.prompt || "").trim().slice(0, 8000);
+  // A non-numeric temperature used to reach the provider as NaN and 400 there.
+  const rawTemp = Number(req.body?.temperature);
+  const temperature = Number.isFinite(rawTemp) ? Math.min(Math.max(rawTemp, 0), 2) : 0.75;
   const maxTokens = Math.min(Number(req.body?.maxTokens ?? 200) || 200, 400);
 
   if (!prompt) throw new ApiError(400, "Missing prompt.");
