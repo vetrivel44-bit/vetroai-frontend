@@ -56,20 +56,25 @@ function randomPair() {
 }
 
 // ─── mutable game state hook ────────────────────────────────────────────────
+const newGameSeed = () => `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
 function useChessGame() {
   // A single long-lived Chess instance mutated in place; `version` is bumped
   // after every mutation so components know to re-render and re-derive state.
   const [chess] = useState(() => new Chess());
   const [version, setVersion] = useState(0);
+  // Every game draws a fresh seed. Both models derive their mood and opening
+  // choice from it, so the same pairing never replays the same game.
+  const [gameSeed, setGameSeed] = useState(newGameSeed);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
-  const reset = useCallback(() => { chess.reset(); bump(); }, [chess, bump]);
+  const reset = useCallback(() => { chess.reset(); setGameSeed(newGameSeed()); bump(); }, [chess, bump]);
   const makeMove = useCallback((move) => {
     let result = null;
     try { result = chess.move(move); } catch { result = null; }
     if (result) bump();
     return result;
   }, [chess, bump]);
-  return { chess, version, makeMove, reset, bump };
+  return { chess, version, makeMove, reset, bump, gameSeed };
 }
 
 // ─── shared AI-move engine hook (thinking state + one-shot move request) ───
@@ -85,7 +90,7 @@ function useAIMoveEngine() {
     return () => { mountedRef.current = false; abortRef.current?.abort(); };
   }, []);
 
-  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 900) => {
+  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 900, gameSeed = "default") => {
     if (chess.isGameOver()) return false;
     const moverColor = chess.turn();
     const ctrl = new AbortController();
@@ -93,14 +98,17 @@ function useAIMoveEngine() {
     if (mountedRef.current) setThinking(true);
     try {
       const [res] = await Promise.all([
-        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal }),
+        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed }),
         sleep(minDelayMs),
       ]);
       if (ctrl.signal.aborted || !mountedRef.current) return false;
       if (res) {
         const result = makeMove(res.move);
         if (result && mountedRef.current) {
-          setCommentary({ color: moverColor, providerId, text: res.commentary, move: res.move });
+          setCommentary({
+            color: moverColor, providerId, text: res.commentary, move: res.move,
+            source: res.source, eval: res.eval, vetoed: res.vetoed,
+          });
         }
         return Boolean(result);
       }
@@ -201,7 +209,7 @@ function ResultBanner({ status, whiteId, blackId, playerColor }) {
 
 // ─── AI vs AI mode ──────────────────────────────────────────────────────────
 function AIvAI({ onExit }) {
-  const { chess, version, makeMove, reset } = useChessGame();
+  const { chess, version, makeMove, reset, gameSeed } = useChessGame();
   const { thinking, commentary, setCommentary, doOneMove, cancel } = useAIMoveEngine();
   const [whiteModel, setWhiteModel] = useState(CHESS_MODELS[0].id);
   const [blackModel, setBlackModel] = useState(CHESS_MODELS[3].id);
@@ -227,7 +235,7 @@ function AIvAI({ onExit }) {
         if (chess.isGameOver()) { setPlaying(false); break; }
         const moverColor = chess.turn();
         const providerId = moverColor === "w" ? whiteModel : blackModel;
-        await doOneMove(chess, providerId, makeMove, speedMs);
+        await doOneMove(chess, providerId, makeMove, speedMs, gameSeed);
         if (stop) break;
         if (chess.isGameOver()) { setPlaying(false); break; }
       }
@@ -240,7 +248,7 @@ function AIvAI({ onExit }) {
   const stepOnce = () => {
     if (thinking || playing || chess.isGameOver()) return;
     const providerId = chess.turn() === "w" ? whiteModel : blackModel;
-    doOneMove(chess, providerId, makeMove, 250);
+    doOneMove(chess, providerId, makeMove, 250, gameSeed);
   };
   const resetAll = () => { setPlaying(false); cancel(); reset(); setCommentary(null); setStarted(false); };
   const rematch = () => { setPlaying(false); cancel(); reset(); setCommentary(null); setPlaying(true); };
@@ -320,7 +328,7 @@ function AIvAI({ onExit }) {
 
 // ─── Spectator mode ─────────────────────────────────────────────────────────
 function Spectator({ onExit }) {
-  const { chess, version, makeMove, reset } = useChessGame();
+  const { chess, version, makeMove, reset, gameSeed } = useChessGame();
   const { thinking, commentary, setCommentary, doOneMove, cancel } = useAIMoveEngine();
   const [[whiteModel, blackModel], setPair] = useState(randomPair);
   const [playing, setPlaying] = useState(true);
@@ -348,7 +356,7 @@ function Spectator({ onExit }) {
         if (chess.isGameOver()) break;
         const moverColor = chess.turn();
         const providerId = moverColor === "w" ? whiteModel : blackModel;
-        await doOneMove(chess, providerId, makeMove, 900);
+        await doOneMove(chess, providerId, makeMove, 900, gameSeed);
         if (stop) break;
         if (chess.isGameOver()) break;
       }
@@ -435,7 +443,7 @@ function Spectator({ onExit }) {
 
 // ─── Player vs AI mode ──────────────────────────────────────────────────────
 function PlayerVsAI({ onExit }) {
-  const { chess, version, makeMove, reset } = useChessGame();
+  const { chess, version, makeMove, reset, gameSeed } = useChessGame();
   const { thinking, commentary, setCommentary, doOneMove, cancel } = useAIMoveEngine();
   const [aiModel, setAiModel] = useState(CHESS_MODELS[0].id);
   const [playerColor, setPlayerColor] = useState("w");
@@ -463,7 +471,7 @@ function PlayerVsAI({ onExit }) {
     if (!started || resigned) return;
     if (chess.isGameOver()) return;
     if (chess.turn() !== aiColor) return;
-    doOneMove(chess, aiModel, makeMove, 700);
+    doOneMove(chess, aiModel, makeMove, 700, gameSeed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, version, aiColor, aiModel, resigned]);
 

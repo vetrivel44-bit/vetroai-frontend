@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "test": "npm --prefix backend test && npm --prefix frontend run build",
+    "test": "npm --prefix backend test && npm --prefix frontend test && npm --prefix frontend run build",
     "build": "npm --prefix frontend clean-install --progress=false && npm --prefix frontend run build",
     "deploy": "npx wrangler deploy",
     "preview": "npx wrangler dev"
