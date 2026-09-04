@@ -62,7 +62,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
     if (!text) return [];
     const sections = [];
 
-    // MUST BE FIRST â€” extract known JSON blocks before anything else
+    // MUST BE FIRST — extract known JSON blocks before anything else
     const { sections: jsonSections, remaining } = extractKnownJsonBlocks(text);
     sections.push(...jsonSections);
     let remainingText = remaining;
@@ -229,7 +229,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
     }
     remainingText = remainingText.replace(alertRegex, '').trim();
 
-    // 5. Section detection for comparison/metrics/timeline â€” DISABLED for auto-detection.
+    // 5. Section detection for comparison/metrics/timeline — DISABLED for auto-detection.
     // These components now ONLY render when the AI explicitly outputs structured JSON blocks.
     // Auto-detecting section headers caused e.g. "## Key Features" to become cards on every answer.
 
