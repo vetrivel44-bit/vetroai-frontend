@@ -5,8 +5,8 @@
 const MOBILE_MODEL_QUERY = window.matchMedia('(max-width: 768px)');
 
 const MODEL_TASKS = {
-  writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'Mistral', 'Agnes']),
-  research: new Set(['GPT-5.6 Sol', 'Claude Fable 5', 'Groq', 'Sonar Pro Research', 'Gemini', 'DeepSeek V4 Pro']),
+  writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'Mistral', 'Agnes', 'Grok 4.6']),
+  research: new Set(['GPT-5.6 Sol', 'Claude Fable 5', 'Groq', 'Sonar Pro Research', 'Gemini', 'DeepSeek V4 Pro', 'Grok 4.6']),
   coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Groq', 'Gemini', 'DeepSeek V4 Pro']),
 };
 
