@@ -27,6 +27,9 @@ module.exports = {
     groqModel:           getEnv("GROQ_MODEL",            "llama-3.3-70b-versatile"),
     groqTemperature:     Number(getEnv("GROQ_TEMPERATURE", "0.7")),
     groqMaxTokens:       Number(getEnv("GROQ_MAX_TOKENS",  "16384")),
+    // Follow-up suggestions need instruction-following, not raw speed — an 8B
+    // model here just emits the same four templates for every answer.
+    followUpModel:       getEnv("FOLLOWUP_MODEL",        "llama-3.3-70b-versatile"),
     mistralApiKey:       getEnv("MISTRAL_API_KEY",       ""),
     mistralModel:        getEnv("MISTRAL_MODEL",        "mistral-small-latest"),
     mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),

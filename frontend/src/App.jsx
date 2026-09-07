@@ -3867,7 +3867,9 @@ export default function App() {
       const res  = await fetch(API + "/follow-ups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lastMessage: lastBotMsg.slice(0, 600), userQuery: userQuery?.slice(0, 150) || "" }),
+        // The model can only ground a follow-up in detail it can actually see,
+        // so send a real slice of the answer, not the first paragraph.
+        body: JSON.stringify({ lastMessage: lastBotMsg.slice(0, 2400), userQuery: userQuery?.slice(0, 400) || "" }),
       });
       if (!res.ok) {
         setFollowUps([]);
@@ -3875,8 +3877,12 @@ export default function App() {
       }
       const data = await res.json();
       setFollowUps(data?.data?.suggestions || data?.suggestions || []);
-    } catch { setFollowUps([]); }
-    setFollowUpsLoading(false);
+    } catch {
+      setFollowUps([]);
+    } finally {
+      // Without this the skeleton chips spin forever on a failed request.
+      setFollowUpsLoading(false);
+    }
   }, []);
 
   // ── Computed data ─────────────────────────────────────────────────────────────

@@ -5,6 +5,11 @@ const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
 const { normalizePluginIds } = require("../config/plugins");
 const { performDeepSearch } = require("../services/deepSearchService");
+const {
+  buildFollowUpMessages,
+  parseSuggestions,
+  refineSuggestions,
+} = require("../services/followUpService");
 
 // ── Groq client ───────────────────────────────────────────────────────────────
 if (!config.groqApiKey) {
@@ -278,55 +283,78 @@ async function generateTitle(req, res) {
   return successResponse(res, "Title generated", { title: title.replace(/^[\"']|[\"']$/g, "").slice(0, 64) });
 }
 
+const FOLLOW_UP_LIMIT = 4;
+
+// One generation attempt against whichever provider is configured.
+async function requestFollowUps({ userQuery, answer, rejected, temperature }) {
+  const messages = buildFollowUpMessages({ userQuery, answer, rejected });
+
+  if (groq) {
+    const completion = await withRetry(
+      () => groq.chat.completions.create({
+        model: config.followUpModel || config.groqModel || "llama-3.3-70b-versatile",
+        temperature,
+        max_tokens: 220,
+        messages,
+      }),
+      1
+    );
+    return completion?.choices?.[0]?.message?.content || "";
+  }
+
+  if (mistralAvailable) {
+    return callMistralChat({ messages, temperature, maxTokens: 220 });
+  }
+
+  return "";
+}
+
 async function followUps(req, res) {
   const lastMessage = String(req.body?.lastMessage || "").trim();
   const userQuery = String(req.body?.userQuery || "").trim();
   if (!lastMessage) throw new ApiError(400, "lastMessage is required");
 
-  try {
-  if (!groq && mistralAvailable) {
-    const completion = await callMistralChat({
-      messages: [
-        { role: "system", content: "Return exactly 4 concise follow-up questions as a JSON array of strings. No markdown, no extra keys." },
-        { role: "user", content: `Original query: ${userQuery}\n\nAssistant answer: ${lastMessage.slice(0, 1400)}` },
-      ],
-      temperature: config.mistralTemperature,
-      maxTokens: 120,
-    });
-    let suggestions = [];
-    try {
-      const parsed = JSON.parse(completion);
-      if (Array.isArray(parsed)) suggestions = parsed.filter((x) => typeof x === "string").slice(0, 4);
-    } catch {
-      suggestions = completion.split(/\n+/).map((l) => l.replace(/^[\-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
-    }
-    return successResponse(res, "Follow-ups generated", { suggestions });
-  }
-
-  if (!groq) {
+  if (!groq && !mistralAvailable) {
     return successResponse(res, "No follow-ups available", { suggestions: [] });
   }
 
-  const completion = await withRetry(
-    () => groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      temperature: 0.5, max_tokens: 120,
-      messages: [
-        { role: "system", content: "Return exactly 4 concise follow-up questions as a JSON array of strings. No markdown, no extra keys." },
-        { role: "user", content: `Original query: ${userQuery}\n\nAssistant answer: ${lastMessage.slice(0, 1400)}` },
-      ],
-    }),
-    1
-  );
-
-  const raw = completion?.choices?.[0]?.message?.content || "[]";
-  let suggestions = [];
   try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) suggestions = parsed.filter((x) => typeof x === "string").slice(0, 4);
-  } catch {
-    suggestions = raw.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
-  }
+    const raw = await requestFollowUps({
+      userQuery,
+      answer: lastMessage,
+      rejected: [],
+      temperature: 0.7,
+    });
+    const parsed = parseSuggestions(raw);
+    let suggestions = refineSuggestions(parsed, {
+      userQuery,
+      answer: lastMessage,
+      limit: FOLLOW_UP_LIMIT,
+    });
+
+    // The validator throws away template-shaped output, so a thin result means
+    // the model fell back to boilerplate. Retry once, naming what was rejected.
+    if (suggestions.length < 2) {
+      const rejected = parsed.filter((q) => !suggestions.includes(q)).slice(0, 4);
+      const retryRaw = await requestFollowUps({
+        userQuery,
+        answer: lastMessage,
+        rejected,
+        temperature: 0.9,
+      });
+      const retried = refineSuggestions(parseSuggestions(retryRaw), {
+        userQuery,
+        answer: lastMessage,
+        limit: FOLLOW_UP_LIMIT,
+      });
+      if (retried.length > suggestions.length) suggestions = retried;
+    }
+
+    // Better to show nothing than four templates with the topic slotted in.
+    if (suggestions.length < 2) {
+      logger.info("chat.followUps.suppressed", { generated: parsed.length });
+      return successResponse(res, "Follow-ups unavailable", { suggestions: [] });
+    }
 
     return successResponse(res, "Follow-ups generated", { suggestions });
   } catch (error) {

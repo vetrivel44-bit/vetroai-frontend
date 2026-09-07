@@ -8641,16 +8641,40 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      FOLLOW-UP CHIPS
      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-  .followup-row { flex-wrap: wrap !important; gap: 6px !important; padding: 0 14px !important; }
+  /* Full-width rows on mobile: a follow-up you can only half-read is useless,
+     so wrap the text instead of clipping it at the screen edge. */
+  .followup-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    padding: 0 14px !important;
+  }
   .followup-chip {
     background: rgba(255,255,255,0.05) !important;
     border: 1px solid rgba(255,255,255,0.09) !important;
     color: #A0A0A0 !important;
-    border-radius: 20px !important;
+    border-radius: 16px !important;
     font-size: 0.78rem !important;
-    padding: 7px 12px !important;
+    padding: 9px 14px !important;
     font-weight: 500 !important;
-    max-width: 220px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    line-height: 1.4 !important;
+  }
+  .followup-chip > svg {
+    flex: 0 0 auto !important;
+    margin-top: 2px !important;
+  }
+  .followup-chip.skeleton {
+    width: 100% !important;
+    height: 36px !important;
   }
   .followup-chip:hover {
     background: rgba(214,168,95,0.10) !important;
