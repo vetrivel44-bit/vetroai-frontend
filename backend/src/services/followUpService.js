@@ -28,9 +28,57 @@ const GENERIC_PATTERNS = [
   /^what should i know\b/i,
   /^(any|are there) (other )?(examples?|tips?)\??$/i,
   /^how can i (learn|get started|use) (more )?(about )?(this|it)\b/i,
+  /^what (is|are) the best (next step|way|approach)\b/i,
+  /^can you (give|show) me (a|an|some|another)\b/i,
+  /^what should i (watch|look) (out )?for\b/i,
+  /^what('s| is) next\b/i,
+  /^how (do|would) i (start|begin|apply) (this|it)\b/i,
+  /\bmore simply\?$/i,
 ];
 
 const isGeneric = (q) => GENERIC_PATTERNS.some((rx) => rx.test(q.trim()));
+
+// Words too common to prove a question is about anything in particular.
+const STOPWORDS = new Set([
+  "the", "and", "for", "are", "was", "were", "you", "your", "yours", "this", "that", "these", "those",
+  "with", "from", "into", "about", "what", "when", "where", "which", "who", "whom", "why", "how",
+  "can", "could", "should", "would", "will", "shall", "may", "might", "must", "does", "did", "done",
+  "have", "has", "had", "its", "it's", "not", "but", "any", "all", "some", "more", "most", "other",
+  "than", "then", "there", "their", "them", "they", "she", "him", "her", "his", "our", "ours",
+  "get", "got", "make", "made", "use", "used", "using", "give", "given", "take", "want", "need",
+  "one", "two", "also", "very", "just", "like", "such", "each", "example", "examples", "practical",
+  "simply", "simple", "explain", "explained", "tell", "know", "watch", "out", "next", "step", "steps",
+  "best", "good", "bad", "thing", "things", "way", "ways", "help", "work", "works", "working",
+  "here", "much", "many", "still", "over", "under", "between", "because", "before", "after", "while",
+]);
+
+// Words in a string that actually carry topic meaning.
+function contentWords(text) {
+  const found = String(text).toLowerCase().match(/[a-z][a-z0-9_.-]{2,}/g) || [];
+  return new Set(found.filter((w) => !STOPWORDS.has(w)));
+}
+
+const normalise = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+// The failure that produced "Can you explain Can you explain Apk more simply
+// more simply?": a weak model wraps a template around the question it was
+// given, so the user's own words come back nested inside the suggestion.
+function repeatsQuery(question, userQuery) {
+  const u = normalise(userQuery);
+  if (u.length < 12) return false;
+  return normalise(question).includes(u);
+}
+
+// A question that shares no vocabulary with the answer could have been written
+// without reading it — which is the definition of the generic filler we do not
+// want. One shared topic word is enough to show it is grounded.
+function isAnchored(question, answerWords) {
+  if (!answerWords || answerWords.size === 0) return true;
+  for (const w of contentWords(question)) {
+    if (answerWords.has(w)) return true;
+  }
+  return false;
+}
 
 // Normalised form used only for duplicate detection.
 const dedupeKey = (q) =>
@@ -101,9 +149,10 @@ function parseSuggestions(raw) {
   return items;
 }
 
-function cleanSuggestions(items) {
+function cleanSuggestions(items, { userQuery = "", answer = "" } = {}) {
   const seen = new Set();
   const out = [];
+  const answerWords = answer ? contentWords(answer) : null;
 
   for (const item of items) {
     // Order matters: strip list markers first, because a quoted question can
@@ -124,6 +173,8 @@ function cleanSuggestions(items) {
     }
     if (q.length < 12 || q.length > 120) continue;
     if (isGeneric(q)) continue;
+    if (repeatsQuery(q, userQuery)) continue;
+    if (!isAnchored(q, answerWords)) continue;
 
     const key = dedupeKey(q);
     if (!key || seen.has(key)) continue;
@@ -151,7 +202,7 @@ async function generateFollowUps({ userQuery, answer, history, callModel }) {
     temperature: 0.8,
   });
 
-  const suggestions = cleanSuggestions(parseSuggestions(raw));
+  const suggestions = cleanSuggestions(parseSuggestions(raw), { userQuery, answer });
   if (suggestions.length < 4) {
     logger.info("followUps.partial", { got: suggestions.length });
   }
@@ -164,5 +215,8 @@ module.exports = {
   parseSuggestions,
   cleanSuggestions,
   isGeneric,
+  repeatsQuery,
+  isAnchored,
+  contentWords,
   GENERIC_PATTERNS,
 };

@@ -151,3 +151,64 @@ test("end to end: specific model output survives intact", async () => {
   assert.ok(suggestions.every((q) => q.endsWith("?")));
   assert.ok(suggestions.some((q) => /n_distinct|BRIN|90ms|10%/.test(q)), "questions cite the answer's specifics");
 });
+
+// The four suggestions from a real session, reported as "always the same fixed
+// format". The first two show the failure that gives it away: a weak model
+// wrapping a template around the question it was handed, so the user's own
+// words come back nested inside the suggestion.
+const APK_ANSWER = `An APK is the package format Android uses to distribute and install apps.
+It bundles the compiled code, resources and a manifest into one file, and Android verifies its
+signature before installing. Only download APKs from trusted sources, because unsafe files may
+contain malware. Google Play usually installs APKs automatically for you.`;
+const APK_QUERY = "Can you explain Apk more simply";
+
+test("the exact templated suggestions from the report are all rejected", () => {
+  const reported = [
+    "Can you explain Can you explain Apk more simply more simply?",
+    "What is the best next step for Can you explain Apk more simply?",
+    "Can you give me a practical example?",
+    "What should I watch out for?",
+  ];
+  const cleaned = followUpService.cleanSuggestions(reported, { userQuery: APK_QUERY, answer: APK_ANSWER });
+  assert.deepEqual(cleaned, [], "none of these should ever be shown");
+});
+
+test("a suggestion that swallows the user's own question is rejected", () => {
+  assert.equal(
+    followUpService.repeatsQuery("Can you explain Can you explain Apk more simply more simply?", APK_QUERY),
+    true
+  );
+  assert.equal(
+    followUpService.repeatsQuery("What is the best next step for Can you explain Apk more simply?", APK_QUERY),
+    true
+  );
+  assert.equal(
+    followUpService.repeatsQuery("Why does Android verify the signature first?", APK_QUERY),
+    false,
+    "an unrelated phrasing is not a repeat"
+  );
+});
+
+test("a question sharing no vocabulary with the answer is rejected", () => {
+  const words = followUpService.contentWords(APK_ANSWER);
+  assert.equal(followUpService.isAnchored("Can you give me a practical example?", words), false);
+  assert.equal(followUpService.isAnchored("What should I watch out for?", words), false);
+  assert.equal(followUpService.isAnchored("How does Android verify an APK signature?", words), true);
+  assert.equal(followUpService.isAnchored("Is sideloading from outside Google Play risky?", words), true);
+});
+
+test("genuinely specific questions about the same answer survive", () => {
+  const good = [
+    "How does Android verify an APK signature before installing?",
+    "What does the manifest inside an APK actually declare?",
+    "Is sideloading riskier than installing from Google Play?",
+    "Can a malicious APK pass signature verification?",
+  ];
+  const cleaned = followUpService.cleanSuggestions(good, { userQuery: APK_QUERY, answer: APK_ANSWER });
+  assert.equal(cleaned.length, 4, `expected all four to survive, got ${JSON.stringify(cleaned)}`);
+});
+
+test("anchoring is skipped when there is no answer to anchor against", () => {
+  const cleaned = followUpService.cleanSuggestions(["Why does the planner pick a seq scan?"], {});
+  assert.equal(cleaned.length, 1);
+});

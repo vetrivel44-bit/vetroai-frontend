@@ -11985,3 +11985,24 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
     padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }
+
+/* ── Chat content gutters ───────────────────────────────────────────────────
+   The feed's inner wrapper carries Tailwind's `px-4 sm:px-6`, but those never
+   take effect: App.css's universal reset (`*{margin:0;padding:0}`) is
+   unlayered, and unlayered declarations beat anything in Tailwind 4's
+   `@layer utilities` no matter the specificity. So every message — and the
+   related list — ran flush to the screen edge on mobile.
+
+   Restoring the gutter here rather than by editing that reset, because
+   removing it would switch every Tailwind spacing utility in the app back on
+   at once, and the hand-written CSS was authored around them being inert. */
+.claude-feed-scroll > div {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+@media (min-width: 640px) {
+  .claude-feed-scroll > div {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
