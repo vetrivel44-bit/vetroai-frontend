@@ -212,3 +212,103 @@ test("anchoring is skipped when there is no answer to anchor against", () => {
   const cleaned = followUpService.cleanSuggestions(["Why does the planner pick a seq scan?"], {});
   assert.equal(cleaned.length, 1);
 });
+
+// The "car" case from the report: a one-word prompt, an answer explaining how a
+// car works, and suggestions that just wrapped the prompt word in a frame.
+const CAR_ANSWER = `A car converts fuel into motion. The internal combustion engine burns petrol
+in cylinders, the crankshaft turns that into rotation, and the transmission sends torque to the
+wheels through a differential.`;
+
+test("key terms are what the answer added, not what the prompt already said", () => {
+  const terms = followUpService.keyTerms(CAR_ANSWER, "car");
+  assert.ok(terms.includes("crankshaft"), "picks up what the answer introduced");
+  assert.ok(terms.includes("combustion"));
+  assert.ok(terms.includes("transmission") || terms.includes("differential"));
+  assert.ok(!terms.includes("car"), "the prompt's own word is not a key term");
+  assert.ok(!terms.some((t) => /[._-]$/.test(t)), "no trailing punctuation clings to a term");
+});
+
+test("matching only the prompt's word does not count as anchored", () => {
+  // This is the whole point. Any template built from the prompt contains the
+  // prompt's word, so accepting that as an anchor would accept every template.
+  const anchors = followUpService.anchorSet(CAR_ANSWER, "car");
+  assert.equal(followUpService.isAnchored("Can you tell the steps followed by car?", anchors), false);
+  assert.equal(followUpService.isAnchored("What is the best next step for car?", anchors), false);
+  assert.equal(followUpService.isAnchored("How does the crankshaft turn combustion into rotation?", anchors), true);
+});
+
+test("prompt-substituted templates are all rejected for the car answer", () => {
+  const templated = [
+    "Can you explain car more simply?",
+    "Can you tell the steps followed by car?",
+    "What is the best next step for car?",
+    "Can you give me a practical example?",
+    "What should I watch out for?",
+  ];
+  const cleaned = followUpService.cleanSuggestions(templated, { userQuery: "car", answer: CAR_ANSWER });
+  assert.deepEqual(cleaned, []);
+});
+
+test("grounded questions about the car answer survive", () => {
+  const good = [
+    "How does the crankshaft turn combustion into rotation?",
+    "Why does the differential matter when cornering?",
+    "Is a petrol engine less efficient than an electric motor?",
+    "What does the transmission change about torque?",
+  ];
+  const cleaned = followUpService.cleanSuggestions(good, { userQuery: "car", answer: CAR_ANSWER });
+  assert.equal(cleaned.length, 4, JSON.stringify(cleaned));
+});
+
+test("the prompt tells the model which terms it must engage with", () => {
+  const { user } = followUpService.buildPrompt({ userQuery: "car", answer: CAR_ANSWER });
+  assert.match(user, /crankshaft/, "key terms are listed for the model");
+  assert.match(user, /must engage with at least one/i);
+});
+
+test("the strict retry names the frames it must not reuse", () => {
+  const { user } = followUpService.buildPrompt({ userQuery: "car", answer: CAR_ANSWER, strict: true });
+  assert.match(user, /previous attempt was rejected/i);
+  assert.match(user, /Can you explain/);
+});
+
+test("a templated first pass triggers one strict retry, and the better result wins", async () => {
+  const calls = [];
+  const suggestions = await followUpService.generateFollowUps({
+    userQuery: "car",
+    answer: CAR_ANSWER,
+    history: [],
+    callModel: async ({ user }) => {
+      calls.push(user);
+      // First pass returns templates; the retry returns grounded questions.
+      return calls.length === 1
+        ? JSON.stringify(["Can you explain car more simply?", "What is the best next step for car?"])
+        : JSON.stringify([
+            "How does the crankshaft turn combustion into rotation?",
+            "Why does the differential matter when cornering?",
+            "What does the transmission change about torque?",
+            "Is petrol less efficient than an electric motor?",
+          ]);
+    },
+  });
+  assert.equal(calls.length, 2, "retried once");
+  assert.match(calls[1], /previous attempt was rejected/i, "the retry was the strict one");
+  assert.equal(suggestions.length, 4);
+});
+
+test("a good first pass is not retried", async () => {
+  let calls = 0;
+  await followUpService.generateFollowUps({
+    userQuery: "car",
+    answer: CAR_ANSWER,
+    history: [],
+    callModel: async () => {
+      calls++;
+      return JSON.stringify([
+        "How does the crankshaft turn combustion into rotation?",
+        "Why does the differential matter when cornering?",
+      ]);
+    },
+  });
+  assert.equal(calls, 1, "two survivors is enough; no second call");
+});

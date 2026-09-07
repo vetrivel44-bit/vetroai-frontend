@@ -52,10 +52,21 @@ const STOPWORDS = new Set([
   "here", "much", "many", "still", "over", "under", "between", "because", "before", "after", "while",
 ]);
 
-// Words in a string that actually carry topic meaning.
+// Words in a string that actually carry topic meaning. Internal dots and
+// dashes are kept so "n_distinct", "pg-bouncer" and "node.js" survive as one
+// token, but trailing ones are trimmed — otherwise "differential." from the
+// answer would never match "differential" in a question.
+const TOKEN_RE = /[a-z][a-z0-9_.-]*/g;
+const trimToken = (w) => w.replace(/^[._-]+|[._-]+$/g, "");
+
+function tokenize(text) {
+  return (String(text).toLowerCase().match(TOKEN_RE) || [])
+    .map(trimToken)
+    .filter((w) => w.length >= 3);
+}
+
 function contentWords(text) {
-  const found = String(text).toLowerCase().match(/[a-z][a-z0-9_.-]{2,}/g) || [];
-  return new Set(found.filter((w) => !STOPWORDS.has(w)));
+  return new Set(tokenize(text).filter((w) => !STOPWORDS.has(w)));
 }
 
 const normalise = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
@@ -69,10 +80,24 @@ function repeatsQuery(question, userQuery) {
   return normalise(question).includes(u);
 }
 
-// A question that shares no vocabulary with the answer could have been written
-// without reading it — which is the definition of the generic filler we do not
-// want. One shared topic word is enough to show it is grounded.
+// A question is anchored when it engages with something the ANSWER introduced.
+// Matching the user's own topic word is not enough: "Can you tell the steps
+// followed by car?" contains "car", but so would every template built from the
+// prompt — which is precisely the patterned output being complained about. The
+// anchor set is therefore the answer's vocabulary MINUS whatever the user
+// already said, so only a question reaching past the prompt survives.
+function anchorSet(answer, userQuery = "") {
+  const asked = contentWords(userQuery);
+  const out = new Set();
+  for (const w of contentWords(answer)) {
+    if (!asked.has(w)) out.add(w);
+  }
+  return out;
+}
+
 function isAnchored(question, answerWords) {
+  // An answer that added nothing beyond the prompt gives nothing to anchor to;
+  // don't reject everything in that case.
   if (!answerWords || answerWords.size === 0) return true;
   for (const w of contentWords(question)) {
     if (answerWords.has(w)) return true;
@@ -80,11 +105,33 @@ function isAnchored(question, answerWords) {
   return false;
 }
 
+// The terms the ANSWER introduced that the question did not already contain.
+// This is the heart of it: if someone asks "car" and the reply talks about
+// combustion, transmission and torque, those three words are what the reply
+// actually added. Handing them to the model turns "write a good question" into
+// "write a question about combustion", which a template cannot satisfy — and
+// it works even when only a small model is available, which is when the
+// templated output showed up in the first place.
+function keyTerms(answer, userQuery = "", limit = 12) {
+  const asked = contentWords(userQuery);
+  const counts = new Map();
+  for (const w of tokenize(answer)) {
+    if (w.length < 4 || STOPWORDS.has(w) || asked.has(w)) continue;
+    counts.set(w, (counts.get(w) || 0) + 1);
+  }
+  // Something named once in a short reply still matters, so rank by count but
+  // keep singletons rather than demanding repetition.
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([w]) => w);
+}
+
 // Normalised form used only for duplicate detection.
 const dedupeKey = (q) =>
   q.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\b(the|a|an|of|for|to|in|on|is|are|does|do)\b/g, "").replace(/\s+/g, " ").trim();
 
-function buildPrompt({ userQuery, answer, history }) {
+function buildPrompt({ userQuery, answer, history, strict = false }) {
   const recent = (history || [])
     .slice(-6)
     .filter((m) => m && typeof m.content === "string" && m.content.trim())
@@ -114,12 +161,24 @@ GOOD examples (note how each names something concrete):
 
 Return ONLY a JSON array of exactly 4 strings. No other text.`;
 
+  const terms = keyTerms(answer, userQuery);
+  const termLine = terms.length
+    ? `\nThese are the specific things the answer raised that the question did not: ${terms.join(", ")}.\nEach of your four questions must engage with at least one of them. A question that uses none of these words is not about this answer, and is wrong.\n`
+    : "";
+
+  // Used for the second attempt, when the first came back templated anyway.
+  const insist = strict
+    ? `\nYour previous attempt was rejected for being generic. Do not restate the user's question in any form. Do not use the frames "Can you explain...", "What are the benefits...", "What should I watch out for...", "Can you give me an example...", or "What is the best next step...". Name a specific thing from the answer in every question.\n`
+    : "";
+
   const user = [
     recent ? `Conversation so far:\n${recent}\n` : "",
     `The user asked: ${userQuery || "(not recorded)"}`,
     "",
     "The answer they just received:",
     answer,
+    termLine,
+    insist,
   ].filter(Boolean).join("\n");
 
   return { system, user };
@@ -152,7 +211,7 @@ function parseSuggestions(raw) {
 function cleanSuggestions(items, { userQuery = "", answer = "" } = {}) {
   const seen = new Set();
   const out = [];
-  const answerWords = answer ? contentWords(answer) : null;
+  const answerWords = answer ? anchorSet(answer, userQuery) : null;
 
   for (const item of items) {
     // Order matters: strip list markers first, because a quoted question can
@@ -190,19 +249,35 @@ function cleanSuggestions(items, { userQuery = "", answer = "" } = {}) {
 // model text. Kept injectable so the controller can supply whichever provider
 // it has configured, and so this is testable without a network.
 async function generateFollowUps({ userQuery, answer, history, callModel }) {
-  const { system, user } = buildPrompt({ userQuery, answer, history });
+  const ask = async (strict) => {
+    const { system, user } = buildPrompt({ userQuery, answer, history, strict });
+    const raw = await callModel({
+      system,
+      user,
+      // Four specific questions need room; the old 120-token cap truncated the
+      // fourth one and the JSON array with it.
+      maxTokens: 260,
+      // High enough to vary the angles, low enough to stay on topic.
+      temperature: strict ? 0.6 : 0.8,
+    });
+    return cleanSuggestions(parseSuggestions(raw), { userQuery, answer });
+  };
 
-  const raw = await callModel({
-    system,
-    user,
-    // Four specific questions need room; the old 120-token cap truncated the
-    // fourth one and the JSON array with it.
-    maxTokens: 260,
-    // High enough to vary the angles, low enough to stay on topic.
-    temperature: 0.8,
-  });
+  let suggestions = await ask(false);
 
-  const suggestions = cleanSuggestions(parseSuggestions(raw), { userQuery, answer });
+  // One more go when the model leaned on templates, telling it plainly that it
+  // did. Showing two good questions beats showing four, but showing none beats
+  // showing filler — so this only retries when most were rejected.
+  if (suggestions.length < 2) {
+    logger.info("followUps.retryStrict", { firstPass: suggestions.length });
+    try {
+      const second = await ask(true);
+      if (second.length > suggestions.length) suggestions = second;
+    } catch (err) {
+      logger.warn("followUps.retryFailed", { error: err.message });
+    }
+  }
+
   if (suggestions.length < 4) {
     logger.info("followUps.partial", { got: suggestions.length });
   }
@@ -215,6 +290,8 @@ module.exports = {
   parseSuggestions,
   cleanSuggestions,
   isGeneric,
+  keyTerms,
+  anchorSet,
   repeatsQuery,
   isAnchored,
   contentWords,
