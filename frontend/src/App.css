@@ -11968,7 +11968,20 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .related-item.is-loading:nth-child(3) .related-skeleton { width: 71%; }
 
 @media (max-width: 768px) {
-  .related-block { margin-top: 20px; }
+  /* The composer is taller on mobile, so the last question would otherwise
+     sit flush against it once the feed scrolls to the bottom. */
+  .related-block { margin-top: 20px; margin-bottom: 24px; }
   .related-btn { padding: 12px 2px; font-size: 0.9rem; }
   .related-heading { font-size: 0.9rem; }
+  .related-item:last-child { border-bottom: 1px solid var(--border); }
+}
+
+/* The chat feed reserves a fixed 130px for the composer (set inline on
+   .claude-feed-scroll). The mobile composer is taller than that, so the last
+   ~45px of ANY message — not just the related list — sat underneath it once
+   scrolled to the bottom. Reserve enough room, plus the home-indicator inset. */
+@media (max-width: 768px) {
+  .claude-feed-scroll {
+    padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)) !important;
+  }
 }
