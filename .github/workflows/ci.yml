@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci --no-audit --no-fund
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --no-audit --no-fund
+
+      - name: Backend tests
+        run: npm --prefix backend test
+
+      - name: Frontend tests
+        run: npm --prefix frontend test
+
+      # The existing codebase has a backlog of ~80 lint findings, nearly all
+      # unused variables in dead code. Reporting them is useful; failing every
+      # build on them is not, until that backlog is cleared.
+      - name: Lint (advisory)
+        run: npm --prefix frontend run lint
+        continue-on-error: true
+
+      - name: Frontend build
+        run: npm --prefix frontend run build

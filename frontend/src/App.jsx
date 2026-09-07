@@ -3253,6 +3253,10 @@ export default function App() {
   const [editingSpace, setEditingSpace] = useState(null);
   // ── Chat ──────────────────────────────────────────────────────────────────────
   const [messages, setMessages]             = useState([]);
+  // Lets callbacks with stable identity (e.g. generateFollowUps) read the
+  // current conversation without being re-created on every message.
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   const [isIncognito, setIsIncognito]       = useState(false);
   const [showJobs, setShowJobs]             = useState(false);
   const [input, setInput]                   = useState("");
@@ -3864,10 +3868,22 @@ export default function App() {
     if (!lastBotMsg || lastBotMsg.length < 50) return;
     setFollowUpsLoading(true);
     try {
+      // Send the whole answer, not the first 600 characters. The old cap meant
+      // the model writing these had only seen the opening paragraph, so it had
+      // nothing specific to ask about and fell back to generic shapes.
+      const recent = messagesRef.current
+        .slice(-6)
+        .filter((m) => m?.content && (m.role === "user" || m.role === "assistant"))
+        .map((m) => ({ role: m.role, content: String(m.content).slice(0, 1200) }));
+
       const res  = await fetch(API + "/follow-ups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lastMessage: lastBotMsg.slice(0, 600), userQuery: userQuery?.slice(0, 150) || "" }),
+        body: JSON.stringify({
+          lastMessage: lastBotMsg.slice(0, 6000),
+          userQuery: userQuery?.slice(0, 600) || "",
+          history: recent,
+        }),
       });
       if (!res.ok) {
         setFollowUps([]);
@@ -6142,24 +6158,31 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      </div>
                    )}
 
-                   {/* Follow-up suggestions for the latest answer */}
+                   {/* Related questions for the latest answer */}
                    {!isLoading && messages.length > 0 && messages[messages.length - 1].role === "assistant" && (followUpsLoading || followUps.length > 0) && (
-                     <div className="followup-row" role="list" aria-label="Suggested follow-up questions">
-                       {followUpsLoading
-                         ? [0, 1, 2].map(i => <span key={i} className="followup-chip skeleton" style={{ "--d": `${i * 0.08}s` }} />)
-                         : followUps.map((q, i) => (
-                           <button
-                             key={`${i}_${q}`}
-                             role="listitem"
-                             className="followup-chip"
-                             style={{ "--d": `${i * 0.06}s` }}
-                             title={q}
-                             onClick={() => { setFollowUps([]); sendMessage(null, q); }}
-                           >
-                             <CornerDownRight size={13} />{q}
-                           </button>
-                         ))}
-                     </div>
+                     <section className="related-block" aria-label="Related questions">
+                       <h3 className="related-heading"><Layers size={15} /> Related</h3>
+                       <ul className="related-list">
+                         {followUpsLoading
+                           ? [0, 1, 2].map(i => (
+                             <li key={i} className="related-item is-loading" style={{ "--d": `${i * 0.08}s` }}>
+                               <span className="related-skeleton" />
+                             </li>
+                           ))
+                           : followUps.map((q, i) => (
+                             <li key={`${i}_${q}`} className="related-item" style={{ "--d": `${i * 0.05}s` }}>
+                               <button
+                                 type="button"
+                                 className="related-btn"
+                                 onClick={() => { setFollowUps([]); sendMessage(null, q); }}
+                               >
+                                 <span className="related-text">{q}</span>
+                                 <Plus size={16} className="related-plus" aria-hidden="true" />
+                               </button>
+                             </li>
+                           ))}
+                       </ul>
+                     </section>
                    )}
 
                    <div ref={messagesEndRef} />

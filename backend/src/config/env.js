@@ -27,6 +27,10 @@ module.exports = {
     groqModel:           getEnv("GROQ_MODEL",            "llama-3.3-70b-versatile"),
     groqTemperature:     Number(getEnv("GROQ_TEMPERATURE", "0.7")),
     groqMaxTokens:       Number(getEnv("GROQ_MAX_TOKENS",  "16384")),
+    // Related-question generation. Deliberately a stronger model than the chat
+    // default's fast tier — templated suggestions were mostly the small model
+    // reaching for a familiar shape instead of reading the answer.
+    groqFollowUpModel:   getEnv("GROQ_FOLLOWUP_MODEL",  "llama-3.3-70b-versatile"),
     mistralApiKey:       getEnv("MISTRAL_API_KEY",       ""),
     mistralModel:        getEnv("MISTRAL_MODEL",        "mistral-small-latest"),
     mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),

@@ -16,6 +16,7 @@ const mistralAvailable = Boolean(config.mistralApiKey);
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
 const medicalService = require("../services/medicalService");
+const followUpService = require("../services/followUpService");
 const { verifyAccessToken } = require("../utils/token");
 
 // Best-effort: resolves a Mongo user id from the bearer token if one is present.
@@ -281,53 +282,59 @@ async function generateTitle(req, res) {
 async function followUps(req, res) {
   const lastMessage = String(req.body?.lastMessage || "").trim();
   const userQuery = String(req.body?.userQuery || "").trim();
-  if (!lastMessage) throw new ApiError(400, "lastMessage is required");
-
-  try {
-  if (!groq && mistralAvailable) {
-    const completion = await callMistralChat({
-      messages: [
-        { role: "system", content: "Return exactly 4 concise follow-up questions as a JSON array of strings. No markdown, no extra keys." },
-        { role: "user", content: `Original query: ${userQuery}\n\nAssistant answer: ${lastMessage.slice(0, 1400)}` },
-      ],
-      temperature: config.mistralTemperature,
-      maxTokens: 120,
-    });
-    let suggestions = [];
+  // Recent turns let the model avoid re-asking something already covered.
+  let history = [];
+  if (req.body?.history) {
     try {
-      const parsed = JSON.parse(completion);
-      if (Array.isArray(parsed)) suggestions = parsed.filter((x) => typeof x === "string").slice(0, 4);
-    } catch {
-      suggestions = completion.split(/\n+/).map((l) => l.replace(/^[\-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
-    }
-    return successResponse(res, "Follow-ups generated", { suggestions });
+      const parsed = typeof req.body.history === "string" ? JSON.parse(req.body.history) : req.body.history;
+      if (Array.isArray(parsed)) {
+        history = parsed
+          .filter((m) => m && typeof m.content === "string" && ["user", "assistant"].includes(m.role))
+          .slice(-6)
+          .map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }));
+      }
+    } catch { /* history is a nicety, not a requirement */ }
   }
 
-  if (!groq) {
+  if (!lastMessage) throw new ApiError(400, "lastMessage is required");
+
+  // Whichever provider is configured, called through one interface so the
+  // prompt and the cleanup are identical for both.
+  let callModel = null;
+  if (groq) {
+    callModel = async ({ system, user, maxTokens, temperature }) => {
+      const completion = await withRetry(
+        () => groq.chat.completions.create({
+          // A stronger model than llama-3.1-8b-instant: the questions are the
+          // whole point, and the weaker one reached for templates.
+          model: config.groqFollowUpModel || "llama-3.3-70b-versatile",
+          temperature,
+          max_tokens: maxTokens,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        }),
+        1
+      );
+      return completion?.choices?.[0]?.message?.content || "";
+    };
+  } else if (mistralAvailable) {
+    callModel = async ({ system, user, maxTokens, temperature }) => callMistralChat({
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      temperature,
+      maxTokens,
+    });
+  }
+
+  if (!callModel) {
     return successResponse(res, "No follow-ups available", { suggestions: [] });
   }
 
-  const completion = await withRetry(
-    () => groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      temperature: 0.5, max_tokens: 120,
-      messages: [
-        { role: "system", content: "Return exactly 4 concise follow-up questions as a JSON array of strings. No markdown, no extra keys." },
-        { role: "user", content: `Original query: ${userQuery}\n\nAssistant answer: ${lastMessage.slice(0, 1400)}` },
-      ],
-    }),
-    1
-  );
-
-  const raw = completion?.choices?.[0]?.message?.content || "[]";
-  let suggestions = [];
   try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) suggestions = parsed.filter((x) => typeof x === "string").slice(0, 4);
-  } catch {
-    suggestions = raw.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 4);
-  }
-
+    const suggestions = await followUpService.generateFollowUps({
+      userQuery,
+      answer: lastMessage,
+      history,
+      callModel,
+    });
     return successResponse(res, "Follow-ups generated", { suggestions });
   } catch (error) {
     logger.warn("chat.followUps.failed", { error: error.message });

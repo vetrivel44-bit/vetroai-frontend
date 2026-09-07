@@ -11893,3 +11893,82 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .artifact-icon-btn:hover,.atab:hover { background:var(--bg-active); color:var(--ink); }
 .atab.active,.artifact-save-btn { background:var(--accent); color:#fff; border-color:transparent; }
 .artifact-footer { border-color:var(--border); }
+
+/* ── Related questions ──────────────────────────────────────────────────────
+   A vertical list with hairline separators, in the shape people know from
+   Perplexity's "Related" block. The previous horizontal pill row truncated
+   longer questions with an ellipsis, so the specific detail that makes a
+   question worth clicking was usually the part that got cut. */
+.related-block {
+  margin: 26px 0 8px;
+  padding-top: 4px;
+  animation: fadeUp 0.35s ease both;
+}
+.related-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 2px;
+  padding: 0 2px 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  letter-spacing: -0.01em;
+}
+.related-heading svg { color: var(--ink-4); }
+.related-list { list-style: none; margin: 0; padding: 0; }
+.related-item {
+  border-top: 1px solid var(--border);
+  animation: fadeUp 0.32s ease var(--d, 0s) both;
+}
+.related-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 0.94rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  transition: color var(--tr);
+}
+.related-btn:hover { color: var(--ink); }
+.related-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* The question wraps rather than truncating — the detail is the point. */
+.related-text { flex: 1; min-width: 0; }
+.related-plus {
+  flex-shrink: 0;
+  color: var(--ink-4);
+  transition: color var(--tr), transform var(--tr);
+}
+.related-btn:hover .related-plus { color: var(--ink-2); transform: rotate(90deg); }
+
+.related-item.is-loading { pointer-events: none; }
+.related-skeleton {
+  display: block;
+  height: 15px;
+  margin: 14px 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-active) 50%, var(--bg-hover) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+.related-item.is-loading:nth-child(1) .related-skeleton { width: 78%; }
+.related-item.is-loading:nth-child(2) .related-skeleton { width: 64%; }
+.related-item.is-loading:nth-child(3) .related-skeleton { width: 71%; }
+
+@media (max-width: 768px) {
+  .related-block { margin-top: 20px; }
+  .related-btn { padding: 12px 2px; font-size: 0.9rem; }
+  .related-heading { font-size: 0.9rem; }
+}
