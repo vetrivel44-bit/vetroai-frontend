@@ -94,6 +94,40 @@ test("scam intents are recognised across phrasings and languages", () => {
   }
 });
 
+// Real transcripts of Indian scam calls come back from the recogniser as
+// code-switched Latin script far more often than as Devanagari or Tamil, and
+// both languages put the verb last. An earlier version of this table matched
+// neither, and a full Hinglish script walked past every category.
+test("code-switched scripts are caught in either word order", () => {
+  const expected = [
+    ["main aapke bank se bol raha hoon", "authority_claim"],
+    ["aapka card block ho jayega", "urgency_pressure"],
+    ["verification ke liye OTP bataiye", "otp_request"],
+    ["OTP sollunga sir", "otp_request"],
+    ["card number bataiye aur cvv bhi", "credential_request"],
+    ["ab AnyDesk install kijiye", "remote_access"],
+    ["naan bank la irundhu pesuren", "authority_claim"],
+    ["ungaloda account block aagidum", "urgency_pressure"],
+    ["kisi ko mat bataiye", "urgency_pressure"],
+  ];
+  for (const [text, id] of expected) {
+    const ids = matchCategories(text).map((m) => m.id);
+    assert.equal(ids.includes(id), true, `${text} → expected ${id}, got ${ids.join(",") || "none"}`);
+  }
+});
+
+test("ordinary code-switched speech is not mistaken for a script", () => {
+  const benign = [
+    "Main aapko baad me call karta hoon",
+    "Naan innaiku late aagum",
+    "Amma, saapten, neenga saaptingala",
+    "Kal milte hain office me",
+  ];
+  for (const text of benign) {
+    assert.deepEqual(matchCategories(text), [], `false positive on: ${text}`);
+  }
+});
+
 test("normal calls do not trip the classifier", () => {
   const benign = [
     "Hi, your parcel will be delivered tomorrow between 10 and 12",
