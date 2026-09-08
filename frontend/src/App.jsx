@@ -3228,8 +3228,15 @@ export default function App() {
 
   // ── Toast ─────────────────────────────────────────────────────────────────────
   const [toasts, setToasts] = useState([]);
+  // Date.now() alone collided whenever two toasts were raised in the same
+  // millisecond, which happens routinely when one action reports twice. That
+  // showed up as React's duplicate-key warning, but the worse effect was
+  // dismissal: the timer removes by id, so the first one to expire cleared
+  // every toast sharing that id — a 3s toast raised alongside a 1.5s one
+  // disappeared at 1.5s.
+  const toastSeq = useRef(0);
   const addToast = useCallback((message, type = "info", duration = 3000) => {
-    const id = Date.now();
+    const id = `${Date.now()}_${(toastSeq.current += 1)}`;
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
   }, []);
@@ -3680,7 +3687,10 @@ export default function App() {
       const words = content.split(/\s+/);
       const title = words.slice(0, 4).join(" ") + (words.length > 4 ? "…" : "");
       if (!currentSessionId) {
-        const id = Date.now().toString();
+        // Same collision risk as toasts. A suffix keeps ids unique while
+        // leaving the leading timestamp intact for parseInt, which both the
+        // recents sort and getDateGroup rely on.
+        const id = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         setCurrentSessionId(id);
         setSessions((prev) => {
           const list = [{ id, title, messages, spaceId: currentSpaceId }, ...prev];
