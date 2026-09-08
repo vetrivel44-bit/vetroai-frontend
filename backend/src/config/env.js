@@ -62,6 +62,11 @@ module.exports = {
     chessOpenRouterApiKey: getEnv("CHESS_OPENROUTER_API_KEY", ""),
     chessOpenRouterModel:  getEnv("CHESS_OPENROUTER_MODEL",   "openai/gpt-4o-mini"),
     googleMapsApiKey:    getEnv("GOOGLE_MAPS_API_KEY", ""),
+    // Call Assistant (docs/vetroai-call-assistant.md). Speech-to-text and
+    // translation share the Groq key; the spoken voice is Google Cloud TTS.
+    googleTtsApiKey:       getEnv("GOOGLE_TTS_API_KEY",       ""),
+    callAsrModel:          getEnv("CALL_ASR_MODEL",           "whisper-large-v3-turbo"),
+    callTranslationModel:  getEnv("CALL_TRANSLATION_MODEL",   getEnv("GROQ_MODEL", "llama-3.3-70b-versatile")),
     googleClientId:      getEnv("VITE_GOOGLE_CLIENT_ID", "592184427551-7hs7t358m2k3vn60amdv8vnm8b26oprt.apps.googleusercontent.com"),
     enableCloudSessions: getEnv("ENABLE_CLOUD_SESSIONS", "false") === "true",
     twilioAccountSid:    getEnv("TWILIO_ACCOUNT_SID",    ""),

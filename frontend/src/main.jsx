@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import VoiceCoverLauncher from './components/screens/VoiceCoverLauncher.jsx'
+import CallAssistantLauncher from './components/screens/CallAssistantLauncher.jsx'
 import './styles/mobilePalette.css'
 import './styles/mobileModelPicker.css'
 import './styles/modelPickerViewportFix.css'
@@ -21,5 +22,6 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
     <VoiceCoverLauncher />
+    <CallAssistantLauncher />
   </StrictMode>,
 )
