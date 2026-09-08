@@ -12,6 +12,9 @@
 .ca-notice svg{flex-shrink:0;margin-top:1px;color:#60a5fa}
 .ca-notice-warn{border-color:rgba(217,119,6,.28);background:rgba(217,119,6,.08)}
 .ca-notice-warn svg{color:#f59e0b}
+.ca-notice-error{border-color:rgba(220,38,38,.32);background:rgba(220,38,38,.09);align-items:center}
+.ca-notice-error svg{color:#f87171}
+.ca-notice-retry{flex-shrink:0;margin-left:auto;padding:6px 13px;font-size:12.4px}
 
 .ca-card{background:color-mix(in srgb,var(--bg-sidebar,#17171b) 95%,white 5%);border:1px solid rgba(127,127,127,.18);border-radius:20px;padding:20px 22px;box-shadow:0 12px 36px rgba(0,0,0,.12);margin-bottom:16px}
 .ca-step{display:flex;align-items:center;gap:10px;font-weight:760;font-size:15.5px;letter-spacing:-.01em;margin-bottom:14px}

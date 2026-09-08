@@ -33,7 +33,13 @@ const LANGUAGES = [
   { code: "ru", speech: "ru-RU", name: "Russian" },
 ];
 
+// A 404 here is not "this call was bad", it is "this backend has never heard of
+// the Call Assistant". Saying so is the difference between a user retrying the
+// same upload forever and knowing the API needs redeploying.
+const NO_ENDPOINT = "This backend does not serve the Call Assistant endpoints (HTTP 404). It is running a build from before Call Assistant shipped — redeploy the API to enable it.";
+
 async function readError(response) {
+  if (response.status === 404) return NO_ENDPOINT;
   const raw = await response.text().catch(() => "");
   if (!raw) return `Request failed (${response.status}).`;
   try {
@@ -73,7 +79,10 @@ export default function CallAssistant({ apiBase, onClose }) {
   const [consented, setConsented] = useState(() => localStorage.getItem(CONSENT_KEY) === "true");
   const [consentChecks, setConsentChecks] = useState({ processing: false, parties: false, retention: false });
 
-  const [capabilities, setCapabilities] = useState(null);
+  // "loading" until /config answers. "unavailable" means the deployment serves
+  // no Call Assistant routes at all, which is a different thing from a backend
+  // that answered and reported one provider key missing.
+  const [backend, setBackend] = useState({ status: "loading", capabilities: null, detail: "" });
   const [draft, setDraft] = useState("");
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -89,14 +98,36 @@ export default function CallAssistant({ apiBase, onClose }) {
   const chunksRef = useRef([]);
   const audioRef = useRef(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${apiBase}/call-assistant/config`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => { if (!cancelled && body?.data) setCapabilities(body.data.capabilities); })
-      .catch(() => {});
-    return () => { cancelled = true; };
+  const { capabilities } = backend;
+  const backendMissing = backend.status === "unavailable";
+  // While /config is still in flight nothing is disabled. Once it answers, a
+  // missing provider key disables only its own feature; a missing backend
+  // disables every control, because all of them are server round-trips.
+  const featureOff = (feature) => backendMissing || (capabilities ? !capabilities[feature]?.available : false);
+
+  const loadConfig = useCallback(async (signal) => {
+    setBackend((prev) => ({ ...prev, status: "loading" }));
+    let next;
+    try {
+      const response = await fetch(`${apiBase}/call-assistant/config`, { signal });
+      if (response.ok) {
+        const body = await response.json();
+        next = { status: "ready", capabilities: body?.data?.capabilities || null, detail: "" };
+      } else {
+        next = { status: "unavailable", capabilities: null, detail: await readError(response) };
+      }
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      next = { status: "unavailable", capabilities: null, detail: err?.message || "The backend could not be reached." };
+    }
+    setBackend(next);
   }, [apiBase]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadConfig(controller.signal);
+    return () => controller.abort();
+  }, [loadConfig]);
 
   useEffect(() => () => { audioRef.current?.pause(); }, []);
 
@@ -332,7 +363,20 @@ export default function CallAssistant({ apiBase, onClose }) {
         </span>
       </div>
 
-      {capabilities && (!capabilities.transcription.available || !capabilities.speech.available) && (
+      {backendMissing && (
+        <div className="ca-notice ca-notice-error">
+          <AlertTriangle size={16} />
+          <span>
+            <b>Call Assistant is unavailable on this backend.</b> {backend.detail} Analysis, transcription,
+            translation and playback all run on the server, so nothing below will work until the API is redeployed.
+          </span>
+          <button className="ca-secondary ca-notice-retry" onClick={() => loadConfig()} disabled={backend.status === "loading"}>
+            {backend.status === "loading" ? <Loader2 size={14} className="ca-spin" /> : null} Retry
+          </button>
+        </div>
+      )}
+
+      {backend.status === "ready" && capabilities && (!capabilities.transcription.available || !capabilities.speech.available) && (
         <div className="ca-notice ca-notice-warn">
           <AlertTriangle size={16} />
           <span>
@@ -346,7 +390,7 @@ export default function CallAssistant({ apiBase, onClose }) {
       <section className="ca-card">
         <div className="ca-step"><span>1</span> The call</div>
         <div className="ca-sources">
-          <label className={`ca-drop ${capabilities && !capabilities.transcription.available ? "disabled" : ""}`}>
+          <label className={`ca-drop ${featureOff("transcription") ? "disabled" : ""}`}>
             <Upload size={22} />
             <strong>{recording ? recording.name : "Upload a recording"}</strong>
             <small>MP3, WAV, M4A, OGG, WEBM · max 25 MB</small>
@@ -354,14 +398,14 @@ export default function CallAssistant({ apiBase, onClose }) {
               type="file"
               accept="audio/*"
               hidden
-              disabled={!!busy || (capabilities && !capabilities.transcription.available)}
+              disabled={!!busy || featureOff("transcription")}
               onChange={(e) => analyzeRecording(e.target.files?.[0])}
             />
           </label>
           <button
             className={isRecording ? "ca-danger ca-drop-btn" : "ca-secondary ca-drop-btn"}
             onClick={isRecording ? stopRecording : startRecording}
-            disabled={!!busy && !isRecording}
+            disabled={isRecording ? false : (!!busy || featureOff("transcription"))}
           >
             {isRecording ? <CircleStop size={18} /> : <Mic size={18} />}
             {isRecording ? "Stop and analyse" : "Record from this device"}
@@ -378,7 +422,7 @@ export default function CallAssistant({ apiBase, onClose }) {
         />
         <div className="ca-row-between">
           <small className="ca-note">Label lines with <code>Caller:</code> and <code>Me:</code> if you can. Unlabelled lines are treated as the caller.</small>
-          <button className="ca-primary" onClick={analyzeText} disabled={!!busy}>
+          <button className="ca-primary" onClick={analyzeText} disabled={!!busy || backendMissing}>
             {busy === "analyzing" ? <Loader2 size={16} className="ca-spin" /> : <FileText size={16} />} Analyse call
           </button>
         </div>
@@ -409,7 +453,7 @@ export default function CallAssistant({ apiBase, onClose }) {
                 <span>“{analysis.spokenWarning}”</span>
                 <button
                   className="ca-secondary"
-                  disabled={!!busy || (capabilities && !capabilities.speech.available)}
+                  disabled={!!busy || featureOff("speech")}
                   onClick={() => speak(analysis.spokenWarning, "en-US")}
                 >
                   {busy === "speaking" ? <Loader2 size={15} className="ca-spin" /> : <Volume2 size={15} />} Hear it
@@ -447,7 +491,7 @@ export default function CallAssistant({ apiBase, onClose }) {
                 <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
                   {LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.name}</option>)}
                 </select>
-                <button className="ca-secondary" onClick={translateAll} disabled={!!busy || (capabilities && !capabilities.translation.available)}>
+                <button className="ca-secondary" onClick={translateAll} disabled={!!busy || featureOff("translation")}>
                   {busy === "translating" ? <Loader2 size={15} className="ca-spin" /> : <Languages size={15} />} Translate
                 </button>
               </div>
@@ -470,7 +514,7 @@ export default function CallAssistant({ apiBase, onClose }) {
                         <RedactedText text={translations[index]} />
                         <button
                           className="ca-inline-btn"
-                          disabled={!!busy || (capabilities && !capabilities.speech.available)}
+                          disabled={!!busy || featureOff("speech")}
                           onClick={() => speak(translations[index], speechLanguage)}
                           aria-label="Play translation"
                         >
