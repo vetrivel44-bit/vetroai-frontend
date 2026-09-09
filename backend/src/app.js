@@ -78,6 +78,7 @@ app.use("/api/cricket", require("./routes/cricketRoutes"));
 app.use("/api/voice-cover", require("./routes/voiceCoverRoutes"));
 app.use("/api/call-assistant", require("./routes/callAssistantRoutes"));
 app.use("/api/chess", require("./routes/chessRoutes"));
+app.use("/api/web-search", require("./routes/webSearchRoutes"));
 app.use("/api", require("./routes/externalDataRoutes"));
 app.use("/api", chatRoutes);
 

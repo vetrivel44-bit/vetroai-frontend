@@ -29,6 +29,7 @@ const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
 import ThinkingPanel from "./components/ThinkingPanel";
 import GlobalSearch from "./components/screens/GlobalSearch";
+import WebSearchView from "./components/screens/WebSearchView";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
 import PluginHub from "./components/screens/PluginHub";
@@ -678,6 +679,7 @@ const EFFORT_INSTRUCTIONS = {
 
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
+  { id: "web_search", name: "Web Search", icon: "Globe", desc: "Search the web — live results with sources" },
   { id: "deep_search", name: "DeepSearch", icon: "Brain", desc: "Multi-query research with citations" },
   { id: "analyst", name: "Data Analysis", icon: "Calculator", desc: "Deep data analysis and structured reports" },
   { id: "multi_ai", name: "Multi-AI", icon: "Zap", desc: "5 AI models + Web Search — best answer wins" },
@@ -2506,7 +2508,7 @@ function SpacesPanel({ spaces, currentSpaceId, onOpenSpace, onNewSpace, onEditSp
 
 // ─── WORKSPACE POPUP ────────────────────────────────────────────────────────────
 
-function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectMode, onSelectProvider, onSelectEffort, onClose, variant }) {
+function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectMode, onSelectProvider, onSelectEffort, onClose, onOpenWebSearchModal, variant }) {
   const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
@@ -2524,6 +2526,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
 
   const modeColors = {
     normal: "rgba(255, 255, 255, 0.12)",
+    web_search: "rgba(34, 211, 238, 0.14)",
     deep_search: "rgba(59, 130, 246, 0.12)",
     analyst: "rgba(249, 115, 22, 0.12)",
     multi_ai: "rgba(16, 185, 129, 0.12)",
@@ -2613,6 +2616,11 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
                   className={`ws-mode-card${currentMode === m.id ? " active" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (m.id === "web_search" && onOpenWebSearchModal) {
+                      onOpenWebSearchModal();
+                      handleClose();
+                      return;
+                    }
                     onSelectMode(m.id);
                     handleClose();
                   }}
@@ -5336,6 +5344,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload file">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
+            <button type="button" className="claude-attach-btn ws-modal-trigger-btn" onClick={() => setShowWebSearchModal(true)} title="Open Web Search">
+              <Globe size={18} />
+            </button>
           </div>
 
           <div className="claude-footer-right">
@@ -5355,6 +5366,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 onSelectProvider={setSelectedProvider}
                 onSelectEffort={setSelectedEffort}
                 onClose={() => setShowModelPicker(false)}
+                onOpenWebSearchModal={() => setShowWebSearchModal(true)}
               />}
               <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
                 <span>{selectedProvider === "Auto" ? currentMode.name : selectedProvider}</span>
@@ -5409,6 +5421,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
   const [showChess, setShowChess] = useState(false);
+  const [showWebSearchModal, setShowWebSearchModal] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
   const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -5984,8 +5997,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <ChessArena onClose={() => { setShowChess(false); setActiveNav("chats"); }} />
           </div>
         )}
+
+        {/* ── Web Search Modal ──────────────────────────────────────────── */}
+        {showWebSearchModal && (
+          <div className="wsm-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowWebSearchModal(false); }}>
+            <div className="wsm-container">
+              <WebSearchView onExitWebSearch={() => setShowWebSearchModal(false)} />
+            </div>
+          </div>
+        )}
         
-        {/* Top Header */}
         <header className="chat-header">
           <div className="ch-left" style={{ position: "relative" }}>
             <button type="button" onClick={() => setSidebarMobileOpen(true)} title="Open menu" className="claude-sb-item claude-sb-icon-btn flex md:hidden items-center justify-center rounded-md" style={{ marginRight: 4, width: 30, height: 30 }}>
@@ -6018,6 +6039,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
               <Newspaper size={18} />
             </button>
+            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${showWebSearchModal ? " active" : ""}`} onClick={() => setShowWebSearchModal(true)} title="Web Search" style={{ color: showWebSearchModal ? "#22d3ee" : "var(--ink-4)" }}>
+              <Globe size={18} />
+            </button>
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
               <Ghost size={18} />
             </button>
@@ -6046,6 +6070,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className={`flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
           style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, rgba(30,18,60,0.06) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
+                isWebMode ? (
+                  <WebSearchView
+                    onExitWebSearch={() => {
+                      setSelectedMode("normal");
+                      setShowModelPicker(false);
+                      addToast("Exited Web Search mode", "info", 1500);
+                    }}
+                  />
+                ) : (
                 <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
                   <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
                     <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
@@ -6076,6 +6109,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     </div>
                   )}
                 </div>
+                )
              ) : (
                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
                  <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}>

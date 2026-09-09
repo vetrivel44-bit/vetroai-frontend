@@ -142,4 +142,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchImages };
+module.exports = { performSearch, searchWeb, searchImages, searchTavily, searchDDG };
