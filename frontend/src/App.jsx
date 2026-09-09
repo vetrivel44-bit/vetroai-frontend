@@ -13,6 +13,13 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
+import {
+  watchIdToken, consumeRedirectResult, signOutUser, toUserInfo,
+  signInWithEmail, signUpWithEmail, describeAuthError,
+} from "./lib/firebaseAuth";
+import { isFirebaseConfigured } from "./firebase";
+import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
+import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -40,7 +47,9 @@ if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
 }
 const API = baseApi;
 // Web search is handled entirely by the backend (Tavily)
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+// Google sign-in is handled by Firebase Authentication; the OAuth client is
+// configured in the Firebase project rather than shipped in the bundle.
+const GOOGLE_SIGNIN_ENABLED = isFirebaseConfigured;
 
 
 
@@ -3146,7 +3155,11 @@ export default function App() {
   }, [theme]);
 
   // ── Auth ─────────────────────────────────────────────────────────────────────
+  // Seeded from the cached token so returning users do not see the sign-in
+  // screen flash before Firebase restores the session. `authReady` marks the
+  // point where Firebase has spoken and the cached value can be trusted.
   const [user, setUser]           = useState(localStorage.getItem("token"));
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured);
   const [userInfo, setUserInfo]   = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_userinfo") || "null"); } catch { return null; } });
   // Stable per-account storage namespace. `user` is the raw auth token, which rotates on
   // every login/refresh — keying localStorage off it silently orphaned all saved sessions,
@@ -3160,70 +3173,120 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [showPass, setShowPass]   = useState(false);
 
-  // Google login
-  const handleGoogleLogin = useCallback(async (credentialResponse) => {
-    const credential = credentialResponse?.credential;
-    if (!credential) { addToast("Google login failed. Please try again.", "error"); return; }
-
-    let payload;
-    try {
-      payload = JSON.parse(atob(credential.split(".")[1]));
-    } catch { addToast("Google login failed. Please try again.", "error"); return; }
-
-    const info = { name: payload.name, email: payload.email, picture: payload.picture };
-
-    // Exchange the Google credential for our own access/refresh tokens. The raw
-    // Google ID token expires in about an hour and can't be refreshed here, so
-    // using it as the session token logs people out mid-use.
-    let sessionToken = credential;
-    try {
-      const res = await fetch(API + "/auth/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: credential }),
-      });
-      const data = await res.json();
-      if (res.ok && data?.data?.accessToken) {
-        sessionToken = data.data.accessToken;
-        if (data.data.refreshToken) localStorage.setItem("refreshToken", data.data.refreshToken);
-        if (data.data.user?.name) info.name = data.data.user.name;
-        if (data.data.user?.email) info.email = data.data.user.email;
-      }
-    } catch {
-      // Backend unreachable — fall back to the Google credential so sign-in
-      // still works offline; it is verified server-side when it is used.
-    }
-
-    localStorage.setItem("token", sessionToken);
-    localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-    setUser(sessionToken);
-    setUserInfo(info);
-    addToast(`Welcome, ${info.name || "back"}! 🎉`, "success", 3000);
+  // Google login — Firebase owns the OAuth flow, so all this handler does is
+  // surface the welcome toast. The session itself is established by the
+  // onIdTokenChanged subscription below, which fires for popup and redirect
+  // sign-ins alike.
+  const handleGoogleLogin = useCallback((firebaseUser) => {
+    const name = firebaseUser?.displayName || firebaseUser?.email?.split("@")[0];
+    addToast(`Welcome, ${name || "back"}! \u{1F389}`, "success", 3000);
   }, []);
 
-  // Load Google GSI script (silently skip if blocked/unavailable in region).
-  // Initialization itself is owned by <GoogleLoginButton> below — it polls for
-  // window.google once this script lands and calls accounts.id.initialize/renderButton
-  // with the modern FedCM flag, which One Tap's prompt()-only flow (the old approach
-  // here) silently fails without in current Chrome.
+  // Firebase auth session. onIdTokenChanged (rather than onAuthStateChanged)
+  // also fires when the SDK silently refreshes the ID token roughly hourly,
+  // which keeps the copy in localStorage — the one every backend call reads —
+  // from going stale and 401ing mid-session.
+  const hydratedUidRef = useRef(null);
+
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return;
-    const existing = document.getElementById("google-gsi");
-    if (existing) {
-      if (window.google?.accounts?.id) window.dispatchEvent(new Event("google-ready"));
+    if (!isFirebaseConfigured) {
+      setAuthReady(true);
       return;
     }
-    const script = document.createElement("script");
-    script.id = "google-gsi";
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => window.dispatchEvent(new Event("google-ready"));
-    script.onerror = () => {
-      // Google GSI blocked (e.g. 451 geo-restriction) — skip silently
-      console.warn("Google Sign-In script unavailable in this region.");
+
+    // Completes a redirect sign-in when the popup was blocked. No-op otherwise.
+    consumeRedirectResult().catch(swallowError);
+
+    const unsubscribe = watchIdToken(async (firebaseUser) => {
+      if (!firebaseUser) {
+        hydratedUidRef.current = null;
+        setSyncUid(null);
+        resetSyncState();
+        localStorage.removeItem("token");
+        localStorage.removeItem("vetroai_userinfo");
+        setUser(null);
+        setUserInfo(null);
+        setAuthReady(true);
+        return;
+      }
+
+      const info = toUserInfo(firebaseUser);
+      let token = null;
+      try {
+        token = await firebaseUser.getIdToken();
+      } catch (err) {
+        swallowError(err);
+        setAuthReady(true);
+        return;
+      }
+
+      localStorage.setItem("token", token);
+      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
+      setSyncUid(firebaseUser.uid);
+      setUser(token);
+      setUserInfo((prev) => ({ ...(prev || {}), ...info }));
+      setAuthReady(true);
+
+      // Everything below is once-per-sign-in, not once-per-token-refresh.
+      if (hydratedUidRef.current === firebaseUser.uid) return;
+      hydratedUidRef.current = firebaseUser.uid;
+
+      upsertUserProfile(firebaseUser);
+      hydrateFromFirestore(firebaseUser.uid, info.email);
+    });
+
+    return unsubscribe;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pull the user's data down from Firestore and reconcile it with whatever is
+  // already cached on this device. Anything held locally but missing remotely
+  // is pushed up, so data created before this device had a Firebase account —
+  // or while it was offline — survives instead of being silently dropped.
+  const hydrateFromFirestore = useCallback(async (uid, email) => {
+    const remote = await loadUserData(uid);
+    if (!remote) return; // offline or rules denied — keep the local cache as-is
+
+    const localKeyForUser = email || uid;
+    const merge = (remoteList, localList) => {
+      const byId = new Map();
+      for (const item of localList || []) if (item?.id != null) byId.set(String(item.id), item);
+      for (const item of remoteList || []) if (item?.id != null) byId.set(String(item.id), item);
+      return [...byId.values()];
     };
-    document.head.appendChild(script);
+
+    const applied = {};
+    for (const kind of ["sessions", "spaces", "artifacts"]) {
+      applied[kind] = merge(remote[kind], readLocalList(localKeyForUser, kind));
+    }
+
+    setSessions(applied.sessions);
+    setSpaces(applied.spaces);
+    setArtifacts(applied.artifacts);
+
+    // Write the merged result back through the normal path so both the local
+    // cache and Firestore end up holding the same thing.
+    for (const kind of ["sessions", "spaces", "artifacts"]) {
+      persistList(localKeyForUser, kind, applied[kind]);
+    }
+
+    const remoteSpace = remote.prefs?.current_space;
+    if (remoteSpace && applied.spaces.some((sp) => sp.id === remoteSpace)) {
+      setCurrentSpaceId(remoteSpace);
+    }
+  }, []);
+
+  // Debounced Firestore writes would otherwise be lost when the tab is closed
+  // or backgrounded mid-conversation.
+  useEffect(() => {
+    const flush = () => { flushPending().catch(swallowError); };
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
   }, []);
 
   // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -3515,131 +3578,80 @@ export default function App() {
   // ── Auth submit ───────────────────────────────────────────────────────────────
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    setAuthError(""); setAuthLoading(true);
-    const applyAuthPayload = (payload) => {
-      const accessToken = payload?.accessToken;
-      if (!accessToken) {
-        setAuthError("Invalid auth response from server.");
-        setAuthLoading(false);
-        return false;
-      }
-      localStorage.setItem("token", accessToken);
-      if (payload.refreshToken) localStorage.setItem("refreshToken", payload.refreshToken);
-      const info = {
-        name: payload.user?.name || authName || "",
-        email: payload.user?.email || authEmail,
-      };
-      localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-      setUser(accessToken);
-      setUserInfo(info);
-      return true;
-    };
-    const readApiError = (data) => {
-      let msg = data?.message || data?.error || "Something went wrong";
-      if (Array.isArray(data?.data) && data.data.length) {
-        const joined = data.data.map((d) => d?.message || d).filter(Boolean).join(" · ");
-        if (joined) msg = joined;
-      }
-      return msg;
-    };
+    setAuthError("");
+
+    if (!isFirebaseConfigured) {
+      setAuthError("Authentication is not configured. See frontend/.env.example.");
+      return;
+    }
+
+    const email = authEmail.trim();
+
     if (authMode === "signup") {
       const name = authName?.trim() || "";
-      if (name.length < 2) {
-        setAuthError("Name must be at least 2 characters.");
-        setAuthLoading(false);
-        return;
-      }
+      if (name.length < 2) { setAuthError("Name must be at least 2 characters."); return; }
       const p = authPassword;
-      if (p.length < 8) {
-        setAuthError("Password must be at least 8 characters.");
-        setAuthLoading(false);
-        return;
-      }
-      if (!/[A-Z]/.test(p)) {
-        setAuthError("Password must include at least one uppercase letter.");
-        setAuthLoading(false);
-        return;
-      }
-      if (!/[0-9]/.test(p)) {
-        setAuthError("Password must include at least one number.");
-        setAuthLoading(false);
-        return;
-      }
+      // Firebase itself only enforces 6 characters; these are the app's own
+      // stricter rules, kept from the previous backend-validated flow.
+      if (p.length < 8)      { setAuthError("Password must be at least 8 characters."); return; }
+      if (!/[A-Z]/.test(p))  { setAuthError("Password must include at least one uppercase letter."); return; }
+      if (!/[0-9]/.test(p))  { setAuthError("Password must include at least one number."); return; }
     }
+
+    setAuthLoading(true);
     try {
-      const endpoint = authMode === "login" ? "/auth/login" : "/auth/signup";
-      const body = authMode === "login"
-        ? { email: authEmail, password: authPassword }
-        : { email: authEmail, password: authPassword, name: authName.trim() };
-
-      // Try the API with a 10s timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      let res, data;
-      try {
-        res  = await fetch(API + endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        data = await res.json();
-      } catch (netErr) {
-        clearTimeout(timeoutId);
-        // Backend unreachable — use local demo session so user can still access the app
-        const localToken = `local_${Date.now()}_${btoa(authEmail)}`;
-        const info = { name: authName.trim() || authEmail.split("@")[0], email: authEmail, isLocal: true };
-        localStorage.setItem("token", localToken);
-        localStorage.setItem("vetroai_userinfo", JSON.stringify(info));
-        setUser(localToken);
-        setUserInfo(info);
-        addToast("Server offline — running in offline mode. Chat features still work!", "info", 5000);
-        setAuthLoading(false);
-        return;
-      }
-
-      if (!res.ok || data.success === false) {
-        setAuthError(readApiError(data));
-        setAuthLoading(false);
-        return;
-      }
-      const payload = data?.data || {};
+      // The signed-in session, including the stored token and the Firestore
+      // hydration, is established by the onIdTokenChanged subscription — there
+      // is nothing to wire up here beyond the call itself.
       if (authMode === "signup") {
-        if (payload.accessToken) {
-          applyAuthPayload(payload);
-          setAuthLoading(false);
-          return;
-        }
-        setAuthMode("login");
-        setAuthError("Account created! Please sign in.");
-        setAuthLoading(false);
-        return;
+        await signUpWithEmail(email, authPassword, authName.trim());
+        addToast("Account created \u{1F389}", "success", 3000);
+      } else {
+        await signInWithEmail(email, authPassword);
+        addToast("Welcome back!", "success", 2500);
       }
-      applyAuthPayload(payload);
-    } catch {
-      setAuthError("Something went wrong. Please try again.");
+      setAuthPassword("");
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
     }
-    setAuthLoading(false);
   };
 
-  const logout = () => {
-    localStorage.removeItem("token"); localStorage.removeItem("refreshToken"); localStorage.removeItem("vetroai_userinfo");
+  const logout = async () => {
+    // Push any debounced Firestore writes before tearing the session down,
+    // otherwise the last few seconds of the conversation never leave the tab.
+    try { await flushPending(); } catch (err) { swallowError(err); }
+    try { await signOutUser(); } catch (err) { swallowError(err); }
+
+    // watchIdToken clears user/userInfo and the stored token; this covers the
+    // view state it does not own, plus the case where sign-out itself failed.
+    localStorage.removeItem("token");
+    localStorage.removeItem("vetroai_userinfo");
+    // Left over from the pre-Firebase backend session; harmless but stale.
+    localStorage.removeItem("refreshToken");
     setUser(null); setUserInfo(null); setMessages([]); setCurrentSessionId(null);
+    setSessions([]); setSpaces([]); setArtifacts([]); setCurrentSpaceId(null);
     setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthError("");
     addToast("Signed out successfully", "info");
   };
 
   // ── Session management ────────────────────────────────────────────────────────
+  // Paint from the on-device cache straight away; hydrateFromFirestore then
+  // reconciles this with the server copy once the auth listener has a uid.
   useEffect(() => {
-    if (user) {
-      try { const s = localStorage.getItem("vetroai_sessions_" + userKey); if (s) setSessions(JSON.parse(s) || []); } catch { setSessions([]); }
-      try { const sp = localStorage.getItem("vetroai_spaces_" + userKey); if (sp) setSpaces(JSON.parse(sp) || []); } catch { setSpaces([]); }
-      try { const cSpace = localStorage.getItem("vetroai_current_space_" + userKey); if (cSpace) setCurrentSpaceId(cSpace); } catch { setCurrentSpaceId(null); }
-      try { const ar = localStorage.getItem("vetroai_artifacts_" + userKey); if (ar) setArtifacts(JSON.parse(ar) || []); } catch { setArtifacts([]); }
-    }
-  }, [user]);
+    if (!user || !userKey) return;
+    const cachedSessions  = readLocalList(userKey, "sessions");
+    const cachedSpaces    = readLocalList(userKey, "spaces");
+    const cachedArtifacts = readLocalList(userKey, "artifacts");
+    if (cachedSessions)  setSessions(cachedSessions);
+    if (cachedSpaces)    setSpaces(cachedSpaces);
+    if (cachedArtifacts) setArtifacts(cachedArtifacts);
+    try {
+      const cSpace = localStorage.getItem("vetroai_current_space_" + userKey);
+      if (cSpace) setCurrentSpaceId(cSpace);
+    } catch (err) { swallowError(err); }
+  }, [user, userKey]);
 
   // ── Billing status (plan + credit balance) ───────────────────────────────────
   const refreshBillingStatus = useCallback(async () => {
@@ -3648,8 +3660,11 @@ export default function App() {
     try {
       const res = await fetch(API + "/billing/me", { headers: { Authorization: `Bearer ${token}` } });
       if (res.status === 401) {
-        // Token is expired/invalid server-side — stop retrying with it.
-        localStorage.removeItem("token"); localStorage.removeItem("refreshToken");
+        // The billing backend rejected the Firebase ID token — it has its own
+        // session model and may not verify Firebase tokens yet. Deleting the
+        // token here would be wrong: it belongs to Firebase Auth, which is
+        // still signed in, and dropping it strips the Authorization header from
+        // every other call until the next hourly refresh. Just stop.
         return;
       }
       const data = await res.json();
@@ -3694,7 +3709,7 @@ export default function App() {
         setCurrentSessionId(id);
         setSessions((prev) => {
           const list = [{ id, title, messages, spaceId: currentSpaceId }, ...prev];
-          try { localStorage.setItem("vetroai_sessions_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+          try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
           return list;
         });
         return;
@@ -3704,7 +3719,7 @@ export default function App() {
         const i = list.findIndex((s) => s.id === currentSessionId);
         if (i !== -1) list[i] = { ...list[i], messages };
         else list.unshift({ id: currentSessionId, title, messages, spaceId: currentSpaceId });
-        try { localStorage.setItem("vetroai_sessions_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+        try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
         return list;
       });
     } catch (err) { swallowError(err); }
@@ -3723,7 +3738,7 @@ export default function App() {
       if (data.title) {
         setSessions(prev => {
           const list = prev.map(s => s.id === currentSessionId ? { ...s, title: data.title } : s);
-          localStorage.setItem("vetroai_sessions_" + userKey, JSON.stringify(list));
+          persistList(userKey, "sessions", list);
           return list;
         });
       }
@@ -3767,8 +3782,7 @@ export default function App() {
 
   const handleSwitchSpace = (spaceId) => {
     setCurrentSpaceId(spaceId);
-    if (spaceId) localStorage.setItem("vetroai_current_space_" + userKey, spaceId);
-    else localStorage.removeItem("vetroai_current_space_" + userKey);
+    persistPref(userKey, "current_space", spaceId);
     newChat(spaceId);
   };
 
@@ -3776,7 +3790,7 @@ export default function App() {
     setSpaces(prev => {
       const exists = prev.some(s => s.id === spaceData.id);
       const list = exists ? prev.map(s => s.id === spaceData.id ? spaceData : s) : [...prev, spaceData];
-      try { localStorage.setItem("vetroai_spaces_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      try { persistList(userKey, "spaces", list); } catch (err) { swallowError(err); }
       return list;
     });
     setShowSpaceModal(false); setEditingSpace(null);
@@ -3788,7 +3802,7 @@ export default function App() {
   const deleteSpaceById = (id) => {
     setSpaces(prev => {
       const list = prev.filter(s => s.id !== id);
-      try { localStorage.setItem("vetroai_spaces_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      try { persistList(userKey, "spaces", list); } catch (err) { swallowError(err); }
       return list;
     });
     if (currentSpaceId === id) handleSwitchSpace(null);
@@ -3805,7 +3819,7 @@ export default function App() {
     const artifact = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, code, language: language || "text", title: title || "Untitled artifact", createdAt: Date.now() };
     setArtifacts(prev => {
       const list = [...prev, artifact].slice(-50);
-      try { localStorage.setItem("vetroai_artifacts_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      try { persistList(userKey, "artifacts", list); } catch (err) { swallowError(err); }
       return list;
     });
     setActiveArtifact(artifact);
@@ -3815,7 +3829,7 @@ export default function App() {
   const updateArtifact = useCallback((updated) => {
     setArtifacts(prev => {
       const list = prev.map(a => a.id === updated.id ? updated : a);
-      try { localStorage.setItem("vetroai_artifacts_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      try { persistList(userKey, "artifacts", list); } catch (err) { swallowError(err); }
       return list;
     });
     setActiveArtifact(updated);
@@ -3824,7 +3838,7 @@ export default function App() {
   const deleteArtifact = useCallback((id) => {
     setArtifacts(prev => {
       const list = prev.filter(a => a.id !== id);
-      try { localStorage.setItem("vetroai_artifacts_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      try { persistList(userKey, "artifacts", list); } catch (err) { swallowError(err); }
       return list;
     });
     setActiveArtifact(null);
@@ -3835,7 +3849,7 @@ export default function App() {
   const renameSession = (id, newTitle) => {
     setSessions(prev => {
       const list = prev.map(s => s.id === id ? { ...s, title: newTitle } : s);
-      try { localStorage.setItem("vetroai_sessions_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+      try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
       return list;
     });
   };
@@ -3844,7 +3858,7 @@ export default function App() {
     if (!confirmDelete) return;
     const { id } = confirmDelete;
     const list = sessions.filter(s => s.id !== id); setSessions(list);
-    try { localStorage.setItem("vetroai_sessions_" + userKey, JSON.stringify(list)); } catch (err) { swallowError(err); }
+    try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
     if (currentSessionId === id) newChat();
     setPinnedIds(p => p.filter(x => x !== id));
     setConfirmDelete(null);
@@ -5499,6 +5513,24 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     </div>
   );
 
+  // Firebase restores a persisted session asynchronously. Rendering the
+  // sign-in form before it answers makes returning users see a login flash and,
+  // worse, start typing credentials they do not need.
+  if (!user && !authReady) return (
+    <div className="auth-page-v3" style={{ display: "grid", placeItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+        <div
+          style={{
+            width: 28, height: 28, borderRadius: "50%",
+            border: "3px solid currentColor", borderTopColor: "transparent",
+            opacity: 0.35, animation: "spin .8s linear infinite",
+          }}
+        />
+        <span style={{ opacity: 0.6, fontSize: 14 }}>Restoring your session…</span>
+      </div>
+    </div>
+  );
+
   if (!user) return (
     <div className="auth-page-v3">
       {/* Hero side */}
@@ -5530,9 +5562,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </div>
 
           {/* Google Sign In */}
-          {GOOGLE_CLIENT_ID ? (
+          {GOOGLE_SIGNIN_ENABLED ? (
             <>
-              <GoogleLoginButton clientId={GOOGLE_CLIENT_ID} onLogin={handleGoogleLogin} theme={theme} />
+              <GoogleLoginButton
+                onLogin={handleGoogleLogin}
+                onError={(message) => setAuthError(message)}
+                theme={theme}
+                disabled={authLoading}
+              />
               <div className="auth-divider-row"><span /><em>or</em><span /></div>
             </>
           ) : null}

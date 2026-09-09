@@ -1,0 +1,168 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Every document below lives under the signed-in user's own uid, so the whole
+// ruleset reduces to one idea: you may only touch your own subtree.
+//
+// Collection: users
+// Document ID: the Firebase Auth uid
+// Fields:
+//   - uid: string (required, immutable, must equal request.auth.uid)
+//   - email: string (required)
+//   - name: string (optional)
+//   - picture: string (optional)
+//   - createdAt: timestamp (set once on first sign-in)
+//   - lastLoginAt: timestamp (refreshed on every sign-in)
+//
+// Collection: users/{uid}/sessions
+// Document ID: client-generated `${Date.now()}_${random}`
+// Fields:
+//   - id: string (required, must match the document id)
+//   - title: string (optional)
+//   - messages: list (optional) - the conversation turns
+//   - spaceId: string | null (optional) - owning project
+//   - updatedAt: timestamp (server-set)
+//
+// Collection: users/{uid}/spaces
+// Document ID: client-generated
+// Fields:
+//   - id: string (required, must match the document id)
+//   - name: string (optional)
+//   - mode / systemPrompt / etc: caller-defined, shape evolves with the UI
+//   - updatedAt: timestamp (server-set)
+//
+// Collection: users/{uid}/artifacts
+// Document ID: client-generated
+// Fields:
+//   - id: string (required, must match the document id)
+//   - code: string (optional)
+//   - language: string (optional)
+//   - title: string (optional)
+//   - createdAt: number (client epoch ms)
+//   - updatedAt: timestamp (server-set)
+//
+// Collection: users/{uid}/prefs
+// Document ID: "app"
+// Fields:
+//   - current_space: string | null (optional)
+//   - updatedAt: timestamp (server-set)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =============================================================
+    // Helper Functions
+    // =============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Ownership is positional: the uid is a path segment, so there is no
+    // document read needed to authorise a request.
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // The `id` field is what the client keys its React state off, so a document
+    // whose id disagrees with its path would silently corrupt that state.
+    function idMatchesPath(docId) {
+      return !('id' in incoming()) || incoming().id == docId;
+    }
+
+    // A single Firestore document is capped at 1 MiB. Rejecting oversized
+    // writes here turns a confusing partial failure into a clear denial.
+    function withinSizeLimit() {
+      return request.resource.size() < 1048576;
+    }
+
+    function isValidUserProfile(userId) {
+      return incoming().uid is string
+        && incoming().uid == userId
+        && incoming().email is string
+        && (!('name' in incoming())    || incoming().name is string)
+        && (!('picture' in incoming()) || incoming().picture is string);
+    }
+
+    // uid identifies the owner; letting it change would hand the document to
+    // someone else.
+    function uidUnchanged() {
+      return !('uid' in incoming()) || incoming().uid == resource.data.uid;
+    }
+
+    // =============================================================
+    // Rules
+    // =============================================================
+
+    // --- User profile ---
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId)
+                    && isValidUserProfile(userId)
+                    && withinSizeLimit();
+      allow update: if isOwner(userId)
+                    && isValidUserProfile(userId)
+                    && uidUnchanged()
+                    && withinSizeLimit();
+      allow delete: if isOwner(userId);
+
+      // --- Chat conversations ---
+      match /sessions/{sessionId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+                              && idMatchesPath(sessionId)
+                              && (!('messages' in incoming()) || incoming().messages is list)
+                              && (!('title' in incoming())    || incoming().title is string)
+                              && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
+      // --- Projects / spaces ---
+      match /spaces/{spaceId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+                              && idMatchesPath(spaceId)
+                              && (!('name' in incoming()) || incoming().name is string)
+                              && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
+      // --- Saved artifacts ---
+      match /artifacts/{artifactId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+                              && idMatchesPath(artifactId)
+                              && (!('code' in incoming())     || incoming().code is string)
+                              && (!('language' in incoming()) || incoming().language is string)
+                              && (!('title' in incoming())    || incoming().title is string)
+                              && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
+      // --- Small scalar preferences ---
+      // Split rather than a blanket `write`: on a delete there is no
+      // request.resource, so withinSizeLimit() evaluates against null and
+      // denies. That made the owner's own prefs document undeletable.
+      match /prefs/{prefId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Default deny. Any path not matched above is unreachable, for every user,
+    // authenticated or not.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
