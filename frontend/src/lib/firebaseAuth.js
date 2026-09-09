@@ -15,6 +15,14 @@ import {
 } from "firebase/auth";
 import { auth } from "../firebase.js";
 
+// `auth` is null when the Firebase config is incomplete (see src/firebase.js).
+// Every entry point below guards on it so a misconfigured build degrades to
+// "sign-in unavailable" instead of throwing out of a click handler.
+const requireAuth = () => {
+  if (!auth) throw new Error("Firebase is not configured — see frontend/.env.example.");
+  return auth;
+};
+
 const provider = new GoogleAuthProvider();
 // Always show the chooser: without this Google silently reuses the last account,
 // which makes "sign in as someone else" impossible on shared machines.
@@ -39,6 +47,7 @@ export const toUserInfo = (user) =>
  * way back.
  */
 export async function signInWithGoogle() {
+  requireAuth();
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
@@ -59,6 +68,7 @@ export async function signInWithGoogle() {
  * to null when the load was not a redirect return.
  */
 export async function consumeRedirectResult() {
+  if (!auth) return null;
   try {
     const result = await getRedirectResult(auth);
     return result?.user || null;
@@ -69,12 +79,14 @@ export async function consumeRedirectResult() {
 
 /** Email + password sign-in. */
 export async function signInWithEmail(email, password) {
+  requireAuth();
   const { user } = await signInWithEmailAndPassword(auth, email, password);
   return user;
 }
 
 /** Email + password registration. `name` becomes the Firebase displayName. */
 export async function signUpWithEmail(email, password, name) {
+  requireAuth();
   const { user } = await createUserWithEmailAndPassword(auth, email, password);
   if (name) {
     await updateProfile(user, { displayName: name });
@@ -86,26 +98,26 @@ export async function signUpWithEmail(email, password, name) {
   return auth.currentUser || user;
 }
 
-export const sendPasswordReset = (email) => sendPasswordResetEmail(auth, email);
+export const sendPasswordReset = (email) => sendPasswordResetEmail(requireAuth(), email);
 
-export const signOutUser = () => signOut(auth);
+export const signOutUser = () => (auth ? signOut(auth) : Promise.resolve());
 
 /** Subscribe to sign-in/sign-out. Returns the unsubscribe function. */
-export const watchAuthState = (cb) => onAuthStateChanged(auth, cb);
+export const watchAuthState = (cb) => (auth ? onAuthStateChanged(auth, cb) : () => {});
 
 /**
  * Like watchAuthState, but also fires when the ID token is silently refreshed
  * (roughly hourly). Use this when a copy of the token is cached outside the
  * SDK, so the cached copy never goes stale.
  */
-export const watchIdToken = (cb) => onIdTokenChanged(auth, cb);
+export const watchIdToken = (cb) => (auth ? onIdTokenChanged(auth, cb) : () => {});
 
 /**
  * Current Firebase ID token, for calls to our own backend.
  * The SDK refreshes it automatically, so this is always a live token.
  */
 export const getIdToken = async (forceRefresh = false) =>
-  auth.currentUser ? auth.currentUser.getIdToken(forceRefresh) : null;
+  auth?.currentUser ? auth.currentUser.getIdToken(forceRefresh) : null;
 
 /** Friendly text for the auth errors users can actually hit. */
 export function describeAuthError(err) {

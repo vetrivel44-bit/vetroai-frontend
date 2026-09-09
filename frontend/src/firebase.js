@@ -35,10 +35,18 @@ if (!isFirebaseConfigured) {
   );
 }
 
+// Initialise only when the config is complete. getAuth() throws
+// `auth/invalid-api-key` on a missing key, and because this module is imported
+// at the top of the app that throw would white-screen the whole UI rather than
+// degrade to "sign-in unavailable". Callers must treat these as nullable and
+// gate on `isFirebaseConfigured`.
+//
 // Vite HMR re-evaluates modules, and initializeApp() throws on a duplicate
 // default app, so reuse the existing one when it is already there.
-export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const app = isFirebaseConfigured
+  ? (getApps().length ? getApp() : initializeApp(firebaseConfig))
+  : null;
+export const auth = app ? getAuth(app) : null;
+export const db = app ? getFirestore(app) : null;
 
 export default app;

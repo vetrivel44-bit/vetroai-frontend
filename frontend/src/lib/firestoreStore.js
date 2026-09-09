@@ -41,6 +41,11 @@ const MAX_BATCH_OPS = 450; // Firestore allows 500 per batch.
 const pending = new Map();     // `${uid}:${kind}` -> { timer, uid, kind, list }
 const lastSynced = new Map();  // `${uid}:${kind}` -> Map(id -> serialised item)
 
+// `db` is null when the Firebase config is incomplete (see src/firebase.js).
+// Everything here then becomes a no-op and the app runs on its localStorage
+// cache alone.
+const ready = () => db != null;
+
 const keyOf = (uid, kind) => `${uid}:${kind}`;
 const listRef = (uid, kind) => collection(db, "users", uid, kind);
 
@@ -116,7 +121,7 @@ async function pushList(uid, kind, list) {
  * period so a burst of updates (streaming a reply) collapses into one batch.
  */
 export function syncList(uid, kind, list) {
-  if (!uid || !LIST_KINDS.includes(kind)) return;
+  if (!ready() || !uid || !LIST_KINDS.includes(kind)) return;
   const k = keyOf(uid, kind);
   const existing = pending.get(k);
   if (existing) clearTimeout(existing.timer);
@@ -144,13 +149,13 @@ export async function flushPending() {
 
 /** Write a list immediately, bypassing the debounce. */
 export const syncNow = (uid, kind, list) =>
-  uid && LIST_KINDS.includes(kind)
+  ready() && uid && LIST_KINDS.includes(kind)
     ? pushList(uid, kind, Array.isArray(list) ? [...list] : []).catch(swallow)
     : Promise.resolve();
 
 /** Small scalar preferences, kept together in one document. */
 export async function savePrefs(uid, prefs) {
-  if (!uid) return;
+  if (!ready() || !uid) return;
   try {
     await setDoc(
       doc(db, "users", uid, "prefs", "app"),
@@ -164,7 +169,7 @@ export async function savePrefs(uid, prefs) {
 
 /** Create/refresh the user profile document on every sign-in. */
 export async function upsertUserProfile(user) {
-  if (!user?.uid) return;
+  if (!ready() || !user?.uid) return;
   try {
     const ref = doc(db, "users", user.uid);
     const existing = await getDoc(ref);
@@ -190,7 +195,7 @@ export async function upsertUserProfile(user) {
  * caller can fall back to its localStorage cache rather than wiping state.
  */
 export async function loadUserData(uid) {
-  if (!uid) return null;
+  if (!ready() || !uid) return null;
   try {
     const [sessions, spaces, artifacts, prefsSnap] = await Promise.all([
       ...LIST_KINDS.map((kind) => getDocs(listRef(uid, kind))),
