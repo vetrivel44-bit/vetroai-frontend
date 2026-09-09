@@ -98,8 +98,31 @@ run it after changing the `auth` block.
 ## Authorized domains
 
 Google sign-in fails with `auth/unauthorized-domain` from any origin not on the
-list in `firebase.json`. Add production hostnames there, **without** protocol or
-port (`app.example.com`, not `https://app.example.com:443`), then redeploy auth.
+list. The list lives in two places and **both must be updated** — `firebase.json`
+here (config as code, applied by `deploy --only auth`) and
+[Authentication → Settings → Authorized domains](https://console.firebase.google.com/project/vetroai/authentication/settings)
+in the console. Hostname only, no scheme or port.
+
+This app is served from more than one place, so the list covers all of them:
+
+| Origin | Source |
+| --- | --- |
+| `localhost` | local dev |
+| `vetroai.firebaseapp.com`, `vetroai.web.app` | Firebase Hosting (unused, auto-added) |
+| `vetroai.netlify.app` | Netlify project `vetroai` |
+| `vetroai-frontend.vel21873.workers.dev` | Cloudflare Workers |
+| `vetroai-frontend.pages.dev` | Cloudflare Pages project `vetroai-frontend` |
+
+Netlify and Cloudflare Pages build straight from the repo via their Git
+integrations, separately from `.github/workflows/deploy.yml`, which is why they
+are easy to miss.
+
+**Preview deployments will not have working Google sign-in.** Netlify and
+Cloudflare mint a fresh hostname per commit and per branch
+(`deploy-preview-23--vetroai.netlify.app`,
+`claude-confident-curie-tllvk4-vetroai-frontend.vel21873.workers.dev`, …), and
+Firebase authorized domains do not support wildcards. Either add a specific
+preview host while testing it, or test sign-in on localhost and production only.
 
 ## Local emulators
 
