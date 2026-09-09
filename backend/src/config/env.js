@@ -68,6 +68,10 @@ module.exports = {
     callAsrModel:          getEnv("CALL_ASR_MODEL",           "whisper-large-v3-turbo"),
     callTranslationModel:  getEnv("CALL_TRANSLATION_MODEL",   getEnv("GROQ_MODEL", "llama-3.3-70b-versatile")),
     googleClientId:      getEnv("VITE_GOOGLE_CLIENT_ID", "592184427551-7hs7t358m2k3vn60amdv8vnm8b26oprt.apps.googleusercontent.com"),
+    // Firebase Authentication is what the frontend signs in against, so the
+    // bearer tokens this API receives are Firebase ID tokens. Verifying one
+    // needs only the project id — it is public, and is the token's `aud`.
+    firebaseProjectId:   getEnv("FIREBASE_PROJECT_ID", "vetroai"),
     enableCloudSessions: getEnv("ENABLE_CLOUD_SESSIONS", "false") === "true",
     twilioAccountSid:    getEnv("TWILIO_ACCOUNT_SID",    ""),
     twilioAuthToken:     getEnv("TWILIO_AUTH_TOKEN",     ""),

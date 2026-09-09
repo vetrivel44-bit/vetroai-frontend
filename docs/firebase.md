@@ -111,13 +111,83 @@ Auth on `:9099`, Firestore on `:8080`. To point the app at them, connect in
 `src/firebase.js` behind a `localhost` check (see `connectAuthEmulator` /
 `connectFirestoreEmulator`).
 
-## Note on the Express backend
+## App Check
 
-`frontend` now treats Firebase as the source of auth truth. The token cached in
-`localStorage.token` is a **Firebase ID token**, not the previous backend JWT.
+Off by default. It attests that traffic comes from your real app, closing the
+gap that your API key is public and anyone can call your project's endpoints
+with it.
 
-The Express backend under `backend/` still issues and verifies its own JWTs, so
-its authenticated routes (for example `/billing/me`) will reject the Firebase
-token until it verifies Firebase ID tokens instead — via `firebase-admin`'s
-`verifyIdToken`. The client tolerates this: a 401 from the billing endpoint is
-ignored rather than treated as a signed-out session.
+To enable: Firebase Console → App Check → register the web app with
+**reCAPTCHA v3** → set `VITE_FIREBASE_APPCHECK_SITE_KEY` and rebuild.
+`src/firebase.js` initialises it automatically when the key is present.
+
+Two things that will bite otherwise:
+
+- **Deploy with the key before enabling enforcement.** Turning enforcement on
+  while any live client lacks a valid App Check token locks that client out.
+  Ship it, watch the App Check metrics until requests show as verified, then
+  enforce.
+- **Local development needs a debug token.** reCAPTCHA cannot attest
+  `localhost`. In dev builds the SDK is asked for a debug token and prints it to
+  the browser console; register it under App Check → Manage debug tokens.
+
+## The Express backend
+
+`backend/` verifies Firebase ID tokens, so the frontend's Firebase session
+authenticates against it directly. `src/middleware/authMiddleware.js` routes a
+bearer token to one of four verifiers, by shape:
+
+| Token | Verified by |
+| --- | --- |
+| `local_*` | Offline fallback, synthetic user |
+| Google GIS ID token | `google-auth-library`, against `googleClientId` |
+| **Firebase ID token** | `src/utils/firebaseToken.js` |
+| Backend JWT | `src/utils/token.js` |
+
+`verifyFirebaseIdToken` deliberately does **not** use `firebase-admin`. The
+Admin SDK needs a service-account credential provisioned as a deployment secret
+and pulls in a large dependency tree, to do what is a standard RS256
+verification against a published key set. Google documents this manual path
+("verify ID tokens using a third-party JWT library"), and it needs only the
+project id, which is public and travels in the token as `aud`.
+
+It verifies the signature against Google's rotating x509 certificates (cached
+per the `Cache-Control` the certificate endpoint returns, refetched on a key-id
+miss) and checks the algorithm is RS256, the audience is the project, the issuer
+is `https://securetoken.google.com/<projectId>`, the token is unexpired, and
+`sub` is present. `sub` is the Firebase uid.
+
+The one capability given up is revocation checking: a token stays valid until it
+expires, at most an hour, even if the session is revoked server-side. That
+matches how the pre-existing Google-token path behaved.
+
+Configure with `FIREBASE_PROJECT_ID` (defaults to `vetroai`).
+
+A signed-in user is matched to a local `User` record by email when one exists,
+so billing and cloud sessions resolve to the same account regardless of which
+token type authenticated the request; otherwise the Firebase uid is the identity
+of record.
+
+## Verification
+
+Both the rules and the token verifier were tested against the live project
+rather than reviewed by eye.
+
+**Security rules** — two throwaway accounts, 12 assertions: a user can read and
+write its own profile, sessions and prefs; cannot read, write or delete another
+user's; unauthenticated access is refused; and the integrity constraints hold
+(a document whose `id` disagrees with its path, a `uid` rewritten to another
+user's, and a `messages` field that is not a list are all rejected).
+
+That run found a real bug: `prefs` used a blanket `allow write` gated on
+`withinSizeLimit()`, and on a delete there is no `request.resource`, so the size
+check evaluated against null and denied. The owner could not delete their own
+prefs document. Now split into `create, update` and `delete`.
+
+**Token verifier** — 10 assertions against a real Firebase ID token: it
+verifies and yields the right uid and audience, while a tampered payload, a
+replaced signature, an `alg: none` downgrade, and an unknown key id are all
+rejected.
+
+`backend/test/authMiddleware.test.js` carries the offline half of that as
+permanent regression tests.

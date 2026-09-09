@@ -8,6 +8,7 @@
 // Every value can still be overridden per environment through Vite env vars so
 // staging/prod can point at different Firebase projects without a code change.
 import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -51,6 +52,35 @@ if (!isFirebaseConfigured) {
 export const app = isFirebaseConfigured
   ? (getApps().length ? getApp() : initializeApp(firebaseConfig))
   : null;
+// App Check attests that requests come from your real app, so someone who
+// lifts the (public) API key out of this bundle cannot drive Auth and Firestore
+// with it. Initialise it before the services it protects.
+//
+// Inert until VITE_FIREBASE_APPCHECK_SITE_KEY is set, so the app keeps working
+// unconfigured. To turn it on: Firebase Console -> App Check -> register this
+// web app with reCAPTCHA v3, then set the site key. Deploy with the key in
+// place and watch the App Check metrics before switching on *enforcement* —
+// enforcing while any live client lacks a valid token locks that client out.
+const appCheckSiteKey = env.VITE_FIREBASE_APPCHECK_SITE_KEY;
+
+if (app && appCheckSiteKey) {
+  // In dev, ask the SDK for a debug token (printed to the console) and register
+  // it under App Check -> Manage debug tokens. reCAPTCHA cannot attest
+  // localhost, so without this local development fails once enforcement is on.
+  if (import.meta.env.DEV) {
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+  try {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    // A bad site key must not take the whole app down with it.
+    console.error("[firebase] App Check failed to initialise:", err);
+  }
+}
+
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 

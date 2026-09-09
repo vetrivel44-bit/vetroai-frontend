@@ -58,3 +58,74 @@ test("a missing Authorization header is rejected", async (t) => {
 
   assert.equal(response.status, 401);
 });
+
+// ── Firebase ID tokens ────────────────────────────────────────────────────────
+// The frontend signs in with Firebase Authentication, so these are the tokens
+// protected routes actually receive. A Firebase token is identified by its
+// issuer; the danger is treating that issuer claim as proof of anything, since
+// the issuer sits in the unsigned payload where anyone can write it.
+
+function forgedFirebaseToken(overrides = {}) {
+  const header = b64url({ alg: "RS256", kid: "forged", typ: "JWT" });
+  const payload = b64url({
+    iss: "https://securetoken.google.com/vetroai",
+    aud: "vetroai",
+    sub: "attacker-uid",
+    email: "victim@example.com",
+    name: "Attacker",
+    auth_time: Math.floor(Date.now() / 1000),
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    ...overrides,
+  });
+  return `${header}.${payload}.${"c".repeat(342)}`;
+}
+
+test("a forged Firebase ID token is rejected on protected routes", async (t) => {
+  const baseUrl = await startServer(t);
+
+  const response = await fetch(`${baseUrl}/api/billing/me`, {
+    headers: { Authorization: `Bearer ${forgedFirebaseToken()}` },
+  });
+
+  assert.equal(
+    response.status,
+    401,
+    "a token claiming the Firebase issuer must still have its signature verified"
+  );
+  const body = await response.json();
+  assert.equal(body.success, false);
+});
+
+test("an alg:none Firebase token is rejected", async (t) => {
+  const baseUrl = await startServer(t);
+
+  // The classic JWT downgrade: drop the signature and declare the token
+  // unsigned. Verification must reject on the algorithm, before any lookup.
+  const header = b64url({ alg: "none", kid: "forged", typ: "JWT" });
+  const payload = forgedFirebaseToken().split(".")[1];
+
+  const response = await fetch(`${baseUrl}/api/billing/me`, {
+    headers: { Authorization: `Bearer ${header}.${payload}.` },
+  });
+
+  assert.equal(response.status, 401);
+});
+
+test("a Firebase token issued for another project is rejected", async (t) => {
+  const baseUrl = await startServer(t);
+
+  // Valid signature or not, a token minted for someone else's Firebase project
+  // must never authenticate here. It fails the issuer match and falls through
+  // to the backend's own JWT verifier, which rejects it.
+  const response = await fetch(`${baseUrl}/api/billing/me`, {
+    headers: {
+      Authorization: `Bearer ${forgedFirebaseToken({
+        iss: "https://securetoken.google.com/some-other-project",
+        aud: "some-other-project",
+      })}`,
+    },
+  });
+
+  assert.equal(response.status, 401);
+});

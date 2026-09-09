@@ -6,6 +6,7 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const { verifyAccessToken } = require("../utils/token");
+const { verifyFirebaseIdToken, isFirebaseIdToken } = require("../utils/firebaseToken");
 
 const googleClient = new OAuth2Client(config.googleClientId);
 
@@ -73,6 +74,37 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
       name: payload.name,
       email: payload.email,
       isGoogle: true,
+    };
+    return next();
+  }
+
+  // ── Firebase ID token (issued by Firebase Authentication) ────────────────────
+  // This is the normal case now: the frontend signs in with Firebase, so every
+  // authenticated request carries a Firebase ID token. Like the Google branch
+  // above, the signature MUST be verified — the payload alone proves nothing.
+  if (token.split(".").length === 3 && isFirebaseIdToken(peekJwtPayload(token))) {
+    let payload;
+    try {
+      payload = await verifyFirebaseIdToken(token);
+    } catch (err) {
+      logger.warn("auth.firebase.verify_failed", { message: err.message });
+      throw new ApiError(401, "Invalid or expired Firebase token");
+    }
+
+    // Map onto the local account when one exists, so billing and cloud sessions
+    // resolve to the same user regardless of which token type authenticated the
+    // request. Firebase's uid is the identity of record when it does not.
+    let user = null;
+    try {
+      if (payload.email) user = await User.findOne({ email: payload.email }).select("-password");
+    } catch (err) { logger.warn("auth.firebase.lookup_failed", { message: err.message }); }
+
+    req.user = user || {
+      id: payload.sub,
+      _id: payload.sub,
+      name: payload.name || payload.email?.split("@")[0] || "User",
+      email: payload.email || "",
+      isFirebase: true,
     };
     return next();
   }

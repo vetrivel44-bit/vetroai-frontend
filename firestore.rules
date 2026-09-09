@@ -149,9 +149,13 @@ service cloud.firestore {
       }
 
       // --- Small scalar preferences ---
+      // Split rather than a blanket `write`: on a delete there is no
+      // request.resource, so withinSizeLimit() evaluates against null and
+      // denies. That made the owner's own prefs document undeletable.
       match /prefs/{prefId} {
         allow read: if isOwner(userId);
-        allow write: if isOwner(userId) && withinSizeLimit();
+        allow create, update: if isOwner(userId) && withinSizeLimit();
+        allow delete: if isOwner(userId);
       }
     }
 
