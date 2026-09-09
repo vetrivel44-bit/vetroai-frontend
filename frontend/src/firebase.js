@@ -13,25 +13,30 @@ import { getFirestore } from "firebase/firestore";
 
 const env = import.meta.env;
 
+// Defaults are the `vetroai` project's own web app, so a plain `npm run build`
+// works with no extra setup. Point a build at a different Firebase project by
+// setting the matching VITE_FIREBASE_* variables.
 export const firebaseConfig = {
-  apiKey:            env.VITE_FIREBASE_API_KEY,
-  authDomain:        env.VITE_FIREBASE_AUTH_DOMAIN     || "vetroai.firebaseapp.com",
-  projectId:         env.VITE_FIREBASE_PROJECT_ID      || "vetroai",
-  storageBucket:     env.VITE_FIREBASE_STORAGE_BUCKET  || "vetroai.firebasestorage.app",
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId:             env.VITE_FIREBASE_APP_ID,
+  apiKey:            env.VITE_FIREBASE_API_KEY             || "AIzaSyB8McqXrjHkb6iE3NWHMvsj3wxDjvbl4AQ",
+  authDomain:        env.VITE_FIREBASE_AUTH_DOMAIN         || "vetroai.firebaseapp.com",
+  projectId:         env.VITE_FIREBASE_PROJECT_ID          || "vetroai",
+  storageBucket:     env.VITE_FIREBASE_STORAGE_BUCKET      || "vetroai.firebasestorage.app",
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "842647060488",
+  appId:             env.VITE_FIREBASE_APP_ID              || "1:842647060488:web:0795de81d96ccb8e9bd1bd",
+  // Only read by Analytics, which the app does not load. Kept so enabling
+  // getAnalytics() later needs no config change.
+  measurementId:     env.VITE_FIREBASE_MEASUREMENT_ID      || "G-H36JP62C16",
 };
 
-// apiKey and appId have no sane default — they are per-app values handed out
-// when the web app is registered. Without them initializeApp() fails with an
-// opaque error deep inside the SDK, so surface the real cause once, here.
+// Guards against an override that blanks these out: getAuth() throws
+// `auth/invalid-api-key` on a missing key, and this module is imported at the
+// top of the app, so that throw would white-screen the whole UI.
 export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.appId);
 
 if (!isFirebaseConfigured) {
   console.error(
-    "[firebase] Missing VITE_FIREBASE_API_KEY / VITE_FIREBASE_APP_ID. " +
-    "Copy frontend/.env.example to frontend/.env.local and fill in the values from " +
-    "`npx -y firebase-tools@latest apps:sdkconfig WEB --project vetroai`."
+    "[firebase] VITE_FIREBASE_API_KEY / VITE_FIREBASE_APP_ID are set but empty. " +
+    "Unset them to use the bundled `vetroai` defaults, or set both to a valid web app config."
   );
 }
 

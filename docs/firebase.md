@@ -21,27 +21,34 @@ Firebase project: **`vetroai`** (set in `.firebaserc`).
 
 ## Configuration
 
-The web config values are **not secrets** — Google documents them as publicly
-shippable. What actually protects the project is `firestore.rules` plus the
-Authentication *Authorized domains* list.
+The web config values are **not secrets** — Google ships them in every client
+bundle by design. What actually protects the project is `firestore.rules` plus
+the Authentication *Authorized domains* list.
 
-Fetch the values and write them into `frontend/.env.local`:
+The `vetroai` web app config is therefore baked into `src/firebase.js` as the
+default, so a plain `npm run build` works with no extra setup and deploys need
+no environment wiring.
 
-```bash
-npx -y firebase-tools@latest apps:sdkconfig WEB --project vetroai
-```
+To point a build at a **different** Firebase project, set all of these (they
+override the defaults individually, so provide the full set):
 
 ```dotenv
-VITE_FIREBASE_API_KEY=...
-VITE_FIREBASE_APP_ID=...
-VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
 ```
 
-`authDomain`, `projectId` and `storageBucket` fall back to the `vetroai`
-defaults baked into `src/firebase.js`, so only the three above are required.
+Fetch another project's values with:
 
-For production builds, set the same variables in the build environment
-(Cloudflare Pages / Wrangler), since Vite inlines them at build time.
+```bash
+npx -y firebase-tools@latest apps:sdkconfig WEB --project <project-id>
+```
+
+Vite inlines these at build time, so they must be present in the build
+environment, not just at runtime.
 
 ## Data model
 
