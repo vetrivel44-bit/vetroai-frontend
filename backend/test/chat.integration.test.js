@@ -36,6 +36,19 @@ test("chat returns a clear SSE error when no AI provider is configured", async (
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type"), /text\/event-stream/);
   assert.match(body, /not configured with an AI provider/i);
+
+  // The working-process panel must show the turn stopping, not a row left
+  // spinning behind an error message.
+  const analyzeStep = body
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => JSON.parse(line.slice(5)))
+    .filter((event) => event.type === "step")
+    .map((event) => event.data)
+    .pop();
+  assert.ok(analyzeStep, "the stream should describe the step it got to");
+  assert.equal(analyzeStep.state, "failed");
+  assert.match(analyzeStep.detail, /No AI provider is configured/i);
 });
 
 test("title and follow-up endpoints remain usable without Groq", async (t) => {

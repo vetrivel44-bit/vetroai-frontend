@@ -515,9 +515,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
     let lastFailure = null;
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
+    const startedAt = Date.now();
+    this.sendStep(res, "analyze", "Analyzing your request", "running");
 
     if (strictFable && !currentProviderName) {
       logger.error("AIOrchestrator.fableNotConfigured", { reqId });
+      this.sendStep(res, "analyze", "Cannot answer this request", "failed", {
+        detail: "Claude Fable 5 was requested but has no API key on the backend.",
+      });
       this.sendVetroEvent(
         res,
         "error",
@@ -528,6 +533,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     if (!currentProviderName || maxAttempts === 0) {
       logger.error("AIOrchestrator.noConfiguredProvider", { reqId });
+      this.sendStep(res, "analyze", "Cannot answer this request", "failed", {
+        detail: "No AI provider is configured on the backend.",
+      });
       this.sendVetroEvent(
         res,
         "error",
@@ -567,8 +575,23 @@ Choose the single best-fitting visualization block(s) from the formats below:
     let astroContext = null;
 
     const isAstrology = this.ASTROLOGY_TRIGGERS.some(rx => rx.test(userQuery));
+
+    // Report the plan the intent detection above settled on, so the timeline
+    // explains why the next steps happen (or why they don't).
+    const plan = [];
+    if (shouldSearch) plan.push(mode === "deep_search" ? "deep web search" : "live web search");
+    if (isAstrology) plan.push("astrology chart lookup");
+    this.sendStep(res, "analyze", "Analyzed your request", "done", {
+      ms: Date.now() - startedAt,
+      detail: plan.length
+        ? `Answering with ${this.providerLabel(currentProviderName)}, plus ${plan.join(" and ")}.`
+        : `Answering directly with ${this.providerLabel(currentProviderName)} — no live lookup needed.`,
+    });
+
     if (isAstrology) {
       this.sendVetroEvent(res, "status", "Consulting astrological charts...");
+      const astroStartedAt = Date.now();
+      this.sendStep(res, "astro", "Consulting astrological charts", "running");
       try {
         const groq = config.groqApiKey ? new Groq({ apiKey: config.groqApiKey }) : null;
         const birthDetails = await extractBirthDetails(messages, groq);
@@ -586,27 +609,76 @@ Choose the single best-fitting visualization block(s) from the formats below:
         astroContext = "API_ERROR";
         logger.error("AIOrchestrator.astrologyError", { reqId, error: err.message });
       }
+      const astroMs = Date.now() - astroStartedAt;
+      if (astroContext === "API_ERROR") {
+        this.sendStep(res, "astro", "Astrology service unavailable", "failed", {
+          ms: astroMs,
+          detail: "The chart provider did not answer, so the reply will say so rather than guess.",
+        });
+      } else if (astroContext === "USER_BIRTH_DETAILS_MISSING") {
+        this.sendStep(res, "astro", "Birth details missing", "skipped", {
+          ms: astroMs,
+          detail: "No birth date, time and place in the conversation yet — the reply will ask for them.",
+        });
+      } else {
+        this.sendStep(res, "astro", "Chart data received", "done", {
+          ms: astroMs,
+          detail: "Vedic sidereal chart fetched from FreeAstroAPI.",
+        });
+      }
     }
 
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
     const galleryEligibleMode = !["design", "code_exec", "data_analysis"].includes(mode);
     const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
+    const imagesStartedAt = Date.now();
     const imagesPromise = shouldFetchImages
       ? searchImages(userQuery, 4).catch(() => [])
       : Promise.resolve([]);
+    if (shouldFetchImages) {
+      this.sendStep(res, "images", "Looking for related images", "running");
+      // Reported the moment the lookup lands rather than where it is awaited,
+      // so the row stops spinning at the time it actually finished.
+      imagesPromise.then((images) => {
+        const ms = Date.now() - imagesStartedAt;
+        if (images.length) {
+          this.sendStep(res, "images", `Found ${images.length} related image${images.length > 1 ? "s" : ""}`, "done", {
+            ms,
+            detail: "Shown as a gallery under the answer.",
+          });
+        } else {
+          this.sendStep(res, "images", "No related images found", "skipped", { ms });
+        }
+      }).catch(() => {});
+    }
 
     if (shouldSearch) {
       this.sendVetroEvent(res, "status", "Searching the web for latest info...");
+      const searchStartedAt = Date.now();
+      const searchLabel = mode === "deep_search" ? "Running a deep web search" : "Searching the web";
+      this.sendStep(res, "search", searchLabel, "running", { detail: `Query: ${userQuery.slice(0, 140)}` });
       try {
         const searchRes = await Promise.race([
           mode === "deep_search" ? performDeepSearch(userQuery) : searchWeb(userQuery),
           new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
         ]);
         webContext = searchRes.context;
+        const sources = (searchRes.results || [])
+          .filter((r) => r && r.url)
+          .map((r) => ({ label: r.title || r.url, url: r.url }));
+        this.sendStep(res, "search", sources.length ? `Read ${sources.length} web source${sources.length > 1 ? "s" : ""}` : "Searched the web", "done", {
+          ms: Date.now() - searchStartedAt,
+          detail: sources.length ? "These pages were passed to the model as context." : "No usable results — answering from the model's own knowledge.",
+          items: sources,
+        });
       } catch (err) {
         logger.error("AIOrchestrator.searchError", { reqId, error: err.message });
         // Search failed/timed out — AI will still respond without web context
+        this.sendStep(res, "search", "Web search failed", "failed", {
+          ms: Date.now() - searchStartedAt,
+          detail: `${err.message} — answering from the model's own knowledge instead.`,
+        });
       }
     }
 
@@ -643,6 +715,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
+        this.sendStep(res, `model-${attempts}`, `${this.providerLabel(currentProviderName)} unavailable`, "failed", {
+          detail: "No adapter is installed for this provider on the backend.",
+        });
         if (strictFable) {
           this.sendVetroEvent(res, "error", "Claude Fable 5 API adapter is unavailable on the backend.");
           break;
@@ -655,6 +730,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
       this.sendVetroEvent(res, "status", attempts === 1 ? `Consulting ${currentProviderName}...` : `Re-routing to ${currentProviderName}...`);
       logger.info(`AIOrchestrator: Attempt ${attempts} using ${currentProviderName}`, { reqId });
+
+      // Each attempt gets its own row, so a fallback reads as "provider A
+      // failed, provider B answered" rather than silently overwriting itself.
+      const stepId = `model-${attempts}`;
+      const providerLabel = this.providerLabel(currentProviderName);
+      this.sendStep(res, stepId, `${attempts === 1 ? "Asking" : "Re-routing to"} ${providerLabel}`, "running");
 
       const startTime = Date.now();
       try {
@@ -680,6 +761,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         }
 
         providerManager.updateMetrics(currentProviderName, true, Date.now() - startTime);
+        this.sendStep(res, stepId, `${providerLabel} answered`, "done", { ms: Date.now() - startTime });
         success = true;
       } catch (err) {
         logger.error(`AIOrchestrator.error [${currentProviderName}]`, { reqId, error: err.message });
@@ -690,6 +772,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
         const isTimeout = failure.kind === "network";
         lastFailure = { provider: currentProviderName, ...failure };
         logger.warn("AIOrchestrator.providerFailure", { reqId, provider: currentProviderName, kind: failure.kind });
+        this.sendStep(res, stepId, `${providerLabel} failed`, "failed", {
+          ms: Date.now() - startTime,
+          detail: failure.userMessage(providerLabel),
+        });
 
         if (isRateLimit) {
           providerManager.suspendProvider(currentProviderName, "Rate limit reached");
@@ -743,6 +829,26 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
   sendVetroEvent(res, type, data) {
     res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  }
+
+  // ── Working-process timeline ────────────────────────────────────────────────
+  // One entry of the step list the UI shows above the answer, so the user can
+  // see what VetroAI actually did — searched the web, called a provider, fell
+  // back to another one — instead of only a "thinking" spinner.
+  //
+  // Entries are keyed by `id`: re-sending the same id updates that row in place
+  // (running → done/failed) rather than appending a duplicate. `detail` is a
+  // short human-readable line, `items` an optional list of { label, url } the
+  // row expands into (e.g. the web sources that were actually read).
+  sendStep(res, id, label, state = "running", extra = {}) {
+    // A step can resolve after the response is finished (the image lookup runs
+    // in parallel with everything else) — writing then would throw.
+    if (res.writableEnded || res.destroyed) return;
+    const step = { id, label, state, ts: Date.now() };
+    if (extra.detail) step.detail = String(extra.detail);
+    if (extra.items && extra.items.length) step.items = extra.items.slice(0, 8);
+    if (typeof extra.ms === "number") step.ms = extra.ms;
+    this.sendVetroEvent(res, "step", step);
   }
 
   // Works out what actually went wrong with a provider call. Every failure used
@@ -1033,6 +1139,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
     if (this.isLikelyTruncated(fullContent)) {
       logger.info("AIOrchestrator: Truncation detected");
       this.sendVetroEvent(res, "status", "Finishing long response...");
+      this.sendStep(res, "continue", "Answer was cut off", "done", {
+        detail: "The provider stopped mid-answer — the rest is fetched as a continuation.",
+      });
     }
 
     return fullContent;

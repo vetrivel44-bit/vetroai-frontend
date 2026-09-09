@@ -1,0 +1,367 @@
+/* ══════════════════════════════════════════════════════════════
+   VETROAI — WORKING PROCESS PANEL
+   Collapsible timeline of what the assistant did for a turn:
+   lookups, provider calls, fallbacks, and its chain of thought.
+   ══════════════════════════════════════════════════════════════ */
+
+.vai-pp {
+  max-width: 100%;
+  margin: 0 0 10px;
+  animation: vaiPpIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes vaiPpIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Header pill ────────────────────────────────────────────── */
+.vai-pp-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 8px;
+  border: 1px solid var(--border-med, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+  color: var(--ink-3, #8e8e93);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.vai-pp-header:hover {
+  color: var(--ink-2, #c8c8cc);
+  border-color: var(--border-med, rgba(255, 255, 255, 0.14));
+}
+
+.vai-pp-header:focus-visible {
+  outline: 2px solid var(--accent, #60a5fa);
+  outline-offset: 2px;
+}
+
+.vai-pp-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vai-pp.is-open .vai-pp-chevron { transform: rotate(90deg); }
+
+.vai-pp-spark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent, #60a5fa);
+  opacity: 0.75;
+}
+
+.vai-pp.is-active .vai-pp-spark {
+  opacity: 1;
+  animation: vaiPpSpin 2.6s linear infinite;
+}
+
+@keyframes vaiPpSpin {
+  from { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(180deg) scale(1.14); }
+  to   { transform: rotate(360deg) scale(1); }
+}
+
+/* Shimmer sweep across the label while work is still in flight. */
+.vai-pp-header-label { white-space: nowrap; }
+
+.vai-pp.is-active .vai-pp-header-label {
+  background: linear-gradient(
+    90deg,
+    var(--ink-3, #8e8e93) 0%,
+    var(--ink, #f0f0f2) 45%,
+    var(--ink-3, #8e8e93) 90%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: vaiPpShimmer 2.1s linear infinite;
+}
+
+@keyframes vaiPpShimmer {
+  from { background-position: 140% 0; }
+  to   { background-position: -60% 0; }
+}
+
+.vai-pp-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.vai-pp-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  animation: vaiPpPulse 1.3s ease-in-out infinite;
+}
+
+.vai-pp-dots i:nth-child(2) { animation-delay: 0.18s; }
+.vai-pp-dots i:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes vaiPpPulse {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50%      { opacity: 1;    transform: translateY(-2px); }
+}
+
+/* ─── Body ───────────────────────────────────────────────────── */
+.vai-pp-body {
+  margin: 8px 0 2px;
+  animation: vaiPpExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes vaiPpExpand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Step list ──────────────────────────────────────────────── */
+.vai-pp-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vai-pp-step {
+  position: relative;
+  display: flex;
+  gap: 9px;
+  padding: 0 0 2px 0;
+}
+
+/* Connector rail between consecutive bullets. */
+.vai-pp-step::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 19px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--border-med, rgba(255, 255, 255, 0.12));
+}
+
+.vai-pp-step:last-child::before { display: none; }
+
+.vai-pp-bullet {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  margin-top: 3px;
+  border-radius: 50%;
+  border: 1px solid var(--border-med, rgba(255, 255, 255, 0.12));
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+  color: var(--ink-3, #8e8e93);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vai-pp-step.is-done   .vai-pp-bullet { color: var(--accent, #60a5fa); }
+.vai-pp-step.is-failed .vai-pp-bullet {
+  color: var(--danger, #f87171);
+  border-color: var(--danger, rgba(248, 113, 113, 0.4));
+}
+.vai-pp-step.is-running .vai-pp-bullet { border-color: var(--accent-mid, rgba(96, 165, 250, 0.35)); }
+.vai-pp-step.is-skipped .vai-pp-bullet { opacity: 0.6; }
+
+.vai-pp-spinner {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent-mid, rgba(96, 165, 250, 0.3));
+  border-top-color: var(--accent, #60a5fa);
+  animation: vaiPpRotate 0.7s linear infinite;
+}
+
+@keyframes vaiPpRotate {
+  to { transform: rotate(360deg); }
+}
+
+.vai-pp-dash {
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+/* ─── Step row ───────────────────────────────────────────────── */
+.vai-pp-main {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 6px;
+}
+
+/* The row hugs its label so the disclosure caret sits next to the text rather
+   than drifting to the far edge of an otherwise empty line. */
+.vai-pp-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3, #8e8e93);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.vai-pp-row.is-static { cursor: default; }
+.vai-pp-row:not(.is-static):hover { color: var(--ink, #f0f0f2); }
+
+.vai-pp-row:focus-visible {
+  outline: 2px solid var(--accent, #60a5fa);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.vai-pp-step.is-running .vai-pp-label { color: var(--ink-2, #c8c8cc); }
+.vai-pp-step.is-failed  .vai-pp-label { color: var(--danger, #f87171); }
+.vai-pp-step.is-skipped .vai-pp-label { opacity: 0.75; }
+
+.vai-pp-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vai-pp-ms {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+
+.vai-pp-caret {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vai-pp-step.is-open .vai-pp-caret { transform: rotate(90deg); }
+
+/* ─── Expanded detail ────────────────────────────────────────── */
+.vai-pp-detail {
+  padding: 2px 0 4px;
+  animation: vaiPpExpand 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vai-pp-detail-text {
+  margin: 0;
+  color: var(--ink-3, #8e8e93);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  opacity: 0.9;
+}
+
+.vai-pp-items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vai-pp-items a,
+.vai-pp-items .vai-pp-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  color: var(--ink-3, #8e8e93);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.vai-pp-items a:hover { color: var(--accent, #60a5fa); }
+
+.vai-pp-items .vai-pp-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Reasoning text ─────────────────────────────────────────── */
+.vai-pp-reasoning {
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--border-str, rgba(255, 255, 255, 0.18));
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.vai-pp.is-active .vai-pp-reasoning {
+  border-left-color: var(--accent-mid, rgba(96, 165, 250, 0.25));
+}
+
+.vai-pp-reasoning-text {
+  margin: 0;
+  color: var(--ink-3, #8e8e93);
+  font-size: 13.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vai-pp-reasoning-text.is-placeholder { font-style: italic; opacity: 0.75; }
+
+.vai-pp-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent, #60a5fa);
+  animation: vaiPpBlink 1s step-end infinite;
+}
+
+@keyframes vaiPpBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .vai-pp-header         { font-size: 12px; padding: 5px 10px 5px 7px; }
+  .vai-pp-row            { font-size: 12.5px; }
+  .vai-pp-detail-text,
+  .vai-pp-items a        { font-size: 12px; }
+  .vai-pp-reasoning-text { font-size: 13px; }
+  .vai-pp-reasoning      { max-height: 240px; padding-left: 12px; }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .vai-pp,
+  .vai-pp-body,
+  .vai-pp-detail,
+  .vai-pp.is-active .vai-pp-spark,
+  .vai-pp.is-active .vai-pp-header-label,
+  .vai-pp-dots i,
+  .vai-pp-cursor {
+    animation: none;
+  }
+  .vai-pp-spinner { animation-duration: 2s; }
+  .vai-pp.is-active .vai-pp-header-label {
+    -webkit-text-fill-color: currentColor;
+    color: var(--ink-2, #c8c8cc);
+  }
+}

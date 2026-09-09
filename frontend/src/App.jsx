@@ -26,7 +26,8 @@ import StructuredResponseRenderer from "./components/structured/StructuredRespon
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
-import ThinkingPanel from "./components/ThinkingPanel";
+import ProcessPanel from "./components/ProcessPanel";
+import { mergeStep, settleSteps as closeOpenSteps } from "./utils/processSteps";
 import GlobalSearch from "./components/screens/GlobalSearch";
 import UpgradeModal from "./components/screens/UpgradeModal";
 import JobSearchPanel from "./components/screens/JobSearchPanel";
@@ -62,13 +63,28 @@ const MAX_FILE_SIZE_MB = 25;
 // `onReasoning(text, { isThinking, durationMs })` receives the model's streamed
 // chain of thought — native reasoning tokens, or the contents of a <think> block
 // the backend stripped out of the answer. Optional; older callers can omit it.
-const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId, onReasoning) => {
+const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId, onReasoning, onSteps) => {
   const dec = new TextDecoder();
   let lineBuffer = "";
   let accumulated = "";
   let reasoning = "";
+  // The working-process timeline: `step` events keyed by id, kept in the order
+  // they first arrived so a repeat of the same id updates its row in place.
+  let steps = [];
   const emitReasoning = (isThinking, durationMs = null) => {
     onReasoning?.(reasoning, { isThinking, durationMs });
+  };
+  const settleSteps = () => {
+    const closed = closeOpenSteps(steps);
+    if (closed === steps) return;
+    steps = closed;
+    onSteps?.(steps);
+  };
+  const applyStep = (step) => {
+    const merged = mergeStep(steps, step);
+    if (merged === steps) return;
+    steps = merged;
+    onSteps?.(steps);
   };
   const processLine = (line) => {
     if (!line.startsWith("data:")) return;
@@ -87,6 +103,8 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         reasoning = "";
         onChunk("");
         emitReasoning(false);
+      } else if (type === "step" && data) {
+        applyStep(data);
       } else if (type === "reasoning_start") {
         emitReasoning(true);
       } else if (type === "reasoning" && data) {
@@ -120,9 +138,11 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
   } catch (err) {
     console.error("SSE read error:", err);
     emitReasoning(false);
+    settleSteps();
     throw err;
   }
   emitReasoning(false);
+  settleSteps();
   return accumulated;
 };
 
@@ -4725,6 +4745,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return u;
           });
           if (!isScrolling.current) scrollToBottom();
+        },
+        (steps) => {
+          // The working-process timeline — kept on the message so it stays
+          // inspectable after the answer lands, not just while it streams.
+          if (!isActive()) return;
+          setMessages(prev => {
+            if (prev.length === 0) return prev;
+            const u = [...prev];
+            u[u.length - 1] = { ...u[u.length - 1], steps };
+            return u;
+          });
+          if (!isScrolling.current) scrollToBottom();
         }
       );
 
@@ -5990,8 +6022,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.medicalData && (
                              <MedicalInfoCard data={m.medicalData} />
                            )}
-                           {(m.reasoning || m.isThinking) && (
-                             <ThinkingPanel
+                           {(m.reasoning || m.isThinking || m.steps?.length > 0) && (
+                             <ProcessPanel
+                               steps={m.steps || []}
                                reasoning={m.reasoning}
                                isThinking={Boolean(m.isThinking)}
                                durationMs={m.thinkingMs}
@@ -6118,7 +6151,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   </div>
                                   );
                                })()
-                               : !m.content && isLoading && !m.isThinking && !m.reasoning
+                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !(m.steps?.length > 0)
                                ? <div style={{ paddingTop: 4, color: "var(--ink-3)" }}>
                                    <div className="flex gap-2 items-center">
                                      <div className="flex gap-1 items-center">
