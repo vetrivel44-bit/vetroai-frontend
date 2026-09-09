@@ -1,6 +1,7 @@
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
+const { chatCompletion } = require("./openaiCompatible");
 
 async function generateStream(messages, options = {}) {
   if (!config.sambanovaApiKey) {
@@ -41,6 +42,32 @@ async function generateStream(messages, options = {}) {
   }
 }
 
+// Non-streaming variant used by the agentic tool loop — see openaiCompatible.js.
+async function generateCompletion(messages, options = {}) {
+  if (!config.sambanovaApiKey) {
+    throw new ApiError(500, "SambaNova API key not configured.");
+  }
+
+  const { model } = options;
+
+  try {
+    return await chatCompletion({
+      label: "SambaNova",
+      endpoint: "https://api.sambanova.ai/v1/chat/completions",
+      apiKey: config.sambanovaApiKey,
+      model: model || "Meta-Llama-3.3-70B-Instruct",
+      messages,
+      options,
+      timeoutMs: 25000,
+    });
+  } catch (err) {
+    logger.error("sambanovaAdapter.generateCompletion", { error: err.message });
+    throw err;
+  }
+}
+
 module.exports = {
   generateStream,
+  generateCompletion,
+  supportsTools: true,
 };

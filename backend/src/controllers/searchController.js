@@ -4,6 +4,7 @@ const { successResponse } = require("../utils/response");
 const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
+const { withTimeout } = require("../utils/withTimeout");
 
 // ── Primary: Tavily (best real-time AI search) ────────────────────────────────
 async function searchTavily(query) {
@@ -12,15 +13,16 @@ async function searchTavily(query) {
 
   try {
     const client = tavily({ apiKey });
-    const res = await Promise.race([
+    const res = await withTimeout(
       client.search(query, {
         searchDepth: "basic",
         maxResults: 8,
         includeAnswer: true,
         includeRawContent: false,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Tavily timeout")), 8000)),
-    ]);
+      8000,
+      "Tavily timeout"
+    );
 
     return res;
   } catch (err) {
@@ -32,10 +34,11 @@ async function searchTavily(query) {
 // ── Fallback: DuckDuckGo ──────────────────────────────────────────────────────
 async function searchDDG(query) {
   try {
-    const res = await Promise.race([
+    const res = await withTimeout(
       search(query, { safeSearch: 0 }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("DDG timeout")), 7000)),
-    ]);
+      7000,
+      "DDG timeout"
+    );
     if (!res?.results?.length) return [];
     return res.results.slice(0, 8).map(r => ({
       title: r.title,
@@ -55,15 +58,16 @@ async function searchImages(query, limit = 4) {
 
   try {
     const client = tavily({ apiKey });
-    const res = await Promise.race([
+    const res = await withTimeout(
       client.search(query, {
         searchDepth: "basic",
         maxResults: 1,
         includeImages: true,
         includeImageDescriptions: true,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Tavily image search timeout")), 8000)),
-    ]);
+      8000,
+      "Tavily image search timeout"
+    );
 
     return (res?.images || [])
       .slice(0, limit)
@@ -131,10 +135,11 @@ async function performSearch(req, res) {
   const query = req.body?.query;
   if (!query) throw new ApiError(400, "Query is required");
   try {
-    const { context } = await Promise.race([
+    const { context } = await withTimeout(
       searchWeb(query),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Search timed out")), 12000)),
-    ]);
+      12000,
+      "Search timed out"
+    );
     return successResponse(res, "Search successful", { context });
   } catch (error) {
     logger.error("searchController.error", { message: error.message });

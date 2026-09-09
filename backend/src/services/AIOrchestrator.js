@@ -6,6 +6,8 @@ const { searchWeb, searchImages } = require("../controllers/searchController");
 const { getAstrologyData, extractBirthDetails } = require("./astrologyService");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
+const { runToolLoop, formatObservations } = require("./ToolLoop");
+const { withTimeout } = require("../utils/withTimeout");
 const Groq = require("groq-sdk");
 
 class AIOrchestrator {
@@ -559,14 +561,67 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // searched literally and returning unrelated results (movie/song titles, etc.).
     const isExplicitSearchMode = mode === "web_search" || mode === "deep_search" || mode === "research";
     const autoSearchRequested = params.webSearch === true || params.webSearch === "true";
-    const shouldSearch = !isGreeting && !isIdentityQuestion && (
-      isExplicitSearchMode ||
-      (autoSearchRequested && this.needsWebSearch(userQuery))
-    );
     let webContext = null;
     let astroContext = null;
 
-    const isAstrology = this.ASTROLOGY_TRIGGERS.some(rx => rx.test(userQuery));
+    // ─── AGENTIC TOOL LOOP ───────────────────────────────────────────────────
+    // Let the model decide what to fetch, in as many rounds as it needs, instead
+    // of the regex triggers below guessing from keywords. The loop only gathers
+    // facts; the answer is still streamed through the normal provider path so
+    // every existing layer (thinking panel, visualizations, fallback chain)
+    // keeps working. When it cannot run — provider can't call tools, planner
+    // errored, tools disabled — the legacy regex paths take over unchanged.
+    const toolLoopProvider = (
+      config.toolsEnabled &&
+      !strictFable &&
+      !isGreeting &&
+      !isIdentityQuestion &&
+      // web_search / deep_search / research already have a defined fetch
+      // pipeline the user opted into; running the loop as well would duplicate
+      // the lookups and let it veto a search the user explicitly asked for.
+      !isExplicitSearchMode &&
+      mode !== "design" &&
+      userQuery.trim().length > 8
+    ) ? providerManager.getToolCapableProvider(preferredProvider) : null;
+
+    let toolResult = { ran: false, observations: [], usedTools: [], stoppedReason: "skipped" };
+    if (toolLoopProvider) {
+      this.sendVetroEvent(res, "status", "Deciding what to look up...");
+      toolResult = await runToolLoop({
+        messages,
+        adapter: providerManager.getAdapter(toolLoopProvider),
+        providerName: toolLoopProvider,
+        options,
+        maxSteps: config.toolLoopMaxSteps,
+        budgetMs: config.toolLoopBudgetMs,
+        onStatus: (text) => this.sendVetroEvent(res, "status", text),
+        reqId,
+      });
+      logger.info("AIOrchestrator.toolLoop", {
+        reqId,
+        provider: toolLoopProvider,
+        steps: toolResult.steps,
+        tools: toolResult.usedTools,
+        stoppedReason: toolResult.stoppedReason,
+      });
+    }
+
+    // The loop is authoritative about context only when it actually got to
+    // reason. A planner that never ran tells us nothing, so the regexes below
+    // still get their turn.
+    const toolLoopDecided = toolResult.ran
+      && !["planner_error", "provider_cannot_call_tools"].includes(toolResult.stoppedReason);
+
+    // Declared after the loop because the loop's verdict overrides the keyword
+    // heuristic: if the model got to reason about this turn, its call on whether
+    // to search stands and we do not search again behind it. An explicit search
+    // mode is not a heuristic, so it still always searches.
+    const shouldSearch = !isGreeting && !isIdentityQuestion && (
+      isExplicitSearchMode ||
+      (!toolLoopDecided && autoSearchRequested && this.needsWebSearch(userQuery))
+    );
+
+    const isAstrology = !toolLoopDecided && this.ASTROLOGY_TRIGGERS.some(rx => rx.test(userQuery));
     if (isAstrology) {
       this.sendVetroEvent(res, "status", "Consulting astrological charts...");
       try {
@@ -591,18 +646,27 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
     const galleryEligibleMode = !["design", "code_exec", "data_analysis"].includes(mode);
-    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
+    // If the loop already ran image_search, reuse its results rather than paying
+    // for the same lookup twice.
+    const loopImages = toolResult.observations
+      .filter((o) => o.tool === "image_search" && o.ok)
+      .flatMap((o) => { try { return JSON.parse(o.observation); } catch { return []; } })
+      .filter((img) => img && typeof img.url === "string");
+
+    const shouldFetchImages = galleryEligibleMode && !toolLoopDecided && !isGreeting
+      && !isIdentityQuestion && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(userQuery, 4).catch(() => [])
-      : Promise.resolve([]);
+      : Promise.resolve(galleryEligibleMode ? loopImages : []);
 
     if (shouldSearch) {
       this.sendVetroEvent(res, "status", "Searching the web for latest info...");
       try {
-        const searchRes = await Promise.race([
+        const searchRes = await withTimeout(
           mode === "deep_search" ? performDeepSearch(userQuery) : searchWeb(userQuery),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
-        ]);
+          10000,
+          "Search timeout"
+        );
         webContext = searchRes.context;
       } catch (err) {
         logger.error("AIOrchestrator.searchError", { reqId, error: err.message });
@@ -612,6 +676,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
     finalSysPrompt += buildPluginPrompt(params.activePlugins);
+    finalSysPrompt += formatObservations(toolResult.observations);
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one; native reasoning models stream their own regardless.
     const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12;
@@ -659,12 +724,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
       const startTime = Date.now();
       try {
         // Add timeout to prevent hanging
-        const streamPromise = adapter.generateStream(fullMessages, options);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Stream generation timeout")), 30000)
+        const stream = await withTimeout(
+          adapter.generateStream(fullMessages, options),
+          30000,
+          "Stream generation timeout"
         );
-        
-        const stream = await Promise.race([streamPromise, timeoutPromise]);
         
         if (!stream) throw new Error("Provider returned empty stream");
 

@@ -1,6 +1,7 @@
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
+const { chatCompletion } = require("./openaiCompatible");
 
 // Plugsky exposes an OpenAI-compatible /chat/completions endpoint, so the
 // stream is handed back untouched and parsed by AIOrchestrator.pipeStream.
@@ -50,6 +51,32 @@ async function generateStream(messages, options = {}) {
   }
 }
 
+// Non-streaming variant used by the agentic tool loop — see openaiCompatible.js.
+async function generateCompletion(messages, options = {}) {
+  if (!config.plugskyApiKey) {
+    throw new ApiError(500, "Plugsky API key not configured.");
+  }
+
+  const { model } = options;
+
+  try {
+    return await chatCompletion({
+      label: "Plugsky",
+      endpoint: endpoint(),
+      apiKey: config.plugskyApiKey,
+      model: model || config.plugskyModel || "plugsky-reasoner",
+      messages,
+      options,
+      timeoutMs: 30000,
+    });
+  } catch (err) {
+    logger.error("plugskyAdapter.generateCompletion", { error: err.message });
+    throw err;
+  }
+}
+
 module.exports = {
   generateStream,
+  generateCompletion,
+  supportsTools: true,
 };

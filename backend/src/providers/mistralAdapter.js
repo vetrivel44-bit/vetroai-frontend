@@ -1,6 +1,7 @@
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
+const { chatCompletion } = require("./openaiCompatible");
 
 async function generateStream(messages, options = {}) {
   // Read the key at call time, not at module load. ProviderManager.isConfigured
@@ -43,6 +44,32 @@ async function generateStream(messages, options = {}) {
   }
 }
 
+// Non-streaming variant used by the agentic tool loop — see openaiCompatible.js.
+async function generateCompletion(messages, options = {}) {
+  if (!config.mistralApiKey) {
+    throw new ApiError(500, "Mistral API key not configured on the backend.");
+  }
+
+  const { model } = options;
+
+  try {
+    return await chatCompletion({
+      label: "Mistral",
+      endpoint: "https://api.mistral.ai/v1/chat/completions",
+      apiKey: config.mistralApiKey,
+      model: model || config.mistralModel || "mistral-small-latest",
+      messages,
+      options,
+      timeoutMs: 25000,
+    });
+  } catch (err) {
+    logger.error("mistralAdapter.generateCompletion", { error: err.message });
+    throw err;
+  }
+}
+
 module.exports = {
   generateStream,
+  generateCompletion,
+  supportsTools: true,
 };

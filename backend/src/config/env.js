@@ -52,6 +52,11 @@ module.exports = {
     plugskyMaxTokens:    Number(getEnv("PLUGSKY_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.
     thinkingEnabled:     getEnv("THINKING_ENABLED", "true") !== "false",
+    // Agentic tool loop — see services/ToolLoop.js. Disable to fall back to the
+    // regex-triggered context fetching in AIOrchestrator.
+    toolsEnabled:        getEnv("TOOLS_ENABLED", "true") !== "false",
+    toolLoopMaxSteps:    Number(getEnv("TOOL_LOOP_MAX_STEPS", "3")),
+    toolLoopBudgetMs:    Number(getEnv("TOOL_LOOP_BUDGET_MS", "25000")),
     // Chess Arena — dedicated keys/models, isolated from the chat providers above.
     chessMistralApiKey:    getEnv("CHESS_MISTRAL_API_KEY",    ""),
     chessMistralModel:     getEnv("CHESS_MISTRAL_MODEL",      "mistral-small-latest"),

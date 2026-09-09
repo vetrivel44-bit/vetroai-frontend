@@ -274,6 +274,32 @@ class ProviderManager {
     return this.providers[name]?.adapter;
   }
 
+  // Only the OpenAI-compatible adapters expose generateCompletion + tool
+  // schemas. Gemini, the RapidAPI ChatGPT wrapper and Fable each speak their
+  // own shape, so the agentic loop skips them and they fall back to the
+  // regex-triggered context path in AIOrchestrator.
+  supportsTools(name) {
+    const adapter = this.providers[name]?.adapter;
+    return Boolean(adapter?.supportsTools && typeof adapter.generateCompletion === "function");
+  }
+
+  // Picks who runs the tool loop. The loop and the final answer do not have to
+  // be served by the same model: if the user's chosen provider cannot call
+  // tools, we still want the lookups to happen, so the best tool-capable
+  // provider does the reasoning-and-fetching and the chosen one writes the
+  // answer from the results.
+  getToolCapableProvider(preferredProvider) {
+    const pref = String(preferredProvider || "").toLowerCase();
+    if (pref && !["undefined", "auto", ""].includes(pref)
+        && this.isConfigured(pref) && this.supportsTools(pref) && !this.providers[pref].isSuspended) {
+      return pref;
+    }
+
+    const candidates = this.getAvailableProviders().filter((name) => this.supportsTools(name));
+    if (candidates.length === 0) return null;
+    return candidates.sort((a, b) => this.providers[b].weight - this.providers[a].weight)[0];
+  }
+
   getStats() {
     const stats = {};
     for (const [name, p] of Object.entries(this.providers)) {

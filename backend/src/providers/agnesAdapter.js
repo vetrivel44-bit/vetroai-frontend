@@ -1,6 +1,7 @@
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
+const { chatCompletion } = require("./openaiCompatible");
 
 async function generateStream(messages, options = {}) {
   if (!config.agnesApiKey) {
@@ -47,6 +48,32 @@ async function generateStream(messages, options = {}) {
   }
 }
 
+// Non-streaming variant used by the agentic tool loop — see openaiCompatible.js.
+async function generateCompletion(messages, options = {}) {
+  if (!config.agnesApiKey) {
+    throw new ApiError(500, "Agnes AI API key not configured.");
+  }
+
+  const { model } = options;
+
+  try {
+    return await chatCompletion({
+      label: "Agnes AI",
+      endpoint: "https://apihub.agnes-ai.com/v1/chat/completions",
+      apiKey: config.agnesApiKey,
+      model: model || config.agnesModel,
+      messages,
+      options,
+      timeoutMs: 25000,
+    });
+  } catch (err) {
+    logger.error("agnesAdapter.generateCompletion", { error: err.message });
+    throw err;
+  }
+}
+
 module.exports = {
   generateStream,
+  generateCompletion,
+  supportsTools: true,
 };
