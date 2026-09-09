@@ -72,6 +72,10 @@ module.exports = {
     // bearer tokens this API receives are Firebase ID tokens. Verifying one
     // needs only the project id — it is public, and is the token's `aud`.
     firebaseProjectId:   getEnv("FIREBASE_PROJECT_ID", "vetroai"),
+    // Plans and critiques the agentic search loop. Small and fast on purpose —
+    // it writes queries and judges coverage, it does not answer the question,
+    // and it runs several times per request.
+    searchPlannerModel:  getEnv("SEARCH_PLANNER_MODEL", "llama-3.1-8b-instant"),
     enableCloudSessions: getEnv("ENABLE_CLOUD_SESSIONS", "false") === "true",
     twilioAccountSid:    getEnv("TWILIO_ACCOUNT_SID",    ""),
     twilioAuthToken:     getEnv("TWILIO_AUTH_TOKEN",     ""),

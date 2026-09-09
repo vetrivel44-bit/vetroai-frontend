@@ -1,7 +1,7 @@
 // Trigger sync 2026-05-15 18:28
 const logger = require("../utils/logger");
 const providerManager = require("./ProviderManager");
-const { performDeepSearch } = require("./deepSearchService");
+const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { getAstrologyData, extractBirthDetails } = require("./astrologyService");
 const { config } = require("../config/env");
@@ -352,7 +352,7 @@ Before finishing, mentally check: every class referenced in the HTML has a match
 
     // Web context
     if (webContext) {
-      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question, and cite URLs where relevant. If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply.`;
+      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question. If a SOURCES list is present, cite it inline by number — [1], [2] — on the specific claims those sources support, and never cite a number that is not in that list. Where the results disagree with each other, say so rather than silently picking one. If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply.`;
     }
 
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with
@@ -597,12 +597,35 @@ Choose the single best-fitting visualization block(s) from the formats below:
       : Promise.resolve([]);
 
     if (shouldSearch) {
-      this.sendVetroEvent(res, "status", "Searching the web for latest info...");
+      // Research mode runs the agentic loop: it searches, reads what came back,
+      // works out what is still missing and searches again. That takes longer
+      // than one round trip, so it gets its own budget and streams progress —
+      // the flat 10s cap below would kill it mid-loop.
+      const isAgentic = mode === "deep_search" || mode === "research";
+
+      this.sendVetroEvent(
+        res,
+        "status",
+        isAgentic ? "Researching..." : "Searching the web for latest info..."
+      );
+
       try {
-        const searchRes = await Promise.race([
-          mode === "deep_search" ? performDeepSearch(userQuery) : searchWeb(userQuery),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
-        ]);
+        let searchRes;
+        if (isAgentic) {
+          // The service enforces its own deadline and returns partial evidence
+          // rather than throwing, so the outer race only guards a hung socket.
+          searchRes = await Promise.race([
+            performAgenticSearch(userQuery, {
+              onStatus: (msg) => { if (msg) this.sendVetroEvent(res, "status", msg); },
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 35000)),
+          ]);
+        } else {
+          searchRes = await Promise.race([
+            searchWeb(userQuery),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
+          ]);
+        }
         webContext = searchRes.context;
       } catch (err) {
         logger.error("AIOrchestrator.searchError", { reqId, error: err.message });
