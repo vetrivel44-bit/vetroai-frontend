@@ -44,6 +44,15 @@ rules_version = '2';
 //   - createdAt: number (client epoch ms)
 //   - updatedAt: timestamp (server-set)
 //
+// Collection: users/{uid}/memories
+// Document ID: client-generated
+// Fields:
+//   - id: string (required, must match the document id)
+//   - text: string (required) - the fact to remember
+//   - createdAt: number (client epoch ms)
+//   - source: string (optional) - "manual" | "chat"
+//   - updatedAt: timestamp (server-set)
+//
 // Collection: users/{uid}/prefs
 // Document ID: "app"
 // Fields:
@@ -144,6 +153,19 @@ service cloud.firestore {
                               && (!('code' in incoming())     || incoming().code is string)
                               && (!('language' in incoming()) || incoming().language is string)
                               && (!('title' in incoming())    || incoming().title is string)
+                              && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
+      // --- Remembered facts, injected into the system prompt ---
+      match /memories/{memoryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+                              && idMatchesPath(memoryId)
+                              && incoming().text is string
+                              && incoming().text.size() > 0
+                              && incoming().text.size() <= 2000
+                              && (!('source' in incoming()) || incoming().source is string)
                               && withinSizeLimit();
         allow delete: if isOwner(userId);
       }
