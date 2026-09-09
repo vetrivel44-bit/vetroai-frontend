@@ -1,0 +1,25 @@
+{
+  "auth": {
+    "authorizedDomains": [
+      "localhost",
+      "vetroai.firebaseapp.com",
+      "vetroai.web.app"
+    ],
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "VetroAI",
+        "supportEmail": "vel21873@gmail.com"
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "firestore": { "port": 8080 },
+    "ui": { "enabled": true }
+  }
+}

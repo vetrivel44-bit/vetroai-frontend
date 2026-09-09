@@ -1,81 +1,80 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState } from 'react';
+import { signInWithGoogle, describeAuthError } from '../../lib/firebaseAuth.js';
 
-const GoogleLoginButton = ({ clientId, onLogin, theme }) => {
-  const buttonRef = useRef(null);
-  const onLoginRef = useRef(onLogin);
-  const initializedRef = useRef(false);
+/**
+ * Google sign-in button backed by Firebase Authentication.
+ *
+ * This replaces the old Google Identity Services script + custom-backend token
+ * exchange. Firebase owns the OAuth flow now, so there is no client id to pass
+ * and no GSI script to wait for — which also removes the region-blocked-script
+ * failure mode the previous implementation had to work around.
+ *
+ * `onLogin` is called with the Firebase User on success. The app's auth state
+ * is driven by onAuthStateChanged, so this callback is only for UI feedback.
+ */
+const GoogleLoginButton = ({ onLogin, onError, theme, disabled }) => {
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    onLoginRef.current = onLogin;
-  }, [onLogin]);
-
-  useEffect(() => {
-    if (!clientId) return;
-
-    const initializeAndRender = () => {
-      if (window.google && window.google.accounts.id) {
-        // Only initialize once to prevent GSI_LOGGER warnings
-        if (!initializedRef.current) {
-          window.google.accounts.id.initialize({
-            client_id: clientId,
-            callback: (res) => {
-              console.log("📩 Google Login Callback Received");
-              if (onLoginRef.current) {
-                onLoginRef.current(res);
-              }
-            },
-            auto_select: false,
-            cancel_on_tap_outside: true,
-            itp_support: true,
-            use_fedcm_for_prompt: true
-          });
-          initializedRef.current = true;
-        }
-
-        if (buttonRef.current) {
-          const w = Math.min(320, buttonRef.current.parentElement?.clientWidth || 320, window.innerWidth - 48);
-          window.google.accounts.id.renderButton(buttonRef.current, {
-            theme: theme === "dark" ? "filled_black" : "outline",
-            size: "large",
-            width: w,
-            shape: "pill",
-          });
-        }
-      }
-    };
-
-    // If script is already loaded
-    if (window.google && window.google.accounts.id) {
-      initializeAndRender();
-    } else {
-      // Wait for script to load or event to fire
-      const checkInterval = setInterval(() => {
-        if (window.google && window.google.accounts.id) {
-          initializeAndRender();
-          clearInterval(checkInterval);
-        }
-      }, 500);
-      
-      const handleReady = () => {
-        initializeAndRender();
-        clearInterval(checkInterval);
-      };
-      
-      window.addEventListener('google-ready', handleReady);
-      return () => {
-        window.removeEventListener('google-ready', handleReady);
-        clearInterval(checkInterval);
-      };
+  const handleClick = async () => {
+    if (busy || disabled) return;
+    setBusy(true);
+    try {
+      const user = await signInWithGoogle();
+      // A null user means we fell back to a redirect: the page is navigating
+      // away and the result is picked up on the way back.
+      if (user) onLogin?.(user);
+    } catch (err) {
+      onError?.(describeAuthError(err), err);
+    } finally {
+      setBusy(false);
     }
-  }, [clientId, theme]);
+  };
+
+  const dark = theme === 'dark';
 
   return (
-    <div 
-      ref={buttonRef} 
-      id="google-signin-button" 
-      style={{ display: "flex", justifyContent: "center", minHeight: '44px' }}
-    />
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={busy || disabled}
+      aria-label="Continue with Google"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        width: '100%',
+        maxWidth: 320,
+        minHeight: 44,
+        margin: '0 auto',
+        padding: '10px 20px',
+        borderRadius: 9999,
+        cursor: busy || disabled ? 'default' : 'pointer',
+        opacity: busy || disabled ? 0.65 : 1,
+        border: `1px solid ${dark ? '#3c4043' : '#dadce0'}`,
+        background: dark ? '#131314' : '#fff',
+        color: dark ? '#e3e3e3' : '#1f1f1f',
+        fontSize: 15,
+        fontWeight: 500,
+        fontFamily: '"Roboto", system-ui, -apple-system, sans-serif',
+        transition: 'background 120ms ease, box-shadow 120ms ease',
+      }}
+    >
+      <GoogleMark />
+      <span>{busy ? 'Signing in…' : 'Continue with Google'}</span>
+    </button>
   );
 };
+
+// Inlined so the button renders identically offline and in regions where
+// Google's static hosts are unreachable.
+const GoogleMark = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+    <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z" />
+    <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z" />
+    <path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33Z" />
+    <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58Z" />
+  </svg>
+);
 
 export default GoogleLoginButton;
