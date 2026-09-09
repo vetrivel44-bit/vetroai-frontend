@@ -4,7 +4,6 @@ const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
 const { normalizePluginIds } = require("../config/plugins");
-const { performDeepSearch } = require("../services/deepSearchService");
 
 // ── Groq client ───────────────────────────────────────────────────────────────
 if (!config.groqApiKey) {
