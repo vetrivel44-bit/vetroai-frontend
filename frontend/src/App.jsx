@@ -19,6 +19,7 @@ import {
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
+import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
@@ -54,6 +55,16 @@ const GOOGLE_SIGNIN_ENABLED = isFirebaseConfigured;
 
 
 const swallowError = () => {};
+
+// The Customize modal's Memory toggle. Read at the point of use rather than
+// held in state, so it is always current no matter where it was changed.
+const isMemoryEnabled = () => {
+  try {
+    return JSON.parse(localStorage.getItem("vetroai_customize") || "{}").enableMemory !== false;
+  } catch {
+    return true;
+  }
+};
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const MAX_FILE_SIZE_MB = 25;
 
@@ -1100,7 +1111,8 @@ function buildSystemPromptFromCustomize(cfg) {
   return parts.filter(Boolean).join(" ");
 }
 
-function SysPromptModal({ onClose, t, value, setValue }) {
+function SysPromptModal({ onClose, t, value, setValue, memories = [], onAddMemory, onDeleteMemory, onClearMemories }) {
+  const [newMemory, setNewMemory] = useState("");
   const [tab, setTab] = useState("personal");
   const [cfg, setCfg] = useState(() => {
     try {
@@ -1127,8 +1139,16 @@ function SysPromptModal({ onClose, t, value, setValue }) {
   const tabs = [
     { id: "personal", label: "About You", icon: <User size={15} /> },
     { id: "response", label: "Response Style", icon: <Palette size={15} /> },
+    { id: "memory", label: t.memories || "Memory", icon: <Brain size={15} /> },
     { id: "advanced", label: "Advanced", icon: <SlidersHorizontal size={15} /> },
   ];
+
+  const submitMemory = () => {
+    const text = newMemory.trim();
+    if (!text) return;
+    onAddMemory?.(text);
+    setNewMemory("");
+  };
 
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1219,6 +1239,81 @@ function SysPromptModal({ onClose, t, value, setValue }) {
             </>
           )}
 
+          {tab === "memory" && (
+            <>
+              <div className="cust-section">
+                <div className="cust-section-title">{t.memories || "Memory"}</div>
+                <p className="cust-section-desc">
+                  Facts VetroAI carries between conversations. Say “Remember my name is …”
+                  in any chat, or add one here.
+                </p>
+              </div>
+
+              <div className="field-group">
+                <label className="field-label">Add a memory</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    className="field-input"
+                    style={{ flex: 1 }}
+                    placeholder="e.g. I'm preparing for GATE 2027"
+                    value={newMemory}
+                    maxLength={MAX_MEMORY_LENGTH}
+                    onChange={(e) => setNewMemory(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitMemory(); } }}
+                  />
+                  <button className="btn-primary" onClick={submitMemory} disabled={!newMemory.trim()}>
+                    <Plus size={15} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="field-group">
+                <label className="field-label">
+                  Remembered ({memories.length}{memories.length >= MAX_MEMORIES ? ` / ${MAX_MEMORIES}` : ""})
+                </label>
+                {memories.length === 0 ? (
+                  <p className="cust-section-desc" style={{ margin: 0 }}>
+                    Nothing remembered yet.
+                  </p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" }}>
+                    {[...memories].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map((m) => (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: "flex", alignItems: "flex-start", gap: 10,
+                          padding: "9px 12px", borderRadius: 10,
+                          background: "var(--surface-2, rgba(127,127,127,.09))",
+                        }}
+                      >
+                        <span style={{ flex: 1, fontSize: 13.5, lineHeight: 1.45, wordBreak: "break-word" }}>
+                          {m.text}
+                        </span>
+                        <button
+                          className="modal-x"
+                          title="Forget this"
+                          aria-label={`Forget: ${m.text}`}
+                          style={{ flexShrink: 0 }}
+                          onClick={() => onDeleteMemory?.(m.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {memories.length > 0 && (
+                <div className="field-group">
+                  <button className="btn-ghost" onClick={onClearMemories}>
+                    {t.clearMemory || "Clear memory"}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
           {tab === "advanced" && (
             <>
               <div className="cust-section">
@@ -1240,7 +1335,10 @@ function SysPromptModal({ onClose, t, value, setValue }) {
                 <div className="cust-toggle-row">
                   <div>
                     <div className="cust-toggle-label">Memory</div>
-                    <div className="cust-toggle-desc">Remember your preferences across conversations</div>
+                    <div className="cust-toggle-desc">
+                      Send remembered facts to the AI. Turning this off keeps them stored
+                      but leaves them out of the conversation.
+                    </div>
                   </div>
                   <button className={`cust-toggle ${cfg.enableMemory ? "cust-toggle-on" : ""}`} onClick={() => update("enableMemory", !cfg.enableMemory)}>
                     <div className="cust-toggle-thumb" />
@@ -3454,15 +3552,11 @@ export default function App() {
   // ── Bookmarks & Memory ────────────────────────────────────────────────────────
   const [bookmarks, setBookmarks]           = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_bookmarks") || "[]"); } catch { return []; } });
   const [showBookmarks, setShowBookmarks]   = useState(false);
+  // Facts the user asked to be remembered across chats. Persisted like every
+  // other collection — localStorage for instant reads, Firestore for durability
+  // and cross-device sync — and sent with each request, where the backend
+  // injects them into the system prompt.
   const [memories, setMemories]             = useState([]);
-
-  // Lightweight per-user memory backed by localStorage
-  const getMemories = (email) => {
-    try {
-      const key = `vetroai_memories_${email}`;
-      return JSON.parse(localStorage.getItem(key) || "[]");
-    } catch { return []; }
-  };
 
   // ── Modals ────────────────────────────────────────────────────────────────────
   const [showProfile, setShowProfile]       = useState(false);
@@ -3560,7 +3654,12 @@ export default function App() {
   useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
   useEffect(() => { localStorage.setItem("vetroai_pins", JSON.stringify(pinnedIds)); }, [pinnedIds]);
   useEffect(() => { localStorage.setItem("vetroai_bookmarks", JSON.stringify(bookmarks)); }, [bookmarks]);
-  useEffect(() => { if (userInfo?.email) setMemories(getMemories(userInfo.email)); }, [userInfo]);
+  useEffect(() => {
+    if (!userKey) return;
+    // Firestore hydration overwrites this shortly after sign-in; this is the
+    // instant local paint, same as sessions and artifacts.
+    setMemories(readLocalList(userKey, "memories") || []);
+  }, [userKey]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -3842,6 +3941,39 @@ export default function App() {
       return list;
     });
     setActiveArtifact(null);
+  }, [userKey]);
+
+  // ── Memory ────────────────────────────────────────────────────────────────────
+  const addMemory = useCallback((text, source = "manual") => {
+    const clean = (text || "").trim();
+    if (!clean) return null;
+    let created = null;
+    setMemories((prev) => {
+      if (isDuplicate(prev, clean)) return prev;
+      created = makeMemory(clean, source);
+      // Oldest first out, so the cap drops stale facts rather than the one the
+      // user just asked for.
+      const list = [...prev, created].slice(-MAX_MEMORIES);
+      persistList(userKey, "memories", list);
+      return list;
+    });
+    return created;
+  }, [userKey]);
+
+  const deleteMemory = useCallback((id) => {
+    setMemories((prev) => {
+      const list = prev.filter((m) => m.id !== id);
+      persistList(userKey, "memories", list);
+      return list;
+    });
+  }, [userKey]);
+
+  const clearMemories = useCallback(() => {
+    setMemories(() => {
+      persistList(userKey, "memories", []);
+      return [];
+    });
+    addToast("Memory cleared", "info", 2000);
   }, [userKey]);
 
   const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
@@ -4463,7 +4595,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("maxTokens", String(effectiveMaxTokens));
     fd.append("effort", selectedEffort);
     fd.append("reqId", reqId);
-    fd.append("memories", JSON.stringify(memories));
+    fd.append("memories", JSON.stringify(isMemoryEnabled() ? toPromptList(memories) : []));
     fd.append("plugins", JSON.stringify(requestPlugins));
 
     let finalSystemPrompt = systemPromptRef.current || "";
@@ -4832,6 +4964,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const text = (prefill || input).trim();
     if (!text && !selFiles.length) return;
     if (isListening) recogRef.current?.stop();
+
+    // "Remember my name is X" — save the fact, then let the message send
+    // normally so the assistant still acknowledges it. Only an explicit
+    // instruction stores anything; see lib/memory.js.
+    const remembered = isMemoryEnabled() ? extractMemory(text) : null;
+    if (remembered && !isIncognito) {
+      if (isDuplicate(memories, remembered)) {
+        addToast("Already remembered", "info", 2000);
+      } else if (addMemory(remembered, "chat")) {
+        addToast(`Remembered: ${remembered.slice(0, 60)}${remembered.length > 60 ? "…" : ""}`, "success", 3500);
+      }
+    }
 
     // Auto-detect Code mode suggestion
     if (selectedMode === "normal" && (text.includes("```") || /function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+/.test(text))) {
@@ -5621,7 +5765,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 {showProfile && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} onProfileSaved={setProfileData} />}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={(bm) => { navigator.clipboard?.writeText(bm.content).then(() => addToast("Bookmark copied", "success", 1500), swallowError); }} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
-      {showSysPrompt && <SysPromptModal onClose={() => setShowSysPrompt(false)} t={t} value={systemPrompt} setValue={setSystemPrompt} />}
+      {showSysPrompt && (
+        <SysPromptModal
+          onClose={() => setShowSysPrompt(false)}
+          t={t}
+          value={systemPrompt}
+          setValue={setSystemPrompt}
+          memories={memories}
+          onAddMemory={addMemory}
+          onDeleteMemory={deleteMemory}
+          onClearMemories={clearMemories}
+        />
+      )}
       {confirmDelete && <ConfirmDialog message={confirmDelete.message} onConfirm={confirmDeleteSession} onCancel={() => setConfirmDelete(null)} />}
       {showSpaces && (
         <SpacesPanel

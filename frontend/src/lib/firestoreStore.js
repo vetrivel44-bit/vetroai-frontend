@@ -30,7 +30,7 @@ import {
 import { db } from "../firebase.js";
 
 /** Collections that are stored as one document per array item. */
-export const LIST_KINDS = ["sessions", "spaces", "artifacts"];
+export const LIST_KINDS = ["sessions", "spaces", "artifacts", "memories"];
 
 const SYNC_DELAY_MS = 1500;
 // Firestore's hard limit is 1 MiB per document; stay clear of it so an
@@ -197,10 +197,11 @@ export async function upsertUserProfile(user) {
 export async function loadUserData(uid) {
   if (!ready() || !uid) return null;
   try {
-    const [sessions, spaces, artifacts, prefsSnap] = await Promise.all([
+    const snaps = await Promise.all([
       ...LIST_KINDS.map((kind) => getDocs(listRef(uid, kind))),
       getDoc(doc(db, "users", uid, "prefs", "app")),
     ]);
+    const prefsSnap = snaps[snaps.length - 1];
 
     const toArray = (snap) =>
       snap.docs.map((d) => {
@@ -211,12 +212,10 @@ export async function loadUserData(uid) {
         return { ...data, id: d.id };
       });
 
-    const result = {
-      sessions: toArray(sessions),
-      spaces: toArray(spaces),
-      artifacts: toArray(artifacts),
-      prefs: prefsSnap.exists() ? prefsSnap.data() : {},
-    };
+    // Keyed off LIST_KINDS rather than destructured, so adding a collection
+    // needs only the one-line change up top.
+    const result = { prefs: prefsSnap.exists() ? prefsSnap.data() : {} };
+    LIST_KINDS.forEach((kind, i) => { result[kind] = toArray(snaps[i]); });
 
     // Seed the diff cache so the first sync after load does not rewrite
     // every document we just read.
