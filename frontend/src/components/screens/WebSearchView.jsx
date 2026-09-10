@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Globe, X, ExternalLink, Sparkles, ArrowLeft, Loader, Search as SearchIcon, TrendingUp, CornerUpLeft, AlertCircle, Layers, ArrowUpRight } from "lucide-react";
+import { Globe, X, ExternalLink, Sparkles, ArrowLeft, Loader, Search as SearchIcon, TrendingUp, CornerUpLeft, AlertCircle, Layers, ArrowUpRight, ChevronDown } from "lucide-react";
 
 // Crisp modern search SVG icon
 const SearchSvg = ({ size = 18, className = "" }) => (
@@ -101,6 +101,10 @@ export default function WebSearchView({ onExitWebSearch }) {
   const [followUps, setFollowUps] = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
   const [followUpInput, setFollowUpInput] = useState("");
+  // "People also ask"-style accordion: which follow-up row is open, and the
+  // per-row inline answer fetched on first expand (index -> panel state).
+  const [expandedFollowUp, setExpandedFollowUp] = useState(null);
+  const [followUpPanels, setFollowUpPanels] = useState({});
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
   const followUpsAbortRef = useRef(null);
@@ -163,34 +167,70 @@ export default function WebSearchView({ onExitWebSearch }) {
   }, [loading, searched]);
 
   // Related follow-up questions for the just-answered query, in the spirit of
-  // Perplexity's "Related" list — reuses the same /follow-ups endpoint the
+  // Google's "People also ask" — reuses the same /follow-ups endpoint the
   // main chat uses, fed with the search answer (or top snippets, when Tavily
   // has no synthesized answer) as the "assistant message" to anchor on.
+  const requestFollowUps = useCallback(async (searchedQuery, searchAnswer, searchResults, signal) => {
+    const lastMessage = (searchAnswer || "").trim() ||
+      (searchResults || []).slice(0, 3).map((r) => r.snippet).filter(Boolean).join(" ");
+    if (!lastMessage) return [];
+    const res = await fetch(`${API}/follow-ups`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lastMessage, userQuery: searchedQuery }),
+      signal,
+    });
+    const json = await res.json();
+    return json?.data?.suggestions || json?.suggestions || [];
+  }, []);
+
   const fetchFollowUps = useCallback(async (searchedQuery, searchAnswer, searchResults) => {
     followUpsAbortRef.current?.abort();
     const controller = new AbortController();
     followUpsAbortRef.current = controller;
 
-    const lastMessage = (searchAnswer || "").trim() ||
-      (searchResults || []).slice(0, 3).map((r) => r.snippet).filter(Boolean).join(" ");
-    if (!lastMessage) { setFollowUps([]); return; }
-
     setFollowUpsLoading(true);
     try {
-      const res = await fetch(`${API}/follow-ups`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lastMessage, userQuery: searchedQuery }),
-        signal: controller.signal,
-      });
-      const json = await res.json();
-      setFollowUps(json?.data?.suggestions || json?.suggestions || []);
+      const suggestions = await requestFollowUps(searchedQuery, searchAnswer, searchResults, controller.signal);
+      setFollowUps(suggestions);
     } catch (e) {
       if (e.name !== "AbortError") setFollowUps([]);
     } finally {
       if (followUpsAbortRef.current === controller) setFollowUpsLoading(false);
     }
-  }, []);
+  }, [requestFollowUps]);
+
+  // Expanding a "People also ask" row: fetch its answer inline (without
+  // leaving the current results), and — like Google — grow the list with a
+  // couple of fresh, de-duplicated questions anchored on that answer.
+  const toggleFollowUp = useCallback(async (idx) => {
+    setExpandedFollowUp((prev) => (prev === idx ? null : idx));
+    if (followUpPanels[idx]) return; // already fetched (or in flight)
+
+    const question = followUps[idx];
+    setFollowUpPanels((prev) => ({ ...prev, [idx]: { loading: true } }));
+    try {
+      const res = await fetch(`${API}/web-search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: question }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || "Search failed");
+      const d = json.data || {};
+      setFollowUpPanels((prev) => ({ ...prev, [idx]: { loading: false, answer: d.answer || "", results: d.results || [] } }));
+
+      const more = await requestFollowUps(question, d.answer, d.results);
+      setFollowUps((prev) => {
+        if (prev.length >= 8) return prev;
+        const existing = new Set(prev.map((q) => q.toLowerCase().trim()));
+        const fresh = more.filter((q) => !existing.has(q.toLowerCase().trim()));
+        return fresh.length ? [...prev, ...fresh].slice(0, 8) : prev;
+      });
+    } catch (e) {
+      setFollowUpPanels((prev) => ({ ...prev, [idx]: { loading: false, error: e.message || "Couldn't load an answer for this." } }));
+    }
+  }, [followUps, followUpPanels, requestFollowUps]);
 
   const runSearch = useCallback(async (rawQuery) => {
     const text = (rawQuery ?? query).trim();
@@ -211,6 +251,8 @@ export default function WebSearchView({ onExitWebSearch }) {
     setAnswer("");
     setFollowUps([]);
     setFollowUpInput("");
+    setExpandedFollowUp(null);
+    setFollowUpPanels({});
     setSearched(text);
     setQuery(text);
 
@@ -586,7 +628,7 @@ export default function WebSearchView({ onExitWebSearch }) {
 
               {!loading && !error && searched && (
                 <div className="websearch-followups">
-                  <div className="websearch-followups-label"><Layers size={13} /> Follow-up questions</div>
+                  <div className="websearch-followups-label"><Layers size={13} /> People also ask</div>
 
                   {(followUpsLoading || followUps.length > 0) && (
                     <div className="websearch-followups-list">
@@ -594,17 +636,45 @@ export default function WebSearchView({ onExitWebSearch }) {
                         ? [0, 1, 2].map((i) => (
                           <span key={i} className="websearch-followup-skel" style={{ "--d": `${i * 0.08}s` }} />
                         ))
-                        : followUps.map((q, idx) => (
-                          <button
-                            type="button"
-                            key={`${idx}_${q}`}
-                            className="websearch-followup-btn"
-                            onClick={() => runSearch(q)}
-                          >
-                            <span>{q}</span>
-                            <ArrowUpRight size={14} className="websearch-followup-icon" />
-                          </button>
-                        ))}
+                        : followUps.map((q, idx) => {
+                          const isOpen = expandedFollowUp === idx;
+                          const panel = followUpPanels[idx];
+                          return (
+                            <div className={`websearch-paa-item${isOpen ? " open" : ""}`} key={`${idx}_${q}`}>
+                              <button
+                                type="button"
+                                className="websearch-paa-question"
+                                aria-expanded={isOpen}
+                                onClick={() => toggleFollowUp(idx)}
+                              >
+                                <span>{q}</span>
+                                <ChevronDown size={16} className="websearch-paa-chevron" />
+                              </button>
+                              {isOpen && (
+                                <div className="websearch-paa-panel">
+                                  {panel?.loading && (
+                                    <div className="websearch-paa-loading"><Loader size={13} className="spin" /> Getting the answer…</div>
+                                  )}
+                                  {panel?.error && <div className="websearch-paa-error">{panel.error}</div>}
+                                  {!panel?.loading && !panel?.error && (
+                                    <>
+                                      {panel?.answer && <p className="websearch-paa-answer">{panel.answer}</p>}
+                                      {panel?.results?.slice(0, 2).map((r, i) => (
+                                        <a key={i} href={r.url} target="_blank" rel="noopener noreferrer" className="websearch-paa-source">
+                                          <span className="websearch-paa-source-domain">{displayDomain(r.url)}</span>
+                                          <span className="websearch-paa-source-title">{r.title}</span>
+                                        </a>
+                                      ))}
+                                      <button type="button" className="websearch-paa-full" onClick={() => runSearch(q)}>
+                                        See full results <ArrowUpRight size={13} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
 
