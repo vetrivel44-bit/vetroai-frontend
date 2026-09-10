@@ -11,6 +11,23 @@ import "katex/dist/katex.min.css";
 const KATEX_OPTIONS = { strict: false };
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+// Prism (and so SyntaxHighlighter) only tokenizes languages it has a grammar
+// for. An unrecognized tag — a niche/DSL name a model invented for a code
+// fence (e.g. "umple" for what is really Java), or no tag at all — doesn't
+// error, it just skips tokenizing entirely and renders every line in one flat
+// color, which reads as broken/unstyled next to properly highlighted blocks.
+// Alias the near-misses we've actually seen, and fall back to "clike" (a
+// generic curly-brace grammar) for everything else so code still gets some
+// real highlighting instead of none.
+const HIGHLIGHT_LANGUAGE_ALIASES = { umple: "java", ump: "java" };
+const SUPPORTED_HIGHLIGHT_LANGUAGES = new Set(SyntaxHighlighter.supportedLanguages || []);
+function resolveHighlightLanguage(lang) {
+  const key = String(lang || "").trim().toLowerCase();
+  if (SUPPORTED_HIGHLIGHT_LANGUAGES.has(key)) return key;
+  if (HIGHLIGHT_LANGUAGE_ALIASES[key]) return HIGHLIGHT_LANGUAGE_ALIASES[key];
+  return "clike";
+}
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
 import {
@@ -908,7 +925,7 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
           </button>
         </div>
       </div>
-      <SyntaxHighlighter style={vscDarkPlus} language={lang} PreTag="div"
+      <SyntaxHighlighter style={vscDarkPlus} language={resolveHighlightLanguage(lang)} PreTag="div"
         customStyle={{ margin: 0, padding: "16px 20px", background: "transparent", fontSize: "0.82rem" }}>
         {codeString}
       </SyntaxHighlighter>
@@ -1974,7 +1991,7 @@ function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete
         <textarea className="artifact-editor" value={draft} onChange={e => setDraft(e.target.value)} spellCheck="false" aria-label="Edit artifact source" />
       )}
       {tab === "code" && !isEditing && (
-        <SyntaxHighlighter style={vscDarkPlus} language={language || "text"} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
+        <SyntaxHighlighter style={vscDarkPlus} language={resolveHighlightLanguage(language)} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
           {draft}
         </SyntaxHighlighter>
       )}
