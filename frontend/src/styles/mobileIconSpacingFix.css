@@ -31,6 +31,25 @@
     margin-right: 2px;
   }
 
+  /* The composer footer (attach/web-search on the left; model picker, mic,
+     voice and send on the right) uses claude-footer-left/-right, not the
+     input-actions/-tools classes targeted above — those rules were stale and
+     stopped applying, so on narrow phones the row's content (model pill +
+     mic + voice + send) could exceed the viewport width and push the send
+     button off-screen, past the page's horizontal overflow clipping.
+     Tighten the gap and let the model pill shrink first so every button
+     stays on-screen and reachable. */
+  .claude-footer-left,
+  .claude-footer-right {
+    gap: 6px !important;
+  }
+  .claude-footer-right .block { min-width: 0; flex-shrink: 1; }
+  .claude-footer-right .mode-pill { min-width: 0; }
+  .claude-footer-right .claude-action-btn,
+  .claude-footer-right .claude-send-btn {
+    flex-shrink: 0;
+  }
+
   /* Icons inserted by mobileModelPicker.js. */
   .vetro-model-brand-icon {
     width: 18px;
@@ -64,5 +83,15 @@
     .chat-header { padding-left: 14px !important; padding-right: 14px !important; gap: 10px !important; }
     .chat-header .ch-left, .chat-header .ch-right { gap: 9px !important; }
     .input-bottom, .input-actions, .composer-actions, .claude-input-actions, .input-tools { gap: 9px !important; }
+
+    .claude-footer-left,
+    .claude-footer-right {
+      gap: 4px !important;
+    }
+    /* The effort badge ("Balanced") is the most expendable part of the pill
+       on the narrowest phones — drop it before the send button ever has to
+       give up its space. */
+    .claude-footer-right .mode-pill-effort { display: none; }
+    .claude-footer-right .mode-pill-name { max-width: 92px; }
   }
 }
