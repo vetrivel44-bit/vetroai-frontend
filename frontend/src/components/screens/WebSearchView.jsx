@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Globe, X, ExternalLink, Sparkles, ArrowLeft, Loader, Search as SearchIcon, TrendingUp, CornerUpLeft, AlertCircle } from "lucide-react";
+import { Globe, X, ExternalLink, Sparkles, ArrowLeft, Loader, Search as SearchIcon, TrendingUp, CornerUpLeft, AlertCircle, Layers, ArrowUpRight } from "lucide-react";
 
 // Crisp modern search SVG icon
 const SearchSvg = ({ size = 18, className = "" }) => (
@@ -98,8 +98,11 @@ export default function WebSearchView({ onExitWebSearch }) {
   const [error, setError] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [followUps, setFollowUps] = useState([]);
+  const [followUpsLoading, setFollowUpsLoading] = useState(false);
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
+  const followUpsAbortRef = useRef(null);
 
   const filteredSuggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -157,10 +160,40 @@ export default function WebSearchView({ onExitWebSearch }) {
     };
   }, [loading, searched]);
 
+  // Related follow-up questions for the just-answered query, in the spirit of
+  // Perplexity's "Related" list — reuses the same /follow-ups endpoint the
+  // main chat uses, fed with the search answer (or top snippets, when Tavily
+  // has no synthesized answer) as the "assistant message" to anchor on.
+  const fetchFollowUps = useCallback(async (searchedQuery, searchAnswer, searchResults) => {
+    followUpsAbortRef.current?.abort();
+    const controller = new AbortController();
+    followUpsAbortRef.current = controller;
+
+    const lastMessage = (searchAnswer || "").trim() ||
+      (searchResults || []).slice(0, 3).map((r) => r.snippet).filter(Boolean).join(" ");
+    if (!lastMessage) { setFollowUps([]); return; }
+
+    setFollowUpsLoading(true);
+    try {
+      const res = await fetch(`${API}/follow-ups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lastMessage, userQuery: searchedQuery }),
+        signal: controller.signal,
+      });
+      const json = await res.json();
+      setFollowUps(json?.data?.suggestions || json?.suggestions || []);
+    } catch (e) {
+      if (e.name !== "AbortError") setFollowUps([]);
+    } finally {
+      if (followUpsAbortRef.current === controller) setFollowUpsLoading(false);
+    }
+  }, []);
+
   const runSearch = useCallback(async (rawQuery) => {
     const text = (rawQuery ?? query).trim();
     if (!text || loading) return;
-    
+
     // Explicitly hide dropdown & remove focus from search input
     setShowDropdown(false);
     setFocusedIndex(-1);
@@ -169,10 +202,12 @@ export default function WebSearchView({ onExitWebSearch }) {
       document.activeElement.blur();
     }
 
+    followUpsAbortRef.current?.abort();
     setLoading(true);
     setError("");
     setResults([]);
     setAnswer("");
+    setFollowUps([]);
     setSearched(text);
     setQuery(text);
 
@@ -188,13 +223,14 @@ export default function WebSearchView({ onExitWebSearch }) {
       setAnswer(d.answer || "");
       setResults(d.results || []);
       setProvider(d.provider || "");
+      fetchFollowUps(text, d.answer, d.results);
     } catch (e) {
       setError(e.message || "Failed to search the web. Please try again.");
     } finally {
       setLoading(false);
       setShowDropdown(false);
     }
-  }, [query, loading]);
+  }, [query, loading, fetchFollowUps]);
 
   const handleInputKeyDown = (e) => {
     if (!showDropdown) {
@@ -542,6 +578,29 @@ export default function WebSearchView({ onExitWebSearch }) {
                 <div className="websearch-empty">
                   <SearchSvg size={22} />
                   <p>No results found for “{searched}”. Try different keywords.</p>
+                </div>
+              )}
+
+              {!loading && !error && (followUpsLoading || followUps.length > 0) && (
+                <div className="websearch-followups">
+                  <div className="websearch-followups-label"><Layers size={13} /> Follow-up questions</div>
+                  <div className="websearch-followups-list">
+                    {followUpsLoading
+                      ? [0, 1, 2].map((i) => (
+                        <span key={i} className="websearch-followup-skel" style={{ "--d": `${i * 0.08}s` }} />
+                      ))
+                      : followUps.map((q, idx) => (
+                        <button
+                          type="button"
+                          key={`${idx}_${q}`}
+                          className="websearch-followup-btn"
+                          onClick={() => runSearch(q)}
+                        >
+                          <span>{q}</span>
+                          <ArrowUpRight size={14} className="websearch-followup-icon" />
+                        </button>
+                      ))}
+                  </div>
                 </div>
               )}
             </div>
