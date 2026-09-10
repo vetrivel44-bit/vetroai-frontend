@@ -100,9 +100,11 @@ export default function WebSearchView({ onExitWebSearch }) {
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [followUps, setFollowUps] = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
+  const [followUpInput, setFollowUpInput] = useState("");
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
   const followUpsAbortRef = useRef(null);
+  const followUpInputRef = useRef(null);
 
   const filteredSuggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -208,6 +210,7 @@ export default function WebSearchView({ onExitWebSearch }) {
     setResults([]);
     setAnswer("");
     setFollowUps([]);
+    setFollowUpInput("");
     setSearched(text);
     setQuery(text);
 
@@ -581,26 +584,57 @@ export default function WebSearchView({ onExitWebSearch }) {
                 </div>
               )}
 
-              {!loading && !error && (followUpsLoading || followUps.length > 0) && (
+              {!loading && !error && searched && (
                 <div className="websearch-followups">
                   <div className="websearch-followups-label"><Layers size={13} /> Follow-up questions</div>
-                  <div className="websearch-followups-list">
-                    {followUpsLoading
-                      ? [0, 1, 2].map((i) => (
-                        <span key={i} className="websearch-followup-skel" style={{ "--d": `${i * 0.08}s` }} />
-                      ))
-                      : followUps.map((q, idx) => (
-                        <button
-                          type="button"
-                          key={`${idx}_${q}`}
-                          className="websearch-followup-btn"
-                          onClick={() => runSearch(q)}
-                        >
-                          <span>{q}</span>
-                          <ArrowUpRight size={14} className="websearch-followup-icon" />
-                        </button>
-                      ))}
-                  </div>
+
+                  {(followUpsLoading || followUps.length > 0) && (
+                    <div className="websearch-followups-list">
+                      {followUpsLoading
+                        ? [0, 1, 2].map((i) => (
+                          <span key={i} className="websearch-followup-skel" style={{ "--d": `${i * 0.08}s` }} />
+                        ))
+                        : followUps.map((q, idx) => (
+                          <button
+                            type="button"
+                            key={`${idx}_${q}`}
+                            className="websearch-followup-btn"
+                            onClick={() => runSearch(q)}
+                          >
+                            <span>{q}</span>
+                            <ArrowUpRight size={14} className="websearch-followup-icon" />
+                          </button>
+                        ))}
+                    </div>
+                  )}
+
+                  <form
+                    className="websearch-followup-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const text = followUpInput.trim();
+                      if (!text) return;
+                      runSearch(text);
+                    }}
+                  >
+                    <input
+                      ref={followUpInputRef}
+                      type="text"
+                      value={followUpInput}
+                      onChange={(e) => setFollowUpInput(e.target.value)}
+                      placeholder="Ask a follow-up question…"
+                      className="websearch-followup-input"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="submit"
+                      className="websearch-followup-send"
+                      disabled={!followUpInput.trim()}
+                      aria-label="Ask follow-up question"
+                    >
+                      <ArrowUpRight size={16} />
+                    </button>
+                  </form>
                 </div>
               )}
             </div>
