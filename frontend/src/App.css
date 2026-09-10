@@ -432,6 +432,14 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
   font-size: 0.78rem;
   font-weight: 500;
   color: var(--ink-2);
+  white-space: nowrap;
+  max-width: 100%;
+}
+.mode-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .mode-pill-btn {
   cursor: pointer;

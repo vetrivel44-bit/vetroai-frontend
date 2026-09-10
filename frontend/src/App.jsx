@@ -5369,7 +5369,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 onOpenWebSearchModal={() => setShowWebSearchModal(true)}
               />}
               <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
-                <span>{selectedProvider === "Auto" ? currentMode.name : selectedProvider}</span>
+                <span className="mode-pill-name">{selectedProvider === "Auto" ? currentMode.name : selectedProvider}</span>
                 <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
                 <svg style={{ transform: showModelPicker ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
