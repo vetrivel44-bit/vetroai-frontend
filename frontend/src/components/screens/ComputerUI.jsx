@@ -18,7 +18,10 @@ const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
 const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b(?:website|web ?site|landing page|portfolio site|web page)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
-const MAX_AGENT_STEPS = 15;
+// A single "open an app, download something, click through an installer"
+// task easily runs 30-60+ small steps. This is a runaway backstop, not a
+// realistic budget — the stop button and Ctrl+Shift+X both work at any step.
+const MAX_AGENT_STEPS = 80;
 
 function extractHtmlDocument(markdown) {
   const match = HTML_BLOCK.exec(String(markdown || ""));
@@ -160,6 +163,10 @@ export default function ComputerUI({ onClose }) {
   const [showCapabilities, setShowCapabilities] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [screenControl, setScreenControl] = useState(false);
+  // Live view of what the screen-control agent is doing right now — deliberately
+  // kept out of `tasks` state (which gets persisted to localStorage) so a run of
+  // screenshots never gets written to disk or blows the storage quota.
+  const [agentView, setAgentView] = useState(null);
   const hasDesktop = typeof window !== "undefined" && Boolean(window.vetroDesktop);
   const textareaRef = useRef(null);
   const fileRef = useRef(null);
@@ -453,18 +460,26 @@ export default function ComputerUI({ onClose }) {
     patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
 
     const log = [];
-    const renderLog = () => log.map((line, i) => `${i + 1}. ${line}`).join("\n");
+    // Chat bubble stays readable on a long run — the live agentView panel below
+    // is where you actually watch it work, this is just a scroll-back log.
+    const renderLog = () => {
+      const tail = log.length > 25 ? log.slice(log.length - 25) : log;
+      const skipped = log.length - tail.length;
+      const lines = tail.map((line, i) => `${skipped + i + 1}. ${line}`);
+      return (skipped ? `_(${skipped} earlier step${skipped > 1 ? "s" : ""} not shown)_\n` : "") + lines.join("\n");
+    };
 
     try {
       for (let step = 0; step < MAX_AGENT_STEPS; step++) {
         if (controller.signal.aborted) throw new DOMException("Stopped", "AbortError");
 
         const shotDataUrl = await desktop.screenshot();
+        setAgentView({ taskId, screenshot: shotDataUrl, action: null, step: step + 1 });
         const shotBlob = await (await fetch(shotDataUrl)).blob();
 
         const stepPrompt = [
           `Goal: ${goal}`,
-          log.length ? `Actions taken so far:\n${renderLog()}` : "No actions taken yet — this is the first step.",
+          log.length ? `Actions taken so far:\n${log.map((line, i) => `${i + 1}. ${line}`).join("\n")}` : "No actions taken yet — this is the first step.",
           "Reply with exactly one JSON action for the next step, per your instructions."
         ].join("\n\n");
 
@@ -485,10 +500,12 @@ export default function ComputerUI({ onClose }) {
         const action = parseAgentAction(raw);
         if (!action) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
 
-        log.push(describeAgentAction(action));
+        const description = describeAgentAction(action);
+        log.push(description);
+        setAgentView(prev => (prev ? { ...prev, action: description } : prev));
         patchTask(taskId, t => ({
           ...t,
-          steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: describeAgentAction(action) } : s),
+          steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: description } : s),
           messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() } : m)
         }));
 
@@ -515,6 +532,11 @@ export default function ComputerUI({ onClose }) {
       }));
     } finally {
       abortRef.current = null;
+      // Leave the last frame on screen for a moment so you can see how it
+      // ended, then clear it — an old screenshot lingering after the run is
+      // over reads as "still working" when it isn't.
+      setTimeout(() => setAgentView(prev => (prev ? { ...prev, done: true } : prev)), 0);
+      setTimeout(() => setAgentView(null), 4000);
     }
   };
 
@@ -751,6 +773,29 @@ export default function ComputerUI({ onClose }) {
                   <div ref={endRef} />
                 </div>
                 <aside className="lg:sticky lg:top-0 h-fit bg-white border border-stone-200 rounded-2xl p-4 shadow-sm">
+                  {agentView && agentView.taskId === activeTask.id && (
+                    <div className="mb-4 pb-4 border-b border-stone-100">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                          {agentView.done ? "Screen — last frame" : "Watching your screen"}
+                        </span>
+                        <span className="text-[10px] text-stone-400">Step {agentView.step}</span>
+                      </div>
+                      <div className="relative rounded-xl overflow-hidden border border-stone-200 bg-stone-100">
+                        <img src={agentView.screenshot} alt={`Screen at step ${agentView.step}`} className="w-full h-auto block" />
+                        {!agentView.done && (
+                          <span className="absolute top-2 right-2 flex items-center gap-1 bg-red-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> LIVE
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 text-xs text-stone-600 flex items-start gap-1.5">
+                        {agentView.action
+                          ? <><Monitor size={13} className="mt-0.5 flex-shrink-0" /><span>{agentView.action}</span></>
+                          : <><Loader2 size={13} className="mt-0.5 flex-shrink-0 animate-spin" /><span>Deciding the next move…</span></>}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between pb-3 border-b border-stone-100">
                     <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Task progress</span>
                     <span className={`text-[11px] rounded-full px-2 py-1 capitalize ${activeTask.status === "completed" ? "bg-emerald-50 text-emerald-700" : activeTask.status === "failed" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>{activeTask.status}</span>
