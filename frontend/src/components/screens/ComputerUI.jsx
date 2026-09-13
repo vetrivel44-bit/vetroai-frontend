@@ -72,6 +72,27 @@ function extractHtmlDocument(markdown) {
   return match ? match[1].trim() : null;
 }
 
+// Preview-only instrumentation so the agent can actually "see" what it just
+// built: without this, computer mode hands back an HTML string and never
+// knows whether the page even renders — any script error, missing element,
+// or broken layout is invisible to it. This script forwards runtime errors
+// out of the sandboxed iframe via postMessage so the UI can show them and
+// feed them back to the model for a fix pass.
+const PREVIEW_ERROR_CAPTURE = `<script>(function(){
+  function report(message){ try { window.parent.postMessage({ source: "vetroai-preview", type: "error", message: String(message) }, "*"); } catch (e) {} }
+  window.addEventListener("error", function(e){ report((e.message || "Script error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "")); });
+  window.addEventListener("unhandledrejection", function(e){ report("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
+  var origError = console.error;
+  console.error = function(){ report(Array.prototype.slice.call(arguments).map(String).join(" ")); origError.apply(console, arguments); };
+})();</script>`;
+
+function withPreviewErrorCapture(html) {
+  const doc = String(html || "");
+  if (/<head[^>]*>/i.test(doc)) return doc.replace(/<head[^>]*>/i, (tag) => `${tag}${PREVIEW_ERROR_CAPTURE}`);
+  if (/<html[^>]*>/i.test(doc)) return doc.replace(/<html[^>]*>/i, (tag) => `${tag}${PREVIEW_ERROR_CAPTURE}`);
+  return `${PREVIEW_ERROR_CAPTURE}${doc}`;
+}
+
 // One JSON action object per screen-control step — see AIOrchestrator's
 // "computer_use" system prompt for the exact schema this must match.
 function parseAgentAction(text) {
@@ -391,7 +412,12 @@ export default function ComputerUI({ onClose }) {
           }
         }
       }
-      const isWebsiteRequest = WEBSITE_REQUEST.test(prompt);
+      // Once a task has produced a website, keep routing follow-ups (e.g. "fix
+      // these errors") through Design mode even if the fix prompt itself
+      // doesn't say "build a website" — otherwise a fix request silently
+      // drops back to a plain code-chat reply instead of a full HTML redo.
+      const hasWebsiteContext = task.messages.some(m => m.exports?.includes("website"));
+      const isWebsiteRequest = WEBSITE_REQUEST.test(prompt) || hasWebsiteContext;
       const body = new FormData();
       body.append("provider", "gemini");
       // A full-site build gets routed through Design mode's battle-tested
@@ -431,7 +457,7 @@ export default function ComputerUI({ onClose }) {
           exports: [
             ...(WORD_REQUEST.test(prompt) ? ["word"] : []),
             ...(SHEET_REQUEST.test(prompt) ? ["spreadsheet"] : []),
-            ...(WEBSITE_REQUEST.test(prompt) ? ["website"] : [])
+            ...(isWebsiteRequest ? ["website"] : [])
           ]
         } : message)
       }));
@@ -449,6 +475,26 @@ export default function ComputerUI({ onClose }) {
     } finally {
       abortRef.current = null;
     }
+  };
+
+  // Feeds browser-observed errors from the live preview back to the model so
+  // it can actually see and fix what it built, instead of the task ending the
+  // moment the HTML is generated regardless of whether it works.
+  const requestWebsiteFix = (html, errors) => {
+    if (running || !errors.length) return;
+    const errorList = errors.map((message, i) => `${i + 1}. ${message}`).join("\n");
+    const prompt = [
+      "The website you generated has runtime errors, caught live in the browser preview. Fix them and output the full corrected HTML document again in a single ```html code block — no diff, no explanation-only reply.",
+      "",
+      "Browser console errors:",
+      errorList,
+      "",
+      "Current HTML:",
+      "```html",
+      html,
+      "```"
+    ].join("\n");
+    execute(prompt);
   };
 
   // Drives the real mouse/keyboard through the VetroAI desktop companion:
@@ -827,6 +873,14 @@ export default function ComputerUI({ onClose }) {
                                   )}
                                 </div>
                               )}
+                              {message.exports?.includes("website") && extractHtmlDocument(message.content) && message.id === activeTask.messages[activeTask.messages.length - 1]?.id && (
+                                <WebsitePreview
+                                  key={message.id}
+                                  html={extractHtmlDocument(message.content)}
+                                  disabled={running}
+                                  onFix={(errors) => requestWebsiteFix(extractHtmlDocument(message.content), errors)}
+                                />
+                              )}
                             </>
                           ) : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
                           : message.content}
@@ -918,6 +972,49 @@ export default function ComputerUI({ onClose }) {
             <p className="text-sm text-stone-600 leading-6 mb-5">{deleteTarget.path}<br />This cannot be undone. VetroAI never deletes workspace files without this manual confirmation.</p>
             <div className="flex justify-end gap-2"><button onClick={() => setDeleteTarget(null)} className="px-4 py-2 rounded-xl text-sm hover:bg-stone-100">Cancel</button><button onClick={deleteWorkspaceFile} className="px-4 py-2 rounded-xl text-sm bg-stone-900 text-white">Delete permanently</button></div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Renders the generated site in a sandboxed iframe and listens for the
+// runtime errors PREVIEW_ERROR_CAPTURE forwards out of it — this is the
+// "see" half of "see why and fix": without an actual render, computer mode
+// has no way of knowing a script threw or a layout broke, only that text
+// resembling HTML was produced.
+function WebsitePreview({ html, disabled, onFix }) {
+  const [errors, setErrors] = useState([]);
+
+  useEffect(() => {
+    setErrors([]);
+    const onMessage = (event) => {
+      if (event.data?.source !== "vetroai-preview" || event.data?.type !== "error") return;
+      setErrors(prev => (prev.includes(event.data.message) ? prev : [...prev, event.data.message].slice(-8)));
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [html]);
+
+  return (
+    <div className="cowork-website-preview">
+      <div className="cowork-website-preview-header">
+        <span><Globe2 size={13} /> Live preview</span>
+        {errors.length > 0 && <span className="cowork-website-preview-badge">{errors.length} error{errors.length > 1 ? "s" : ""} detected</span>}
+      </div>
+      <iframe
+        title="Website preview"
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        srcDoc={withPreviewErrorCapture(html)}
+        className="cowork-website-preview-frame"
+      />
+      {errors.length > 0 && (
+        <div className="cowork-website-preview-errors">
+          <div className="cowork-website-preview-errors-title">VetroAI can see these errors in the preview:</div>
+          <ul>{errors.map((message, i) => <li key={i}>{message}</li>)}</ul>
+          <button type="button" onClick={() => onFix(errors)} disabled={disabled}>
+            <RotateCcw size={13} /> Ask VetroAI to fix these
+          </button>
         </div>
       )}
     </div>
