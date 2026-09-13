@@ -38,7 +38,7 @@ import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -91,7 +91,7 @@ const MAX_FILE_SIZE_MB = 25;
 // `onReasoning(text, { isThinking, durationMs })` receives the model's streamed
 // chain of thought — native reasoning tokens, or the contents of a <think> block
 // the backend stripped out of the answer. Optional; older callers can omit it.
-const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId, onReasoning) => {
+const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId, onReasoning, onMeta) => {
   const dec = new TextDecoder();
   let lineBuffer = "";
   let accumulated = "";
@@ -127,6 +127,10 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onStatus(data);
       } else if (type === "error" && data) {
         onError(data);
+      } else if (type === "sources" && data) {
+        onMeta?.("sources", data);
+      } else if (type === "realtime_notice" && data) {
+        onMeta?.("realtime_notice", data);
       }
     } catch (err) {
       console.error("SSE parse error:", err, raw, reqId);
@@ -2209,6 +2213,22 @@ function DesignCanvas({ onClose }) {
   );
 }
 
+// How recently a source was published, in the fewest words that stay honest —
+// "2h ago" reads as fresher than a bare date and is what makes freshness
+// scannable across a whole row of cards.
+const formatFreshness = (dateStr) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  const diffMs = Date.now() - d.getTime();
+  const diffH = diffMs / 3600000;
+  if (diffH < 1) return "just now";
+  if (diffH < 24) return `${Math.round(diffH)}h ago`;
+  const diffD = diffH / 24;
+  if (diffD < 7) return `${Math.round(diffD)}d ago`;
+  return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+};
+
 // ─── SOURCE CARDS (Perplexity-style) ──────────────────────────────────────────
 function SourceCards({ sources }) {
   if (!sources?.length) return null;
@@ -2216,12 +2236,16 @@ function SourceCards({ sources }) {
     <div className="source-cards">
       <div className="source-cards-label">🔗 Sources</div>
       <div className="source-cards-row">
-        {sources.map((s, i) => (
-          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="source-card">
-            <span className="source-num">{i + 1}</span>
-            <span className="source-domain">{s.domain}</span>
-          </a>
-        ))}
+        {sources.map((s, i) => {
+          const freshness = formatFreshness(s.published);
+          return (
+            <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="source-card">
+              <span className="source-num">{i + 1}</span>
+              <span className="source-domain">{s.domain}</span>
+              {freshness && <span className="source-freshness">{freshness}</span>}
+            </a>
+          );
+        })}
       </div>
     </div>
   );
@@ -4716,6 +4740,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
       liveScores: null,
       medicalData: null,
+      sources: null,
+      realtimeNotice: null,
     };
     setMessages([...hist, emptyAssistantMsg]);
 
@@ -4882,6 +4908,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return u;
           });
           if (!isScrolling.current) scrollToBottom();
+        },
+        (metaType, metaData) => {
+          if (!isActive()) return;
+          setMessages(prev => {
+            if (prev.length === 0) return prev;
+            const u = [...prev];
+            const last = { ...u[u.length - 1] };
+            if (metaType === "sources") last.sources = metaData;
+            if (metaType === "realtime_notice") last.realtimeNotice = metaData;
+            u[u.length - 1] = last;
+            return u;
+          });
         }
       );
 
@@ -6361,6 +6399,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                      >{m.content}</ReactMarkdown>
                              }
                            </div>
+                           {m.realtimeNotice && (
+                             <div className="realtime-notice">
+                               <AlertTriangle size={13} />
+                               <span>{m.realtimeNotice}</span>
+                             </div>
+                           )}
+                           {m.sources && m.sources.length > 0 && (
+                             <SourceCards sources={m.sources} />
+                           )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
                                <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
