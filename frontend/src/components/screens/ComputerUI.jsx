@@ -533,7 +533,15 @@ export default function ComputerUI({ onClose }) {
         ].join("\n\n");
 
         const body = new FormData();
-        body.append("provider", "gemini");
+        // NOT "gemini" — public/gemini-puter-bridge.js globally intercepts any
+        // /api/chat request with provider=gemini and reroutes it through
+        // client-side Puter.js, which never sees the `files` field at all. That
+        // would silently blind the agent — it'd "decide" actions without ever
+        // actually seeing the screenshot. AIOrchestrator already forces the
+        // real backend Gemini adapter for mode=computer_use regardless of what
+        // provider is requested (see isComputerUse in processRequest), so leave
+        // this as "auto" and let the backend choose.
+        body.append("provider", "auto");
         body.append("mode", "computer_use");
         body.append("input", stepPrompt);
         body.append("messages", JSON.stringify([{ role: "user", content: stepPrompt }]));
