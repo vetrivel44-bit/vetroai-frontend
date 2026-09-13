@@ -522,9 +522,18 @@ Choose the single best-fitting visualization block(s) from the formats below:
   }
 
   async processRequest(reqId, params, res) {
-    const { messages, mode, provider: preferredProvider, options, memories } = params;
+    const { messages, mode, provider: preferredProvider, memories } = params;
+    let { options } = params;
     const userQuery = messages[messages.length - 1]?.content || "";
-    
+
+    // Every screen-control step is a full network round trip, and the reply is
+    // just one small JSON object — capping generation length is one of the
+    // biggest levers on how sluggish the loop feels, so ignore whatever
+    // maxTokens the caller sent for this mode and use a small fixed budget.
+    if (mode === "computer_use") {
+      options = { ...options, maxTokens: 220 };
+    }
+
     const strictFable = String(preferredProvider || "").toLowerCase() === "fable";
     // The screen-control agent sends a screenshot every step. Gemini is the only
     // adapter here that reads the `images` field (see geminiAdapter.js), so this

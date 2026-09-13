@@ -22,6 +22,50 @@ const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
 // task easily runs 30-60+ small steps. This is a runaway backstop, not a
 // realistic budget — the stop button and Ctrl+Shift+X both work at any step.
 const MAX_AGENT_STEPS = 80;
+// Every step is a full network round trip, so a full-resolution 4K screenshot
+// (several MB) directly costs latency — downscale before sending. The model's
+// coordinates then come back in this smaller space and get multiplied back up
+// to real screenshot-pixel space before any click actually happens.
+const AGENT_SCREEN_MAX_WIDTH = 1280;
+// Only the last few steps are actually useful context for "what's the next
+// move" — including all 80 possible steps in every prompt would make the
+// request (and therefore each round trip) slower as a run goes on.
+const AGENT_LOG_WINDOW = 10;
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not read the screenshot."));
+    img.src = src;
+  });
+}
+
+// Returns the blob actually sent to the model plus the scale factor needed to
+// convert coordinates it reports (in the downscaled image) back to real
+// screenshot-pixel space.
+async function prepareScreenshotForModel(dataUrl) {
+  const img = await loadImageElement(dataUrl);
+  const naturalWidth = img.naturalWidth || img.width;
+  const naturalHeight = img.naturalHeight || img.height;
+  if (!naturalWidth || naturalWidth <= AGENT_SCREEN_MAX_WIDTH) {
+    const blob = await (await fetch(dataUrl)).blob();
+    return { blob, scale: 1, width: naturalWidth, height: naturalHeight };
+  }
+  const scale = naturalWidth / AGENT_SCREEN_MAX_WIDTH;
+  const width = AGENT_SCREEN_MAX_WIDTH;
+  const height = Math.round(naturalHeight / scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+  const resized = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.82));
+  if (resized) return { blob: resized, scale, width, height };
+  // Canvas encoding failed for some reason — fall back to the original,
+  // uncompressed screenshot rather than losing the step.
+  const blob = await (await fetch(dataUrl)).blob();
+  return { blob, scale: 1, width: naturalWidth, height: naturalHeight };
+}
 
 function extractHtmlDocument(markdown) {
   const match = HTML_BLOCK.exec(String(markdown || ""));
@@ -475,11 +519,16 @@ export default function ComputerUI({ onClose }) {
 
         const shotDataUrl = await desktop.screenshot();
         setAgentView({ taskId, screenshot: shotDataUrl, action: null, step: step + 1 });
-        const shotBlob = await (await fetch(shotDataUrl)).blob();
+        const { blob: shotBlob, scale: shotScale, width: shotWidth, height: shotHeight } = await prepareScreenshotForModel(shotDataUrl);
 
+        const recentLog = log.length > AGENT_LOG_WINDOW ? log.slice(log.length - AGENT_LOG_WINDOW) : log;
+        const skippedCount = log.length - recentLog.length;
         const stepPrompt = [
           `Goal: ${goal}`,
-          log.length ? `Actions taken so far:\n${log.map((line, i) => `${i + 1}. ${line}`).join("\n")}` : "No actions taken yet — this is the first step.",
+          `The attached screenshot is exactly ${shotWidth}x${shotHeight} pixels — give x,y within that size.`,
+          recentLog.length
+            ? `${skippedCount ? `(${skippedCount} earlier step${skippedCount > 1 ? "s" : ""} omitted)\n` : ""}Most recent actions:\n${recentLog.map((line, i) => `${skippedCount + i + 1}. ${line}`).join("\n")}`
+            : "No actions taken yet — this is the first step.",
           "Reply with exactly one JSON action for the next step, per your instructions."
         ].join("\n\n");
 
@@ -489,7 +538,7 @@ export default function ComputerUI({ onClose }) {
         body.append("input", stepPrompt);
         body.append("messages", JSON.stringify([{ role: "user", content: stepPrompt }]));
         body.append("safeMode", "true");
-        body.append("files", shotBlob, "screen.png");
+        body.append("files", shotBlob, "screen.jpg");
 
         const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
         if (!response.ok) {
@@ -499,6 +548,12 @@ export default function ComputerUI({ onClose }) {
         const raw = await readStream(response, taskId, assistantId);
         const action = parseAgentAction(raw);
         if (!action) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
+        // The model saw a downscaled image — scale its coordinates back up to
+        // real screenshot-pixel space before anything touches the real cursor.
+        if (shotScale !== 1) {
+          if (typeof action.x === "number") action.x *= shotScale;
+          if (typeof action.y === "number") action.y *= shotScale;
+        }
 
         const description = describeAgentAction(action);
         log.push(description);

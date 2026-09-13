@@ -8,6 +8,12 @@ let youtubeWindow;
 let controlEnabled = false;
 let stopped = false;
 let lastActionAt = 0;
+// screenshot-desktop captures at the display's physical-pixel resolution, but
+// Electron's screen/mouse APIs work in logical (DPI-independent) points. On a
+// HiDPI/Retina display those differ by the OS scale factor (e.g. 2x) — any
+// coordinate the model read off a screenshot has to be divided by this before
+// it's used to move the real cursor, or every click lands off by that factor.
+let screenshotScaleFactor = 1;
 
 mouse.config.autoDelayMs = 35;
 keyboard.config.autoDelayMs = 25;
@@ -120,11 +126,17 @@ ipcMain.handle("computer:disable", () => {
 ipcMain.handle("computer:screenshot", async () => {
   requireControl();
   const image = await screenshot({ format: "png" });
+  // Recorded so the next move/click call knows what to divide by — see the
+  // comment on screenshotScaleFactor above.
+  screenshotScaleFactor = screen.getPrimaryDisplay().scaleFactor || 1;
   return `data:image/png;base64,${image.toString("base64")}`;
 });
 ipcMain.handle("computer:move", async (_event, action) => {
   requireControl();
-  const point = clampPoint(finite(action.x, "x"), finite(action.y, "y"));
+  const point = clampPoint(
+    finite(action.x, "x") / screenshotScaleFactor,
+    finite(action.y, "y") / screenshotScaleFactor
+  );
   const duration = Math.max(50, Math.min(1500, finite(action.duration ?? 250, "duration")));
   await mouse.move(straightTo(new Point(point.x, point.y), duration));
   return { ok: true, ...point };
