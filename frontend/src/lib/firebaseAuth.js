@@ -45,9 +45,22 @@ export const toUserInfo = (user) =>
  * webviews and hardened popup blockers reject it outright. In those cases fall
  * back to a full-page redirect, which `consumeRedirectResult` picks up on the
  * way back.
+ *
+ * The desktop (Electron) build always uses the redirect flow instead of even
+ * trying the popup. Firebase's popup flow relies on sessionStorage being
+ * shared between the opener window and the popup, which only happens for a
+ * same-origin auxiliary browsing context — a separate Electron BrowserWindow
+ * never gets that, popup or not, so it reliably fails with "missing initial
+ * state" no matter how the popup window itself is opened/closed. A redirect
+ * navigates the single existing window there and back, so there's no second
+ * window and no cross-window storage to lose.
  */
 export async function signInWithGoogle() {
   requireAuth();
+  if (typeof window !== "undefined" && window.vetroDesktop) {
+    await signInWithRedirect(auth, provider);
+    return null; // window navigates away; result arrives via consumeRedirectResult
+  }
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
