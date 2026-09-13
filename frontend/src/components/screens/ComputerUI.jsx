@@ -393,7 +393,7 @@ export default function ComputerUI({ onClose }) {
       }
       const isWebsiteRequest = WEBSITE_REQUEST.test(prompt);
       const body = new FormData();
-      body.append("provider", "cerebras");
+      body.append("provider", "gemini");
       // A full-site build gets routed through Design mode's battle-tested
       // single-file HTML system prompt instead of the generic task prompt below.
       body.append("mode", isWebsiteRequest ? "design" : "code_exec");
