@@ -596,6 +596,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
       ? searchImages(userQuery, 4).catch(() => [])
       : Promise.resolve([]);
 
+    // Set when a live search was needed for this query but came back with nothing
+    // usable — the answering model must not paper over that gap with stale
+    // training knowledge dressed up as a current fact.
+    let noRealtimeData = false;
+
     if (shouldSearch) {
       // Research mode runs the agentic loop: it searches, reads what came back,
       // works out what is still missing and searches again. That takes longer
@@ -627,13 +632,32 @@ Choose the single best-fitting visualization block(s) from the formats below:
           ]);
         }
         webContext = searchRes.context;
+
+        const sources = this.normalizeSources(searchRes.results);
+        if (sources.length) {
+          this.sendVetroEvent(res, "sources", sources);
+        } else {
+          noRealtimeData = true;
+        }
       } catch (err) {
         logger.error("AIOrchestrator.searchError", { reqId, error: err.message });
         // Search failed/timed out — AI will still respond without web context
+        noRealtimeData = true;
+      }
+
+      if (noRealtimeData) {
+        this.sendVetroEvent(
+          res,
+          "realtime_notice",
+          "No live results were found for this query — treat any current facts below with caution."
+        );
       }
     }
 
     let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
+    if (noRealtimeData) {
+      finalSysPrompt += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
+    }
     finalSysPrompt += buildPluginPrompt(params.activePlugins);
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one; native reasoning models stream their own regardless.
@@ -766,6 +790,22 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
   sendVetroEvent(res, type, data) {
     res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  }
+
+  // Turns raw Tavily/DDG result objects into the small, stable shape the
+  // frontend renders as source cards — including a freshness date when the
+  // provider supplied one, so the UI can show how current each source is.
+  normalizeSources(results) {
+    return (results || []).slice(0, 10).map((r) => {
+      let domain = "";
+      try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { domain = r.url || ""; }
+      return {
+        title: r.title || "(untitled)",
+        url: r.url || "",
+        domain,
+        published: r.published_date || r.publishedDate || r.published || null,
+      };
+    }).filter((s) => s.url);
   }
 
   // Works out what actually went wrong with a provider call. Every failure used

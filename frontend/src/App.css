@@ -5023,6 +5023,34 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.source-freshness {
+  white-space: nowrap;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--ink-4);
+  padding-left: 4px;
+  border-left: 1px solid var(--border-med);
+}
+
+.realtime-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: var(--r-md, 10px);
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: #a16207;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.realtime-notice svg { flex-shrink: 0; margin-top: 1px; }
+.dark .realtime-notice {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.35);
+  color: #facc15;
+}
 
 /* -- Persona Grid ----------------------------------- */
 .persona-grid {
