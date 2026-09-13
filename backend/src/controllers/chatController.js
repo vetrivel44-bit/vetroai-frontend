@@ -181,6 +181,20 @@ async function chat(req, res) {
     }
   }
 
+  // Computer mode's screen-control agent sends a fresh screenshot every step and
+  // needs the model to actually see it (unlike normal chat, where image files are
+  // analyzed client-side by Puter and never reach here — see getAttachmentContext).
+  // Only gemini's adapter currently understands the resulting `images` field.
+  if (mode === "computer_use" && imageFiles.length) {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      lastUser.images = imageFiles.slice(0, 1).map((file) => ({
+        mimeType: file.mimetype,
+        data: file.buffer.toString("base64"),
+      }));
+    }
+  }
+
   if (!messages.length) throw new ApiError(400, "No valid messages provided");
 
   const billingUserId = resolveBillingUserId(req);

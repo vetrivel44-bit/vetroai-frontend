@@ -8,6 +8,12 @@ let youtubeWindow;
 let controlEnabled = false;
 let stopped = false;
 let lastActionAt = 0;
+// screenshot-desktop captures at the display's physical-pixel resolution, but
+// Electron's screen/mouse APIs work in logical (DPI-independent) points. On a
+// HiDPI/Retina display those differ by the OS scale factor (e.g. 2x) — any
+// coordinate the model read off a screenshot has to be divided by this before
+// it's used to move the real cursor, or every click lands off by that factor.
+let screenshotScaleFactor = 1;
 
 mouse.config.autoDelayMs = 35;
 keyboard.config.autoDelayMs = 25;
@@ -120,11 +126,17 @@ ipcMain.handle("computer:disable", () => {
 ipcMain.handle("computer:screenshot", async () => {
   requireControl();
   const image = await screenshot({ format: "png" });
+  // Recorded so the next move/click call knows what to divide by — see the
+  // comment on screenshotScaleFactor above.
+  screenshotScaleFactor = screen.getPrimaryDisplay().scaleFactor || 1;
   return `data:image/png;base64,${image.toString("base64")}`;
 });
 ipcMain.handle("computer:move", async (_event, action) => {
   requireControl();
-  const point = clampPoint(finite(action.x, "x"), finite(action.y, "y"));
+  const point = clampPoint(
+    finite(action.x, "x") / screenshotScaleFactor,
+    finite(action.y, "y") / screenshotScaleFactor
+  );
   const duration = Math.max(50, Math.min(1500, finite(action.duration ?? 250, "duration")));
   await mouse.move(straightTo(new Point(point.x, point.y), duration));
   return { ok: true, ...point };
@@ -145,17 +157,25 @@ ipcMain.handle("computer:type", async (_event, action) => {
 });
 ipcMain.handle("computer:key", async (_event, action) => {
   requireControl();
+  // @nut-tree-fork/nut-js's Key enum uses PascalCase members (Key.Enter, not
+  // Key.ENTER) and at least one value is legitimately 0 (Key.Escape) — verified
+  // directly against the installed package, since the previous SCREAMING_CASE
+  // names here all resolved to `undefined`, silently rejecting every key press
+  // except the five bare letters below (whose names happen to already match).
   const allowed = {
-    ENTER: Key.ENTER, TAB: Key.TAB, ESCAPE: Key.ESCAPE, BACKSPACE: Key.BACKSPACE,
-    DELETE: Key.DELETE, SPACE: Key.SPACE, UP: Key.UP, DOWN: Key.DOWN,
-    LEFT: Key.LEFT, RIGHT: Key.RIGHT, HOME: Key.HOME, END: Key.END,
-    PAGEUP: Key.PAGE_UP, PAGEDOWN: Key.PAGE_DOWN,
-    CTRL: Key.LEFT_CONTROL, SHIFT: Key.LEFT_SHIFT, ALT: Key.LEFT_ALT,
+    ENTER: Key.Enter, TAB: Key.Tab, ESCAPE: Key.Escape, BACKSPACE: Key.Backspace,
+    DELETE: Key.Delete, SPACE: Key.Space, UP: Key.Up, DOWN: Key.Down,
+    LEFT: Key.Left, RIGHT: Key.Right, HOME: Key.Home, END: Key.End,
+    PAGEUP: Key.PageUp, PAGEDOWN: Key.PageDown,
+    CTRL: Key.LeftControl, SHIFT: Key.LeftShift, ALT: Key.LeftAlt,
     A: Key.A, C: Key.C, V: Key.V, X: Key.X, Z: Key.Z
   };
   const key = allowed[String(action.key || "").toUpperCase()];
-  if (!key) throw new Error("Key is not allowed.");
-  const modifiers = (action.modifiers || []).map(k => allowed[String(k).toUpperCase()]).filter(Boolean).slice(0, 3);
+  if (key === undefined) throw new Error("Key is not allowed.");
+  const modifiers = (action.modifiers || [])
+    .map(k => allowed[String(k).toUpperCase()])
+    .filter(k => k !== undefined)
+    .slice(0, 3);
   if (modifiers.length) await keyboard.pressKey(...modifiers);
   await keyboard.type(key);
   if (modifiers.length) await keyboard.releaseKey(...modifiers.reverse());
