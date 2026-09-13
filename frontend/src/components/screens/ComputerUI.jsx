@@ -16,6 +16,52 @@ const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current loca
 const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\bplay\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+))/i;
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
+const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b(?:website|web ?site|landing page|portfolio site|web page)\b/i;
+const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
+const MAX_AGENT_STEPS = 15;
+
+function extractHtmlDocument(markdown) {
+  const match = HTML_BLOCK.exec(String(markdown || ""));
+  return match ? match[1].trim() : null;
+}
+
+// One JSON action object per screen-control step — see AIOrchestrator's
+// "computer_use" system prompt for the exact schema this must match.
+function parseAgentAction(text) {
+  const match = String(text || "").match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const action = JSON.parse(match[0]);
+    return action && typeof action.action === "string" ? action : null;
+  } catch {
+    return null;
+  }
+}
+
+function describeAgentAction(action) {
+  switch (action.action) {
+    case "click": return `Click ${action.button || "left"} at (${Math.round(action.x)}, ${Math.round(action.y)})`;
+    case "move": return `Move to (${Math.round(action.x)}, ${Math.round(action.y)})`;
+    case "type": return `Type "${String(action.text || "").slice(0, 40)}"`;
+    case "key": return `Press ${action.key}${action.modifiers?.length ? ` + ${action.modifiers.join("+")}` : ""}`;
+    case "scroll": return `Scroll ${action.amount > 0 ? "down" : "up"}`;
+    case "done": return action.summary || "Done";
+    default: return `Unrecognized action: ${action.action}`;
+  }
+}
+
+async function performDesktopAction(desktop, action) {
+  switch (action.action) {
+    case "move": return desktop.moveMouse(Number(action.x), Number(action.y), action.duration);
+    case "click":
+      await desktop.moveMouse(Number(action.x), Number(action.y), 150);
+      return desktop.click(action.button || "left", Boolean(action.double));
+    case "type": return desktop.typeText(String(action.text || "").slice(0, 2000));
+    case "key": return desktop.pressKey(action.key, action.modifiers || []);
+    case "scroll": return desktop.scroll(Number(action.amount) || 0);
+    default: return null;
+  }
+}
 function safeFilename(value, fallback) { return String(value || fallback).replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-").slice(0, 54) || fallback; }
 function downloadBlob(content, type, filename) {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -113,6 +159,8 @@ export default function ComputerUI({ onClose }) {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [screenControl, setScreenControl] = useState(false);
+  const hasDesktop = typeof window !== "undefined" && Boolean(window.vetroDesktop);
   const textareaRef = useRef(null);
   const fileRef = useRef(null);
   const endRef = useRef(null);
@@ -292,9 +340,12 @@ export default function ComputerUI({ onClose }) {
           }
         }
       }
+      const isWebsiteRequest = WEBSITE_REQUEST.test(prompt);
       const body = new FormData();
       body.append("provider", "agnes");
-      body.append("mode", "code_exec");
+      // A full-site build gets routed through Design mode's battle-tested
+      // single-file HTML system prompt instead of the generic task prompt below.
+      body.append("mode", isWebsiteRequest ? "design" : "code_exec");
       body.append("input", taskPrompt);
       body.append("messages", JSON.stringify(contextMessages));
       body.append("webSearch", "true");
@@ -328,7 +379,8 @@ export default function ComputerUI({ onClose }) {
           ...message,
           exports: [
             ...(WORD_REQUEST.test(prompt) ? ["word"] : []),
-            ...(SHEET_REQUEST.test(prompt) ? ["spreadsheet"] : [])
+            ...(SHEET_REQUEST.test(prompt) ? ["spreadsheet"] : []),
+            ...(WEBSITE_REQUEST.test(prompt) ? ["website"] : [])
           ]
         } : message)
       }));
@@ -348,10 +400,132 @@ export default function ComputerUI({ onClose }) {
     }
   };
 
+  // Drives the real mouse/keyboard through the VetroAI desktop companion:
+  // screenshot -> ask the model for exactly one next action -> perform it -> repeat.
+  // The companion's own permission dialog (desktop/main.cjs) is the actual consent
+  // gate — approving it there is what lets any of computer:* IPC calls succeed at
+  // all, and Ctrl+Shift+X always stops it immediately regardless of this loop.
+  const runComputerAgent = async (goal) => {
+    const desktop = window.vetroDesktop;
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(goal.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    const taskId = task.id;
+    const assistantId = `a-${Date.now()}`;
+    const userMessage = { id: `u-${Date.now()}`, role: "user", content: goal };
+    const plan = [
+      { id: "control", label: "Request screen control permission", status: "active" },
+      { id: "agent", label: "Drive the screen toward the goal", status: "pending" },
+      { id: "review", label: "Ready for your review", status: "pending" }
+    ];
+
+    patchTask(taskId, t => ({
+      ...t,
+      title: t.messages.length ? t.title : goal.slice(0, 54),
+      status: "running",
+      steps: plan,
+      messages: [...t.messages, userMessage, { id: assistantId, role: "assistant", content: "" }]
+    }));
+    setQuery("");
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const fail = (message) => {
+      patchTask(taskId, t => ({
+        ...t,
+        status: "failed",
+        steps: t.steps.map(s => s.status === "active" ? { ...s, status: "failed" } : s),
+        messages: t.messages.map(m => m.id === assistantId ? { ...m, content: message } : m)
+      }));
+    };
+
+    let status = await desktop.getStatus();
+    if (!status?.enabled) status = await desktop.requestControl();
+    if (!status?.enabled) {
+      fail("Screen control wasn't approved, so VetroAI didn't touch your mouse or keyboard. Open the desktop companion and allow control when prompted, then try again.");
+      abortRef.current = null;
+      return;
+    }
+    patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
+
+    const log = [];
+    const renderLog = () => log.map((line, i) => `${i + 1}. ${line}`).join("\n");
+
+    try {
+      for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+        if (controller.signal.aborted) throw new DOMException("Stopped", "AbortError");
+
+        const shotDataUrl = await desktop.screenshot();
+        const shotBlob = await (await fetch(shotDataUrl)).blob();
+
+        const stepPrompt = [
+          `Goal: ${goal}`,
+          log.length ? `Actions taken so far:\n${renderLog()}` : "No actions taken yet — this is the first step.",
+          "Reply with exactly one JSON action for the next step, per your instructions."
+        ].join("\n\n");
+
+        const body = new FormData();
+        body.append("provider", "gemini");
+        body.append("mode", "computer_use");
+        body.append("input", stepPrompt);
+        body.append("messages", JSON.stringify([{ role: "user", content: stepPrompt }]));
+        body.append("safeMode", "true");
+        body.append("files", shotBlob, "screen.png");
+
+        const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.message || `Server error: ${response.status}`);
+        }
+        const raw = await readStream(response, taskId, assistantId);
+        const action = parseAgentAction(raw);
+        if (!action) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
+
+        log.push(describeAgentAction(action));
+        patchTask(taskId, t => ({
+          ...t,
+          steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: describeAgentAction(action) } : s),
+          messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() } : m)
+        }));
+
+        if (action.action === "done") break;
+        await performDesktopAction(desktop, action);
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+
+      patchTask(taskId, t => ({
+        ...t,
+        status: "completed",
+        steps: t.steps.map(s => ({ ...s, status: "done" })),
+        messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() || "No action was needed." } : m)
+      }));
+    } catch (error) {
+      const stopped = error.name === "AbortError";
+      patchTask(taskId, t => ({
+        ...t,
+        status: stopped ? "stopped" : "failed",
+        steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s),
+        messages: t.messages.map(m => m.id === assistantId
+          ? { ...m, content: `${renderLog()}${log.length ? "\n\n" : ""}${stopped ? "Stopped." : `Stopped driving the screen: ${error.message}`}` }
+          : m)
+      }));
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
   const submit = (event, suggestion = "") => {
     event?.preventDefault();
     const prompt = (suggestion || query).trim();
     if (!prompt || running) return;
+    if (screenControl && hasDesktop) {
+      runComputerAgent(prompt);
+      return;
+    }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
       setPendingAction(prompt);
       return;
@@ -537,7 +711,7 @@ export default function ComputerUI({ onClose }) {
                   </button>
                 ))}
               </div>
-              <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} />
+              <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} />
               <p className="cowork-footnote">Browser workspace only. Install the VetroAI desktop companion for mouse and keyboard control.</p>
             </div>
           </section>
@@ -560,6 +734,12 @@ export default function ComputerUI({ onClose }) {
                                 <div className="cowork-export-actions">
                                   {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, message.content)}><Download size={15} /> Download Word document</button>}
                                   {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, message.content)}><Download size={15} /> Download spreadsheet</button>}
+                                  {message.exports.includes("website") && extractHtmlDocument(message.content) && (
+                                    <>
+                                      <button type="button" onClick={() => downloadBlob(extractHtmlDocument(message.content), "text/html;charset=utf-8", safeFilename(activeTask.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
+                                      <button type="button" onClick={() => window.open("https://dash.cloudflare.com/?to=/:account/pages/new/upload", "_blank", "noopener,noreferrer")}><Globe2 size={15} /> Open Cloudflare Pages to deploy</button>
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </>
@@ -599,7 +779,7 @@ export default function ComputerUI({ onClose }) {
             </section>
             <div className="cowork-bottom-composer">
               <div className="max-w-4xl mx-auto">
-                <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} />
+                <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} />
               </div>
             </div>
           </>
@@ -660,7 +840,7 @@ function CapabilitiesModal({ close, workspaceReady }) {
   return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
 }
 
-function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation }) {
+function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation, hasDesktop, screenControl, setScreenControl }) {
   return (
     <form onSubmit={submit} className="cowork-composer">
       {files.length > 0 && (
@@ -673,15 +853,27 @@ function Composer({ query, setQuery, files, setFiles, submit, running, textareaR
           ))}
         </div>
       )}
+      {hasDesktop && screenControl && (
+        <div className="cowork-location-notice" style={{ marginBottom: 8 }}>
+          <Monitor size={16} /><span>Screen control is on — VetroAI will move your mouse, click, and type on your real desktop after you approve the permission prompt.</span>
+        </div>
+      )}
       <textarea ref={textareaRef} value={query} onChange={e => setQuery(e.target.value)}
         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(e); } }}
-        placeholder="Describe a task for VetroAI Computer…" rows={2}
+        placeholder={screenControl ? "Describe what you want VetroAI to do on your screen…" : "Describe a task for VetroAI Computer…"} rows={2}
         className="w-full resize-none border-0 outline-none bg-transparent px-2 py-1 text-[15px] placeholder:text-stone-400" />
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-1">
           <input ref={fileRef} type="file" multiple className="hidden" onChange={onFiles} accept=".pdf,.txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.html,.xml,.yaml,.yml,image/*" />
           <button type="button" onClick={() => fileRef.current?.click()} className="p-2 rounded-xl hover:bg-stone-100 text-stone-600" title="Attach files"><Paperclip size={18} /></button>
           <button type="button" className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl hover:bg-stone-100 text-xs text-stone-600"><Globe2 size={16} /> Web</button>
+          {hasDesktop && (
+            <button type="button" onClick={() => setScreenControl(v => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs ${screenControl ? "bg-stone-900 text-white" : "hover:bg-stone-100 text-stone-600"}`}
+              title="Let VetroAI move your mouse and type, with your approval">
+              <Monitor size={16} /> Screen control
+            </button>
+          )}
           <button type="button" onClick={toggleDictation} className={`p-2 rounded-xl hover:bg-stone-100 ${dictating ? "text-red-600 animate-pulse" : "text-stone-600"}`}><Mic size={17} /></button>
         </div>
         <button type="submit" disabled={!query.trim() || running} className="w-9 h-9 rounded-xl bg-stone-900 text-white flex items-center justify-center disabled:opacity-35">

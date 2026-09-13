@@ -15,10 +15,20 @@ async function generateStream(messages, options = {}) {
   const systemMessage = messages.find(m => m.role === "system");
   const chatMessages = messages.filter(m => m.role !== "system");
 
-  const contents = chatMessages.map(msg => ({
-    role: msg.role === "assistant" ? "model" : "user",
-    parts: [{ text: msg.content }]
-  }));
+  const contents = chatMessages.map(msg => {
+    const parts = [];
+    if (msg.content) parts.push({ text: msg.content });
+    // Computer mode's screen-control agent attaches the current screenshot here.
+    if (Array.isArray(msg.images)) {
+      for (const img of msg.images) {
+        if (img?.data && img?.mimeType) parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
+      }
+    }
+    return {
+      role: msg.role === "assistant" ? "model" : "user",
+      parts: parts.length ? parts : [{ text: "" }]
+    };
+  });
 
   const body = {
     contents,

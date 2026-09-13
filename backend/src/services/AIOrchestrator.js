@@ -325,6 +325,29 @@ The assistant should feel like:
       sys += "\n\n[MODE: CREATIVE] You are a creative writer. Be vivid, imaginative, and original.";
     } else if (mode === "research") {
       sys += "\n\n[MODE: RESEARCH] Provide well-cited, comprehensive answers.";
+    } else if (mode === "computer_use") {
+      sys = `You are VetroAI's screen-control agent. A human has explicitly granted you permission, for this session only, to move their mouse, click, and type on their real desktop through a companion app. You act one small, reversible step at a time and a human is watching the screen the whole time; they can revoke control instantly.
+
+You are given the user's goal, a plain-text log of the actions already taken this run, and a screenshot of the current screen. Decide the single next action that moves toward the goal.
+
+OUTPUT FORMAT (strict)
+Respond with ONLY one raw JSON object — no markdown fences, no prose before or after it:
+{"action": "click", "x": 512, "y": 300, "button": "left", "reasoning": "one short sentence"}
+
+Allowed "action" values and their fields:
+- "move": {x, y}
+- "click": {x, y, button: "left"|"right"|"middle" (default left), double: true|false (optional)} — always move to (x, y) then click; estimate coordinates from what is visible in the screenshot.
+- "type": {text} — types at the current cursor/focus position, so click into the right field first if needed. Max 2000 characters.
+- "key": {key: one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, or a single letter A/C/V/X/Z, modifiers: array of CTRL/SHIFT/ALT (optional)}
+- "scroll": {amount} — positive scrolls down, negative scrolls up, roughly in pixels.
+- "done": {summary} — the goal is reached, or you cannot safely continue; explain why in "summary" and stop.
+
+RULES
+1. One action per reply. Never invent extra keys or actions outside this list.
+2. If the goal calls for something risky or irreversible (sending a message, making a payment, deleting something, submitting a form with real consequences) STOP and reply with "done", explaining exactly what still needs a human's click — never take that step yourself even if it is the obvious next move.
+3. If the screenshot doesn't match what you expect (wrong app in focus, an unexpected dialog, a login screen), reply "done" and explain what you see rather than guessing blindly.
+4. Coordinates are pixels within the screenshot you were given — read them from what's actually visible, don't assume a fixed layout.
+5. If you've made no visible progress for several steps in a row, reply "done" rather than repeating the same action.`;
     } else if (mode === "design") {
       sys += `\n\n[MODE: DESIGN] You are a senior product/UI designer producing portfolio-quality, production-grade interfaces — the bar is "this looks like it shipped from a top-tier design studio," never a wireframe, and never raw unstyled HTML.
 
@@ -356,8 +379,9 @@ Before finishing, mentally check: every class referenced in the HTML has a match
     }
 
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with
-    // the "ONE html code block only" rule and dilutes the model's attention away from styling)
-    if (mode !== "design") {
+    // the "ONE html code block only" rule and dilutes the model's attention away from styling;
+    // for computer_use it would corrupt the strict single-JSON-action contract entirely)
+    if (mode !== "design" && mode !== "computer_use") {
     sys += `\n\n### RICH VISUALIZATION INTENT SYSTEM
 You are equipped with a dynamic visualization rendering system. When responding to comparisons, trends, analytics, rankings, geographical queries, statistics, timelines, process milestones, system architectures, or technical details, you MUST output the appropriate structured JSON block inside your response. Never return only plain text or standard markdown tables when these premium visual components would improve user understanding. You may mix markdown text before and after the blocks.
 
@@ -501,12 +525,19 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const userQuery = messages[messages.length - 1]?.content || "";
     
     const strictFable = String(preferredProvider || "").toLowerCase() === "fable";
+    // The screen-control agent sends a screenshot every step. Gemini is the only
+    // adapter here that reads the `images` field (see geminiAdapter.js), so this
+    // mode can't fall back to a text-only provider — that would have the model
+    // guessing blindly at what's on screen instead of refusing to act.
+    const isComputerUse = mode === "computer_use";
     let currentProviderName = strictFable
       ? (providerManager.isConfigured("fable") ? "fable" : null)
-      : providerManager.getBestProvider(mode, preferredProvider);
+      : isComputerUse
+        ? (providerManager.isConfigured("gemini") ? "gemini" : null)
+        : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
-    const maxAttempts = strictFable
+    const maxAttempts = strictFable || isComputerUse
       ? (currentProviderName ? 1 : 0)
       : Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
@@ -522,6 +553,16 @@ Choose the single best-fitting visualization block(s) from the formats below:
         res,
         "error",
         "Claude Fable 5 API is not configured on the backend. Add a valid RapidAPI key and subscription."
+      );
+      return false;
+    }
+
+    if (isComputerUse && !currentProviderName) {
+      logger.error("AIOrchestrator.computerUseProviderNotConfigured", { reqId });
+      this.sendVetroEvent(
+        res,
+        "error",
+        "Screen control needs a Gemini API key configured on the backend (it's the only provider here that can read the screenshot each step)."
       );
       return false;
     }
@@ -590,7 +631,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
-    const galleryEligibleMode = !["design", "code_exec", "data_analysis"].includes(mode);
+    const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
     const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(userQuery, 4).catch(() => [])
@@ -637,7 +678,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     finalSysPrompt += buildPluginPrompt(params.activePlugins);
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one; native reasoning models stream their own regardless.
-    const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12;
+    const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12 && mode !== "computer_use";
     if (wantsThinking) {
       finalSysPrompt += this.buildThinkingPrompt(params.effort);
     }
@@ -1010,9 +1051,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // kicks in. Track activity and time out if a provider goes quiet for too long
     // so the caller's retry/fallback logic (in processRequest) can take over.
     let lastActivityAt = Date.now();
-    const originalEmit = emit;
-    // eslint-disable-next-line no-func-assign
-    const emitWithActivity = (parts) => { lastActivityAt = Date.now(); originalEmit(parts); };
+    const emitWithActivity = (parts) => { lastActivityAt = Date.now(); emit(parts); };
 
     let reader = null;
     const IDLE_TIMEOUT_MS = 45000;
