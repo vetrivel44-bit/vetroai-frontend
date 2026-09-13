@@ -80,6 +80,26 @@ function createWindow() {
   });
   mainWindow.loadURL(APP_URL);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Google/Firebase's OAuth popup relies on sessionStorage it sets in the
+    // opener window to match up when it completes — kicking it out to the
+    // system's default browser (a completely separate process/profile) loses
+    // that storage and the flow dies with "missing initial state". Let auth
+    // popups open as a real Electron popup instead, sharing this window's
+    // session, so the redirect can actually find its way back. Everything
+    // else (a user clicking a real external link) still goes to the system
+    // browser as before.
+    const isAuthPopup = /^https:\/\/(accounts\.google\.com|[^/]+\.firebaseapp\.com)\//.test(url);
+    if (isAuthPopup) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          width: 500,
+          height: 650,
+          autoHideMenuBar: true,
+          webPreferences: { contextIsolation: true, nodeIntegration: false }
+        }
+      };
+    }
     require("electron").shell.openExternal(url);
     return { action: "deny" };
   });
