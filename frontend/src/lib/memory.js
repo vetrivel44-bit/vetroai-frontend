@@ -12,26 +12,32 @@ export const MAX_MEMORY_LENGTH = 2000;
 export const MAX_MEMORIES = 50;
 
 /**
- * Phrases that mean "store this". Matched against the start of a message so a
- * passing mention ("I can never remember which one") does not trigger a save.
+ * Phrases that mean "store this". Matched at the start of a message ("Remember
+ * that my name is Vetrivel") or at the end ("My name is Vetrivel, remember
+ * that.") so the instruction is recognized wherever people naturally put it —
+ * a passing mention buried mid-sentence ("I can never remember which one")
+ * still does not trigger a save.
  *
  * Deliberately explicit rather than model-inferred: the user sees exactly what
  * was saved and why, and a memory is never created by a sentence they did not
  * intend as an instruction.
  */
-const CAPTURE_RE =
-  /^\s*(?:please\s+)?(?:remember|note|keep in mind|don'?t forget)(?:\s+that)?[:,]?\s+(.+)$/is;
+const LEADING_RE =
+  /^\s*(?:please\s+)?(?:remember|memorize|note|keep in mind|don'?t forget|make a note)(?:\s+that)?[:,]?\s+(.+)$/is;
+const TRAILING_RE =
+  /^(.+?)[,.\s]+(?:so\s+)?(?:please\s+)?(?:remember|memorize|note|keep in mind|don'?t forget)(?:\s+(?:this|that))?[.!]?\s*$/is;
 
 /**
  * Extract the fact from a "remember ..." message, or null if it is not one.
  *
  * The captured text is stored as the user wrote it, minus the instruction
- * prefix and trailing punctuation — "Remember that my name is Vetrivel." gives
- * "my name is Vetrivel".
+ * phrase and trailing punctuation — "Remember that my name is Vetrivel." and
+ * "My name is Vetrivel, remember that." both give "my name is Vetrivel".
  */
 export function extractMemory(message) {
   if (typeof message !== "string") return null;
-  const match = CAPTURE_RE.exec(message.trim());
+  const trimmed = message.trim();
+  const match = LEADING_RE.exec(trimmed) || TRAILING_RE.exec(trimmed);
   if (!match) return null;
 
   const text = match[1].trim().replace(/[.!,;\s]+$/, "");

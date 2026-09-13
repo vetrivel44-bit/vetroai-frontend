@@ -4626,7 +4626,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     const fd = new FormData();
     fd.append("input", userQuery);
-    fd.append("messages", JSON.stringify(hist.slice(-12).map(m => {
+    // Was slice(-12) — only 6 exchanges of context, so anything said earlier
+    // in a longer conversation silently dropped off and the model looked like
+    // it forgot. 50 matches the backend's own window (chatController.js).
+    fd.append("messages", JSON.stringify(hist.slice(-50).map(m => {
       if (!m.files) return m;
       const { files, ...rest } = m;
       return { ...rest, files: files.map(f => ({ name: f.name })) };
@@ -4809,7 +4812,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         const puterMessages = hist
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
-          .slice(-12)
+          .slice(-50)
           .map(({ role, content }) => ({ role, content }));
         if (finalSystemPrompt.trim()) {
           puterMessages.unshift({ role: "system", content: finalSystemPrompt.trim() });

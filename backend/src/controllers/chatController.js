@@ -56,9 +56,14 @@ function normalizeMessages(rawMessages, input) {
     }
   }
   if (!Array.isArray(parsed)) parsed = [];
+  // 18 messages (9 exchanges) was cutting real conversations short — anything
+  // said earlier in a longer chat just fell out of context and the model
+  // looked like it "forgot". 50 keeps a much longer conversation in view
+  // while staying well inside every provider's context window at the 12000
+  // char/message cap below.
   const clean = parsed
     .filter((m) => m && typeof m.content === "string" && ["system", "user", "assistant"].includes(m.role))
-    .slice(-18)
+    .slice(-50)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 12000) }));
 
   if (input && typeof input === "string" && input.trim()) {
