@@ -1001,35 +1001,65 @@ Choose the single best-fitting visualization block(s) from the formats below:
       return processTextChunk(text);
     };
 
-    try {
+    // A provider can accept the connection and start a stream that then stalls
+    // mid-response (no error, no more chunks — just silence). Without a watchdog
+    // here, the only timeout in the whole flow guards *acquiring* the stream
+    // (see processRequest's Promise.race around adapter.generateStream), so a
+    // stall like this hangs forever: the SSE heartbeat keeps the client's
+    // connection open, but no content ever arrives and provider fallback never
+    // kicks in. Track activity and time out if a provider goes quiet for too long
+    // so the caller's retry/fallback logic (in processRequest) can take over.
+    let lastActivityAt = Date.now();
+    const originalEmit = emit;
+    // eslint-disable-next-line no-func-assign
+    const emitWithActivity = (parts) => { lastActivityAt = Date.now(); originalEmit(parts); };
+
+    let reader = null;
+    const IDLE_TIMEOUT_MS = 45000;
+    let watchdogInterval = null;
+    const watchdog = new Promise((_, reject) => {
+      watchdogInterval = setInterval(() => {
+        if (Date.now() - lastActivityAt > IDLE_TIMEOUT_MS) {
+          reader?.cancel?.();
+          stream.destroy?.(new Error("stream idle timeout"));
+          reject(new Error(`Provider stream stalled — no data received for ${IDLE_TIMEOUT_MS / 1000}s`));
+        }
+      }, 5000);
+    });
+
+    const consume = async () => {
       // 1. Handle Async Iterables (SDKs or Web ReadableStreams)
       if (Symbol.asyncIterator in stream) {
         for await (const chunk of stream) {
-          emit(readChunk(chunk));
+          emitWithActivity(readChunk(chunk));
         }
       }
       // 2. Handle Node.js Readable streams
       else if (stream.on) {
         await new Promise((resolve, reject) => {
-          stream.on("data", (chunk) => emit(readChunk(chunk)));
+          stream.on("data", (chunk) => emitWithActivity(readChunk(chunk)));
           stream.on("end", resolve);
           stream.on("error", reject);
         });
       }
       // 3. Handle Web Streams with getReader (Agnes uses this)
       else if (stream.getReader && typeof stream.getReader === "function") {
-        const reader = stream.getReader();
+        reader = stream.getReader();
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            emit(processTextChunk(decoder.decode(value, { stream: true })));
+            emitWithActivity(processTextChunk(decoder.decode(value, { stream: true })));
           }
         } catch (readerErr) {
           reader.cancel?.();
           throw readerErr;
         }
       }
+    };
+
+    try {
+      await Promise.race([consume(), watchdog]);
 
       // Flush any bytes the decoder is still holding (a multi-byte character
       // split across the last two chunks) — applies to every branch above.
@@ -1045,6 +1075,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
       logger.error(`AIOrchestrator.pipeStream.error [${provider}]`, { error: err.message });
       throw err;
     } finally {
+      clearInterval(watchdogInterval);
       closeReasoning();
     }
 

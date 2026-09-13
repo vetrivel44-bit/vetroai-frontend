@@ -186,6 +186,14 @@ export default function ComputerUI({ onClose }) {
               ...t,
               messages: t.messages.map(m => m.id === assistantId ? { ...m, content } : m)
             }));
+          } else if (type === "clear") {
+            // Backend is retrying with a fallback provider after the previous
+            // one failed or stalled — drop whatever partial text it streamed.
+            content = "";
+            patchTask(taskId, t => ({
+              ...t,
+              messages: t.messages.map(m => m.id === assistantId ? { ...m, content: "" } : m)
+            }));
           } else if (type === "status" && data) {
             patchTask(taskId, t => {
               const activeIndex = t.steps.findIndex(s => s.status === "active");
