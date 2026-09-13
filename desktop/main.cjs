@@ -157,17 +157,25 @@ ipcMain.handle("computer:type", async (_event, action) => {
 });
 ipcMain.handle("computer:key", async (_event, action) => {
   requireControl();
+  // @nut-tree-fork/nut-js's Key enum uses PascalCase members (Key.Enter, not
+  // Key.ENTER) and at least one value is legitimately 0 (Key.Escape) — verified
+  // directly against the installed package, since the previous SCREAMING_CASE
+  // names here all resolved to `undefined`, silently rejecting every key press
+  // except the five bare letters below (whose names happen to already match).
   const allowed = {
-    ENTER: Key.ENTER, TAB: Key.TAB, ESCAPE: Key.ESCAPE, BACKSPACE: Key.BACKSPACE,
-    DELETE: Key.DELETE, SPACE: Key.SPACE, UP: Key.UP, DOWN: Key.DOWN,
-    LEFT: Key.LEFT, RIGHT: Key.RIGHT, HOME: Key.HOME, END: Key.END,
-    PAGEUP: Key.PAGE_UP, PAGEDOWN: Key.PAGE_DOWN,
-    CTRL: Key.LEFT_CONTROL, SHIFT: Key.LEFT_SHIFT, ALT: Key.LEFT_ALT,
+    ENTER: Key.Enter, TAB: Key.Tab, ESCAPE: Key.Escape, BACKSPACE: Key.Backspace,
+    DELETE: Key.Delete, SPACE: Key.Space, UP: Key.Up, DOWN: Key.Down,
+    LEFT: Key.Left, RIGHT: Key.Right, HOME: Key.Home, END: Key.End,
+    PAGEUP: Key.PageUp, PAGEDOWN: Key.PageDown,
+    CTRL: Key.LeftControl, SHIFT: Key.LeftShift, ALT: Key.LeftAlt,
     A: Key.A, C: Key.C, V: Key.V, X: Key.X, Z: Key.Z
   };
   const key = allowed[String(action.key || "").toUpperCase()];
-  if (!key) throw new Error("Key is not allowed.");
-  const modifiers = (action.modifiers || []).map(k => allowed[String(k).toUpperCase()]).filter(Boolean).slice(0, 3);
+  if (key === undefined) throw new Error("Key is not allowed.");
+  const modifiers = (action.modifiers || [])
+    .map(k => allowed[String(k).toUpperCase()])
+    .filter(k => k !== undefined)
+    .slice(0, 3);
   if (modifiers.length) await keyboard.pressKey(...modifiers);
   await keyboard.type(key);
   if (modifiers.length) await keyboard.releaseKey(...modifiers.reverse());
