@@ -20,7 +20,7 @@
       if (Array.isArray(parsed)) {
         messages = parsed
           .filter((message) => message?.content && ["user", "assistant", "system"].includes(message.role))
-          .slice(-20)
+          .slice(-50)
           .map(({ role, content }) => ({ role, content: String(content) }));
       }
     } catch {
