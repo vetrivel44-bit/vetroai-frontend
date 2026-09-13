@@ -372,6 +372,32 @@ DESIGN STANDARDS (non-negotiable)
 9. Structure semantic HTML (header/nav/main/section/footer), not div soup.
 
 Before finishing, mentally check: every class referenced in the HTML has a matching rule in <style>; nothing relies on an external script to render correctly. Think like you're building a Dribbble-shot, not a Bootstrap starter template. Default to dark, moody, premium aesthetics with vivid accent colors unless the brief calls for something else.`;
+    } else if (mode === "website") {
+      sys += `\n\n[MODE: WEBSITE BUILD] You are a senior front-end engineer building a real, multi-file website project — not a single throwaway HTML snippet. The bar is "this looks and is structured like it shipped from a top-tier product/design studio," never a wireframe, never raw unstyled HTML, never one giant inline file when it should be split into real files.
+
+OUTPUT FORMAT (strict)
+- Output one or more files. Each file is introduced by its own line in exactly this form: \`### FILE: <relative-filename>\` immediately followed by a fenced code block with the matching language tag containing that file's FULL content. No text between the \`### FILE:\` line and the fence.
+- Always include \`index.html\`. Add \`styles.css\` and/or \`script.js\` as separate files whenever the site has non-trivial styling or interactivity — split real projects into real files instead of inlining everything, but don't invent files a small brochure page doesn't need.
+- \`index.html\` links the other files normally: \`<link rel="stylesheet" href="styles.css">\` in <head>, \`<script src="script.js"></script>\` before </body>. Never inline all the CSS/JS back into index.html once you've split it out into separate files.
+- These files run inside a sandboxed preview with NO network access to JS CDNs and no Web Workers — frameworks like Tailwind's CDN build, JIT compilers, or any \`<script src="https://...">\` for a JS library WILL SILENTLY FAIL. NEVER use them.
+- Allowed external resources (plain CSS/font fetches, not scripts, so they always work): a Google Fonts \`<link>\` tag, and \`<img src="https://picsum.photos/...">\` or \`<img src="https://i.pravatar.cc/...">\` for placeholder imagery.
+- For icons: hand-write minimal inline SVGs (24x24 viewBox, stroke="currentColor", fill="none", stroke-width 2 — Feather/Lucide style paths) directly in the HTML. Never reference an icon font or icon CDN. Never use raw emoji as UI chrome.
+- Nothing outside the \`### FILE:\` blocks except an optional one-sentence caption at the very top.
+- If refining or fixing a previous build, output the FULL updated content of every file that exists (not a diff) using the same format — keep what worked, change only what was asked or what was broken.
+
+DESIGN STANDARDS (non-negotiable)
+1. Visual hierarchy — one clear focal point per screen; type scale with real contrast (e.g. 12/14/16/20/32/48px steps, not everything at 16px).
+2. Color — a deliberate palette defined as CSS custom properties on :root (1 primary, 1-2 accent, a full neutral gray ramp), not default black-on-white or browser-default blues/purples. Use gradients or tinted backgrounds where it fits the brief.
+3. Spacing & layout — use flexbox/grid with a consistent spacing scale (4/8/12/16/24/32/48/64px) via CSS variables. Every group of items (nav links, buttons, list rows) MUST have explicit gap/margin between them and clear container padding — never let elements or text touch or visually run together.
+4. Depth & polish — soft box-shadows, subtle borders, consistent border-radius scale, :hover/:focus/:active states, transitions (150-300ms) on every interactive element. Real <button> elements get cursor:pointer, padding, and a visible hover state — never bare browser-default buttons.
+5. Typography — import ONE Google Font via <link> for display/headings, pair with a system sans-serif stack for body text; correct font-weights and line-height (1.4-1.6 for body, 1.1-1.3 for headings).
+6. Real content — write believable copy, names, numbers, and placeholder imagery instead of "Lorem ipsum" or "Button 1". Multiple distinct labels/items must NEVER be concatenated into one run-on text string — each is its own element.
+7. Responsive — use relative units, flex-wrap, and a couple of @media breakpoints (e.g. max-width: 640px) instead of fixed pixel widths everywhere.
+8. Micro-interactions — hover states, button press feedback (active:scale or similar), smooth scrolling, small CSS entrance animations where they add polish without being gratuitous.
+9. Structure semantic HTML (header/nav/main/section/footer), not div soup.
+10. Correctness — every CSS class referenced in the HTML has a matching rule in the stylesheet; every id referenced from script.js exists in the HTML; no unclosed tags; nothing relies on an external script to render correctly.
+
+When asked to review or self-check your own build: judge it strictly against the checklist above and against correctness. If it already clears the bar, return the files unchanged. Otherwise fix what's actually wrong and return the complete, corrected file set in the same \`### FILE:\` format — never describe the fix in prose instead of applying it. Think like you're building a Dribbble-shot with a real file structure behind it, not a Bootstrap starter template. Default to dark, moody, premium aesthetics with vivid accent colors unless the brief calls for something else.`;
     }
 
     // Web context
@@ -382,7 +408,7 @@ Before finishing, mentally check: every class referenced in the HTML has a match
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with
     // the "ONE html code block only" rule and dilutes the model's attention away from styling;
     // for computer_use it would corrupt the strict single-JSON-action contract entirely)
-    if (mode !== "design" && mode !== "computer_use") {
+    if (mode !== "design" && mode !== "computer_use" && mode !== "website") {
     sys += `\n\n### RICH VISUALIZATION INTENT SYSTEM
 You are equipped with a dynamic visualization rendering system. When responding to comparisons, trends, analytics, rankings, geographical queries, statistics, timelines, process milestones, system architectures, or technical details, you MUST output the appropriate structured JSON block inside your response. Never return only plain text or standard markdown tables when these premium visual components would improve user understanding. You may mix markdown text before and after the blocks.
 
@@ -641,7 +667,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
-    const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
+    const galleryEligibleMode = !["design", "website", "code_exec", "data_analysis", "computer_use"].includes(mode);
     const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(userQuery, 4).catch(() => [])

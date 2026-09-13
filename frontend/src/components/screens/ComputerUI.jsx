@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import JSZip from "jszip";
 import "./ComputerUI.css";
 import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
@@ -70,6 +71,43 @@ async function prepareScreenshotForModel(dataUrl) {
 function extractHtmlDocument(markdown) {
   const match = HTML_BLOCK.exec(String(markdown || ""));
   return match ? match[1].trim() : null;
+}
+
+// Website-mode responses come back as one or more named files, each preceded
+// by "### FILE: name" and a fenced code block — see AIOrchestrator's
+// "website" system prompt for the exact contract. Falls back to treating a
+// bare ```html block as index.html so an off-format reply still renders.
+const FILE_BLOCK = /###\s*FILE:\s*([^\n`]+?)\s*\n```[a-z]*\n([\s\S]*?)```/gi;
+function parseWebsiteFiles(markdown) {
+  const text = String(markdown || "");
+  const files = [];
+  let match;
+  const re = new RegExp(FILE_BLOCK.source, "gi");
+  while ((match = re.exec(text))) {
+    files.push({ name: match[1].trim().replace(/^\.?\//, ""), content: match[2].replace(/\s+$/, "") });
+  }
+  if (files.length) return files;
+  const html = extractHtmlDocument(text);
+  return html ? [{ name: "index.html", content: html }] : [];
+}
+
+// Combines a parsed file set into one previewable document: inlines any
+// stylesheet/script the HTML references by filename, since a sandboxed
+// srcDoc iframe has no filesystem to resolve separate <link>/<script src> URLs against.
+function buildWebsitePreviewDocument(files) {
+  const indexFile = files.find(f => /index\.html?$/i.test(f.name)) || files.find(f => /\.html?$/i.test(f.name));
+  if (!indexFile) return null;
+  let doc = indexFile.content;
+  for (const file of files) {
+    if (file === indexFile) continue;
+    const escapedName = file.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (/\.css$/i.test(file.name)) {
+      doc = doc.replace(new RegExp(`<link[^>]+href=["']\\.?/?${escapedName}["'][^>]*>`, "i"), `<style>\n${file.content}\n</style>`);
+    } else if (/\.js$/i.test(file.name)) {
+      doc = doc.replace(new RegExp(`<script[^>]+src=["']\\.?/?${escapedName}["'][^>]*>\\s*</script>`, "i"), `<script>\n${file.content}\n</script>`);
+    }
+  }
+  return doc;
 }
 
 // Preview-only instrumentation so the agent can actually "see" what it just
@@ -153,6 +191,17 @@ function downloadSpreadsheet(title, markdown) {
   const csv = markdownTableToCsv(markdown).map(row => row.map(cell => JSON.stringify(String(cell))).join(",")).join("\\r\\n");
   downloadBlob("\ufeff" + csv, "text/csv;charset=utf-8", safeFilename(title, "VetroAI-spreadsheet") + ".csv");
 }
+async function downloadWebsiteProject(title, files) {
+  const zip = new JSZip();
+  for (const file of files) zip.file(file.name, file.content);
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = safeFilename(title, "vetroai-site") + ".zip";
+  document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 async function requestCurrentLocation() {
   if (!window.isSecureContext || !navigator.geolocation) return { location: null, reason: "unsupported" };
   return new Promise(resolve => navigator.geolocation.getCurrentPosition(
@@ -182,16 +231,20 @@ const starterTasks = [
   { icon: Zap, title: "Complete a project", prompt: "Turn my goal into a detailed plan, work through it step by step, and give me finished deliverables for review." }
 ];
 
-const buildPlan = (prompt, files) => {
+const buildPlan = (prompt, files, isWebsiteRequest = false) => {
   const steps = [
     { id: "understand", label: "Understand the goal and constraints", status: "pending" },
     ...(files.length ? [{ id: "files", label: `Read ${files.length} attached file${files.length > 1 ? "s" : ""}`, status: "pending" }] : []),
     { id: "research", label: "Gather the required context and sources", status: "pending" },
     { id: "work", label: "Complete the requested work", status: "pending" },
+    ...(isWebsiteRequest ? [{ id: "selfreview", label: "Self-review design quality and correctness", status: "pending" }] : []),
     { id: "review", label: "Review the result and prepare delivery", status: "pending" }
   ];
-  if (/\b(code|app|website|debug|fix|build)\b/i.test(prompt)) {
-    steps[2] = { id: "work", label: "Build, inspect, and validate the solution", status: "pending" };
+  const workIndex = steps.findIndex(s => s.id === "work");
+  if (isWebsiteRequest) {
+    steps[workIndex] = { id: "work", label: "Build the website's files", status: "pending" };
+  } else if (/\b(code|app|debug|fix|build)\b/i.test(prompt)) {
+    steps[workIndex] = { id: "work", label: "Build, inspect, and validate the solution", status: "pending" };
   }
   return steps;
 };
@@ -343,7 +396,13 @@ export default function ComputerUI({ onClose }) {
     const assistantId = `a-${Date.now()}`;
     const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt };
     const contextMessages = [...task.messages, userMessage].map(({ role, content }) => ({ role, content }));
-    const plan = buildPlan(prompt, files).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
+    // Once a task has produced a website, keep routing follow-ups (e.g. "fix
+    // these errors") through website-build mode even if the follow-up prompt
+    // itself doesn't say "build a website" — otherwise a fix request silently
+    // drops back to a plain code-chat reply instead of a full rebuild.
+    const hasWebsiteContext = task.messages.some(m => m.exports?.includes("website"));
+    const isWebsiteRequest = WEBSITE_REQUEST.test(prompt) || hasWebsiteContext;
+    const plan = buildPlan(prompt, files, isWebsiteRequest).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
 
     patchTask(taskId, t => ({
       ...t,
@@ -412,17 +471,11 @@ export default function ComputerUI({ onClose }) {
           }
         }
       }
-      // Once a task has produced a website, keep routing follow-ups (e.g. "fix
-      // these errors") through Design mode even if the fix prompt itself
-      // doesn't say "build a website" — otherwise a fix request silently
-      // drops back to a plain code-chat reply instead of a full HTML redo.
-      const hasWebsiteContext = task.messages.some(m => m.exports?.includes("website"));
-      const isWebsiteRequest = WEBSITE_REQUEST.test(prompt) || hasWebsiteContext;
       const body = new FormData();
       body.append("provider", "gemini");
-      // A full-site build gets routed through Design mode's battle-tested
-      // single-file HTML system prompt instead of the generic task prompt below.
-      body.append("mode", isWebsiteRequest ? "design" : "code_exec");
+      // A full-site build gets routed through the multi-file website-build
+      // system prompt instead of the generic task prompt below.
+      body.append("mode", isWebsiteRequest ? "website" : "code_exec");
       body.append("input", taskPrompt);
       body.append("messages", JSON.stringify(contextMessages));
       body.append("webSearch", "true");
@@ -447,7 +500,51 @@ export default function ComputerUI({ onClose }) {
         throw new Error(message);
       }
 
-      await readStream(response, taskId, assistantId);
+      let finalContent = await readStream(response, taskId, assistantId);
+
+      // One self-check pass: before handing the build back, have the model
+      // look at what it just produced against its own design/correctness
+      // checklist and revise if needed — the same way a careful engineer
+      // reviews their own diff before calling it done, rather than trusting
+      // the first draft. Falls back to the original build on any failure so
+      // a flaky review call never loses a working result.
+      if (isWebsiteRequest) {
+        const builtFiles = parseWebsiteFiles(finalContent);
+        if (builtFiles.length) {
+          patchTask(taskId, t => ({ ...t, steps: t.steps.map(s => s.id === "selfreview" ? { ...s, status: "active" } : s) }));
+          try {
+            const filesBlock = builtFiles.map(f => `### FILE: ${f.name}\n\`\`\`${f.name.split(".").pop()}\n${f.content}\n\`\`\``).join("\n\n");
+            const reviewPrompt = [
+              "Review the website you just built against your DESIGN STANDARDS checklist and basic correctness (matching classes/ids, no unclosed tags, nothing that would throw at runtime).",
+              "If it already clears the bar, return the exact same files unchanged. Otherwise fix what's wrong and return the complete corrected file set.",
+              "Use the same ### FILE: <name> format, one fenced code block per file, for every file listed below — do not drop a file, and do not describe changes in prose instead of applying them.",
+              "",
+              "Files to review:",
+              filesBlock
+            ].join("\n");
+
+            const reviewBody = new FormData();
+            reviewBody.append("provider", "gemini");
+            reviewBody.append("mode", "website");
+            reviewBody.append("input", reviewPrompt);
+            reviewBody.append("messages", JSON.stringify([...contextMessages, { role: "assistant", content: finalContent }, { role: "user", content: reviewPrompt }]));
+            reviewBody.append("safeMode", "true");
+
+            patchTask(taskId, t => ({ ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: "" } : m) }));
+            const reviewResponse = await fetch(`${API}/chat`, { method: "POST", body: reviewBody, signal: controller.signal });
+            const reviewed = reviewResponse.ok ? await readStream(reviewResponse, taskId, assistantId) : "";
+            if (parseWebsiteFiles(reviewed).length) {
+              finalContent = reviewed;
+            } else {
+              patchTask(taskId, t => ({ ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: finalContent } : m) }));
+            }
+          } catch {
+            patchTask(taskId, t => ({ ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: finalContent } : m) }));
+          }
+          patchTask(taskId, t => ({ ...t, steps: t.steps.map(s => s.id === "selfreview" ? { ...s, status: "done" } : s) }));
+        }
+      }
+
       patchTask(taskId, t => ({
         ...t,
         status: "completed",
@@ -480,19 +577,20 @@ export default function ComputerUI({ onClose }) {
   // Feeds browser-observed errors from the live preview back to the model so
   // it can actually see and fix what it built, instead of the task ending the
   // moment the HTML is generated regardless of whether it works.
-  const requestWebsiteFix = (html, errors) => {
+  const requestWebsiteFix = (rawContent, errors) => {
     if (running || !errors.length) return;
+    const builtFiles = parseWebsiteFiles(rawContent);
+    if (!builtFiles.length) return;
     const errorList = errors.map((message, i) => `${i + 1}. ${message}`).join("\n");
+    const filesBlock = builtFiles.map(f => `### FILE: ${f.name}\n\`\`\`${f.name.split(".").pop()}\n${f.content}\n\`\`\``).join("\n\n");
     const prompt = [
-      "The website you generated has runtime errors, caught live in the browser preview. Fix them and output the full corrected HTML document again in a single ```html code block — no diff, no explanation-only reply.",
+      "The website you generated has runtime errors, caught live in the browser preview. Fix them and output the full corrected file set again using the same ### FILE: <name> format — no diff, no explanation-only reply.",
       "",
       "Browser console errors:",
       errorList,
       "",
-      "Current HTML:",
-      "```html",
-      html,
-      "```"
+      "Current files:",
+      filesBlock
     ].join("\n");
     execute(prompt);
   };
@@ -865,20 +963,20 @@ export default function ComputerUI({ onClose }) {
                                 <div className="cowork-export-actions">
                                   {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, message.content)}><Download size={15} /> Download Word document</button>}
                                   {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, message.content)}><Download size={15} /> Download spreadsheet</button>}
-                                  {message.exports.includes("website") && extractHtmlDocument(message.content) && (
+                                  {message.exports.includes("website") && parseWebsiteFiles(message.content).length > 0 && (
                                     <>
-                                      <button type="button" onClick={() => downloadBlob(extractHtmlDocument(message.content), "text/html;charset=utf-8", safeFilename(activeTask.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
+                                      <button type="button" onClick={() => downloadWebsiteProject(activeTask.title, parseWebsiteFiles(message.content))}><Download size={15} /> Download project (.zip)</button>
                                       <button type="button" onClick={() => window.open("https://dash.cloudflare.com/?to=/:account/pages/new/upload", "_blank", "noopener,noreferrer")}><Globe2 size={15} /> Open Cloudflare Pages to deploy</button>
                                     </>
                                   )}
                                 </div>
                               )}
-                              {message.exports?.includes("website") && extractHtmlDocument(message.content) && message.id === activeTask.messages[activeTask.messages.length - 1]?.id && (
+                              {message.exports?.includes("website") && parseWebsiteFiles(message.content).length > 0 && message.id === activeTask.messages[activeTask.messages.length - 1]?.id && (
                                 <WebsitePreview
                                   key={message.id}
-                                  html={extractHtmlDocument(message.content)}
+                                  files={parseWebsiteFiles(message.content)}
                                   disabled={running}
-                                  onFix={(errors) => requestWebsiteFix(extractHtmlDocument(message.content), errors)}
+                                  onFix={(errors) => requestWebsiteFix(message.content, errors)}
                                 />
                               )}
                             </>
@@ -983,8 +1081,9 @@ export default function ComputerUI({ onClose }) {
 // "see" half of "see why and fix": without an actual render, computer mode
 // has no way of knowing a script threw or a layout broke, only that text
 // resembling HTML was produced.
-function WebsitePreview({ html, disabled, onFix }) {
+function WebsitePreview({ files, disabled, onFix }) {
   const [errors, setErrors] = useState([]);
+  const previewDoc = useMemo(() => buildWebsitePreviewDocument(files), [files]);
 
   useEffect(() => {
     setErrors([]);
@@ -994,18 +1093,20 @@ function WebsitePreview({ html, disabled, onFix }) {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [html]);
+  }, [previewDoc]);
+
+  if (!previewDoc) return null;
 
   return (
     <div className="cowork-website-preview">
       <div className="cowork-website-preview-header">
-        <span><Globe2 size={13} /> Live preview</span>
+        <span><Globe2 size={13} /> Live preview {files.length > 1 ? `(${files.map(f => f.name).join(", ")})` : ""}</span>
         {errors.length > 0 && <span className="cowork-website-preview-badge">{errors.length} error{errors.length > 1 ? "s" : ""} detected</span>}
       </div>
       <iframe
         title="Website preview"
         sandbox="allow-scripts allow-forms allow-popups allow-modals"
-        srcDoc={withPreviewErrorCapture(html)}
+        srcDoc={withPreviewErrorCapture(previewDoc)}
         className="cowork-website-preview-frame"
       />
       {errors.length > 0 && (
