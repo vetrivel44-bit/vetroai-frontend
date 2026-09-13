@@ -76,3 +76,60 @@ export const toPromptList = (memories) =>
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
     .map((m) => m.text)
     .filter(Boolean);
+
+// ─── Automatic memory capture ("remember like ChatGPT") ─────────────────────
+//
+// The explicit "remember that ..." path above only saves what the user
+// deliberately flags. ChatGPT-style memory also picks up durable facts from
+// ordinary conversation without being asked. Doing that well needs a model
+// call — a regex can't tell "my birthday is in March" (worth keeping) from
+// "March was a rough month" (not) — so this runs a small classification
+// prompt against the message the user just sent and asks it to name 0-3
+// facts, on the client via the same free Puter bridge the app already uses
+// for chat, rather than adding a paid backend call to every message.
+
+/**
+ * Cheap, local pre-filter so most messages never reach the model at all —
+ * short reactions, greetings and plain questions are essentially never
+ * durable personal facts, and skipping them keeps the extra call rare rather
+ * than firing on every single message.
+ */
+export function looksMemorable(text) {
+  if (typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (trimmed.length < 12 || trimmed.length > 1500) return false;
+  if (/^(hi|hey|hello|thanks|thank you|ok|okay|yes|no|sure|cool|nice|lol|great)[!.\s]*$/i.test(trimmed)) return false;
+  // A message that is only a question is almost never a fact about the user
+  // — "What's the capital of France?" carries nothing worth keeping.
+  if (trimmed.endsWith("?") && !/\bmy\b|\bi'?m\b|\bi am\b|\bi have\b|\bi work\b|\bi live\b/i.test(trimmed)) return false;
+  return true;
+}
+
+export const AUTO_MEMORY_SYSTEM_PROMPT = `You extract durable personal facts about the user from a single chat message, the way an assistant remembers things between separate conversations.
+
+Return ONLY a JSON array of short strings — each one a specific, durable fact worth remembering long-term (name, role, ongoing project, preference, deadline, relationship, recurring context). Phrase each fact so it reads naturally stored as-is, e.g. "prefers concise answers", "is preparing for GATE 2027", "works as a backend developer".
+
+Rules:
+- Return [] if the message has no durable fact worth remembering — most messages have none. Questions, small talk, and one-off requests are NOT facts.
+- Never invent or infer beyond what is stated.
+- Never include passwords, API keys, tokens, or anything that looks like a credential.
+- At most 3 facts per message.
+- Output raw JSON only — no prose, no markdown fences.`;
+
+/** Parse the model's response into a clean array of candidate memory strings. */
+export function parseAutoMemoryResponse(raw) {
+  if (typeof raw !== "string") return [];
+  const cleaned = raw.trim().replace(/^```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((item) => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2 && item.length <= MAX_MEMORY_LENGTH)
+    .slice(0, 3);
+}

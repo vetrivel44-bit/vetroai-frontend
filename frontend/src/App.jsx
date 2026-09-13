@@ -36,7 +36,7 @@ import {
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
-import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH } from "./lib/memory";
+import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
@@ -4025,6 +4025,32 @@ export default function App() {
     addToast("Memory cleared", "info", 2000);
   }, [userKey]);
 
+  // Background, best-effort "remembers like ChatGPT" pass — runs after a
+  // message is already sent, never blocks or can fail the chat itself. Uses
+  // the same free Puter bridge as regular chat so it costs nothing server-side.
+  const runAutoMemoryExtraction = useCallback(async (text) => {
+    if (!looksMemorable(text)) return;
+    if (!window.puter?.ai?.chat) return;
+    try {
+      const model = window.__VETROAI_GEMINI_MODEL__ || "gemini-3.1-pro-preview";
+      const response = await window.puter.ai.chat(
+        [
+          { role: "system", content: AUTO_MEMORY_SYSTEM_PROMPT },
+          { role: "user", content: text },
+        ],
+        { model }
+      );
+      const facts = parseAutoMemoryResponse(getPuterResponseText(response));
+      for (const fact of facts) {
+        if (addMemory(fact, "auto")) {
+          addToast(`Remembered: ${fact.slice(0, 60)}${fact.length > 60 ? "…" : ""}`, "success", 3500);
+        }
+      }
+    } catch (err) {
+      swallowError(err);
+    }
+  }, [addMemory]);
+
   const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
 
   const renameSession = (id, newTitle) => {
@@ -5041,6 +5067,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       } else if (addMemory(remembered, "chat")) {
         addToast(`Remembered: ${remembered.slice(0, 60)}${remembered.length > 60 ? "…" : ""}`, "success", 3500);
       }
+    } else if (isMemoryEnabled() && !isIncognito) {
+      // No explicit "remember" instruction — still let the background auto
+      // capture take a look, the same way ChatGPT's memory works without
+      // being asked. Fire-and-forget: never awaited, never blocks sending.
+      runAutoMemoryExtraction(text);
     }
 
     // Auto-detect Code mode suggestion
