@@ -103,6 +103,26 @@ function createWindow() {
     require("electron").shell.openExternal(url);
     return { action: "deny" };
   });
+
+  // The auth popup's own script normally calls window.close() on itself once
+  // Firebase/Google finish the sign-in — but Chromium only allows that when
+  // the browser recognizes the window as script-opened in the usual way,
+  // which doesn't reliably carry through Electron's window-override path
+  // above ("Scripts may close only the windows that were opened by them.").
+  // Close it from the main process instead once its own navigation lands
+  // back on this app's origin, which is always allowed regardless of how
+  // the window was created.
+  mainWindow.webContents.on("did-create-window", (popup, details) => {
+    const isAuthPopup = /^https:\/\/(accounts\.google\.com|[^/]+\.firebaseapp\.com)\//.test(details.url);
+    if (!isAuthPopup) return;
+    const closeIfBackHome = (url) => {
+      try {
+        if (new URL(url).origin === allowedOrigin && !popup.isDestroyed()) popup.close();
+      } catch { /* not a parseable URL, not our concern */ }
+    };
+    popup.webContents.on("will-redirect", (_event, url) => closeIfBackHome(url));
+    popup.webContents.on("did-navigate", (_event, url) => closeIfBackHome(url));
+  });
 }
 
 app.whenReady().then(() => {
