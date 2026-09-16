@@ -404,12 +404,32 @@ export default function ComputerUI({ onClose }) {
             taskPrompt += "\n\n[ACTION RESULT] Desktop control was not approved, so VetroAI did not click YouTube. Ask the user to approve computer control.";
           }
         } else {
-          const youtubeUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
+          // No companion, so nothing can click a search result — a web page is
+          // not allowed to click inside youtube.com. Resolve the first result
+          // on the backend instead and open the video itself, which plays with
+          // no click at all. Falls back to the search page if that fails, so a
+          // YouTube layout change degrades instead of breaking the feature.
+          let resolved = null;
+          try {
+            const lookup = await fetch(`${API}/youtube/resolve?q=${encodeURIComponent(musicQuery)}`, { signal: controller.signal });
+            if (lookup.ok) {
+              const payload = await lookup.json();
+              if (payload?.success && payload.data?.watchUrl) resolved = payload.data;
+            }
+          } catch (error) {
+            if (error.name === "AbortError") throw error;
+          }
+
+          const youtubeUrl = resolved
+            ? `${resolved.watchUrl}&autoplay=1`
+            : "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
           const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
           if (opened) {
-            taskPrompt += "\n\n[ACTION RESULT] YouTube search results were opened for: " + musicQuery +
-              ". This is the web version, so the browser cannot click a result for the user — a web page is not allowed to click inside youtube.com. Do not claim the video was clicked or that it is playing." +
-              " Tell the user plainly that they need to click the video themselves here, and that VetroAI's desktop app (" + COMPANION_DOWNLOAD_URL + ") can click it automatically instead.";
+            taskPrompt += resolved
+              ? `\n\n[ACTION RESULT] The video "${resolved.title || musicQuery}" was opened and is playing for: ${musicQuery}. Report that it is playing now — the user does not need to click anything.`
+              : "\n\n[ACTION RESULT] The first video could not be resolved, so YouTube search results were opened for: " + musicQuery +
+                ". The browser cannot click a result for the user — a web page is not allowed to click inside youtube.com. Do not claim the video was clicked or that it is playing." +
+                " Tell the user plainly that they need to click the video themselves here, and that VetroAI's desktop app (" + COMPANION_DOWNLOAD_URL + ") can click it automatically instead.";
           } else {
             patchTask(taskId, t => ({
               ...t,
