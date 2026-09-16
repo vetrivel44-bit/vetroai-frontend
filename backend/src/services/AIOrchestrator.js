@@ -551,15 +551,33 @@ Choose the single best-fitting visualization block(s) from the formats below:
       options = { ...options, maxTokens: 220 };
     }
 
-    // The screen-control agent sends a screenshot every step, so it can only
-    // use a provider whose adapter reads the `images` field: Gemini, or Cohere
-    // on its vision model (see geminiAdapter.js / cohereAdapter.js). Those two
-    // are the whole chain for this mode — the remaining providers are text-only
-    // and would be guessing at what's on screen. Gemini leads; Cohere takes
-    // over as primary when Gemini isn't configured at all.
+    // A request carrying an image can only go to a provider whose adapter reads
+    // the `images` field: Gemini, or Cohere on its vision model (see
+    // geminiAdapter.js / cohereAdapter.js). Everything else is text-only and
+    // would describe a picture it never received. That covers screen control's
+    // per-step screenshot and a normal chat turn whose images landed here
+    // because Puter ran out of credits mid-analysis.
     const isComputerUse = mode === "computer_use";
-    let currentProviderName = isComputerUse
-      ? (VISION_PROVIDERS.find((name) => providerManager.isConfigured(name)) || null)
+    const carriesImages = messages.some((m) => Array.isArray(m.images) && m.images.length);
+    const configuredVisionProvider = VISION_PROVIDERS.find((name) => providerManager.isConfigured(name)) || null;
+    // Only honoured when a provider can actually act on it; see the strip below.
+    const needsVision = (isComputerUse || carriesImages) && Boolean(configuredVisionProvider);
+
+    // No vision provider configured, but images arrived anyway. Drop them and
+    // say so, rather than handing a text-only model an invisible attachment and
+    // letting it answer as though it had looked.
+    if (carriesImages && !configuredVisionProvider && !isComputerUse) {
+      logger.warn("AIOrchestrator.imagesWithoutVisionProvider", { reqId });
+      for (const message of messages) {
+        if (!Array.isArray(message.images) || !message.images.length) continue;
+        const count = message.images.length;
+        delete message.images;
+        message.content = `${message.content || ""}\n\n[${count} IMAGE${count > 1 ? "S were" : " was"} ATTACHED BUT NO IMAGE-CAPABLE MODEL IS AVAILABLE, so you cannot see ${count > 1 ? "them" : "it"}. Tell the user that plainly and answer only what the text supports — never describe or guess at the contents.]`.trim();
+      }
+    }
+
+    let currentProviderName = needsVision
+      ? configuredVisionProvider
       : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
@@ -570,7 +588,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // backoff) before showing anything, so the tail is capped here and
     // `nextFallback` spends the final attempt on Cohere — bounded latency
     // without giving up the "always answers" property.
-    const maxAttempts = isComputerUse
+    const maxAttempts = needsVision
       ? VISION_PROVIDERS.filter((name) => providerManager.isConfigured(name)).length
       : Math.min(MAX_FALLBACK_ATTEMPTS, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
@@ -580,7 +598,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
 
-    if (isComputerUse && !currentProviderName) {
+    if (isComputerUse && !configuredVisionProvider) {
       logger.error("AIOrchestrator.computerUseProviderNotConfigured", { reqId });
       this.sendVetroEvent(
         res,
@@ -754,7 +772,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
-        const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, isComputerUse);
+        const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision);
         if (!nextProvider) break;
         currentProviderName = nextProvider;
         continue;
@@ -770,7 +788,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         // the text budget would abort every slow vision call here while the
         // adapter's own request kept running.
         const streamPromise = adapter.generateStream(fullMessages, options);
-        const attemptTimeout = isComputerUse ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
+        const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Stream generation timeout")), attemptTimeout)
         );
@@ -816,7 +834,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
           // attempts is already incremented for the current hop, so this is
           // true while choosing the provider for the final allowed attempt.
           const isLastAttempt = attempts === maxAttempts - 1;
-          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, isComputerUse, isLastAttempt);
+          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision, isLastAttempt);
           if (!nextProvider) {
             this.sendVetroEvent(res, "error", "All configured AI providers are currently unavailable. Please try again shortly.");
             break;
@@ -827,8 +845,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
           } else if (isTimeout) {
             friendlyMsg = `Connection with ${currentProviderName} timed out. Trying another model…`;
           }
-          if (isComputerUse) {
-            friendlyMsg = `${this.providerLabel(currentProviderName)} is unavailable. Switching screen control to ${this.providerLabel(nextProvider)}…`;
+          if (needsVision) {
+            friendlyMsg = `${this.providerLabel(currentProviderName)} is unavailable. Switching to ${this.providerLabel(nextProvider)}, which can also read the image…`;
           }
 
           this.sendVetroEvent(res, "clear", "");
@@ -864,8 +882,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
   // last resort, and a cap that stopped short of it would reintroduce exactly
   // the "no answer because everything else is out of credits" case it exists
   // to prevent.
-  nextFallback(failedProvider, attemptedProviders, isComputerUse, isLastAttempt = false) {
-    if (isComputerUse) {
+  nextFallback(failedProvider, attemptedProviders, needsVision, isLastAttempt = false) {
+    if (needsVision) {
       return VISION_PROVIDERS.find(
         (name) => !attemptedProviders.has(name) && providerManager.isConfigured(name)
       ) || null;

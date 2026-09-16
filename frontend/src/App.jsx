@@ -4950,6 +4950,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");
       }
 
+      // Set when Puter has no credits left, so nothing below reaches for it
+      // again on the way to the backend.
+      let puterOutOfCredits = false;
+
       if (attachedImages.length > 0) {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
@@ -4957,38 +4961,55 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setIsTyping(false);
         setIsWebSearching(false);
         setStreamStatus("streaming");
-        const analyses = [];
-        for (let index = 0; index < attachedImages.length; index++) {
+        try {
+          const analyses = [];
+          for (let index = 0; index < attachedImages.length; index++) {
+            if (!isActive()) return;
+            const imageUrl = await fileToDataUrl(attachedImages[index]);
+            const imagePrompt = attachedImages.length > 1
+              ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
+              : userQuery || "Analyze this image in detail.";
+            const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
+            const analysis = getPuterResponseText(response);
+            if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
+            analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
+            const combined = analyses.join("\n\n");
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+              return next;
+            });
+            setStreamingContent(combined);
+          }
+          const bot = analyses.join("\n\n");
+          setIsLoading(false);
+          setStreamStatus("idle");
+          setStreamingContent("");
+          if (voiceRef.current || autoSpeakRef.current) speak(bot);
+          if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+          notifyResponseReady(bot);
+          generateFollowUps(bot, userQuery || "Analyze this image");
+          return;
+        } catch (puterErr) {
           if (!isActive()) return;
-          const imageUrl = await fileToDataUrl(attachedImages[index]);
-          const imagePrompt = attachedImages.length > 1
-            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
-            : userQuery || "Analyze this image in detail.";
-          const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
-          const analysis = getPuterResponseText(response);
-          if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
-          analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
-          const combined = analyses.join("\n\n");
+          if (!isPuterCreditsError(puterErr)) throw puterErr;
+          // Out of credits mid-analysis. The images are already on `fd`, and
+          // the backend routes an image-carrying request to a provider that
+          // can actually see it, so fall through instead of failing here.
+          puterOutOfCredits = true;
+          addDebugLog("Puter.creditsExhausted", { reqId, provider: "GPT-5.6 Luna", images: attachedImages.length });
+          addToast("Image analysis is out of credits. Switching to a backup model…", "info", 4000);
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            next[next.length - 1] = { ...next[next.length - 1], content: "" };
             return next;
           });
-          setStreamingContent(combined);
+          setStreamingContent("");
         }
-        const bot = analyses.join("\n\n");
-        setIsLoading(false);
-        setStreamStatus("idle");
-        setStreamingContent("");
-        if (voiceRef.current || autoSpeakRef.current) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
-        notifyResponseReady(bot);
-        generateFollowUps(bot, userQuery || "Analyze this image");
-        return;
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
-      if (puterModelId) {
+      if (puterModelId && !puterOutOfCredits) {
         if (!window.puter?.ai?.chat) {
           throw new Error(`${effectivePuterProvider} could not load. Check your connection and refresh the page.`);
         }
