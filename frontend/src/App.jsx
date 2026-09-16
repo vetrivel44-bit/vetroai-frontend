@@ -488,6 +488,14 @@ const getPuterResponseText = (response) => {
   return "";
 };
 
+// Puter's own account is out of usage/credits (or asking the user to sign in
+// to keep going) rather than a one-off bad request — this is the one class of
+// Puter failure worth silently retrying on the backend instead of surfacing.
+const isPuterCreditsError = (err) => {
+  const text = `${err?.message || ""} ${err?.error?.message || ""} ${err?.error?.code || ""} ${typeof err === "string" ? err : ""}`.toLowerCase();
+  return /insufficient|credit|quota|balance|payment|usage[ -]?limit|out of funds|permission[ _-]?denied|429|too many requests|rate limit/.test(text);
+};
+
 
 // ─── MEDIA GENERATION LOADING CARD ────────────────────────────────────────────
 const MediaGenCard = ({ type, text }) => (
@@ -4993,31 +5001,47 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (OPENAI_PUTER_PROVIDERS.has(effectivePuterProvider)) {
           puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
         }
-        const response = await window.puter.ai.chat(puterMessages, puterOptions);
-        let bot = "";
-        for await (const part of response) {
+        try {
+          const response = await window.puter.ai.chat(puterMessages, puterOptions);
+          let bot = "";
+          for await (const part of response) {
+            if (!isActive()) return;
+            const text = typeof part?.text === "string" ? part.text : "";
+            if (!text) continue;
+            bot += text;
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: bot };
+              return next;
+            });
+            setStreamingContent(bot);
+            if (!isScrolling.current) scrollToBottom();
+          }
+
+          if (!bot.trim()) throw new Error(`${effectivePuterProvider} returned an empty response. Please try again.`);
+          setIsLoading(false);
+          setStreamStatus("idle");
+          setStreamingContent("");
+          if (voiceRef.current || autoSpeakRef.current) speak(bot);
+          if (isFirstMsg) updateSessionTitle(userQuery, bot);
+          notifyResponseReady(bot);
+          generateFollowUps(bot, userQuery);
+          return;
+        } catch (puterErr) {
           if (!isActive()) return;
-          const text = typeof part?.text === "string" ? part.text : "";
-          if (!text) continue;
-          bot += text;
+          if (!isPuterCreditsError(puterErr)) throw puterErr;
+          // Puter is out of credits/usage for this model — don't fail the chat,
+          // fall through to the backend request below (which has its own
+          // provider fallback chain, down to Cohere) instead of surfacing this.
+          addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
+          addToast(`${effectivePuterProvider} is out of credits. Switching to a backup model…`, "info", 4000);
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: bot };
+            next[next.length - 1] = { ...next[next.length - 1], content: "" };
             return next;
           });
-          setStreamingContent(bot);
-          if (!isScrolling.current) scrollToBottom();
+          setStreamingContent("");
         }
-
-        if (!bot.trim()) throw new Error(`${effectivePuterProvider} returned an empty response. Please try again.`);
-        setIsLoading(false);
-        setStreamStatus("idle");
-        setStreamingContent("");
-        if (voiceRef.current || autoSpeakRef.current) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery, bot);
-        notifyResponseReady(bot);
-        generateFollowUps(bot, userQuery);
-        return;
       }
 
       const res = await fetch(API + "/chat", {
