@@ -39,7 +39,7 @@ router.post("/generate-video", chatLimiter, asyncHandler(videoController.generat
 router.get("/video-status/:videoId", asyncHandler(videoController.checkVideoStatus));
 // Lets the browser open a playing video directly instead of a search page it
 // would need the user to click through.
-router.get("/youtube/resolve", asyncHandler(youtubeController.resolveFirstVideo));
+router.get("/youtube/resolve", chatLimiter, asyncHandler(youtubeController.resolveFirstVideo));
 router.post("/medical-answer", chatLimiter, asyncHandler(chatController.medicalAnswer));
 router.post("/tts", chatLimiter, asyncHandler(chatController.textToSpeech));
 

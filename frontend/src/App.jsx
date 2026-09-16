@@ -53,18 +53,11 @@ import PluginHub from "./components/screens/PluginHub";
 import ComputerUI from "./components/screens/ComputerUI";
 import ChessArena from "./components/screens/ChessArena";
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
+import { resolveApiBase } from "./lib/apiBase";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
-const configuredApi = import.meta.env.VITE_API_BASE_URL?.trim();
-if (configuredApi) {
-  baseApi = configuredApi.replace(/\/+$/, "");
-}
-if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
-  baseApi += "/api";
-}
-const API = baseApi;
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 // Web search is handled entirely by the backend (Tavily)
 // Google sign-in is handled by Firebase Authentication; the OAuth client is
 // configured in the Firebase project rather than shipped in the bundle.
@@ -3863,11 +3856,18 @@ export default function App() {
   };
 
   const notifyResponseReady = useCallback((text) => {
-    if (document.visibilityState !== "hidden") return;
-    let prefs;
-    try { prefs = JSON.parse(localStorage.getItem("vetroai_notifications") || "{}"); } catch { prefs = {}; }
+    // The setting promises "while this tab isn't focused". visibilityState
+    // alone misses the common case — the browser still on screen while the
+    // user works in another app — which is visible but not focused.
+    if (document.visibilityState === "visible" && document.hasFocus()) return;
+    const prefs = loadNotifPrefs();
     if (prefs.desktop && typeof Notification !== "undefined" && Notification.permission === "granted") {
-      new Notification("VetroAI", { body: (text || "Your response is ready.").slice(0, 120) });
+      // Throws "Illegal constructor" on engines that only allow notifications
+      // via a service worker (Android Chrome). Unguarded, that unwinds into
+      // the caller's catch and reports a completed reply as a failure.
+      try {
+        new Notification("VetroAI", { body: (text || "Your response is ready.").slice(0, 120) });
+      } catch (err) { swallowError(err); }
     }
     if (prefs.sound) {
       try {
@@ -3878,6 +3878,10 @@ export default function App() {
         gain.gain.setValueAtTime(0.08, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
         osc.connect(gain).connect(ctx.destination);
+        // Browsers cap how many AudioContexts a document may hold open, and a
+        // long session in a background tab would otherwise hit it and stop
+        // playing anything for the rest of the session.
+        osc.onended = () => { ctx.close().catch(swallowError); };
         osc.start();
         osc.stop(ctx.currentTime + 0.3);
       } catch (err) { swallowError(err); }
@@ -4174,17 +4178,28 @@ export default function App() {
   const deleteAllSessions = () => { setConfirmDelete({ type: "allSessions", message: "Delete all conversations? This cannot be undone." }); };
 
   const exportAllData = () => {
+    // A partially-written or older-format value here used to throw inside the
+    // click handler, so the button did nothing at all with no explanation.
+    // Losing one stored blob is not a reason to withhold the whole export.
+    const readStored = (key) => {
+      try { return JSON.parse(localStorage.getItem(key) || "null"); }
+      catch (err) { swallowError(err); return null; }
+    };
     const payload = {
       exportedAt: new Date().toISOString(),
-      profile: JSON.parse(localStorage.getItem("vetroai_profile") || "null"),
-      customize: JSON.parse(localStorage.getItem("vetroai_customize") || "null"),
+      profile: readStored("vetroai_profile"),
+      customize: readStored("vetroai_customize"),
       sessions,
       memories,
     };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    a.href = url;
     a.download = `vetroai-data-${makeExportStamp()}.json`;
     a.click();
+    // Otherwise the entire serialized session+memory payload stays pinned in
+    // memory for the life of the document.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
     addToast("Data exported", "success", 2000);
   };
 

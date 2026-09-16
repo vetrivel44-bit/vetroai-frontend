@@ -39,6 +39,21 @@ test("resolves the first video id and builds a watch url", async () => {
   assert.equal(res.payload.data.title, "First Result & Friends");
 });
 
+// A shelf/ad entry can carry a videoId with no title beside it. Searching for
+// the first title independently of the first id returns the *next* video's
+// name, so the caller announces one video while a different one plays.
+test("a title is never taken from a different video than the resolved id", async () => {
+  const res = fakeRes();
+  const mismatched = '{"videoId":"AAAAAAAAAAA"}' + ",".repeat(50) +
+    '{"videoId":"BBBBBBBBBBB","title":{"runs":[{"text":"Second Video Title"}]}}';
+  await withFetch(okHtml(mismatched), () =>
+    youtubeController.resolveFirstVideo({ query: { q: "anything" } }, res));
+
+  assert.equal(res.payload.data.videoId, "AAAAAAAAAAA");
+  assert.notEqual(res.payload.data.title, "Second Video Title");
+  assert.equal(res.payload.data.title, null);
+});
+
 test("a missing query is rejected rather than searched for nothing", async () => {
   const res = fakeRes();
   await youtubeController.resolveFirstVideo({ query: { q: "   " } }, res);

@@ -13,7 +13,21 @@ const SEARCH_URL = "https://www.youtube.com/results?search_query=";
 // videoId appears in the page's embedded JSON well before any player markup.
 // The title sits next to it, but isn't required — callers only need the id.
 const VIDEO_ID = /"videoId":"([\w-]{11})"/;
-const TITLE_NEAR_ID = /"videoId":"[\w-]{11}"[\s\S]{0,600}?"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/;
+
+// Anchored to the id that was actually matched. Searching for "the first
+// title" independently can land on a later entry when the first one carries no
+// title — the caller then announces one video by name while a different one
+// plays, which is exactly the false claim the surrounding prompts forbid.
+// videoId is [\w-]{11}, so it is safe to inline into the pattern.
+function titleForVideo(html, videoId) {
+  // (?!"videoId") on every step stops the window from running past this entry
+  // into the next video's — anchoring to the id alone is not enough, because
+  // an entry with no title of its own would still reach the following one's.
+  const pattern = new RegExp(
+    `"videoId":"${videoId}"(?:(?!"videoId")[\\s\\S]){0,600}?"title":\\{"runs":\\[\\{"text":"((?:[^"\\\\]|\\\\.)*)"`
+  );
+  return pattern.exec(html)?.[1] || "";
+}
 
 function decodeJsonString(raw) {
   if (!raw) return "";
@@ -52,7 +66,7 @@ async function resolveFirstVideo(req, res) {
       return res.json({ success: false, message: "No video could be resolved for that search." });
     }
 
-    const title = decodeJsonString(TITLE_NEAR_ID.exec(html)?.[1]);
+    const title = decodeJsonString(titleForVideo(html, videoId));
     logger.info("youtube.resolve.ok", { query, videoId });
     return res.json({
       success: true,

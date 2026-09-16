@@ -8,6 +8,23 @@ const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const Groq = require("groq-sdk");
 
+// Adapters that read a message's `images` field, so they can be handed a
+// screenshot (see geminiAdapter.js / cohereAdapter.js). Order is preference:
+// Gemini leads, Cohere takes over when Gemini isn't configured or fails.
+// Kept in one place because the primary pick, the retry budget and the
+// fallback walk all read it — letting them drift silently shrinks the budget
+// below the chain length, so the loop exits before trying the last provider.
+const VISION_PROVIDERS = ["gemini", "cohere"];
+// Ceiling on provider hops for one request. See where it's used for why it
+// isn't simply the configured-provider count.
+const MAX_FALLBACK_ATTEMPTS = 5;
+// A screenshot is a much bigger, slower request than a text turn, so a vision
+// attempt gets a longer budget before it's called a timeout. This has to stay
+// >= the vision adapters' own fetch timeouts, or their ceiling is unreachable
+// and the orchestrator aborts first while their request leaks on un-cancelled.
+const ATTEMPT_TIMEOUT_MS = 30000;
+const VISION_ATTEMPT_TIMEOUT_MS = 50000;
+
 class AIOrchestrator {
   constructor() {
     this.VISUALIZATION_TRIGGERS = [
@@ -541,23 +558,21 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // and would be guessing at what's on screen. Gemini leads; Cohere takes
     // over as primary when Gemini isn't configured at all.
     const isComputerUse = mode === "computer_use";
-    const visionProviders = ["gemini", "cohere"];
     let currentProviderName = isComputerUse
-      ? (visionProviders.find((name) => providerManager.isConfigured(name)) || null)
+      ? (VISION_PROVIDERS.find((name) => providerManager.isConfigured(name)) || null)
       : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
-    // Uncapped by a fixed small number: with Cohere wired in as every
-    // provider's last-resort fallback, the retry budget needs to cover the
-    // full configured roster so a request can still reach it even after every
-    // primary provider is out of credits, rather than giving up after 3 hops.
-    // (Explicitly picking "Claude Fable 5" used to hard-lock to that one
-    // provider with no fallback at all — it now goes through the same chain
-    // as everything else, ending at Cohere, so it can't leave the user with
-    // no answer just because that one provider is out of quota.)
+    // Bounded, but not at the old 3: Cohere is every provider's last-resort
+    // fallback, and a request has to be able to reach it once the others are
+    // out of credits. Walking all 8 unbounded meant a full outage could hold
+    // the user for 4-5 minutes (each hop can burn the per-attempt timeout plus
+    // backoff) before showing anything, so the tail is capped here and
+    // `nextFallback` spends the final attempt on Cohere — bounded latency
+    // without giving up the "always answers" property.
     const maxAttempts = isComputerUse
-      ? visionProviders.filter((name) => providerManager.isConfigured(name)).length
-      : providerManager.getAvailableProviders({ includeSuspended: true }).length;
+      ? VISION_PROVIDERS.filter((name) => providerManager.isConfigured(name)).length
+      : Math.min(MAX_FALLBACK_ATTEMPTS, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
     // Remembers why the last provider gave up, so the message the user sees
     // names the real cause instead of always blaming capacity.
@@ -750,12 +765,16 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
       const startTime = Date.now();
       try {
-        // Add timeout to prevent hanging
+        // Add timeout to prevent hanging. A screen-control step ships a
+        // screenshot and takes longer than a text turn, so racing it against
+        // the text budget would abort every slow vision call here while the
+        // adapter's own request kept running.
         const streamPromise = adapter.generateStream(fullMessages, options);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Stream generation timeout")), 30000)
+        const attemptTimeout = isComputerUse ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Stream generation timeout")), attemptTimeout)
         );
-        
+
         const stream = await Promise.race([streamPromise, timeoutPromise]);
         
         if (!stream) throw new Error("Provider returned empty stream");
@@ -794,7 +813,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
         }
         
         if (attempts < maxAttempts) {
-          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, isComputerUse);
+          // attempts is already incremented for the current hop, so this is
+          // true while choosing the provider for the final allowed attempt.
+          const isLastAttempt = attempts === maxAttempts - 1;
+          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, isComputerUse, isLastAttempt);
           if (!nextProvider) {
             this.sendVetroEvent(res, "error", "All configured AI providers are currently unavailable. Please try again shortly.");
             break;
@@ -836,11 +858,22 @@ Choose the single best-fitting visualization block(s) from the formats below:
   // only the providers that can actually read a screenshot, rather than the
   // failed provider's regular fallback list — that list is mostly text-only
   // models, which would be guessing at what's on screen.
-  nextFallback(failedProvider, attemptedProviders, isComputerUse) {
+  //
+  // `isLastAttempt` spends the final hop on Cohere: the retry budget is capped
+  // so a bad day can't hold the user for minutes, but Cohere is the universal
+  // last resort, and a cap that stopped short of it would reintroduce exactly
+  // the "no answer because everything else is out of credits" case it exists
+  // to prevent.
+  nextFallback(failedProvider, attemptedProviders, isComputerUse, isLastAttempt = false) {
     if (isComputerUse) {
-      return ["gemini", "cohere"].find(
+      return VISION_PROVIDERS.find(
         (name) => !attemptedProviders.has(name) && providerManager.isConfigured(name)
       ) || null;
+    }
+    if (isLastAttempt
+      && !attemptedProviders.has("cohere")
+      && providerManager.isConfigured("cohere")) {
+      return "cohere";
     }
     return providerManager.getFallbackProvider(failedProvider, [...attemptedProviders]);
   }

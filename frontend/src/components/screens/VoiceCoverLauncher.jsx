@@ -2,10 +2,10 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Music2, FlaskConical } from "lucide-react";
 import VoiceCoverPanel from "./VoiceCoverPanel";
+import { resolveApiBase } from "../../lib/apiBase";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-const configured = import.meta.env.VITE_API_BASE_URL?.trim();
-const API = configured ? `${configured.replace(/\/+$/, "")}${/\/api$/i.test(configured) ? "" : "/api"}` : (import.meta.env.PROD ? PROD_API : "/api");
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
 
 function findProductsMount() {
   const sidebar = document.querySelector(".claude-sidebar");

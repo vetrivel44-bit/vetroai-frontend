@@ -27,7 +27,14 @@ const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b
 // no way to do these — the page is sandboxed away from the OS — so they get an
 // explanation and the download link instead of being quietly routed to the
 // generic task path, which answers about the work rather than doing it.
-const DESKTOP_CONTROL_REQUEST = /\b(?:open|launch|start|run|close|click|double.?click|type|scroll|press|drag)\b[\s\S]{0,50}\b(?:app|application|program|software|ms ?word|microsoft word|excel|powerpoint|notepad|calculator|file explorer|finder|terminal|settings|chrome|edge|firefox|spotify|whatsapp)\b|\b(?:on|in|using) my (?:desktop|computer|screen|pc|laptop|machine)\b|\bcontrol my (?:mouse|keyboard|screen|computer|desktop|pc)\b/i;
+// The app name has to directly follow the verb. A loose "verb within 50
+// characters of a noun" window matched plenty of things this workspace does
+// handle — "open the excel file I attached and summarize it" is file analysis,
+// not app control.
+const DESKTOP_CONTROL_REQUEST = /\b(?:open|launch|start|run|close)\s+(?:the\s+|a\s+|an\s+|my\s+)?(?:ms ?word|microsoft word|word|excel|powerpoint|notepad|calculator|file explorer|finder|terminal|command prompt|control panel|settings|chrome|edge|firefox|spotify|whatsapp|outlook|paint|vs ?code)\b|\b(?:open|launch|start)\s+(?:an?\s+)?(?:app|application|program|software)\b|\b(?:click|double.?click|scroll|drag)\b[\s\S]{0,40}\b(?:on|in)\s+my\s+(?:desktop|computer|screen|pc|laptop)\b|\bcontrol my (?:mouse|keyboard|screen|computer|desktop|pc)\b/i;
+// Content the browser workspace can genuinely work with, even when the
+// sentence starts with "open" — these must not be diverted to the desktop app.
+const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
 // A single "open an app, download something, click through an installer"
 // task easily runs 30-60+ small steps. This is a runaway backstop, not a
@@ -409,6 +416,15 @@ export default function ComputerUI({ onClose }) {
           // on the backend instead and open the video itself, which plays with
           // no click at all. Falls back to the search page if that fails, so a
           // YouTube layout change degrades instead of breaking the feature.
+          // Opened before the lookup, and blank: window.open only succeeds
+          // inside the click's user activation, and awaiting a round trip to
+          // the backend first outlives it. A blocked popup used to fall
+          // through to navigating this whole app away mid-task.
+          const tab = window.open("about:blank", "_blank");
+          // Same protection "noopener" would give, but keeps the handle so the
+          // tab can be pointed at the video once it's resolved.
+          if (tab) tab.opener = null;
+
           let resolved = null;
           try {
             const lookup = await fetch(`${API}/youtube/resolve?q=${encodeURIComponent(musicQuery)}`, { signal: controller.signal });
@@ -417,14 +433,14 @@ export default function ComputerUI({ onClose }) {
               if (payload?.success && payload.data?.watchUrl) resolved = payload.data;
             }
           } catch (error) {
-            if (error.name === "AbortError") throw error;
+            if (error.name === "AbortError") { tab?.close(); throw error; }
           }
 
           const youtubeUrl = resolved
             ? `${resolved.watchUrl}&autoplay=1`
             : "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
-          const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
-          if (opened) {
+          if (tab) {
+            tab.location.replace(youtubeUrl);
             taskPrompt += resolved
               ? `\n\n[ACTION RESULT] The video "${resolved.title || musicQuery}" was opened and is playing for: ${musicQuery}. Report that it is playing now — the user does not need to click anything.`
               : "\n\n[ACTION RESULT] The first video could not be resolved, so YouTube search results were opened for: " + musicQuery +
@@ -731,7 +747,15 @@ export default function ComputerUI({ onClose }) {
       runComputerAgent(prompt);
       return;
     }
-    if (!hasDesktop && DESKTOP_CONTROL_REQUEST.test(prompt)) {
+    // YouTube is excluded deliberately: that path opens the video itself, so
+    // diverting it to the desktop app would disable a feature that works here.
+    // Attachments and file/document wording are excluded for the same reason.
+    const needsDesktop = !hasDesktop
+      && DESKTOP_CONTROL_REQUEST.test(prompt)
+      && !YOUTUBE_REQUEST.test(prompt)
+      && !FILE_CONTENT_REQUEST.test(prompt)
+      && !files.length;
+    if (needsDesktop) {
       explainDesktopRequired(prompt);
       return;
     }

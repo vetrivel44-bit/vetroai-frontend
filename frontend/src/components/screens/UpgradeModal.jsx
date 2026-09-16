@@ -1,15 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Check, X, Zap, Crown, Users2, Loader2, AlertCircle } from 'lucide-react';
+import { resolveApiBase } from "../../lib/apiBase";
 
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
-if (import.meta.env.VITE_API_BASE_URL?.trim()) {
-  baseApi = import.meta.env.VITE_API_BASE_URL.trim();
-}
-if (baseApi.startsWith("http") && !baseApi.endsWith("/api")) {
-  baseApi = baseApi.replace(/\/+$/, "") + "/api";
-}
-const API = baseApi;
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 
 const PLAN_ICON = { free: Zap, pro: Crown, team: Users2 };
 const PLAN_ACCENT = { free: "var(--ink-3)", pro: "#3b82f6", team: "#8B5CF6" };

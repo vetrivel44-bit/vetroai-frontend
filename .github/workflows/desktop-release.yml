@@ -24,10 +24,20 @@ jobs:
       - name: Install desktop dependencies
         run: npm --prefix desktop ci --no-audit --no-fund
 
+      # artifactName embeds ${version} from package.json, which is pinned. Left
+      # alone, every tag would ship a file called VetroAI-Setup-1.0.0.exe and
+      # the installed app would report 1.0.0 forever, so there'd be no way to
+      # tell two releases apart.
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        run: npm --prefix desktop version "${GITHUB_REF_NAME#desktop-v}" --no-git-tag-version --allow-same-version
+
       # --publish never: this workflow decides what gets released below, rather
       # than electron-builder pushing on its own the moment it sees a token.
+      # Runs the package.json script so CI and a local build can't drift apart.
       - name: Build installer and portable build
-        run: npm --prefix desktop exec -- electron-builder --win nsis portable --publish never
+        run: npm --prefix desktop run dist:win -- --publish never
 
       # Available on every run, tagged or not, so a build can be tested before
       # it's ever released.

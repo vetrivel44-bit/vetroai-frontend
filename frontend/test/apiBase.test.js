@@ -33,6 +33,16 @@ test("trailing slashes never produce a doubled separator", () => {
   );
 });
 
+// UpgradeModal, CallAssistantLauncher and VoiceCoverLauncher each tested for
+// the /api suffix *before* stripping trailing slashes, so a configured
+// ".../api/" became ".../api/api" and 404'd every request they made.
+test("a suffixed origin with a trailing slash is not doubled to /api/api", () => {
+  assert.equal(
+    resolveApiBase("https://ai-chatbot-backend-gvvz.onrender.com/api/", true, PROD_DEFAULT),
+    "https://ai-chatbot-backend-gvvz.onrender.com/api"
+  );
+});
+
 test("the /api suffix check is case-insensitive", () => {
   assert.equal(resolveApiBase("https://example.com/API", true, PROD_DEFAULT), "https://example.com/API");
 });

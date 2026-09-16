@@ -26,13 +26,10 @@ import {
   typeOf, colorOf, WHITE,
 } from "./chessEngine.js";
 import { buildGameIdentity, bookMove, openingName, getPersona } from "./chessPersonas.js";
+import { resolveApiBase } from "../lib/apiBase.js";
 
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
-const configuredApi = import.meta.env.VITE_API_BASE_URL?.trim();
-if (configuredApi) baseApi = configuredApi.replace(/\/+$/, "");
-if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) baseApi += "/api";
-export const CHESS_API = baseApi;
+export const CHESS_API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 
 export const CHESS_MODELS = [
   { id: "agnes", name: "Agnes 2.0", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A" },
