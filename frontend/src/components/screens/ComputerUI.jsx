@@ -521,7 +521,9 @@ export default function ComputerUI({ onClose }) {
     const plan = [
       { id: "control", label: "Request screen control permission", status: "active" },
       { id: "agent", label: "Drive the screen toward the goal", status: "pending" },
-      { id: "review", label: "Ready for your review", status: "pending" }
+      // Not "Ready for your review" — a completed task already renders a
+      // banner with exactly that wording, so the two read as a duplicate.
+      { id: "review", label: "Stop and report what it did", status: "pending" }
     ];
 
     patchTask(taskId, t => ({
@@ -914,7 +916,7 @@ export default function ComputerUI({ onClose }) {
                         <span className="text-[10px] text-stone-400">Step {agentView.step}</span>
                       </div>
                       <div className="relative rounded-xl overflow-hidden border border-stone-200 bg-stone-100">
-                        <img src={agentView.screenshot} alt={`Screen at step ${agentView.step}`} className="w-full h-auto block" />
+                        <img data-testid="agent-screenshot" src={agentView.screenshot} alt={`Screen at step ${agentView.step}`} className="w-full h-auto block" />
                         {!agentView.done && (
                           <span className="absolute top-2 right-2 flex items-center gap-1 bg-red-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> LIVE
@@ -924,6 +926,7 @@ export default function ComputerUI({ onClose }) {
                             screenshot so it stays aligned regardless of how this panel is scaled. */}
                         {!agentView.done && agentView.target && (
                           <div
+                            data-testid="agent-cursor"
                             className="absolute pointer-events-none"
                             style={{
                               left: `${(agentView.target.x / agentView.target.naturalWidth) * 100}%`,
