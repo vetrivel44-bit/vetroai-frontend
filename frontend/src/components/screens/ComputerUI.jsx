@@ -611,7 +611,13 @@ export default function ComputerUI({ onClose }) {
 
         const description = describeAgentAction(action);
         log.push(description);
-        setAgentView(prev => (prev ? { ...prev, action: description } : prev));
+        // Real screenshot-pixel-space target for the cursor marker overlay —
+        // undefined for actions with no coordinates (type/key/scroll/done),
+        // which just clears any marker left over from the previous step.
+        const target = typeof action.x === "number" && typeof action.y === "number"
+          ? { x: action.x, y: action.y, naturalWidth: shotWidth * shotScale, naturalHeight: shotHeight * shotScale }
+          : null;
+        setAgentView(prev => (prev ? { ...prev, action: description, target } : prev));
         patchTask(taskId, t => ({
           ...t,
           steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: description } : s),
@@ -904,6 +910,21 @@ export default function ComputerUI({ onClose }) {
                           <span className="absolute top-2 right-2 flex items-center gap-1 bg-red-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> LIVE
                           </span>
+                        )}
+                        {/* Where the real cursor is about to move/click, as a percentage of the
+                            screenshot so it stays aligned regardless of how this panel is scaled. */}
+                        {!agentView.done && agentView.target && (
+                          <div
+                            className="absolute pointer-events-none"
+                            style={{
+                              left: `${(agentView.target.x / agentView.target.naturalWidth) * 100}%`,
+                              top: `${(agentView.target.y / agentView.target.naturalHeight) * 100}%`,
+                              transform: "translate(-50%, -50%)",
+                            }}
+                          >
+                            <span className="block w-5 h-5 rounded-full border-2 border-sky-500 bg-sky-500/25 animate-ping absolute inset-0" />
+                            <span className="block w-3 h-3 rounded-full bg-sky-500 border-2 border-white shadow relative" />
+                          </div>
                         )}
                       </div>
                       <div className="mt-2 text-xs text-stone-600 flex items-start gap-1.5">
