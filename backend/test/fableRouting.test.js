@@ -32,17 +32,12 @@ test("Claude Fable 5 cannot fall through to Puter image analysis", () => {
   assert.ok(puterImageRoute > fableGuard, "Fable guard must run before Puter image analysis");
 });
 
-test("Claude Fable 5 backend requests are strict and never use provider fallback", () => {
-  assert.match(
-    orchestratorSource,
-    /const strictFable = String\(preferredProvider \|\| ""\)\.toLowerCase\(\) === "fable"/
-  );
-
-  const strictFailure = orchestratorSource.indexOf("if (strictFable) {");
-  const fallback = orchestratorSource.indexOf(
-    "providerManager.getFallbackProvider(currentProviderName"
-  );
-
-  assert.ok(strictFailure >= 0, "Strict Fable failure branch was not found");
-  assert.ok(fallback > strictFailure, "Strict Fable failure must stop before provider fallback");
+test("Claude Fable 5 backend requests go through the normal provider fallback chain", () => {
+  // A dedicated "strictFable" no-fallback carve-out used to stop a Fable
+  // request from ever trying another provider — including Cohere — when
+  // Fable itself was out of quota. That's gone: an explicit "fable" pick now
+  // goes through providerManager.getBestProvider/getFallbackProvider like
+  // any other provider selection, so it can still get an answer.
+  assert.doesNotMatch(orchestratorSource, /strictFable/);
+  assert.match(orchestratorSource, /providerManager\.getBestProvider\(mode, preferredProvider\)/);
 });

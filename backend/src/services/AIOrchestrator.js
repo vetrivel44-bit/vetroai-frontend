@@ -534,25 +534,28 @@ Choose the single best-fitting visualization block(s) from the formats below:
       options = { ...options, maxTokens: 220 };
     }
 
-    const strictFable = String(preferredProvider || "").toLowerCase() === "fable";
     // The screen-control agent sends a screenshot every step. Gemini is the only
     // adapter here that reads the `images` field (see geminiAdapter.js), so this
-    // mode can't fall back to a text-only provider — that would have the model
-    // guessing blindly at what's on screen instead of refusing to act.
+    // mode can't fall back to a text-only provider mid-chain the normal way —
+    // it still gets exactly one fallback, straight to Cohere, if Gemini fails.
+    // Cohere won't see the screenshot either, so it's answering blind; better
+    // than refusing to act outright, but treat it as a degraded mode.
     const isComputerUse = mode === "computer_use";
-    let currentProviderName = strictFable
-      ? (providerManager.isConfigured("fable") ? "fable" : null)
-      : isComputerUse
-        ? (providerManager.isConfigured("gemini") ? "gemini" : null)
-        : providerManager.getBestProvider(mode, preferredProvider);
+    let currentProviderName = isComputerUse
+      ? (providerManager.isConfigured("gemini") ? "gemini" : null)
+      : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
     // Uncapped by a fixed small number: with Cohere wired in as every
     // provider's last-resort fallback, the retry budget needs to cover the
     // full configured roster so a request can still reach it even after every
     // primary provider is out of credits, rather than giving up after 3 hops.
-    const maxAttempts = strictFable || isComputerUse
-      ? (currentProviderName ? 1 : 0)
+    // (Explicitly picking "Claude Fable 5" used to hard-lock to that one
+    // provider with no fallback at all — it now goes through the same chain
+    // as everything else, ending at Cohere, so it can't leave the user with
+    // no answer just because that one provider is out of quota.)
+    const maxAttempts = isComputerUse
+      ? (currentProviderName ? (providerManager.isConfigured("cohere") ? 2 : 1) : 0)
       : providerManager.getAvailableProviders({ includeSuspended: true }).length;
     let success = false;
     // Remembers why the last provider gave up, so the message the user sees
@@ -560,16 +563,6 @@ Choose the single best-fitting visualization block(s) from the formats below:
     let lastFailure = null;
 
     this.sendVetroEvent(res, "status", "Analyzing your request...");
-
-    if (strictFable && !currentProviderName) {
-      logger.error("AIOrchestrator.fableNotConfigured", { reqId });
-      this.sendVetroEvent(
-        res,
-        "error",
-        "Claude Fable 5 API is not configured on the backend. Add a valid RapidAPI key and subscription."
-      );
-      return false;
-    }
 
     if (isComputerUse && !currentProviderName) {
       logger.error("AIOrchestrator.computerUseProviderNotConfigured", { reqId });
@@ -745,11 +738,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
-        if (strictFable) {
-          this.sendVetroEvent(res, "error", "Claude Fable 5 API adapter is unavailable on the backend.");
-          break;
-        }
-        const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
+        const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, isComputerUse);
         if (!nextProvider) break;
         currentProviderName = nextProvider;
         continue;
@@ -803,17 +792,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
           logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }
         
-        if (strictFable) {
-          this.sendVetroEvent(
-            res,
-            "error",
-            "Claude Fable 5 API request failed. Check the backend RapidAPI key, subscription, and endpoint."
-          );
-          break;
-        }
-
         if (attempts < maxAttempts) {
-          const nextProvider = providerManager.getFallbackProvider(currentProviderName, [...attemptedProviders]);
+          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, isComputerUse);
           if (!nextProvider) {
             this.sendVetroEvent(res, "error", "All configured AI providers are currently unavailable. Please try again shortly.");
             break;
@@ -824,7 +804,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
           } else if (isTimeout) {
             friendlyMsg = `Connection with ${currentProviderName} timed out. Trying another model…`;
           }
-          
+          if (isComputerUse && nextProvider === "cohere") {
+            friendlyMsg = "Gemini is unavailable. Falling back to Cohere — it can't see the screenshot, so treat its next actions as a best guess.";
+          }
+
           this.sendVetroEvent(res, "clear", "");
           this.sendVetroEvent(res, "status", friendlyMsg);
           currentProviderName = nextProvider;
@@ -846,6 +829,18 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
   sendVetroEvent(res, type, data) {
     res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  }
+
+  // Picks the next provider to try after `failedProvider`. Computer-use is a
+  // special case: none of the normal text-only fallbacks can read a
+  // screenshot, so it skips straight to Cohere (its one and only fallback)
+  // instead of walking Gemini's regular fallback list.
+  nextFallback(failedProvider, attemptedProviders, isComputerUse) {
+    if (isComputerUse) {
+      if (attemptedProviders.has("cohere") || !providerManager.isConfigured("cohere")) return null;
+      return "cohere";
+    }
+    return providerManager.getFallbackProvider(failedProvider, [...attemptedProviders]);
   }
 
   // Turns raw Tavily/DDG result objects into the small, stable shape the
