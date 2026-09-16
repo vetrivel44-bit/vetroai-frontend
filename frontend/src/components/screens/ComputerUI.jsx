@@ -23,6 +23,11 @@ const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\b
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
 const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b(?:website|web ?site|landing page|portfolio site|web page)\b/i;
+// Asks that need a real mouse and keyboard. In a normal browser tab there is
+// no way to do these — the page is sandboxed away from the OS — so they get an
+// explanation and the download link instead of being quietly routed to the
+// generic task path, which answers about the work rather than doing it.
+const DESKTOP_CONTROL_REQUEST = /\b(?:open|launch|start|run|close|click|double.?click|type|scroll|press|drag)\b[\s\S]{0,50}\b(?:app|application|program|software|ms ?word|microsoft word|excel|powerpoint|notepad|calculator|file explorer|finder|terminal|settings|chrome|edge|firefox|spotify|whatsapp)\b|\b(?:on|in|using) my (?:desktop|computer|screen|pc|laptop|machine)\b|\bcontrol my (?:mouse|keyboard|screen|computer|desktop|pc)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
 // A single "open an app, download something, click through an installer"
 // task easily runs 30-60+ small steps. This is a runaway backstop, not a
@@ -403,7 +408,8 @@ export default function ComputerUI({ onClose }) {
           const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
           if (opened) {
             taskPrompt += "\n\n[ACTION RESULT] YouTube search results were opened for: " + musicQuery +
-              ". This is the web version, so Chrome requires the user to click a result. Do not claim the video was clicked.";
+              ". This is the web version, so the browser cannot click a result for the user — a web page is not allowed to click inside youtube.com. Do not claim the video was clicked or that it is playing." +
+              " Tell the user plainly that they need to click the video themselves here, and that VetroAI's desktop app (" + COMPANION_DOWNLOAD_URL + ") can click it automatically instead.";
           } else {
             patchTask(taskId, t => ({
               ...t,
@@ -663,12 +669,50 @@ export default function ComputerUI({ onClose }) {
     }
   };
 
+  // Says plainly that an ask needs the companion app, instead of handing it to
+  // the generic task path — which would describe the steps as if it had done
+  // them, or open a page and leave the user wondering why nothing was clicked.
+  const explainDesktopRequired = (prompt) => {
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(prompt.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    patchTask(task.id, t => ({
+      ...t,
+      title: t.messages.length ? t.title : prompt.slice(0, 54),
+      status: "failed",
+      steps: [{ id: "desktop", label: "Needs the desktop app for mouse and keyboard control", status: "failed" }],
+      messages: [
+        ...t.messages,
+        { id: `u-${Date.now()}`, role: "user", content: prompt },
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: [
+            "I can't do this from a browser tab. Moving your mouse, typing, and opening apps needs VetroAI's desktop app — a web page is blocked from touching your operating system, and no website can get around that.",
+            "",
+            `**[Download the desktop app](${COMPANION_DOWNLOAD_URL})** — one file, no setup, no admin rights. Open VetroAI there, turn on **Screen control** in the composer, and send this same request again.`,
+            "",
+            "Everything else here — building websites, research, documents, file analysis — works fine in this tab.",
+          ].join("\n"),
+        },
+      ],
+    }));
+    setQuery("");
+  };
+
   const submit = (event, suggestion = "") => {
     event?.preventDefault();
     const prompt = (suggestion || query).trim();
     if (!prompt || running) return;
     if (screenControl && hasDesktop) {
       runComputerAgent(prompt);
+      return;
+    }
+    if (!hasDesktop && DESKTOP_CONTROL_REQUEST.test(prompt)) {
+      explainDesktopRequired(prompt);
       return;
     }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
