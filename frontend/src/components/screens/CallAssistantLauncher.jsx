@@ -2,12 +2,10 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ShieldCheck, FlaskConical } from "lucide-react";
 import CallAssistant from "./CallAssistant";
+import { resolveApiBase } from "../../lib/apiBase";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-const configured = import.meta.env.VITE_API_BASE_URL?.trim();
-const API = configured
-  ? `${configured.replace(/\/+$/, "")}${/\/api$/i.test(configured) ? "" : "/api"}`
-  : (import.meta.env.PROD ? PROD_API : "/api");
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
 
 // The sidebar is rendered by App.jsx and has no extension point, so the entry
 // is portalled in next to Voice Cover the same way Voice Cover does it.

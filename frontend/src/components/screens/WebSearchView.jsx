@@ -22,6 +22,10 @@ const SearchSvg = ({ size = 18, className = "" }) => (
 );
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
+// Deliberately not lib/apiBase's resolveApiBase, which every other caller now
+// uses: this one talks to the backend directly in dev rather than through the
+// relative path Vite proxies. Left as-is rather than quietly changing where
+// dev requests go; it is correct for both trailing-slash and suffixed values.
 const _BASE = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? "https://ai-chatbot-backend-gvvz.onrender.com" : "http://localhost:3000")).replace(/\/+$/, "");
 const API = _BASE.endsWith("/api") ? _BASE : `${_BASE}/api`;
 

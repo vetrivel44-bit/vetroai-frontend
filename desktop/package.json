@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win nsis",
+    "dist:win": "electron-builder --win nsis portable",
     "dist:portable": "electron-builder --win portable"
   },
   "dependencies": {
@@ -36,15 +36,27 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
     },
+    "portable": {
+      "artifactName": "VetroAI-Portable-${version}.${ext}"
+    },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "artifactName": "VetroAI-Setup-${version}.${ext}",
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "perMachine": false
     }
   }
 }

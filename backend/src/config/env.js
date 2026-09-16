@@ -41,6 +41,13 @@ module.exports = {
     fableApiUrl:         getEnv("FABLE_API_URL",         "https://claude-fable-5-api.p.rapidapi.com/n9zkopuh8fn4eqyi5xy5bqr3tt66mkt3"),
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
     sambanovaApiKey:     getEnv("SAMBANOVA_API_KEY",     ""),
+    // Cohere — universal last-resort fallback (see ProviderManager fallbacks).
+    // Uses Cohere's OpenAI-compatible endpoint so it streams standard SSE chunks.
+    cohereApiKey:        getEnv("COHERE_API_KEY",        ""),
+    cohereModel:         getEnv("COHERE_MODEL",          "command-r-plus-08-2024"),
+    // Multimodal sibling, used automatically when a request carries an image
+    // (computer mode's screenshots) — the text model above can't read one.
+    cohereVisionModel:   getEnv("COHERE_VISION_MODEL",   "command-a-vision-07-2025"),
     agnesApiKey:         getEnv("AGNES_API_KEY",         ""),
     agnesModel:          getEnv("AGNES_MODEL",           "agnes-2.0-flash"),
     // Plugsky — OpenAI-compatible gateway. Streams native reasoning ("thinking")

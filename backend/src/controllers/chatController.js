@@ -9,6 +9,10 @@ const { normalizePluginIds } = require("../config/plugins");
 if (!config.groqApiKey) {
   logger.warn("chatController.init", { note: "GROQ_API_KEY not set — chat requests will fail." });
 }
+// Each image rides along as base64 in the request body, so a whole album would
+// bloat every fallback attempt. Enough for a normal "look at these" turn.
+const MAX_VISION_IMAGES = 4;
+
 const groq = config.groqApiKey ? new Groq({ apiKey: config.groqApiKey }) : null;
 const mistralAvailable = Boolean(config.mistralApiKey);
 
@@ -186,17 +190,30 @@ async function chat(req, res) {
     }
   }
 
-  // Computer mode's screen-control agent sends a fresh screenshot every step and
-  // needs the model to actually see it (unlike normal chat, where image files are
-  // analyzed client-side by Puter and never reach here — see getAttachmentContext).
-  // Only gemini's adapter currently understands the resulting `images` field.
-  if (mode === "computer_use" && imageFiles.length) {
+  // Images are passed to the model itself rather than turned into text (see
+  // getAttachmentContext, which returns null for them). Normal chat usually
+  // analyses them client-side with Puter and never gets here, but when Puter
+  // runs out of credits the browser falls through to this endpoint with the
+  // images attached — so they have to survive for any mode, not just
+  // computer_use, or the fallback answers about a picture it cannot see.
+  //
+  // The gemini and cohere adapters read this field; the rest are text-only,
+  // which is why AIOrchestrator routes an image-carrying request to one of
+  // those two.
+  if (imageFiles.length) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (lastUser) {
-      lastUser.images = imageFiles.slice(0, 1).map((file) => ({
+      // One screenshot per screen-control step; a few for a normal chat turn,
+      // capped because each one is inlined as base64 in the request body.
+      const limit = mode === "computer_use" ? 1 : MAX_VISION_IMAGES;
+      lastUser.images = imageFiles.slice(0, limit).map((file) => ({
         mimeType: file.mimetype,
         data: file.buffer.toString("base64"),
       }));
+      if (imageFiles.length > limit) {
+        // Said plainly so the reply can't claim to have looked at all of them.
+        lastUser.content = `${lastUser.content || ""}\n\n[ONLY THE FIRST ${limit} OF ${imageFiles.length} ATTACHED IMAGES WERE SENT TO YOU. Say so rather than describing the ones you did not receive.]`.trim();
+      }
     }
   }
 

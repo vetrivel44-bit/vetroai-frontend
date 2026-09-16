@@ -13,6 +13,7 @@ const providerKeys = {
   agnes: "agnesApiKey",
   sambanova: "sambanovaApiKey",
   gemini: "geminiApiKey",
+  cohere: "cohereApiKey",
 };
 
 function configureOnly(providerName) {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import "./ComputerUI.css";
+import { resolveApiBase } from "../../lib/apiBase";
 import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
   Download, File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, MapPin, Mic, Monitor, MoreHorizontal,
@@ -9,14 +10,31 @@ import {
 } from "lucide-react";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? PROD_API : "/api")).replace(/\/+$/, "");
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
 const STORE_KEY = "vetroai_cowork_tasks_v2";
+// Mouse/keyboard/app control needs the local companion — a page served from
+// any web host is sandboxed away from those OS APIs no matter where it runs.
+// CI publishes a ready-to-run installer per desktop-v* tag, so this points at
+// a download rather than asking anyone to build it.
+const COMPANION_DOWNLOAD_URL = "https://github.com/vetrivel44-bit/vetroai-frontend/releases/latest";
 const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share|play|open)\b/i;
 const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i;
 const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\bplay\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+))/i;
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
 const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b(?:website|web ?site|landing page|portfolio site|web page)\b/i;
+// Asks that need a real mouse and keyboard. In a normal browser tab there is
+// no way to do these — the page is sandboxed away from the OS — so they get an
+// explanation and the download link instead of being quietly routed to the
+// generic task path, which answers about the work rather than doing it.
+// The app name has to directly follow the verb. A loose "verb within 50
+// characters of a noun" window matched plenty of things this workspace does
+// handle — "open the excel file I attached and summarize it" is file analysis,
+// not app control.
+const DESKTOP_CONTROL_REQUEST = /\b(?:open|launch|start|run|close)\s+(?:the\s+|a\s+|an\s+|my\s+)?(?:ms ?word|microsoft word|word|excel|powerpoint|notepad|calculator|file explorer|finder|terminal|command prompt|control panel|settings|chrome|edge|firefox|spotify|whatsapp|outlook|paint|vs ?code)\b|\b(?:open|launch|start)\s+(?:an?\s+)?(?:app|application|program|software)\b|\b(?:click|double.?click|scroll|drag)\b[\s\S]{0,40}\b(?:on|in)\s+my\s+(?:desktop|computer|screen|pc|laptop)\b|\bcontrol my (?:mouse|keyboard|screen|computer|desktop|pc)\b/i;
+// Content the browser workspace can genuinely work with, even when the
+// sentence starts with "open" — these must not be diverted to the desktop app.
+const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
 // A single "open an app, download something, click through an installer"
 // task easily runs 30-60+ small steps. This is a runaway backstop, not a
@@ -393,11 +411,41 @@ export default function ComputerUI({ onClose }) {
             taskPrompt += "\n\n[ACTION RESULT] Desktop control was not approved, so VetroAI did not click YouTube. Ask the user to approve computer control.";
           }
         } else {
-          const youtubeUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
-          const opened = window.open(youtubeUrl, "_blank", "noopener,noreferrer");
-          if (opened) {
-            taskPrompt += "\n\n[ACTION RESULT] YouTube search results were opened for: " + musicQuery +
-              ". This is the web version, so Chrome requires the user to click a result. Do not claim the video was clicked.";
+          // No companion, so nothing can click a search result — a web page is
+          // not allowed to click inside youtube.com. Resolve the first result
+          // on the backend instead and open the video itself, which plays with
+          // no click at all. Falls back to the search page if that fails, so a
+          // YouTube layout change degrades instead of breaking the feature.
+          // Opened before the lookup, and blank: window.open only succeeds
+          // inside the click's user activation, and awaiting a round trip to
+          // the backend first outlives it. A blocked popup used to fall
+          // through to navigating this whole app away mid-task.
+          const tab = window.open("about:blank", "_blank");
+          // Same protection "noopener" would give, but keeps the handle so the
+          // tab can be pointed at the video once it's resolved.
+          if (tab) tab.opener = null;
+
+          let resolved = null;
+          try {
+            const lookup = await fetch(`${API}/youtube/resolve?q=${encodeURIComponent(musicQuery)}`, { signal: controller.signal });
+            if (lookup.ok) {
+              const payload = await lookup.json();
+              if (payload?.success && payload.data?.watchUrl) resolved = payload.data;
+            }
+          } catch (error) {
+            if (error.name === "AbortError") { tab?.close(); throw error; }
+          }
+
+          const youtubeUrl = resolved
+            ? `${resolved.watchUrl}&autoplay=1`
+            : "https://www.youtube.com/results?search_query=" + encodeURIComponent(musicQuery);
+          if (tab) {
+            tab.location.replace(youtubeUrl);
+            taskPrompt += resolved
+              ? `\n\n[ACTION RESULT] The video "${resolved.title || musicQuery}" was opened and is playing for: ${musicQuery}. Report that it is playing now — the user does not need to click anything.`
+              : "\n\n[ACTION RESULT] The first video could not be resolved, so YouTube search results were opened for: " + musicQuery +
+                ". The browser cannot click a result for the user — a web page is not allowed to click inside youtube.com. Do not claim the video was clicked or that it is playing." +
+                " Tell the user plainly that they need to click the video themselves here, and that VetroAI's desktop app (" + COMPANION_DOWNLOAD_URL + ") can click it automatically instead.";
           } else {
             patchTask(taskId, t => ({
               ...t,
@@ -516,7 +564,9 @@ export default function ComputerUI({ onClose }) {
     const plan = [
       { id: "control", label: "Request screen control permission", status: "active" },
       { id: "agent", label: "Drive the screen toward the goal", status: "pending" },
-      { id: "review", label: "Ready for your review", status: "pending" }
+      // Not "Ready for your review" — a completed task already renders a
+      // banner with exactly that wording, so the two read as a duplicate.
+      { id: "review", label: "Stop and report what it did", status: "pending" }
     ];
 
     patchTask(taskId, t => ({
@@ -611,7 +661,13 @@ export default function ComputerUI({ onClose }) {
 
         const description = describeAgentAction(action);
         log.push(description);
-        setAgentView(prev => (prev ? { ...prev, action: description } : prev));
+        // Real screenshot-pixel-space target for the cursor marker overlay —
+        // undefined for actions with no coordinates (type/key/scroll/done),
+        // which just clears any marker left over from the previous step.
+        const target = typeof action.x === "number" && typeof action.y === "number"
+          ? { x: action.x, y: action.y, naturalWidth: shotWidth * shotScale, naturalHeight: shotHeight * shotScale }
+          : null;
+        setAgentView(prev => (prev ? { ...prev, action: description, target } : prev));
         patchTask(taskId, t => ({
           ...t,
           steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: description } : s),
@@ -649,12 +705,58 @@ export default function ComputerUI({ onClose }) {
     }
   };
 
+  // Says plainly that an ask needs the companion app, instead of handing it to
+  // the generic task path — which would describe the steps as if it had done
+  // them, or open a page and leave the user wondering why nothing was clicked.
+  const explainDesktopRequired = (prompt) => {
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(prompt.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    patchTask(task.id, t => ({
+      ...t,
+      title: t.messages.length ? t.title : prompt.slice(0, 54),
+      status: "failed",
+      steps: [{ id: "desktop", label: "Needs the desktop app for mouse and keyboard control", status: "failed" }],
+      messages: [
+        ...t.messages,
+        { id: `u-${Date.now()}`, role: "user", content: prompt },
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: [
+            "I can't do this from a browser tab. Moving your mouse, typing, and opening apps needs VetroAI's desktop app — a web page is blocked from touching your operating system, and no website can get around that.",
+            "",
+            `**[Download the desktop app](${COMPANION_DOWNLOAD_URL})** — one file, no setup, no admin rights. Open VetroAI there, turn on **Screen control** in the composer, and send this same request again.`,
+            "",
+            "Everything else here — building websites, research, documents, file analysis — works fine in this tab.",
+          ].join("\n"),
+        },
+      ],
+    }));
+    setQuery("");
+  };
+
   const submit = (event, suggestion = "") => {
     event?.preventDefault();
     const prompt = (suggestion || query).trim();
     if (!prompt || running) return;
     if (screenControl && hasDesktop) {
       runComputerAgent(prompt);
+      return;
+    }
+    // YouTube is excluded deliberately: that path opens the video itself, so
+    // diverting it to the desktop app would disable a feature that works here.
+    // Attachments and file/document wording are excluded for the same reason.
+    const needsDesktop = !hasDesktop
+      && DESKTOP_CONTROL_REQUEST.test(prompt)
+      && !YOUTUBE_REQUEST.test(prompt)
+      && !FILE_CONTENT_REQUEST.test(prompt)
+      && !files.length;
+    if (needsDesktop) {
+      explainDesktopRequired(prompt);
       return;
     }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
@@ -843,7 +945,11 @@ export default function ComputerUI({ onClose }) {
                 ))}
               </div>
               <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} />
-              <p className="cowork-footnote">Browser workspace only. Install the VetroAI desktop companion for mouse and keyboard control.</p>
+              <p className="cowork-footnote">
+                {hasDesktop
+                  ? "Screen control is available on this device — turn it on in the composer to let VetroAI use your mouse and keyboard."
+                  : <>Browser workspace only. <a href={COMPANION_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="underline font-medium">Download the desktop app</a> for mouse, keyboard, and app control — one file, no setup.</>}
+              </p>
             </div>
           </section>
         ) : (
@@ -899,11 +1005,33 @@ export default function ComputerUI({ onClose }) {
                         <span className="text-[10px] text-stone-400">Step {agentView.step}</span>
                       </div>
                       <div className="relative rounded-xl overflow-hidden border border-stone-200 bg-stone-100">
-                        <img src={agentView.screenshot} alt={`Screen at step ${agentView.step}`} className="w-full h-auto block" />
+                        <img data-testid="agent-screenshot" src={agentView.screenshot} alt={`Screen at step ${agentView.step}`} className="w-full h-auto block" />
                         {!agentView.done && (
                           <span className="absolute top-2 right-2 flex items-center gap-1 bg-red-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> LIVE
                           </span>
+                        )}
+                        {/* Where the real cursor is about to move/click, as a percentage of the
+                            screenshot so it stays aligned regardless of how this panel is scaled.
+                            No translate: the arrow's tip is at the SVG's own origin, so the
+                            element's top-left corner is the click point. */}
+                        {!agentView.done && agentView.target && (
+                          <div
+                            data-testid="agent-cursor"
+                            className="absolute pointer-events-none"
+                            style={{
+                              left: `${(agentView.target.x / agentView.target.naturalWidth) * 100}%`,
+                              top: `${(agentView.target.y / agentView.target.naturalHeight) * 100}%`,
+                            }}
+                          >
+                            {/* Thin ring pulsing out from the tip, so it reads as "clicking
+                                here" without a coloured blob covering what's underneath. */}
+                            <span className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full ring-1 ring-sky-400/80 animate-ping" />
+                            <svg width="22" height="22" viewBox="0 0 22 22" className="relative block" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,.45))" }}>
+                              <path d="M1 1 L1 15.2 L4.9 11.6 L7.4 17.2 L10 16 L7.6 10.6 L12.8 10.3 Z"
+                                fill="#fff" stroke="#111" strokeWidth="1.2" strokeLinejoin="round" />
+                            </svg>
+                          </div>
                         )}
                       </div>
                       <div className="mt-2 text-xs text-stone-600 flex items-start gap-1.5">
@@ -1038,11 +1166,11 @@ function CapabilitiesModal({ close, workspaceReady }) {
     [File, "Documents and file analysis", "Ready", "Attach or select workspace files"],
     [Globe2, "Web research", "Ready", "Runs through the chat backend"],
     [LockKeyhole, "Delete protection", "Ready", "Manual confirmation required"],
-    [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Needs a signed desktop companion"],
+    [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Download the desktop app — one file, no setup", COMPANION_DOWNLOAD_URL],
     [CalendarClock, "Background and scheduled jobs", "Cloud service required", "Needs a durable job runner"],
     [Zap, "Connectors and parallel sub-agents", "Backend required", "Needs authenticated tool adapters"]
   ];
-  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
+  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail, href]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline">{detail}</a> : detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
 }
 
 function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation, hasDesktop, screenControl, setScreenControl }) {

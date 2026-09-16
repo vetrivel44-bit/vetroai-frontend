@@ -38,7 +38,7 @@ import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -53,18 +53,11 @@ import PluginHub from "./components/screens/PluginHub";
 import ComputerUI from "./components/screens/ComputerUI";
 import ChessArena from "./components/screens/ChessArena";
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
+import { resolveApiBase } from "./lib/apiBase";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-let baseApi = import.meta.env.PROD ? PRODUCTION_API_BASE : "/api";
-const configuredApi = import.meta.env.VITE_API_BASE_URL?.trim();
-if (configuredApi) {
-  baseApi = configuredApi.replace(/\/+$/, "");
-}
-if (baseApi.startsWith("http") && !/\/api$/i.test(baseApi)) {
-  baseApi += "/api";
-}
-const API = baseApi;
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 // Web search is handled entirely by the backend (Tavily)
 // Google sign-in is handled by Firebase Authentication; the OAuth client is
 // configured in the Firebase project rather than shipped in the bundle.
@@ -486,6 +479,14 @@ const getPuterResponseText = (response) => {
     return content.map((part) => part?.text || part?.content || "").join("");
   }
   return "";
+};
+
+// Puter's own account is out of usage/credits (or asking the user to sign in
+// to keep going) rather than a one-off bad request — this is the one class of
+// Puter failure worth silently retrying on the backend instead of surfacing.
+const isPuterCreditsError = (err) => {
+  const text = `${err?.message || ""} ${err?.error?.message || ""} ${err?.error?.code || ""} ${typeof err === "string" ? err : ""}`.toLowerCase();
+  return /insufficient|credit|quota|balance|payment|usage[ -]?limit|out of funds|permission[ _-]?denied|429|too many requests|rate limit/.test(text);
 };
 
 
@@ -978,13 +979,20 @@ function Toast({ toasts }) {
   );
 }
 
-function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved }) {
+const NOTIF_KEY = "vetroai_notifications";
+const loadNotifPrefs = () => {
+  try { return { desktop: false, sound: false, ...JSON.parse(localStorage.getItem(NOTIF_KEY) || "{}") }; }
+  catch { return { desktop: false, sound: false }; }
+};
+
+function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved, sessionCount = 0, memoryCount = 0, onClearAllSessions, onExportData, onLogout }) {
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
   const [tab, setTab]     = useState("profile");
   const [name, setName]   = useState(userInfo?.name || init.name || "");
   const [avatar, setAvatar] = useState(init.avatar || "User");
   const [ok, setOk]       = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState(loadNotifPrefs);
   const save = () => {
     const data = { name, avatar };
     localStorage.setItem(PKEY, JSON.stringify(data));
@@ -993,12 +1001,31 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
     setTimeout(() => setOk(false), 2000);
   };
 
+  const updateNotifPrefs = (patch) => {
+    setNotifPrefs(prev => {
+      const next = { ...prev, ...patch };
+      localStorage.setItem(NOTIF_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleDesktopNotif = async () => {
+    if (!notifPrefs.desktop) {
+      if (typeof Notification === "undefined") return;
+      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (permission !== "granted") return;
+    }
+    updateNotifPrefs({ desktop: !notifPrefs.desktop });
+  };
+
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-topbar">
           <div className="modal-tabs">
             <button className={`mtab${tab === "profile" ? " active" : ""}`} onClick={() => setTab("profile")}><UserIcon />{t.profile}</button>
+            <button className={`mtab${tab === "notifications" ? " active" : ""}`} onClick={() => setTab("notifications")}><Bell size={14} />Notifications</button>
+            <button className={`mtab${tab === "data" ? " active" : ""}`} onClick={() => setTab("data")}><Shield size={14} />Data</button>
             <button className={`mtab${tab === "language" ? " active" : ""}`} onClick={() => setTab("language")}><GlobeIcon />{t.lang}</button>
             <button className={`mtab${tab === "shortcuts" ? " active" : ""}`} onClick={() => setTab("shortcuts")}><KbdIcon />{t.shortcuts}</button>
           </div>
@@ -1030,9 +1057,71 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
                 {theme === "dark" ? <SunIcon /> : <MoonIcon />} Switch to {theme === "dark" ? "light" : "dark"} mode
               </button>
             </div>
+            {userInfo?.email && (
+              <div className="field-group">
+                <label className="field-label">Account</label>
+                <div className="cust-toggle-row">
+                  <div>
+                    <div className="cust-toggle-label">{userInfo.email}</div>
+                    <div className="cust-toggle-desc">
+                      {userInfo?.plan === "team" ? "Team plan" : userInfo?.plan === "pro" ? "Pro plan" : "Free plan"}
+                    </div>
+                  </div>
+                  <button className="btn-ghost" onClick={onLogout}><LogOut size={14} /> Sign out</button>
+                </div>
+              </div>
+            )}
             <div className="modal-footer">
               <button className="btn-ghost" onClick={onClose}>{t.cancel}</button>
               <button className={`btn-primary${ok ? " ok" : ""}`} onClick={save}>{ok ? <><CheckIcon />{t.saved}</> : t.save}</button>
+            </div>
+          </div>
+        )}
+        {tab === "notifications" && (
+          <div className="modal-body">
+            <div className="cust-section">
+              <div className="cust-section-title">Notifications</div>
+              <p className="cust-section-desc">Get notified when a response finishes while this tab isn't focused.</p>
+            </div>
+            <div className="field-group">
+              <div className="cust-toggle-row">
+                <div>
+                  <div className="cust-toggle-label"><Bell size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Desktop notifications</div>
+                  <div className="cust-toggle-desc">Show a system notification when a reply is ready.</div>
+                </div>
+                <button className={`cust-toggle ${notifPrefs.desktop ? "cust-toggle-on" : ""}`} onClick={toggleDesktopNotif}>
+                  <div className="cust-toggle-thumb" />
+                </button>
+              </div>
+            </div>
+            <div className="field-group">
+              <div className="cust-toggle-row">
+                <div>
+                  <div className="cust-toggle-label"><Volume2 size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Sound</div>
+                  <div className="cust-toggle-desc">Play a short chime when a reply is ready.</div>
+                </div>
+                <button className={`cust-toggle ${notifPrefs.sound ? "cust-toggle-on" : ""}`} onClick={() => updateNotifPrefs({ sound: !notifPrefs.sound })}>
+                  <div className="cust-toggle-thumb" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {tab === "data" && (
+          <div className="modal-body">
+            <div className="cust-section">
+              <div className="cust-section-title">Data Controls</div>
+              <p className="cust-section-desc">{sessionCount} conversation{sessionCount === 1 ? "" : "s"} and {memoryCount} memor{memoryCount === 1 ? "y" : "ies"} stored on this account.</p>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Export your data</label>
+              <button className="theme-row-btn" onClick={onExportData}><Download size={14} /> Download as JSON</button>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Clear conversations</label>
+              <button className="theme-row-btn" style={{ color: "var(--danger)" }} onClick={onClearAllSessions} disabled={sessionCount === 0}>
+                <Trash2 size={14} /> Delete all conversations
+              </button>
             </div>
           </div>
         )}
@@ -3766,6 +3855,39 @@ export default function App() {
     }
   };
 
+  const notifyResponseReady = useCallback((text) => {
+    // The setting promises "while this tab isn't focused". visibilityState
+    // alone misses the common case — the browser still on screen while the
+    // user works in another app — which is visible but not focused.
+    if (document.visibilityState === "visible" && document.hasFocus()) return;
+    const prefs = loadNotifPrefs();
+    if (prefs.desktop && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      // Throws "Illegal constructor" on engines that only allow notifications
+      // via a service worker (Android Chrome). Unguarded, that unwinds into
+      // the caller's catch and reports a completed reply as a failure.
+      try {
+        new Notification("VetroAI", { body: (text || "Your response is ready.").slice(0, 120) });
+      } catch (err) { swallowError(err); }
+    }
+    if (prefs.sound) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.connect(gain).connect(ctx.destination);
+        // Browsers cap how many AudioContexts a document may hold open, and a
+        // long session in a background tab would otherwise hit it and stop
+        // playing anything for the rest of the session.
+        osc.onended = () => { ctx.close().catch(swallowError); };
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (err) { swallowError(err); }
+    }
+  }, []);
+
   const logout = async () => {
     // Push any debounced Firestore writes before tearing the session down,
     // otherwise the last few seconds of the conversation never leave the tab.
@@ -4053,6 +4175,34 @@ export default function App() {
 
   const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
 
+  const deleteAllSessions = () => { setConfirmDelete({ type: "allSessions", message: "Delete all conversations? This cannot be undone." }); };
+
+  const exportAllData = () => {
+    // A partially-written or older-format value here used to throw inside the
+    // click handler, so the button did nothing at all with no explanation.
+    // Losing one stored blob is not a reason to withhold the whole export.
+    const readStored = (key) => {
+      try { return JSON.parse(localStorage.getItem(key) || "null"); }
+      catch (err) { swallowError(err); return null; }
+    };
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      profile: readStored("vetroai_profile"),
+      customize: readStored("vetroai_customize"),
+      sessions,
+      memories,
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vetroai-data-${makeExportStamp()}.json`;
+    a.click();
+    // Otherwise the entire serialized session+memory payload stays pinned in
+    // memory for the life of the document.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    addToast("Data exported", "success", 2000);
+  };
+
   const renameSession = (id, newTitle) => {
     setSessions(prev => {
       const list = prev.map(s => s.id === id ? { ...s, title: newTitle } : s);
@@ -4063,6 +4213,15 @@ export default function App() {
 
   const confirmDeleteSession = () => {
     if (!confirmDelete) return;
+    if (confirmDelete.type === "allSessions") {
+      setSessions([]);
+      try { persistList(userKey, "sessions", []); } catch (err) { swallowError(err); }
+      setPinnedIds([]);
+      newChat();
+      setConfirmDelete(null);
+      addToast("All conversations deleted", "info");
+      return;
+    }
     const { id } = confirmDelete;
     const list = sessions.filter(s => s.id !== id); setSessions(list);
     try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
@@ -4791,6 +4950,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");
       }
 
+      // Set when Puter has no credits left, so nothing below reaches for it
+      // again on the way to the backend.
+      let puterOutOfCredits = false;
+
       if (attachedImages.length > 0) {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
@@ -4798,37 +4961,55 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setIsTyping(false);
         setIsWebSearching(false);
         setStreamStatus("streaming");
-        const analyses = [];
-        for (let index = 0; index < attachedImages.length; index++) {
+        try {
+          const analyses = [];
+          for (let index = 0; index < attachedImages.length; index++) {
+            if (!isActive()) return;
+            const imageUrl = await fileToDataUrl(attachedImages[index]);
+            const imagePrompt = attachedImages.length > 1
+              ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
+              : userQuery || "Analyze this image in detail.";
+            const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
+            const analysis = getPuterResponseText(response);
+            if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
+            analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
+            const combined = analyses.join("\n\n");
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+              return next;
+            });
+            setStreamingContent(combined);
+          }
+          const bot = analyses.join("\n\n");
+          setIsLoading(false);
+          setStreamStatus("idle");
+          setStreamingContent("");
+          if (voiceRef.current || autoSpeakRef.current) speak(bot);
+          if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+          notifyResponseReady(bot);
+          generateFollowUps(bot, userQuery || "Analyze this image");
+          return;
+        } catch (puterErr) {
           if (!isActive()) return;
-          const imageUrl = await fileToDataUrl(attachedImages[index]);
-          const imagePrompt = attachedImages.length > 1
-            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
-            : userQuery || "Analyze this image in detail.";
-          const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
-          const analysis = getPuterResponseText(response);
-          if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
-          analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
-          const combined = analyses.join("\n\n");
+          if (!isPuterCreditsError(puterErr)) throw puterErr;
+          // Out of credits mid-analysis. The images are already on `fd`, and
+          // the backend routes an image-carrying request to a provider that
+          // can actually see it, so fall through instead of failing here.
+          puterOutOfCredits = true;
+          addDebugLog("Puter.creditsExhausted", { reqId, provider: "GPT-5.6 Luna", images: attachedImages.length });
+          addToast("Image analysis is out of credits. Switching to a backup model…", "info", 4000);
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            next[next.length - 1] = { ...next[next.length - 1], content: "" };
             return next;
           });
-          setStreamingContent(combined);
+          setStreamingContent("");
         }
-        const bot = analyses.join("\n\n");
-        setIsLoading(false);
-        setStreamStatus("idle");
-        setStreamingContent("");
-        if (voiceRef.current || autoSpeakRef.current) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
-        generateFollowUps(bot, userQuery || "Analyze this image");
-        return;
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
-      if (puterModelId) {
+      if (puterModelId && !puterOutOfCredits) {
         if (!window.puter?.ai?.chat) {
           throw new Error(`${effectivePuterProvider} could not load. Check your connection and refresh the page.`);
         }
@@ -4856,30 +5037,47 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (OPENAI_PUTER_PROVIDERS.has(effectivePuterProvider)) {
           puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
         }
-        const response = await window.puter.ai.chat(puterMessages, puterOptions);
-        let bot = "";
-        for await (const part of response) {
+        try {
+          const response = await window.puter.ai.chat(puterMessages, puterOptions);
+          let bot = "";
+          for await (const part of response) {
+            if (!isActive()) return;
+            const text = typeof part?.text === "string" ? part.text : "";
+            if (!text) continue;
+            bot += text;
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: bot };
+              return next;
+            });
+            setStreamingContent(bot);
+            if (!isScrolling.current) scrollToBottom();
+          }
+
+          if (!bot.trim()) throw new Error(`${effectivePuterProvider} returned an empty response. Please try again.`);
+          setIsLoading(false);
+          setStreamStatus("idle");
+          setStreamingContent("");
+          if (voiceRef.current || autoSpeakRef.current) speak(bot);
+          if (isFirstMsg) updateSessionTitle(userQuery, bot);
+          notifyResponseReady(bot);
+          generateFollowUps(bot, userQuery);
+          return;
+        } catch (puterErr) {
           if (!isActive()) return;
-          const text = typeof part?.text === "string" ? part.text : "";
-          if (!text) continue;
-          bot += text;
+          if (!isPuterCreditsError(puterErr)) throw puterErr;
+          // Puter is out of credits/usage for this model — don't fail the chat,
+          // fall through to the backend request below (which has its own
+          // provider fallback chain, down to Cohere) instead of surfacing this.
+          addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
+          addToast(`${effectivePuterProvider} is out of credits. Switching to a backup model…`, "info", 4000);
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: bot };
+            next[next.length - 1] = { ...next[next.length - 1], content: "" };
             return next;
           });
-          setStreamingContent(bot);
-          if (!isScrolling.current) scrollToBottom();
+          setStreamingContent("");
         }
-
-        if (!bot.trim()) throw new Error(`${effectivePuterProvider} returned an empty response. Please try again.`);
-        setIsLoading(false);
-        setStreamStatus("idle");
-        setStreamingContent("");
-        if (voiceRef.current || autoSpeakRef.current) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery, bot);
-        generateFollowUps(bot, userQuery);
-        return;
       }
 
       const res = await fetch(API + "/chat", {
@@ -4990,6 +5188,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       } else {
         if (voiceRef.current || autoSpeakRef.current) speak(bot);
         if (isFirstMsg) updateSessionTitle(userQuery, bot);
+        notifyResponseReady(bot);
         generateFollowUps(bot, userQuery);
       }
 
@@ -5864,7 +6063,23 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           onClose={() => { setShowPlugins(false); if (activeNav === "plugins") setActiveNav("chats"); }}
         />
       )}
-{showProfile && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} onProfileSaved={setProfileData} />}
+{showProfile && (
+        <ProfileModal
+          onClose={() => setShowProfile(false)}
+          t={t}
+          langCode={langCode}
+          setLangCode={setLangCode}
+          theme={theme}
+          setTheme={setTheme}
+          userInfo={userInfo}
+          onProfileSaved={setProfileData}
+          sessionCount={sessions.length}
+          memoryCount={memories.length}
+          onClearAllSessions={deleteAllSessions}
+          onExportData={exportAllData}
+          onLogout={() => { logout(); setShowProfile(false); }}
+        />
+      )}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={(bm) => { navigator.clipboard?.writeText(bm.content).then(() => addToast("Bookmark copied", "success", 1500), swallowError); }} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
       {showSysPrompt && (

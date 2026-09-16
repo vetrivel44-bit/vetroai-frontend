@@ -202,12 +202,21 @@ ipcMain.handle("computer:key", async (_event, action) => {
   // directly against the installed package, since the previous SCREAMING_CASE
   // names here all resolved to `undefined`, silently rejecting every key press
   // except the five bare letters below (whose names happen to already match).
+  // META is the one key whose actual enum member differs per OS — Key.LeftWin,
+  // Key.LeftCmd, and Key.LeftSuper are three distinct nut-js key codes, not
+  // aliases of each other. Resolving it here means the model can ask for the
+  // same "META" on every platform to open the OS app launcher/search
+  // (Start Menu / Spotlight / Activities) instead of having to hunt for a
+  // taskbar or dock icon's pixel position in the screenshot.
+  const metaKey = process.platform === "darwin" ? Key.LeftCmd
+    : process.platform === "win32" ? Key.LeftWin
+    : Key.LeftSuper;
   const allowed = {
     ENTER: Key.Enter, TAB: Key.Tab, ESCAPE: Key.Escape, BACKSPACE: Key.Backspace,
     DELETE: Key.Delete, SPACE: Key.Space, UP: Key.Up, DOWN: Key.Down,
     LEFT: Key.Left, RIGHT: Key.Right, HOME: Key.Home, END: Key.End,
     PAGEUP: Key.PageUp, PAGEDOWN: Key.PageDown,
-    CTRL: Key.LeftControl, SHIFT: Key.LeftShift, ALT: Key.LeftAlt,
+    CTRL: Key.LeftControl, SHIFT: Key.LeftShift, ALT: Key.LeftAlt, META: metaKey,
     A: Key.A, C: Key.C, V: Key.V, X: Key.X, Z: Key.Z
   };
   const key = allowed[String(action.key || "").toUpperCase()];
