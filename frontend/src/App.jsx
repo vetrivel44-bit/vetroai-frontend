@@ -38,7 +38,7 @@ import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -978,13 +978,20 @@ function Toast({ toasts }) {
   );
 }
 
-function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved }) {
+const NOTIF_KEY = "vetroai_notifications";
+const loadNotifPrefs = () => {
+  try { return { desktop: false, sound: false, ...JSON.parse(localStorage.getItem(NOTIF_KEY) || "{}") }; }
+  catch { return { desktop: false, sound: false }; }
+};
+
+function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved, sessionCount = 0, memoryCount = 0, onClearAllSessions, onExportData, onLogout }) {
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
   const [tab, setTab]     = useState("profile");
   const [name, setName]   = useState(userInfo?.name || init.name || "");
   const [avatar, setAvatar] = useState(init.avatar || "User");
   const [ok, setOk]       = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState(loadNotifPrefs);
   const save = () => {
     const data = { name, avatar };
     localStorage.setItem(PKEY, JSON.stringify(data));
@@ -993,12 +1000,31 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
     setTimeout(() => setOk(false), 2000);
   };
 
+  const updateNotifPrefs = (patch) => {
+    setNotifPrefs(prev => {
+      const next = { ...prev, ...patch };
+      localStorage.setItem(NOTIF_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleDesktopNotif = async () => {
+    if (!notifPrefs.desktop) {
+      if (typeof Notification === "undefined") return;
+      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (permission !== "granted") return;
+    }
+    updateNotifPrefs({ desktop: !notifPrefs.desktop });
+  };
+
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-topbar">
           <div className="modal-tabs">
             <button className={`mtab${tab === "profile" ? " active" : ""}`} onClick={() => setTab("profile")}><UserIcon />{t.profile}</button>
+            <button className={`mtab${tab === "notifications" ? " active" : ""}`} onClick={() => setTab("notifications")}><Bell size={14} />Notifications</button>
+            <button className={`mtab${tab === "data" ? " active" : ""}`} onClick={() => setTab("data")}><Shield size={14} />Data</button>
             <button className={`mtab${tab === "language" ? " active" : ""}`} onClick={() => setTab("language")}><GlobeIcon />{t.lang}</button>
             <button className={`mtab${tab === "shortcuts" ? " active" : ""}`} onClick={() => setTab("shortcuts")}><KbdIcon />{t.shortcuts}</button>
           </div>
@@ -1030,9 +1056,71 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
                 {theme === "dark" ? <SunIcon /> : <MoonIcon />} Switch to {theme === "dark" ? "light" : "dark"} mode
               </button>
             </div>
+            {userInfo?.email && (
+              <div className="field-group">
+                <label className="field-label">Account</label>
+                <div className="cust-toggle-row">
+                  <div>
+                    <div className="cust-toggle-label">{userInfo.email}</div>
+                    <div className="cust-toggle-desc">
+                      {userInfo?.plan === "team" ? "Team plan" : userInfo?.plan === "pro" ? "Pro plan" : "Free plan"}
+                    </div>
+                  </div>
+                  <button className="btn-ghost" onClick={onLogout}><LogOut size={14} /> Sign out</button>
+                </div>
+              </div>
+            )}
             <div className="modal-footer">
               <button className="btn-ghost" onClick={onClose}>{t.cancel}</button>
               <button className={`btn-primary${ok ? " ok" : ""}`} onClick={save}>{ok ? <><CheckIcon />{t.saved}</> : t.save}</button>
+            </div>
+          </div>
+        )}
+        {tab === "notifications" && (
+          <div className="modal-body">
+            <div className="cust-section">
+              <div className="cust-section-title">Notifications</div>
+              <p className="cust-section-desc">Get notified when a response finishes while this tab isn't focused.</p>
+            </div>
+            <div className="field-group">
+              <div className="cust-toggle-row">
+                <div>
+                  <div className="cust-toggle-label"><Bell size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Desktop notifications</div>
+                  <div className="cust-toggle-desc">Show a system notification when a reply is ready.</div>
+                </div>
+                <button className={`cust-toggle ${notifPrefs.desktop ? "cust-toggle-on" : ""}`} onClick={toggleDesktopNotif}>
+                  <div className="cust-toggle-thumb" />
+                </button>
+              </div>
+            </div>
+            <div className="field-group">
+              <div className="cust-toggle-row">
+                <div>
+                  <div className="cust-toggle-label"><Volume2 size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Sound</div>
+                  <div className="cust-toggle-desc">Play a short chime when a reply is ready.</div>
+                </div>
+                <button className={`cust-toggle ${notifPrefs.sound ? "cust-toggle-on" : ""}`} onClick={() => updateNotifPrefs({ sound: !notifPrefs.sound })}>
+                  <div className="cust-toggle-thumb" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {tab === "data" && (
+          <div className="modal-body">
+            <div className="cust-section">
+              <div className="cust-section-title">Data Controls</div>
+              <p className="cust-section-desc">{sessionCount} conversation{sessionCount === 1 ? "" : "s"} and {memoryCount} memor{memoryCount === 1 ? "y" : "ies"} stored on this account.</p>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Export your data</label>
+              <button className="theme-row-btn" onClick={onExportData}><Download size={14} /> Download as JSON</button>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Clear conversations</label>
+              <button className="theme-row-btn" style={{ color: "var(--danger)" }} onClick={onClearAllSessions} disabled={sessionCount === 0}>
+                <Trash2 size={14} /> Delete all conversations
+              </button>
             </div>
           </div>
         )}
@@ -3766,6 +3854,28 @@ export default function App() {
     }
   };
 
+  const notifyResponseReady = useCallback((text) => {
+    if (document.visibilityState !== "hidden") return;
+    let prefs;
+    try { prefs = JSON.parse(localStorage.getItem("vetroai_notifications") || "{}"); } catch { prefs = {}; }
+    if (prefs.desktop && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      new Notification("VetroAI", { body: (text || "Your response is ready.").slice(0, 120) });
+    }
+    if (prefs.sound) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (err) { swallowError(err); }
+    }
+  }, []);
+
   const logout = async () => {
     // Push any debounced Firestore writes before tearing the session down,
     // otherwise the last few seconds of the conversation never leave the tab.
@@ -4053,6 +4163,23 @@ export default function App() {
 
   const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
 
+  const deleteAllSessions = () => { setConfirmDelete({ type: "allSessions", message: "Delete all conversations? This cannot be undone." }); };
+
+  const exportAllData = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      profile: JSON.parse(localStorage.getItem("vetroai_profile") || "null"),
+      customize: JSON.parse(localStorage.getItem("vetroai_customize") || "null"),
+      sessions,
+      memories,
+    };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    a.download = `vetroai-data-${makeExportStamp()}.json`;
+    a.click();
+    addToast("Data exported", "success", 2000);
+  };
+
   const renameSession = (id, newTitle) => {
     setSessions(prev => {
       const list = prev.map(s => s.id === id ? { ...s, title: newTitle } : s);
@@ -4063,6 +4190,15 @@ export default function App() {
 
   const confirmDeleteSession = () => {
     if (!confirmDelete) return;
+    if (confirmDelete.type === "allSessions") {
+      setSessions([]);
+      try { persistList(userKey, "sessions", []); } catch (err) { swallowError(err); }
+      setPinnedIds([]);
+      newChat();
+      setConfirmDelete(null);
+      addToast("All conversations deleted", "info");
+      return;
+    }
     const { id } = confirmDelete;
     const list = sessions.filter(s => s.id !== id); setSessions(list);
     try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
@@ -4823,6 +4959,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setStreamingContent("");
         if (voiceRef.current || autoSpeakRef.current) speak(bot);
         if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+        notifyResponseReady(bot);
         generateFollowUps(bot, userQuery || "Analyze this image");
         return;
       }
@@ -4878,6 +5015,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setStreamingContent("");
         if (voiceRef.current || autoSpeakRef.current) speak(bot);
         if (isFirstMsg) updateSessionTitle(userQuery, bot);
+        notifyResponseReady(bot);
         generateFollowUps(bot, userQuery);
         return;
       }
@@ -4990,6 +5128,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       } else {
         if (voiceRef.current || autoSpeakRef.current) speak(bot);
         if (isFirstMsg) updateSessionTitle(userQuery, bot);
+        notifyResponseReady(bot);
         generateFollowUps(bot, userQuery);
       }
 
@@ -5864,7 +6003,23 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           onClose={() => { setShowPlugins(false); if (activeNav === "plugins") setActiveNav("chats"); }}
         />
       )}
-{showProfile && <ProfileModal onClose={() => setShowProfile(false)} t={t} langCode={langCode} setLangCode={setLangCode} theme={theme} setTheme={setTheme} userInfo={userInfo} onProfileSaved={setProfileData} />}
+{showProfile && (
+        <ProfileModal
+          onClose={() => setShowProfile(false)}
+          t={t}
+          langCode={langCode}
+          setLangCode={setLangCode}
+          theme={theme}
+          setTheme={setTheme}
+          userInfo={userInfo}
+          onProfileSaved={setProfileData}
+          sessionCount={sessions.length}
+          memoryCount={memories.length}
+          onClearAllSessions={deleteAllSessions}
+          onExportData={exportAllData}
+          onLogout={() => { logout(); setShowProfile(false); }}
+        />
+      )}
       {showBookmarks && <BookmarksPanel bookmarks={bookmarks} onSelect={(bm) => { navigator.clipboard?.writeText(bm.content).then(() => addToast("Bookmark copied", "success", 1500), swallowError); }} onRemove={removeBookmark} onClose={() => setShowBookmarks(false)} t={t} />}
       {showPlayground && <CodePlayground onClose={() => setShowPlayground(false)} />}
       {showSysPrompt && (
