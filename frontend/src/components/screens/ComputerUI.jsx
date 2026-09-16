@@ -11,6 +11,11 @@ import {
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? PROD_API : "/api")).replace(/\/+$/, "");
 const STORE_KEY = "vetroai_cowork_tasks_v2";
+// Mouse/keyboard/app control needs the local companion — a page served from
+// any web host is sandboxed away from those OS APIs no matter where it runs.
+// CI publishes a ready-to-run installer per desktop-v* tag, so this points at
+// a download rather than asking anyone to build it.
+const COMPANION_DOWNLOAD_URL = "https://github.com/vetrivel44-bit/vetroai-frontend/releases/latest";
 const RISKY_ACTION = /\b(send|email|message|post|publish|buy|purchase|pay|book|delete|remove|upload|submit|login|sign in|change password|share|play|open)\b/i;
 const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i;
 const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\bplay\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+))/i;
@@ -849,7 +854,11 @@ export default function ComputerUI({ onClose }) {
                 ))}
               </div>
               <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} />
-              <p className="cowork-footnote">Browser workspace only. Install the VetroAI desktop companion for mouse and keyboard control.</p>
+              <p className="cowork-footnote">
+                {hasDesktop
+                  ? "Screen control is available on this device — turn it on in the composer to let VetroAI use your mouse and keyboard."
+                  : <>Browser workspace only. <a href={COMPANION_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="underline font-medium">Download the desktop app</a> for mouse, keyboard, and app control — one file, no setup.</>}
+              </p>
             </div>
           </section>
         ) : (
@@ -1059,11 +1068,11 @@ function CapabilitiesModal({ close, workspaceReady }) {
     [File, "Documents and file analysis", "Ready", "Attach or select workspace files"],
     [Globe2, "Web research", "Ready", "Runs through the chat backend"],
     [LockKeyhole, "Delete protection", "Ready", "Manual confirmation required"],
-    [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Needs a signed desktop companion"],
+    [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Download the desktop app — one file, no setup", COMPANION_DOWNLOAD_URL],
     [CalendarClock, "Background and scheduled jobs", "Cloud service required", "Needs a durable job runner"],
     [Zap, "Connectors and parallel sub-agents", "Backend required", "Needs authenticated tool adapters"]
   ];
-  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
+  return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail, href]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline">{detail}</a> : detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
 }
 
 function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation, hasDesktop, screenControl, setScreenControl }) {
