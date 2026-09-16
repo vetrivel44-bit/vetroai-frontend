@@ -923,7 +923,9 @@ export default function ComputerUI({ onClose }) {
                           </span>
                         )}
                         {/* Where the real cursor is about to move/click, as a percentage of the
-                            screenshot so it stays aligned regardless of how this panel is scaled. */}
+                            screenshot so it stays aligned regardless of how this panel is scaled.
+                            No translate: the arrow's tip is at the SVG's own origin, so the
+                            element's top-left corner is the click point. */}
                         {!agentView.done && agentView.target && (
                           <div
                             data-testid="agent-cursor"
@@ -931,11 +933,15 @@ export default function ComputerUI({ onClose }) {
                             style={{
                               left: `${(agentView.target.x / agentView.target.naturalWidth) * 100}%`,
                               top: `${(agentView.target.y / agentView.target.naturalHeight) * 100}%`,
-                              transform: "translate(-50%, -50%)",
                             }}
                           >
-                            <span className="block w-5 h-5 rounded-full border-2 border-sky-500 bg-sky-500/25 animate-ping absolute inset-0" />
-                            <span className="block w-3 h-3 rounded-full bg-sky-500 border-2 border-white shadow relative" />
+                            {/* Thin ring pulsing out from the tip, so it reads as "clicking
+                                here" without a coloured blob covering what's underneath. */}
+                            <span className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full ring-1 ring-sky-400/80 animate-ping" />
+                            <svg width="22" height="22" viewBox="0 0 22 22" className="relative block" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,.45))" }}>
+                              <path d="M1 1 L1 15.2 L4.9 11.6 L7.4 17.2 L10 16 L7.6 10.6 L12.8 10.3 Z"
+                                fill="#fff" stroke="#111" strokeWidth="1.2" strokeLinejoin="round" />
+                            </svg>
                           </div>
                         )}
                       </div>

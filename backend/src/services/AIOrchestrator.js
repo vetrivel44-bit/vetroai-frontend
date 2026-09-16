@@ -534,15 +534,16 @@ Choose the single best-fitting visualization block(s) from the formats below:
       options = { ...options, maxTokens: 220 };
     }
 
-    // The screen-control agent sends a screenshot every step. Gemini is the only
-    // adapter here that reads the `images` field (see geminiAdapter.js), so this
-    // mode can't fall back to a text-only provider mid-chain the normal way —
-    // it still gets exactly one fallback, straight to Cohere, if Gemini fails.
-    // Cohere won't see the screenshot either, so it's answering blind; better
-    // than refusing to act outright, but treat it as a degraded mode.
+    // The screen-control agent sends a screenshot every step, so it can only
+    // use a provider whose adapter reads the `images` field: Gemini, or Cohere
+    // on its vision model (see geminiAdapter.js / cohereAdapter.js). Those two
+    // are the whole chain for this mode — the remaining providers are text-only
+    // and would be guessing at what's on screen. Gemini leads; Cohere takes
+    // over as primary when Gemini isn't configured at all.
     const isComputerUse = mode === "computer_use";
+    const visionProviders = ["gemini", "cohere"];
     let currentProviderName = isComputerUse
-      ? (providerManager.isConfigured("gemini") ? "gemini" : null)
+      ? (visionProviders.find((name) => providerManager.isConfigured(name)) || null)
       : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
@@ -555,7 +556,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // as everything else, ending at Cohere, so it can't leave the user with
     // no answer just because that one provider is out of quota.)
     const maxAttempts = isComputerUse
-      ? (currentProviderName ? (providerManager.isConfigured("cohere") ? 2 : 1) : 0)
+      ? visionProviders.filter((name) => providerManager.isConfigured(name)).length
       : providerManager.getAvailableProviders({ includeSuspended: true }).length;
     let success = false;
     // Remembers why the last provider gave up, so the message the user sees
@@ -569,7 +570,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
       this.sendVetroEvent(
         res,
         "error",
-        "Screen control needs a Gemini API key configured on the backend (it's the only provider here that can read the screenshot each step)."
+        "Screen control needs a Gemini or Cohere API key configured on the backend — those are the providers here that can read the screenshot each step."
       );
       return false;
     }
@@ -804,8 +805,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
           } else if (isTimeout) {
             friendlyMsg = `Connection with ${currentProviderName} timed out. Trying another model…`;
           }
-          if (isComputerUse && nextProvider === "cohere") {
-            friendlyMsg = "Gemini is unavailable. Falling back to Cohere — it can't see the screenshot, so treat its next actions as a best guess.";
+          if (isComputerUse) {
+            friendlyMsg = `${this.providerLabel(currentProviderName)} is unavailable. Switching screen control to ${this.providerLabel(nextProvider)}…`;
           }
 
           this.sendVetroEvent(res, "clear", "");
@@ -831,14 +832,15 @@ Choose the single best-fitting visualization block(s) from the formats below:
     res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
   }
 
-  // Picks the next provider to try after `failedProvider`. Computer-use is a
-  // special case: none of the normal text-only fallbacks can read a
-  // screenshot, so it skips straight to Cohere (its one and only fallback)
-  // instead of walking Gemini's regular fallback list.
+  // Picks the next provider to try after `failedProvider`. Computer-use walks
+  // only the providers that can actually read a screenshot, rather than the
+  // failed provider's regular fallback list — that list is mostly text-only
+  // models, which would be guessing at what's on screen.
   nextFallback(failedProvider, attemptedProviders, isComputerUse) {
     if (isComputerUse) {
-      if (attemptedProviders.has("cohere") || !providerManager.isConfigured("cohere")) return null;
-      return "cohere";
+      return ["gemini", "cohere"].find(
+        (name) => !attemptedProviders.has(name) && providerManager.isConfigured(name)
+      ) || null;
     }
     return providerManager.getFallbackProvider(failedProvider, [...attemptedProviders]);
   }

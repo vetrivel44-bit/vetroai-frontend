@@ -189,7 +189,8 @@ async function chat(req, res) {
   // Computer mode's screen-control agent sends a fresh screenshot every step and
   // needs the model to actually see it (unlike normal chat, where image files are
   // analyzed client-side by Puter and never reach here — see getAttachmentContext).
-  // Only gemini's adapter currently understands the resulting `images` field.
+  // The gemini and cohere adapters both read the resulting `images` field; the
+  // rest are text-only, which is why computer_use only routes to those two.
   if (mode === "computer_use" && imageFiles.length) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (lastUser) {
