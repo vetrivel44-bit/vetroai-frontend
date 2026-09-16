@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import "./ComputerUI.css";
+import { resolveApiBase } from "../../lib/apiBase";
 import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
   Download, File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, MapPin, Mic, Monitor, MoreHorizontal,
@@ -9,7 +10,7 @@ import {
 } from "lucide-react";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
-const API = (import.meta.env.VITE_API_BASE_URL?.trim() || (import.meta.env.PROD ? PROD_API : "/api")).replace(/\/+$/, "");
+const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
 const STORE_KEY = "vetroai_cowork_tasks_v2";
 // Mouse/keyboard/app control needs the local companion — a page served from
 // any web host is sandboxed away from those OS APIs no matter where it runs.
