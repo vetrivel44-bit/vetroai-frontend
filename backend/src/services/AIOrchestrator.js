@@ -547,9 +547,13 @@ Choose the single best-fitting visualization block(s) from the formats below:
         : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
+    // Uncapped by a fixed small number: with Cohere wired in as every
+    // provider's last-resort fallback, the retry budget needs to cover the
+    // full configured roster so a request can still reach it even after every
+    // primary provider is out of credits, rather than giving up after 3 hops.
     const maxAttempts = strictFable || isComputerUse
       ? (currentProviderName ? 1 : 0)
-      : Math.min(3, providerManager.getAvailableProviders({ includeSuspended: true }).length);
+      : providerManager.getAvailableProviders({ includeSuspended: true }).length;
     let success = false;
     // Remembers why the last provider gave up, so the message the user sees
     // names the real cause instead of always blaming capacity.
@@ -825,8 +829,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
           this.sendVetroEvent(res, "status", friendlyMsg);
           currentProviderName = nextProvider;
           
-          // Exponential backoff
-          const backoffTime = Math.pow(2, attempts) * 1000;
+          // Exponential backoff, capped so a long fallback chain (now that it
+          // can run all the way out to Cohere) doesn't stall the response.
+          const backoffTime = Math.min(Math.pow(2, attempts) * 1000, 6000);
           await new Promise(resolve => setTimeout(resolve, backoffTime));
         } else {
           this.sendVetroEvent(res, "error", this.describeFinalFailure(lastFailure, attemptedProviders));
@@ -944,7 +949,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
   providerLabel(name) {
     const labels = {
       chatgpt: "ChatGPT", fable: "Claude Fable 5", plugsky: "Plugsky", groq: "Groq",
-      mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini",
+      mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini", cohere: "Cohere",
     };
     return labels[name] || name || "The AI model";
   }
