@@ -54,6 +54,7 @@ import ComputerUI from "./components/screens/ComputerUI";
 import ChessArena from "./components/screens/ChessArena";
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
+import { pickBrowserRetryProvider } from "./lib/browserRetry";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -5059,6 +5060,75 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // again on the way to the backend.
       let puterOutOfCredits = false;
 
+      // Browser models already tried for this turn, so the backend-outage
+      // retry below never re-runs a model that just failed.
+      const puterAttempted = new Set();
+
+      // Streams one Puter (browser, user-pays) model into the open assistant
+      // bubble and returns the answer. Shared by the primary browser-model
+      // path and the last-resort retry after the backend runs out of
+      // providers. Returns null when the turn was superseded mid-stream.
+      const streamWithPuter = async (providerName) => {
+        const modelId = PUTER_MODEL_IDS[providerName];
+        if (!modelId) throw new Error(`${providerName} is not a browser model.`);
+        if (!window.puter?.ai?.chat) {
+          throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
+        }
+
+        const puterMessages = hist
+          .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
+          .slice(-50)
+          .map(({ role, content }) => ({ role, content }));
+        if (finalSystemPrompt.trim()) {
+          puterMessages.unshift({ role: "system", content: finalSystemPrompt.trim() });
+        }
+
+        const puterOptions = {
+          model: modelId,
+          stream: true,
+          max_tokens: effectiveMaxTokens,
+        };
+        if (OPENAI_PUTER_PROVIDERS.has(providerName)) {
+          puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
+        }
+
+        setIsTyping(false);
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+        puterAttempted.add(providerName);
+
+        const response = await window.puter.ai.chat(puterMessages, puterOptions);
+        let streamed = "";
+        for await (const part of response) {
+          if (!isActive()) return null;
+          const text = typeof part?.text === "string" ? part.text : "";
+          if (!text) continue;
+          streamed += text;
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: streamed, provider: providerName };
+            return next;
+          });
+          setStreamingContent(streamed);
+          if (!isScrolling.current) scrollToBottom();
+        }
+
+        if (!streamed.trim()) throw new Error(`${providerName} returned an empty response. Please try again.`);
+        return streamed;
+      };
+
+      // Settles the UI once a text answer has fully arrived, whichever path
+      // produced it.
+      const finishChat = (answer) => {
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(answer);
+        if (isFirstMsg) updateSessionTitle(userQuery, answer);
+        notifyResponseReady(answer);
+        generateFollowUps(answer, userQuery);
+      };
+
       if (attachedImages.length > 0) {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
@@ -5115,58 +5185,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
       if (puterModelId && !puterOutOfCredits) {
-        if (!window.puter?.ai?.chat) {
-          throw new Error(`${effectivePuterProvider} could not load. Check your connection and refresh the page.`);
-        }
         if (fileCount > 0) {
           throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
-
-        const puterMessages = hist
-          .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
-          .slice(-50)
-          .map(({ role, content }) => ({ role, content }));
-        if (finalSystemPrompt.trim()) {
-          puterMessages.unshift({ role: "system", content: finalSystemPrompt.trim() });
-        }
-
-        setIsTyping(false);
-        setIsWebSearching(false);
-        setStreamStatus("streaming");
-
-        const puterOptions = {
-          model: puterModelId,
-          stream: true,
-          max_tokens: effectiveMaxTokens,
-        };
-        if (OPENAI_PUTER_PROVIDERS.has(effectivePuterProvider)) {
-          puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
-        }
         try {
-          const response = await window.puter.ai.chat(puterMessages, puterOptions);
-          let bot = "";
-          for await (const part of response) {
-            if (!isActive()) return;
-            const text = typeof part?.text === "string" ? part.text : "";
-            if (!text) continue;
-            bot += text;
-            setMessages((previous) => {
-              const next = [...previous];
-              next[next.length - 1] = { ...next[next.length - 1], content: bot };
-              return next;
-            });
-            setStreamingContent(bot);
-            if (!isScrolling.current) scrollToBottom();
-          }
-
-          if (!bot.trim()) throw new Error(`${effectivePuterProvider} returned an empty response. Please try again.`);
-          setIsLoading(false);
-          setStreamStatus("idle");
-          setStreamingContent("");
-          if (voiceRef.current || autoSpeakRef.current) speak(bot);
-          if (isFirstMsg) updateSessionTitle(userQuery, bot);
-          notifyResponseReady(bot);
-          generateFollowUps(bot, userQuery);
+          const puterBot = await streamWithPuter(effectivePuterProvider);
+          if (!isActive() || puterBot === null) return;
+          finishChat(puterBot);
           return;
         } catch (puterErr) {
           if (!isActive()) return;
@@ -5185,79 +5210,134 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
       }
 
-      const res = await fetch(API + "/chat", {
-        method: "POST",
-        body: fd,
-        signal: ctrl.signal
-      });
+      // The backend walks its own provider chain and only gives up once every
+      // one of them has failed. That used to end the turn with the raw
+      // "all models are at capacity" text in the bubble, even though the
+      // browser models above can still answer a text turn on their own, so the
+      // failure is captured here rather than thrown and retried below.
+      let backendFailure = null;
+      let streamError = "";
+      let bot = "";
+      try {
+        const res = await fetch(API + "/chat", {
+          method: "POST",
+          body: fd,
+          signal: ctrl.signal
+        });
 
-      if (!isActive()) return;
+        if (!isActive()) return;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `Server error: ${res.status}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || `Server error: ${res.status}`);
+        }
+
+        const reader = res.body.getReader();
+
+        setIsTyping(false);
+        setIsWebSearching(false); // Clear web searching indicator once streaming starts
+        setStreamStatus("streaming");
+        bot = await readSSEStream(
+          reader,
+          (acc) => {
+            if (!isActive()) return;
+            setMessages(prev => {
+              const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+            });
+            setStreamingContent(acc);
+            if (!isScrolling.current) scrollToBottom();
+          },
+          (statusMsg) => {
+            if (!isActive()) return;
+            setStreamStatus(statusMsg);
+            addDebugLog("SSE.status", { status: statusMsg });
+          },
+          (errorMsg) => {
+            streamError = errorMsg;
+          },
+          isActive,
+          reqId,
+          (reasoningText, { isThinking, durationMs }) => {
+            if (!isActive()) return;
+            setMessages(prev => {
+              if (prev.length === 0) return prev;
+              const u = [...prev];
+              const last = u[u.length - 1];
+              u[u.length - 1] = {
+                ...last,
+                reasoning: reasoningText,
+                isThinking,
+                thinkingMs: durationMs ?? last.thinkingMs ?? null,
+              };
+              return u;
+            });
+            if (!isScrolling.current) scrollToBottom();
+          },
+          (metaType, metaData) => {
+            if (!isActive()) return;
+            setMessages(prev => {
+              if (prev.length === 0) return prev;
+              const u = [...prev];
+              const last = { ...u[u.length - 1] };
+              if (metaType === "sources") last.sources = metaData;
+              if (metaType === "realtime_notice") last.realtimeNotice = metaData;
+              u[u.length - 1] = last;
+              return u;
+            });
+          }
+        );
+
+        if (!isActive()) return;
+
+        if (!bot || !bot.trim()) {
+          throw new Error(streamError
+            || "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models.");
+        }
+      } catch (err) {
+        if (err.name === "AbortError" || !isActive()) throw err;
+        backendFailure = err;
       }
 
-      const reader = res.body.getReader();
+      if (backendFailure) {
+        // Files only reach a model through the backend, so an attachment turn
+        // has nowhere left to go. A plain text turn does: retry it on a browser
+        // model that hasn't already been tried this turn.
+        const browserRetry = pickBrowserRetryProvider({
+          attempted: [...puterAttempted],
+          preferCodex: shouldUseCodex(userQuery, selectedMode),
+          hasFiles: fileCount > 0,
+          puterAvailable: Boolean(window.puter?.ai?.chat),
+        });
 
-      setIsTyping(false);
-      setIsWebSearching(false); // Clear web searching indicator once streaming starts
-      setStreamStatus("streaming");
-      let streamError = "";
-      const bot = await readSSEStream(
-        reader,
-        (acc) => {
-          if (!isActive()) return;
-          setMessages(prev => {
-            const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+        if (browserRetry) {
+          addDebugLog("Backend.exhausted", { reqId, error: backendFailure.message, retry: browserRetry });
+          addToast("Backend models are busy — answering with a browser model…", "info", 4000);
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+            return next;
           });
-          setStreamingContent(acc);
-          if (!isScrolling.current) scrollToBottom();
-        },
-        (statusMsg) => {
-          if (!isActive()) return;
-          setStreamStatus(statusMsg);
-          addDebugLog("SSE.status", { status: statusMsg });
-        },
-        (errorMsg) => {
-          streamError = errorMsg;
-          addToast(errorMsg, "error");
-        },
-        isActive,
-        reqId,
-        (reasoningText, { isThinking, durationMs }) => {
-          if (!isActive()) return;
-          setMessages(prev => {
-            if (prev.length === 0) return prev;
-            const u = [...prev];
-            const last = u[u.length - 1];
-            u[u.length - 1] = {
-              ...last,
-              reasoning: reasoningText,
-              isThinking,
-              thinkingMs: durationMs ?? last.thinkingMs ?? null,
-            };
-            return u;
-          });
-          if (!isScrolling.current) scrollToBottom();
-        },
-        (metaType, metaData) => {
-          if (!isActive()) return;
-          setMessages(prev => {
-            if (prev.length === 0) return prev;
-            const u = [...prev];
-            const last = { ...u[u.length - 1] };
-            if (metaType === "sources") last.sources = metaData;
-            if (metaType === "realtime_notice") last.realtimeNotice = metaData;
-            u[u.length - 1] = last;
-            return u;
-          });
+          setStreamingContent("");
+          try {
+            const retryBot = await streamWithPuter(browserRetry);
+            if (!isActive() || retryBot === null) return;
+            finishChat(retryBot);
+            return;
+          } catch (retryErr) {
+            if (!isActive()) return;
+            addDebugLog("Puter.retryFailed", { reqId, provider: browserRetry, error: retryErr?.message });
+          }
         }
-      );
+
+        throw backendFailure;
+      }
 
       setIsLoading(false);
       setStreamStatus("idle");
       setStreamingContent("");
+      // A stream that reported a problem but still produced an answer: keep the
+      // answer, and say what went wrong alongside it.
+      if (streamError) addToast(streamError, "error");
 
       if (!isActive()) return;
 
@@ -5279,23 +5359,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         });
       }
 
-      if (!bot || !bot.trim()) {
-        if (streamError) throw new Error(streamError);
-        setMessages(prev => {
-          if (prev.length === 0) return prev;
-          const u = [...prev];
-          u[u.length - 1] = {
-            ...u[u.length - 1],
-            content: "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models."
-          };
-          return u;
-        });
-      } else {
-        if (voiceRef.current || autoSpeakRef.current) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery, bot);
-        notifyResponseReady(bot);
-        generateFollowUps(bot, userQuery);
-      }
+      if (voiceRef.current || autoSpeakRef.current) speak(bot);
+      if (isFirstMsg) updateSessionTitle(userQuery, bot);
+      notifyResponseReady(bot);
+      generateFollowUps(bot, userQuery);
 
     } catch (err) {
       if (err.name === "AbortError") {
