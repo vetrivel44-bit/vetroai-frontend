@@ -3757,6 +3757,7 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
   const [isDictating, setIsDictating] = useState(false);
   const [ttsVoice, setTtsVoice] = useState(localStorage.getItem("vetro_tts_voice") || "en-US-JennyNeural");
 
@@ -3772,6 +3773,16 @@ export default function App() {
   const msgsRef        = useRef(messages);
   const loadRef        = useRef(isLoading);
   const submitVoiceRef = useRef(null);
+  // Voice-mode mic controller state. micRunningRef mirrors what the browser's
+  // SpeechRecognition is actually doing (set from onstart/onend) so we never
+  // call start() on an already-running instance — that throws InvalidStateError
+  // and used to leave isListening stuck out of sync with reality.
+  const micRunningRef  = useRef(false);
+  const micWantedRef   = useRef(false);
+  const transcriptRef  = useRef("");
+  const speechOkRef    = useRef(true);
+  const stopMicRef     = useRef(null);
+  const dictateRef     = useRef(null);
   // FIX 1: ref for selectedMode inside async callbacks
   const selectedModeRef  = useRef(selectedMode);
   const systemPromptRef  = useRef(systemPrompt);
@@ -4318,7 +4329,7 @@ export default function App() {
     return () => window.removeEventListener("click", h);
   }, [rxnFor]);
 
-  // ── Voice helpers ─────────────────────────────────────────────────────────────
+  // ── Voice helpers ─────────────────────────────────────────────────────────────────────────────
   const stopSpeak = () => {
     window.speechSynthesis?.cancel();
     if (window.currentAudio) {
@@ -4326,14 +4337,54 @@ export default function App() {
       window.currentAudio.currentTime = 0;
       window.currentAudio = null;
     }
+    window.isTTSLoading = false;
     setIsSpeaking(false);
   };
+
+  // True while any text-to-speech is loading or audible. The mic must stay shut
+  // during that window or the assistant transcribes its own voice.
+  const isTTSActive = () =>
+    Boolean(window.isTTSLoading) ||
+    Boolean(window.currentAudio && !window.currentAudio.paused) ||
+    Boolean(window.speechSynthesis?.speaking);
+
+  // Every mic start goes through here. It is idempotent, keeps isListening in
+  // sync with the recognizer, and refuses to open the mic while TTS is audible.
+  const startMic = useCallback((opts = {}) => {
+    const sr = recogRef.current;
+    if (!sr) return false;
+    micWantedRef.current = true;
+    if (opts.reset !== false) { transcriptRef.current = ""; setInput(""); }
+    if (micRunningRef.current || isTTSActive()) return false;
+    try {
+      sr.start();
+      micRunningRef.current = true;
+      setIsListening(true);
+      return true;
+    } catch (err) {
+      // Most often InvalidStateError from a session that has not fully ended
+      // yet; the watchdog below retries shortly.
+      swallowError(err);
+      return false;
+    }
+  }, []);
+
+  const stopMic = useCallback(({ keepWanted = false } = {}) => {
+    if (!keepWanted) micWantedRef.current = false;
+    micRunningRef.current = false;
+    setIsListening(false);
+    try { recogRef.current?.stop(); } catch (err) { swallowError(err); }
+  }, []);
+
   const closeVoice = useCallback(() => {
     setIsVoiceOpen(false);
-    if (isListening) recogRef.current?.stop();
-    setIsListening(false);
+    voiceRef.current = false;
+    // Stop unconditionally: isListening can lag behind a recognizer that is
+    // still holding the microphone, and leaving it hot is a privacy bug.
+    stopMic();
+    transcriptRef.current = "";
     stopSpeak();
-  }, [isListening]);
+  }, [stopMic]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -4389,14 +4440,15 @@ export default function App() {
       .trim();
     // Limit TTS to first 800 chars to keep latency low
     c = c.slice(0, 800);
-    if (!c.trim()) return;
+    // Nothing speakable (a code-only or emoji-only reply). Hand the turn back to
+    // the mic instead of returning, or voice mode would sit silent forever.
+    if (!c.trim()) { if (voiceRef.current) startMic(); return; }
 
     // Signal to sr.onend that TTS is starting — prevents premature mic restart
     window.isTTSLoading = true;
 
     try {
-      try { recogRef.current?.stop(); } catch (err) { swallowError(err); }
-      setIsListening(false);
+      stopMic({ keepWanted: true });
 
       const response = await fetch(`${API}/tts`, {
         method: "POST",
@@ -4412,16 +4464,16 @@ export default function App() {
       window.currentAudio = audio;
       window.isTTSLoading = false; // audio element ready, currentAudio guards from here
 
-      audio.onended = () => {
+      const afterAudio = () => {
         window.currentAudio = null;
         window.isTTSLoading = false;
         setIsSpeaking(false);
-        if (voiceRef.current) {
-          setInput("");
-          try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
-        }
+        if (voiceRef.current) startMic();
       };
-      audio.onerror = () => { window.currentAudio = null; window.isTTSLoading = false; setIsSpeaking(false); };
+      audio.onended = afterAudio;
+      // A decode/playback failure must re-arm the mic too, otherwise one bad
+      // audio blob ends the conversation.
+      audio.onerror = afterAudio;
 
       setIsSpeaking(true);
       await audio.play();
@@ -4431,13 +4483,14 @@ export default function App() {
       // Fallback to browser TTS if the backend proxy fails (e.g. not configured yet)
       if (window.speechSynthesis) {
         const u = new SpeechSynthesisUtterance(c);
-        u.onstart = () => { try { recogRef.current?.stop(); } catch (err) { swallowError(err); } setIsListening(false); setIsSpeaking(true); };
-        u.onend   = () => { setIsSpeaking(false); if (voiceRef.current) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
-        u.onerror = () => { setIsSpeaking(false); };
+        u.onstart = () => { stopMic({ keepWanted: true }); setIsSpeaking(true); };
+        u.onend   = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
+        u.onerror = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
         window.speechSynthesis.speak(u);
       } else {
         setIsSpeaking(false);
         addToast("⚠️ Voice playback isn't supported in this browser", "error");
+        if (voiceRef.current) startMic();
       }
     }
   };
@@ -4447,69 +4500,121 @@ export default function App() {
     lv();
     if (window.speechSynthesis?.onvoiceschanged !== undefined) window.speechSynthesis.onvoiceschanged = lv;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) { speechOkRef.current = false; setSpeechSupported(false); return; }
+    speechOkRef.current = true;
     const sr = new SR();
     sr.interimResults = true;
     sr.continuous = true;
     sr.lang = navigator.language || 'en-US';
 
+    sr.onstart = () => { micRunningRef.current = true; setIsListening(true); };
+
     sr.onresult = e => {
-      if (window.currentAudio && !window.currentAudio.paused) return; // backend TTS playing
-      if (window.speechSynthesis?.speaking) return; // browser TTS playing
-      // Accumulate: finalized results (0..resultIndex-1) + current interim/final chunk
+      // Drop anything heard while the assistant is talking. Discarding it (rather
+      // than just skipping the render) keeps the assistant's own voice out of the
+      // transcript we later submit.
+      if (isTTSActive()) { transcriptRef.current = ""; return; }
       let txt = "";
       for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      transcriptRef.current = txt;
       setInput(txt);
     };
-    const isTTSActive = () =>
-      window.isTTSLoading ||
-      (window.currentAudio && !window.currentAudio.paused) ||
-      window.speechSynthesis?.speaking;
 
     sr.onend = () => {
-      if (voiceRef.current && !loadRef.current && !isTTSActive()) {
-        const cur = inputRef.current || "";
-        if (cur.trim()) {
-          submitVoiceRef.current?.(cur);
-        } else {
-          // Re-arm mic after a short pause (user just paused speaking)
-          setTimeout(() => {
-            if (voiceRef.current && !loadRef.current && !isTTSActive()) {
-              try { sr.start(); setIsListening(true); } catch (err) { swallowError(err); }
-            }
-          }, 400);
-        }
+      micRunningRef.current = false;
+      setIsListening(false);
+      if (!micWantedRef.current || !voiceRef.current) return;
+      if (loadRef.current || isTTSActive()) return;
+      const cur = (transcriptRef.current || inputRef.current || "").trim();
+      if (cur) {
+        transcriptRef.current = "";
+        submitVoiceRef.current?.(cur);
       } else {
-        setIsListening(false);
+        // The user just paused. Re-arm after a short beat; the watchdog covers
+        // us if this particular restart is rejected.
+        setTimeout(() => {
+          if (voiceRef.current && micWantedRef.current && !loadRef.current) startMic();
+        }, 400);
       }
     };
-    sr.onerror = e => {
-      if (e.error === "not-allowed") { setIsListening(false); setIsVoiceOpen(false); addToast("⚠️ Microphone access denied", "error"); }
-      if (e.error === "no-speech" || e.error === "network") {
-         if (voiceRef.current && !isTTSActive()) {
-             try { sr.start(); setIsListening(true); } catch (err) { swallowError(err); }
-         }
-      }
-    };
-    recogRef.current = sr;
-  }, [addToast]);
 
-  const toggleMic = e => { e?.preventDefault(); if (!recogRef.current) return; if (isListening) recogRef.current.stop(); else { setInput(""); recogRef.current.start(); setIsListening(true); } };
-  const openVoice = e => { e.preventDefault(); window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); setAutoSpeak(true); setIsVoiceOpen(true); if (!isListening) { setInput(""); try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); } } };
+    sr.onerror = e => {
+      micRunningRef.current = false;
+      const code = e?.error;
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        micWantedRef.current = false;
+        setIsListening(false);
+        setIsVoiceOpen(false);
+        addToast("⚠️ Microphone access denied", "error");
+        return;
+      }
+      if (code === "audio-capture") {
+        micWantedRef.current = false;
+        setIsListening(false);
+        setIsVoiceOpen(false);
+        addToast("⚠️ No microphone found", "error");
+        return;
+      }
+      // no-speech, network, aborted and anything else are recoverable. Do not
+      // call start() here: onend has not fired yet, so it would always throw.
+      // onend and the watchdog bring the mic back.
+      setIsListening(false);
+    };
+
+    recogRef.current = sr;
+    return () => {
+      micWantedRef.current = false;
+      micRunningRef.current = false;
+      sr.onresult = sr.onend = sr.onerror = sr.onstart = null;
+      try { sr.abort(); } catch (err) { swallowError(err); }
+      recogRef.current = null;
+    };
+  }, [addToast, startMic]);
+
+  // Watchdog: voice mode is a long chain of async handoffs (recognizer → request
+  // → TTS → recognizer) and any dropped link used to leave the overlay stuck on
+  // "Ready" with no way back. This re-opens the mic whenever it should be open
+  // but is not.
+  useEffect(() => {
+    if (!isVoiceOpen) return;
+    const t = setInterval(() => {
+      if (!voiceRef.current || !micWantedRef.current) return;
+      if (micRunningRef.current || loadRef.current || isTTSActive()) return;
+      startMic({ reset: false });
+    }, 1200);
+    return () => clearInterval(t);
+  }, [isVoiceOpen, startMic]);
+
+  const openVoice = e => {
+    e.preventDefault();
+    if (!speechOkRef.current) {
+      addToast("⚠️ Voice mode needs a browser with speech recognition (try Chrome or Edge)", "error");
+      return;
+    }
+    if (!window.isSecureContext) {
+      addToast("⚠️ Voice mode needs a secure (https) connection", "error");
+      return;
+    }
+    // Priming speech synthesis inside the click keeps the browser-TTS fallback
+    // usable later, when no user gesture is in scope.
+    window.speechSynthesis?.speak(new SpeechSynthesisUtterance(""));
+    setAutoSpeak(true);
+    setIsVoiceOpen(true);
+    voiceRef.current = true;
+    startMic();
+  };
 
   const handleOrb = () => {
     if (isLoading) return;
-    const backendTTSPlaying = window.currentAudio && !window.currentAudio.paused;
-    if (backendTTSPlaying || window.speechSynthesis?.speaking) {
-      // Tap to interrupt: stop TTS and re-arm mic
+    if (isTTSActive()) {
+      // Tap to interrupt: stop the assistant mid-sentence and listen again.
       stopSpeak();
-      setInput("");
-      try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
-    } else if (isListening) {
-      recogRef.current?.stop();
+      startMic();
+    } else if (micRunningRef.current) {
+      // Tap to submit what has been said so far; onend picks it up.
+      stopMic({ keepWanted: true });
     } else {
-      setInput("");
-      try { recogRef.current?.start(); setIsListening(true); } catch (err) { swallowError(err); }
+      startMic();
     }
   };
 
@@ -5240,21 +5345,24 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   };
 
   const submitVoice = useCallback(txt => {
-    try { recogRef.current?.stop(); } catch (err) { swallowError(err); }
-    setIsListening(false);
+    // keepWanted: the mic should come back on once the reply has been spoken.
+    stopMicRef.current?.({ keepWanted: true });
+    transcriptRef.current = "";
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const hist = [...msgsRef.current, { role: "user", content: txt, timestamp: ts }];
     setMessages(hist); setInput(""); triggerAI(hist);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { submitVoiceRef.current = submitVoice; }, [submitVoice]);
+  useEffect(() => { stopMicRef.current = stopMic; }, [stopMic]);
 
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
     setPluginMention((previous) => ({ ...previous, open: false, query: "", start: -1, index: 0 }));
     const text = (prefill || input).trim();
     if (!text && !selFiles.length) return;
-    if (isListening) recogRef.current?.stop();
+    stopMic({ keepWanted: voiceRef.current });
+    transcriptRef.current = "";
 
     // "Remember my name is X" — save the fact, then let the message send
     // normally so the assistant still acknowledges it. Only an explicit
@@ -5512,7 +5620,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       return;
     }
 
+    // Dictation and voice mode both want the microphone; running them together
+    // makes the browser abort one of them at random.
+    if (voiceRef.current) {
+      addToast("Close voice mode before dictating.", "info");
+      return;
+    }
+
     if (isDictating) {
+      // Actually release the microphone. This used to only flip the flag, so
+      // the recognizer kept recording and kept appending to the input.
+      try { dictateRef.current?.stop(); } catch (err) { swallowError(err); }
+      dictateRef.current = null;
       setIsDictating(false);
       return;
     }
@@ -5520,12 +5639,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
+    recognition.lang = navigator.language || "en-US";
 
     recognition.onstart = () => setIsDictating(true);
-    recognition.onend = () => setIsDictating(false);
+    recognition.onend = () => { dictateRef.current = null; setIsDictating(false); };
     recognition.onerror = (e) => {
-      console.error(e);
+      dictateRef.current = null;
       setIsDictating(false);
+      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") addToast("⚠️ Microphone access denied", "error");
+      else if (e?.error === "audio-capture") addToast("⚠️ No microphone found", "error");
     };
     recognition.onresult = (e) => {
       let finalTranscript = "";
@@ -5539,9 +5661,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     };
     try {
+      dictateRef.current = recognition;
       recognition.start();
     } catch (e) {
-      console.error(e);
+      swallowError(e);
+      dictateRef.current = null;
       setIsDictating(false);
     }
   };
@@ -5674,7 +5798,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             ) : (
-              <button type="button" className="claude-action-btn voice" onClick={openVoice} title="Start Voice Mode">
+              <button type="button" className="claude-action-btn voice" onClick={openVoice} title={speechSupported ? "Start Voice Mode" : "Voice mode needs Chrome or Edge"} aria-disabled={!speechSupported} style={speechSupported ? undefined : { opacity: 0.45 }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14v-4m4 6V8m4 8V6m4 8V8m4 6v-4" /></svg>
               </button>
             )}
@@ -6783,8 +6907,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   }}
                 />
               ))}
-              <div
-                className="absolute rounded-full flex items-center justify-center transition-[width,height,background,box-shadow] duration-300"
+              <button
+                type="button"
+                onClick={handleOrb}
+                aria-label={isListening ? "Stop listening and send" : isSpeaking ? "Interrupt and speak" : "Start listening"}
+                title={isListening ? "Tap to send" : isSpeaking ? "Tap to interrupt" : "Tap to talk"}
+                className="absolute rounded-full flex items-center justify-center transition-[width,height,background,box-shadow] duration-300 cursor-pointer border-0 p-0"
                 style={{
                   top: "50%",
                   left: "50%",
@@ -6811,12 +6939,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               >
                 {/* Inner glowing core */}
                 <div className="absolute inset-2 bg-white/20 rounded-full blur-md mix-blend-overlay"></div>
-              </div>
+              </button>
             </div>
 
             {/* Status text */}
-            <div className="text-white/80 font-medium tracking-wide text-xl -mt-6">
-              {isListening ? "Listening..." : isSpeaking ? "Speaking..." : "Ready"}
+            <div className="text-white/80 font-medium tracking-wide text-xl -mt-6 text-center">
+              {isListening ? "Listening..." : isSpeaking ? "Speaking..." : isLoading ? "Thinking..." : "Ready"}
+              <div className="text-white/40 text-xs font-normal mt-1">
+                {isSpeaking ? "Tap the orb to interrupt" : isListening ? "Tap the orb to send" : "Tap the orb to talk"}
+              </div>
             </div>
 
             {/* The Custom Voice Selector Pills */}
