@@ -11905,7 +11905,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
      sitting on top of it. Hue stays near 265deg across every step. */
   --bg:#EDE3FC; --bg-2:#FFFFFF; --bg-sidebar:#FBF9FE; --bg-elevated:#FFFFFF;
   --bg-hover:#F1E9FC; --bg-active:#E7DCFB;
-  --ink:#1C1330; --ink-2:#443A5C; --ink-3:#6B6480; --ink-4:#8E87A3; --ink-5:#CFC6E4;
+  --ink:#1C1330; --ink-2:#403659; --ink-3:#5B5474; --ink-4:#756E8C; --ink-5:#CFC6E4;
   --accent:#7C3AED; --accent-soft:rgba(124,58,237,.10); --accent-mid:rgba(124,58,237,.20);
   --accent-glow:rgba(124,58,237,.14); --accent-rgb:124,58,237;
   --success:#1F8F67; --danger:#DC4C6B; --danger-soft:rgba(220,76,107,.10);
@@ -12823,4 +12823,33 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   border-radius: 999px;
   padding: 0 12px 0 10px;
   gap: 6px;
+}
+
+/* Legibility on the lavender surface. The wash is lighter than the old beige,
+   so ink steps that passed on it were reading as barely-there here: the
+   sidebar's group labels and the header's icon buttons both sat at 3.3:1,
+   below the 4.5:1 floor for text. Measured against the sidebar's own #FBF9FE.
+   The group labels are not listed here: they carry an inline var(--ink-4),
+   which no rule can override, so darkening that step is what lifts them. */
+[data-theme="light"] .claude-sb-item,
+[data-theme="light"] .claude-sb-recent {
+  color: var(--ink-2); /* ~9:1 */
+}
+[data-theme="light"] .claude-sb-icon-btn {
+  color: var(--ink-2);
+}
+[data-theme="light"] .claude-sb-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* The wordmark is a light-toned PNG. The stock filter was tuned for the old
+   warm-white sidebar and leaves it faint on lavender, so light mode drives the
+   contrast harder and the brightness lower. */
+[data-theme="light"] .vetro-brand-logo {
+  filter: contrast(1.5) saturate(1.9) brightness(0.58);
+}
+[data-theme="light"] .vetro-brand-link:hover .vetro-brand-logo {
+  filter: contrast(1.6) saturate(2) brightness(0.48);
+  opacity: 1;
 }
