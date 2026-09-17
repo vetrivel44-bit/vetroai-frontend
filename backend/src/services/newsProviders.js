@@ -5,6 +5,41 @@
 // `pubDate`). Other services answer the same question in their own shape, so
 // each one gets a request builder and a normalizer back to that shape — the
 // frontend never has to know which service answered.
+// The panel's timeAgo() only understands a trailing "Z" or a bare
+// "YYYY-MM-DD HH:MM:SS". Currents sends "2026-09-17 12:00:00 +0000", which
+// becomes "2026-09-17T12:00:00 +0000Z" there — an invalid Date, rendered as
+// "NaNm" on every card. Anything with an offset is converted to ISO here.
+function toIsoDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  // "2026-09-17 12:00:00 +0000" / "+05:30" → replace the date/time space only.
+  const offsetForm = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*([+-]\d{2}):?(\d{2})$/);
+  if (offsetForm) {
+    const [, date, time, offsetHours, offsetMinutes] = offsetForm;
+    const parsed = new Date(`${date}T${time}${offsetHours}:${offsetMinutes}`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  // Already ISO with a zone, or the bare form the panel handles itself.
+  return text;
+}
+
+// Currents reports a missing image as the literal string "None", which would
+// render as a broken <img> the panel then hides.
+// Currents has no source-name field, so the outlet is read off the link.
+function hostOf(url) {
+  try {
+    return new URL(String(url)).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function cleanImageUrl(value) {
+  const text = String(value || "").trim();
+  if (!text || text.toLowerCase() === "none" || text.toLowerCase() === "null") return null;
+  return text;
+}
+
 const PROVIDERS = {
   // newsdata.io — the original integration. Keys are prefixed `pub_`.
   newsdata: {
@@ -96,6 +131,44 @@ const PROVIDERS = {
       pubDate: item.publishedAt || null,
     })),
   },
+
+  // currentsapi.services — 48-character tokens. Its category vocabulary
+  // already matches the panel's one-for-one.
+  currents: {
+    label: "currentsapi.services",
+    categories: {
+      business: "business", technology: "technology", sports: "sports",
+      entertainment: "entertainment", health: "health", science: "science",
+      politics: "politics",
+    },
+    buildRequest({ apiKey, query, category, language, limit }) {
+      const params = new URLSearchParams({ language });
+      if (category) params.set("category", category);
+      // Plan-capped like thenewsapi's, so only sent when configured.
+      if (limit) params.set("page_size", String(limit));
+      // Search and latest are separate endpoints; `keywords` is the search term.
+      const path = query ? "search" : "latest-news";
+      if (query) params.set("keywords", query);
+      return {
+        // Currents accepts the token as a query parameter too, but the header
+        // keeps it out of URLs and any upstream error that echoes them.
+        url: `https://api.currentsapi.services/v1/${path}?${params}`,
+        headers: { Authorization: apiKey },
+      };
+    },
+    normalize: (payload) => (Array.isArray(payload?.news) ? payload.news : []).map((item) => ({
+      article_id: item.id || item.url || null,
+      title: item.title || "",
+      description: item.description || "",
+      link: item.url || "",
+      image_url: cleanImageUrl(item.image),
+      // Currents names the outlet nowhere but the article URL's host.
+      source_name: hostOf(item.url),
+      source_id: hostOf(item.url),
+      source_icon: null,
+      pubDate: toIsoDate(item.published),
+    })),
+  },
 };
 
 // Works out which service a key belongs to from its shape, so an existing
@@ -108,6 +181,9 @@ function detectNewsProvider(apiKey, explicit = "") {
   if (!key) return null;
   if (key.startsWith("pub_")) return "newsdata";
   if (/^[0-9a-f]{32}$/i.test(key)) return "newsapi";
+  // thenewsapi issues 40-character tokens, Currents longer ones. The two are
+  // only told apart by length, so NEWS_PROVIDER exists for when that is wrong.
+  if (/^[A-Za-z0-9_-]{44,}$/.test(key)) return "currents";
   return "thenewsapi";
 }
 
@@ -141,6 +217,7 @@ function providerLabel(provider) {
 
 module.exports = {
   PROVIDERS,
+  toIsoDate,
   detectNewsProvider,
   resolveCategory,
   buildNewsRequest,

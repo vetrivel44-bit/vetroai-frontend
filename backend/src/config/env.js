@@ -93,11 +93,11 @@ module.exports = {
     // the provider-neutral one, since the feed now speaks to whichever
     // service the key belongs to.
     newsDataApiKey:      getEnv("NEWS_API_KEY", "") || getEnv("NEWSDATA_API_KEY", ""),
-    // Optional override: newsdata | thenewsapi | newsapi. Left empty, the
-    // provider is detected from the key's shape.
+    // Optional override: currents | newsdata | thenewsapi | newsapi. Left
+    // empty, the provider is detected from the key's shape.
     newsProvider:        getEnv("NEWS_PROVIDER",         ""),
-    // Optional per-request article cap. thenewsapi rejects a limit above the
-    // plan's ceiling (3 on free), so it is only sent when set.
+    // Optional per-request article cap. thenewsapi and currents both cap this
+    // per plan and reject anything over, so it is only sent when set.
     newsLimit:           getEnv("NEWS_API_LIMIT",        ""),
     apiSportsKey:        getEnv("API_SPORTS_KEY",         ""),
     stripeSecretKey:        getEnv("STRIPE_SECRET_KEY",        ""),

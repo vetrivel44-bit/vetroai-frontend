@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   detectNewsProvider,
+  toIsoDate,
   resolveCategory,
   buildNewsRequest,
   normalizeNewsPayload,
@@ -17,6 +18,10 @@ test("a pub_ key is newsdata.io", () => {
 
 test("a 40-character alphanumeric token is thenewsapi.com", () => {
   assert.equal(detectNewsProvider("EXAMPLE40charAlphanumericTokenShapeAaBbX"), "thenewsapi");
+});
+
+test("a 48-character token is currentsapi.services", () => {
+  assert.equal(detectNewsProvider("EXAMPLE48charCurrentsStyleTokenShapeAaBbCcDdEeFf"), "currents");
 });
 
 test("a 32-character hex key is newsapi.org", () => {
@@ -39,7 +44,7 @@ test("no key means no provider", () => {
 
 // ── Category vocabulary ──────────────────────────────────────────────────────
 test("top means no category filter everywhere", () => {
-  for (const provider of ["newsdata", "thenewsapi", "newsapi"]) {
+  for (const provider of ["newsdata", "thenewsapi", "newsapi", "currents"]) {
     assert.equal(resolveCategory(provider, "top"), "");
   }
 });
@@ -161,10 +166,82 @@ test("newsdata articles pass through untouched", () => {
   assert.deepEqual(normalizeNewsPayload("newsdata", { results: original }), original);
 });
 
+// ── Currents API ─────────────────────────────────────────────────────────────
+test("currents headlines use /latest-news with the token in a header", () => {
+  const { url, headers } = buildNewsRequest("currents", {
+    apiKey: "SECRET", query: "", category: "technology", language: "en",
+  });
+  assert.match(url, /^https:\/\/api\.currentsapi\.services\/v1\/latest-news\?/);
+  assert.equal(headers.Authorization, "SECRET");
+  assert.ok(!url.includes("SECRET"));
+  const params = new URL(url).searchParams;
+  assert.equal(params.get("category"), "technology");
+  assert.equal(params.get("language"), "en");
+  assert.equal(params.get("page_size"), null);
+});
+
+test("currents search uses /search with keywords", () => {
+  const { url } = buildNewsRequest("currents", {
+    apiKey: "SECRET", query: "chennai floods", category: "top", language: "en", limit: 20,
+  });
+  assert.match(url, /^https:\/\/api\.currentsapi\.services\/v1\/search\?/);
+  const params = new URL(url).searchParams;
+  assert.equal(params.get("keywords"), "chennai floods");
+  assert.equal(params.get("page_size"), "20");
+});
+
+test("a currents article maps onto the shape the panel renders", () => {
+  const [article] = normalizeNewsPayload("currents", {
+    news: [{
+      id: "cur-1",
+      title: "Headline",
+      description: "Summary",
+      url: "https://www.example.com/story",
+      image: "https://example.com/story.jpg",
+      published: "2026-09-17 12:00:00 +0000",
+    }],
+  });
+  assert.equal(article.article_id, "cur-1");
+  assert.equal(article.link, "https://www.example.com/story");
+  assert.equal(article.image_url, "https://example.com/story.jpg");
+  // Currents names no outlet, so the link's host stands in for one.
+  assert.equal(article.source_name, "example.com");
+});
+
+// The bug this guards: the panel's timeAgo() turns an offset timestamp into an
+// invalid Date, so every card read "NaNm" instead of "5m".
+test("a currents timestamp is converted to something timeAgo can parse", () => {
+  const [article] = normalizeNewsPayload("currents", {
+    news: [{ title: "T", url: "https://example.com", published: "2026-09-17 12:00:00 +0000" }],
+  });
+  assert.equal(article.pubDate, "2026-09-17T12:00:00.000Z");
+  assert.ok(!Number.isNaN(new Date(article.pubDate).getTime()));
+});
+
+test("a non-UTC offset is converted to the right instant", () => {
+  assert.equal(toIsoDate("2026-09-17 12:00:00 +05:30"), "2026-09-17T06:30:00.000Z");
+  assert.equal(toIsoDate("2026-09-17 12:00:00 -0400"), "2026-09-17T16:00:00.000Z");
+});
+
+test("timestamps the panel already handles are left alone", () => {
+  assert.equal(toIsoDate("2026-09-17T12:00:00Z"), "2026-09-17T12:00:00Z");
+  assert.equal(toIsoDate("2026-09-17 12:00:00"), "2026-09-17 12:00:00");
+  assert.equal(toIsoDate(""), null);
+  assert.equal(toIsoDate(null), null);
+});
+
+// Currents sends the literal string "None" when an article has no image.
+test('currents "None" image becomes no image at all', () => {
+  const [article] = normalizeNewsPayload("currents", {
+    news: [{ title: "T", url: "https://example.com", image: "None" }],
+  });
+  assert.equal(article.image_url, null);
+});
+
 // An error body, or a plan that returns nothing, must not crash the panel.
 test("a payload with no articles normalizes to an empty list", () => {
-  for (const provider of ["newsdata", "thenewsapi", "newsapi"]) {
+  for (const provider of ["newsdata", "thenewsapi", "newsapi", "currents"]) {
     assert.deepEqual(normalizeNewsPayload(provider, {}), []);
-    assert.deepEqual(normalizeNewsPayload(provider, { results: null, data: null, articles: null }), []);
+    assert.deepEqual(normalizeNewsPayload(provider, { results: null, data: null, articles: null, news: null }), []);
   }
 });
