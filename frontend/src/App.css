@@ -11903,7 +11903,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   /* Lavender light mode. The neutrals carry a violet cast rather than the
      previous warm beige, so the accent reads as part of the surface instead of
      sitting on top of it. Hue stays near 265deg across every step. */
-  --bg:#F4EFFD; --bg-2:#FFFFFF; --bg-sidebar:#FBF9FE; --bg-elevated:#FFFFFF;
+  --bg:#EDE3FC; --bg-2:#FFFFFF; --bg-sidebar:#FBF9FE; --bg-elevated:#FFFFFF;
   --bg-hover:#F1E9FC; --bg-active:#E7DCFB;
   --ink:#1C1330; --ink-2:#443A5C; --ink-3:#6B6480; --ink-4:#8E87A3; --ink-5:#CFC6E4;
   --accent:#7C3AED; --accent-soft:rgba(124,58,237,.10); --accent-mid:rgba(124,58,237,.20);
@@ -12686,10 +12686,10 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
    instead, which layers over that color rather than competing with it. */
 [data-theme="light"] main {
   background-image:
-    radial-gradient(1100px 620px at 12% -8%, rgba(139,92,246,.22), transparent 62%),
-    radial-gradient(760px 520px at 88% 4%, rgba(196,140,255,.16), transparent 68%),
-    radial-gradient(880px 600px at 30% 108%, rgba(236,142,222,.16), transparent 64%),
-    linear-gradient(180deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 42%);
+    radial-gradient(1200px 680px at 10% -10%, rgba(139,92,246,.40), transparent 60%),
+    radial-gradient(820px 560px at 92% 2%, rgba(186,130,255,.30), transparent 64%),
+    radial-gradient(940px 640px at 26% 106%, rgba(236,142,222,.30), transparent 62%),
+    radial-gradient(1000px 700px at 70% 82%, rgba(160,120,250,.20), transparent 66%);
   background-attachment: fixed;
 }
 
@@ -12700,24 +12700,97 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   backdrop-filter: blur(10px);
 }
 
-/* The composer: translucent white over the wash with a violet-tinted lift, so
-   it reads as glass rather than as a panel sitting on the page. */
+/* The composer. Translucent white over the wash with a violet-tinted lift, so
+   it reads as glass rather than as a panel sitting on the page — and tall,
+   with the question on its own line and the controls as a toolbar along the
+   bottom, rather than one cramped row. */
 [data-theme="light"] .claude-input-box {
-  background: rgba(255,255,255,.78);
-  border-color: rgba(124,58,237,.16);
-  backdrop-filter: blur(18px) saturate(1.3);
+  background: rgba(255,255,255,.52);
+  border-color: rgba(255,255,255,.55);
+  border-radius: 26px;
+  padding: 20px 22px 14px;
+  min-height: 132px;
+  justify-content: space-between;
+  backdrop-filter: blur(22px) saturate(1.4);
   box-shadow:
-    0 1px 2px rgba(28,19,48,.04),
-    0 12px 32px -12px rgba(124,58,237,.22),
-    inset 0 1px 0 rgba(255,255,255,.75);
+    0 1px 2px rgba(28,19,48,.03),
+    0 16px 40px -14px rgba(124,58,237,.26),
+    inset 0 1px 0 rgba(255,255,255,.65);
 }
 [data-theme="light"] .claude-input-box:focus-within {
-  background: rgba(255,255,255,.92);
-  border-color: rgba(124,58,237,.30);
+  background: rgba(255,255,255,.66);
+  border-color: rgba(255,255,255,.80);
   box-shadow:
     0 1px 2px rgba(28,19,48,.05),
     0 18px 44px -14px rgba(124,58,237,.30),
     inset 0 1px 0 rgba(255,255,255,.85);
+}
+
+/* The question gets room to breathe above the toolbar. */
+[data-theme="light"] .claude-input-box textarea {
+  min-height: 46px;
+  font-size: 1.02rem;
+}
+
+/* Toolbar: the controls sit on a hairline, as a row of pills. */
+[data-theme="light"] .claude-input-footer {
+  border-top: 1px solid rgba(124,58,237,.10);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+[data-theme="light"] .claude-footer-left,
+[data-theme="light"] .claude-footer-right { gap: 8px; }
+
+/* Each control becomes a pill: white, hairline-bordered, lifted just enough to
+   separate it from the glass behind it. A button with a label grows to fit it;
+   an icon-only one stays a circle. */
+[data-theme="light"] .claude-attach-btn,
+[data-theme="light"] .claude-action-btn {
+  background: rgba(255,255,255,.70);
+  border: 1px solid rgba(255,255,255,.70);
+  border-radius: 999px;
+  color: var(--ink-2);
+  height: 36px;
+  min-width: 36px;
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(28,19,48,.04);
+}
+[data-theme="light"] .claude-attach-btn:hover,
+[data-theme="light"] .claude-action-btn:hover {
+  background: #FFFFFF;
+  border-color: rgba(124,58,237,.30);
+  color: var(--accent);
+  box-shadow: 0 4px 12px -4px rgba(124,58,237,.28);
+}
+[data-theme="light"] .composer-btn-label {
+  font-size: .82rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding-right: 2px;
+}
+
+/* The model/effort pill is the primary control in the row, so it carries the
+   accent tint the plain pills do not. */
+[data-theme="light"] .claude-input-footer .mode-pill {
+  background: rgba(124,58,237,.08);
+  border-color: rgba(124,58,237,.18);
+  color: var(--ink);
+  height: 36px;
+  padding: 0 14px;
+}
+[data-theme="light"] .claude-input-footer .mode-pill:hover {
+  background: rgba(124,58,237,.14);
+  border-color: rgba(124,58,237,.32);
+}
+[data-theme="light"] .claude-input-footer .mode-pill-effort {
+  background: rgba(124,58,237,.14);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 /* The user's own turn, filled in the accent so the two sides of the
@@ -12741,3 +12814,13 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 /* Greeting block on the empty state, matching the wash rather than sitting on
    an opaque rectangle. */
 [data-theme="light"] .claude-empty-container { background: transparent; }
+
+/* A control that carries a label is a pill, not a 32px circle — without this
+   the label overflows the button it belongs to. Applies in both themes,
+   because the label itself is not theme-scoped. */
+.claude-attach-btn:has(.composer-btn-label) {
+  width: auto;
+  border-radius: 999px;
+  padding: 0 12px 0 10px;
+  gap: 6px;
+}
