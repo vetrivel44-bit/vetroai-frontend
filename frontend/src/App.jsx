@@ -5825,6 +5825,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             </button>
             <button type="button" className="claude-attach-btn ws-modal-trigger-btn" onClick={() => setShowWebSearchModal(true)} title="Open Web Search">
               <Globe size={18} />
+              {/* Labelled so the control reads as a pill rather than an
+                  unexplained icon; hidden on narrow screens where the toolbar
+                  has no room for it. */}
+              <span className="composer-btn-label hidden sm:inline">Search</span>
             </button>
           </div>
 
