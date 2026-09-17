@@ -89,7 +89,16 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
-    newsDataApiKey:      getEnv("NEWSDATA_API_KEY",       ""),
+    // NEWSDATA_API_KEY is the original name and still works; NEWS_API_KEY is
+    // the provider-neutral one, since the feed now speaks to whichever
+    // service the key belongs to.
+    newsDataApiKey:      getEnv("NEWS_API_KEY", "") || getEnv("NEWSDATA_API_KEY", ""),
+    // Optional override: currents | newsdata | thenewsapi | newsapi. Left
+    // empty, the provider is detected from the key's shape.
+    newsProvider:        getEnv("NEWS_PROVIDER",         ""),
+    // Optional per-request article cap. thenewsapi and currents both cap this
+    // per plan and reject anything over, so it is only sent when set.
+    newsLimit:           getEnv("NEWS_API_LIMIT",        ""),
     apiSportsKey:        getEnv("API_SPORTS_KEY",         ""),
     stripeSecretKey:        getEnv("STRIPE_SECRET_KEY",        ""),
     stripePublishableKey:   getEnv("STRIPE_PUBLISHABLE_KEY",   ""),

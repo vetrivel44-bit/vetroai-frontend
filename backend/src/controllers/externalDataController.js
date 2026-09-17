@@ -1,5 +1,12 @@
 const ApiError = require("../utils/apiError");
 const { config } = require("../config/env");
+const {
+  detectNewsProvider,
+  buildNewsRequest,
+  buildNewsAuthFallback,
+  normalizeNewsPayload,
+  providerLabel,
+} = require("../services/newsProviders");
 
 const NEWS_CATEGORIES = new Set([
   "top", "business", "technology", "sports", "entertainment", "health", "science", "politics",
@@ -23,18 +30,55 @@ async function fetchJson(url, options = {}) {
 async function latestNews(req, res, next) {
   try {
     if (!config.newsDataApiKey) throw new ApiError(503, "News service is not configured.");
+    const provider = detectNewsProvider(config.newsDataApiKey, config.newsProvider);
+    if (!provider) throw new ApiError(503, "News service is not configured.");
+
     const query = String(req.query.q || "").trim().slice(0, 100);
-    const category = String(req.query.category || "top").toLowerCase();
+    const requested = String(req.query.category || "top").toLowerCase();
+    const category = NEWS_CATEGORIES.has(requested) ? requested : "top";
     const language = /^[a-z]{2}$/.test(String(req.query.language || "en"))
       ? String(req.query.language || "en")
       : "en";
+    const limit = /^\d{1,3}$/.test(String(config.newsLimit || "")) ? Number(config.newsLimit) : 0;
 
-    const params = new URLSearchParams({ apikey: config.newsDataApiKey, language });
-    if (query) params.set("q", query);
-    else if (category !== "top" && NEWS_CATEGORIES.has(category)) params.set("category", category);
+    const requestParams = {
+      apiKey: config.newsDataApiKey,
+      query,
+      category,
+      language,
+      limit,
+    };
+    const request = buildNewsRequest(provider, requestParams);
 
-    const data = await fetchJson(`https://newsdata.io/api/1/latest?${params}`);
-    return res.json(data);
+    let payload;
+    try {
+      try {
+        payload = await fetchJson(request.url, { headers: request.headers });
+      } catch (error) {
+        // Some services document more than one way to pass the key (Currents
+        // has moved between a bare Authorization header, a Bearer one and an
+        // `apiKey` parameter). Rather than making the operator work out which
+        // their account wants, an unauthorized answer is retried once on the
+        // provider's other form.
+        const unauthorized = error?.statusCode === 401 || error?.statusCode === 403;
+        const fallback = unauthorized ? buildNewsAuthFallback(provider, requestParams, request) : null;
+        if (!fallback) throw error;
+        payload = await fetchJson(fallback.url, { headers: fallback.headers });
+      }
+    } catch (error) {
+      // The upstream status is the useful part, but its body can carry the key
+      // back in an echoed request URL — so only the status and the service name
+      // are passed on.
+      const status = error?.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
+      const reason = status === 401 || status === 403
+        ? `${providerLabel(provider)} rejected the configured news API key.`
+        : `${providerLabel(provider)} could not be reached (${status}).`;
+      throw new ApiError(status === 401 || status === 403 ? 503 : status, reason);
+    }
+
+    // Always the newsdata-shaped `results` array the frontend panel renders,
+    // whichever service answered.
+    return res.json({ results: normalizeNewsPayload(provider, payload) });
   } catch (error) {
     return next(error);
   }
