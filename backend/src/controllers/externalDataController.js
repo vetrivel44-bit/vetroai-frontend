@@ -3,6 +3,7 @@ const { config } = require("../config/env");
 const {
   detectNewsProvider,
   buildNewsRequest,
+  buildNewsAuthFallback,
   normalizeNewsPayload,
   providerLabel,
 } = require("../services/newsProviders");
@@ -40,17 +41,30 @@ async function latestNews(req, res, next) {
       : "en";
     const limit = /^\d{1,3}$/.test(String(config.newsLimit || "")) ? Number(config.newsLimit) : 0;
 
-    const { url, headers } = buildNewsRequest(provider, {
+    const requestParams = {
       apiKey: config.newsDataApiKey,
       query,
       category,
       language,
       limit,
-    });
+    };
+    const request = buildNewsRequest(provider, requestParams);
 
     let payload;
     try {
-      payload = await fetchJson(url, { headers });
+      try {
+        payload = await fetchJson(request.url, { headers: request.headers });
+      } catch (error) {
+        // Some services document more than one way to pass the key (Currents
+        // has moved between a bare Authorization header, a Bearer one and an
+        // `apiKey` parameter). Rather than making the operator work out which
+        // their account wants, an unauthorized answer is retried once on the
+        // provider's other form.
+        const unauthorized = error?.statusCode === 401 || error?.statusCode === 403;
+        const fallback = unauthorized ? buildNewsAuthFallback(provider, requestParams, request) : null;
+        if (!fallback) throw error;
+        payload = await fetchJson(fallback.url, { headers: fallback.headers });
+      }
     } catch (error) {
       // The upstream status is the useful part, but its body can carry the key
       // back in an echoed request URL — so only the status and the service name

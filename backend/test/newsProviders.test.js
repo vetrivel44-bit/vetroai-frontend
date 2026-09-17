@@ -6,6 +6,7 @@ const {
   toIsoDate,
   resolveCategory,
   buildNewsRequest,
+  buildNewsAuthFallback,
   normalizeNewsPayload,
 } = require("../src/services/newsProviders");
 
@@ -167,12 +168,12 @@ test("newsdata articles pass through untouched", () => {
 });
 
 // ── Currents API ─────────────────────────────────────────────────────────────
-test("currents headlines use /latest-news with the token in a header", () => {
+test("currents headlines use /latest-news with a Bearer token header", () => {
   const { url, headers } = buildNewsRequest("currents", {
     apiKey: "SECRET", query: "", category: "technology", language: "en",
   });
   assert.match(url, /^https:\/\/api\.currentsapi\.services\/v1\/latest-news\?/);
-  assert.equal(headers.Authorization, "SECRET");
+  assert.equal(headers.Authorization, "Bearer SECRET");
   assert.ok(!url.includes("SECRET"));
   const params = new URL(url).searchParams;
   assert.equal(params.get("category"), "technology");
@@ -188,6 +189,36 @@ test("currents search uses /search with keywords", () => {
   const params = new URL(url).searchParams;
   assert.equal(params.get("keywords"), "chennai floods");
   assert.equal(params.get("page_size"), "20");
+});
+
+// Currents' docs have shown a bare Authorization header, a Bearer one and an
+// `apiKey` parameter at different times. A 401 on the first form is retried
+// once on the other rather than making the operator guess which their account
+// wants.
+test("currents falls back to the apiKey parameter", () => {
+  const params = { apiKey: "SECRET", query: "", category: "top", language: "en" };
+  const request = buildNewsRequest("currents", params);
+  const fallback = buildNewsAuthFallback("currents", params, request);
+  const search = new URL(fallback.url).searchParams;
+  assert.equal(search.get("apiKey"), "SECRET");
+  assert.equal(search.get("language"), "en");
+  assert.deepEqual(fallback.headers, {});
+  // The original request is not mutated by building the fallback.
+  assert.equal(request.headers.Authorization, "Bearer SECRET");
+});
+
+test("a fallback keeps the endpoint and query it was built from", () => {
+  const params = { apiKey: "SECRET", query: "floods", category: "top", language: "en" };
+  const fallback = buildNewsAuthFallback("currents", params, buildNewsRequest("currents", params));
+  assert.match(fallback.url, /\/v1\/search\?/);
+  assert.equal(new URL(fallback.url).searchParams.get("keywords"), "floods");
+});
+
+test("providers with one auth form have no fallback", () => {
+  for (const provider of ["newsdata", "thenewsapi", "newsapi"]) {
+    const params = { apiKey: "K", query: "", category: "top", language: "en" };
+    assert.equal(buildNewsAuthFallback(provider, params, buildNewsRequest(provider, params)), null);
+  }
 });
 
 test("a currents article maps onto the shape the panel renders", () => {

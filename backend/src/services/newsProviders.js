@@ -150,11 +150,20 @@ const PROVIDERS = {
       const path = query ? "search" : "latest-news";
       if (query) params.set("keywords", query);
       return {
-        // Currents accepts the token as a query parameter too, but the header
-        // keeps it out of URLs and any upstream error that echoes them.
+        // The docs show "Authorization: Bearer <token>". Older ones showed the
+        // bare token, and which one the service enforces is not something we
+        // can tell from here — `authFallback` below covers the other form.
         url: `https://api.currentsapi.services/v1/${path}?${params}`,
-        headers: { Authorization: apiKey },
+        headers: { Authorization: `Bearer ${apiKey}` },
       };
+    },
+    // Retried once, and only after the first form is rejected as unauthorized.
+    // Currents accepts the token as an `apiKey` query parameter as well, which
+    // works whichever header convention the service is on.
+    authFallback({ apiKey }, request) {
+      const url = new URL(request.url);
+      url.searchParams.set("apiKey", apiKey);
+      return { url: url.toString(), headers: {} };
     },
     normalize: (payload) => (Array.isArray(payload?.news) ? payload.news : []).map((item) => ({
       article_id: item.id || item.url || null,
@@ -205,6 +214,14 @@ function buildNewsRequest(provider, params) {
   });
 }
 
+// The second form to try when the first is rejected as unauthorized, or null
+// when a provider has only one way to authenticate.
+function buildNewsAuthFallback(provider, params, request) {
+  const definition = PROVIDERS[provider];
+  if (!definition?.authFallback) return null;
+  return definition.authFallback(params, request);
+}
+
 function normalizeNewsPayload(provider, payload) {
   const definition = PROVIDERS[provider];
   if (!definition) throw new Error(`Unknown news provider: ${provider}`);
@@ -221,6 +238,7 @@ module.exports = {
   detectNewsProvider,
   resolveCategory,
   buildNewsRequest,
+  buildNewsAuthFallback,
   normalizeNewsPayload,
   providerLabel,
 };
