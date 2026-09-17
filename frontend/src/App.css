@@ -11903,7 +11903,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   /* Lavender light mode. The neutrals carry a violet cast rather than the
      previous warm beige, so the accent reads as part of the surface instead of
      sitting on top of it. Hue stays near 265deg across every step. */
-  --bg:#EDE3FC; --bg-2:#FFFFFF; --bg-sidebar:#FBF9FE; --bg-elevated:#FFFFFF;
+  --bg:#E6DCFA; --bg-2:#FFFFFF; --bg-sidebar:#FBF9FE; --bg-elevated:#FFFFFF;
   --bg-hover:#F1E9FC; --bg-active:#E7DCFB;
   --ink:#1C1330; --ink-2:#403659; --ink-3:#5B5474; --ink-4:#756E8C; --ink-5:#CFC6E4;
   --accent:#7C3AED; --accent-soft:rgba(124,58,237,.10); --accent-mid:rgba(124,58,237,.20);
@@ -12685,11 +12685,16 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
    external rule cannot override — so this paints with background-image
    instead, which layers over that color rather than competing with it. */
 [data-theme="light"] main {
+  /* A vertical sweep: violet at the top, bright through the middle, pink along
+     the base, with one extra violet pool behind the top-left corner. The white
+     mid-stop is deliberate — it is what keeps the centre of a long page from
+     reading as heavy. */
   background-image:
-    radial-gradient(1200px 680px at 10% -10%, rgba(139,92,246,.40), transparent 60%),
-    radial-gradient(820px 560px at 92% 2%, rgba(186,130,255,.30), transparent 64%),
-    radial-gradient(940px 640px at 26% 106%, rgba(236,142,222,.30), transparent 62%),
-    radial-gradient(1000px 700px at 70% 82%, rgba(160,120,250,.20), transparent 66%);
+    linear-gradient(170deg,
+      rgba(150,104,248,.34) 0%,
+      rgba(255,255,255,.55) 46%,
+      rgba(238,150,215,.30) 100%),
+    radial-gradient(900px 560px at 6% -6%, rgba(124,58,237,.22), transparent 60%);
   background-attachment: fixed;
 }
 
