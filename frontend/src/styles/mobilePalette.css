@@ -7,11 +7,11 @@
 @media (max-width: 768px) {
   :root,
   .settings-panel-dark {
-    --bg: #0c1018;
-    --bg-sidebar: #101621;
-    --bg-elevated: #171e2a;
-    --bg-hover: #1d2634;
-    --bg-active: #253044;
+    --bg: #0d0f12;
+    --bg-sidebar: #111419;
+    --bg-elevated: #181c24;
+    --bg-hover: #202530;
+    --bg-active: #282f3d;
 
     --ink: #f4f7fb;
     --ink-2: #d5dbea;
@@ -19,15 +19,15 @@
     --ink-4: #727d92;
     --ink-5: #394355;
 
-    --accent: #9388ff;
-    --accent-soft: rgba(147, 136, 255, 0.13);
-    --accent-mid: rgba(147, 136, 255, 0.24);
-    --accent-glow: rgba(147, 136, 255, 0.14);
-    --accent-rgb: 147, 136, 255;
+    --accent: #e2e8f0;
+    --accent-soft: rgba(226, 232, 240, 0.13);
+    --accent-mid: rgba(226, 232, 240, 0.24);
+    --accent-glow: rgba(226, 232, 240, 0.14);
+    --accent-rgb: 226, 232, 240;
 
     --border: rgba(190, 201, 224, 0.08);
     --border-med: rgba(190, 201, 224, 0.14);
-    --border-str: rgba(147, 136, 255, 0.30);
+    --border-str: rgba(226, 232, 240, 0.30);
 
     --shadow-xs: 0 1px 4px rgba(3, 7, 15, 0.35);
     --shadow-sm: 0 4px 14px rgba(3, 7, 15, 0.42);
@@ -41,13 +41,13 @@
   html,
   body,
   #root {
-    background: #0c1018 !important;
+    background: #0d0f12 !important;
     color: #f4f7fb !important;
   }
 
   body {
     background-image:
-      radial-gradient(circle at 12% -8%, rgba(147, 136, 255, 0.12), transparent 34%),
+      radial-gradient(circle at 12% -8%, rgba(226, 232, 240, 0.12), transparent 34%),
       radial-gradient(circle at 92% 15%, rgba(95, 211, 199, 0.07), transparent 30%) !important;
     background-attachment: fixed !important;
   }
@@ -58,11 +58,11 @@
   .voice-page,
   .auth-page,
   .claude-recents-container {
-    background: #0c1018 !important;
+    background: #0d0f12 !important;
   }
 
   main::before {
-    background: radial-gradient(circle, rgba(147, 136, 255, 0.13) 0%, rgba(95, 211, 199, 0.035) 42%, transparent 72%) !important;
+    background: radial-gradient(circle, rgba(226, 232, 240, 0.13) 0%, rgba(95, 211, 199, 0.035) 42%, transparent 72%) !important;
   }
 
   /* Header */
@@ -93,26 +93,26 @@
 
   .icon-btn:hover,
   .icon-btn:focus-visible {
-    background: rgba(147, 136, 255, 0.12) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
     color: #b9b2ff !important;
   }
 
   .mob-mode-chip,
   .mode-pill,
   .sys-badge {
-    background: rgba(147, 136, 255, 0.11) !important;
-    border-color: rgba(147, 136, 255, 0.24) !important;
+    background: rgba(226, 232, 240, 0.11) !important;
+    border-color: rgba(226, 232, 240, 0.24) !important;
     color: #b9b2ff !important;
   }
 
   .mob-mode-chip:hover,
   .mode-pill:hover {
-    background: rgba(147, 136, 255, 0.17) !important;
+    background: rgba(226, 232, 240, 0.17) !important;
   }
 
   .share-btn {
-    background: rgba(147, 136, 255, 0.12) !important;
-    border-color: rgba(147, 136, 255, 0.22) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
+    border-color: rgba(226, 232, 240, 0.22) !important;
     color: #c3bdff !important;
   }
 
@@ -165,14 +165,14 @@
   .sb-user,
   .msd-new-btn,
   .msd-profile-btn {
-    background: #171e2a !important;
+    background: #181c24 !important;
     border-color: rgba(190, 201, 224, 0.10) !important;
     color: #d5dbea !important;
   }
 
   .sb-search:focus-within {
-    border-color: rgba(147, 136, 255, 0.45) !important;
-    box-shadow: 0 0 0 3px rgba(147, 136, 255, 0.10) !important;
+    border-color: rgba(226, 232, 240, 0.45) !important;
+    box-shadow: 0 0 0 3px rgba(226, 232, 240, 0.10) !important;
   }
 
   .sb-search input,
@@ -193,17 +193,17 @@
   .hist-item.active,
   .space-item.active,
   .msd-nav-item.active {
-    background: rgba(147, 136, 255, 0.13) !important;
+    background: rgba(226, 232, 240, 0.13) !important;
     color: #c2bcff !important;
-    border-color: rgba(147, 136, 255, 0.22) !important;
-    box-shadow: inset 2px 0 0 #9388ff !important;
+    border-color: rgba(226, 232, 240, 0.22) !important;
+    box-shadow: inset 2px 0 0 #e2e8f0 !important;
   }
 
   .hist-item:hover,
   .space-item:hover,
   .claude-sb-item:hover,
   .recents-item:hover {
-    background: rgba(147, 136, 255, 0.075) !important;
+    background: rgba(226, 232, 240, 0.075) !important;
   }
 
   .hist-title,
@@ -230,7 +230,7 @@
   .mob-fab.open {
     background: #202a3a !important;
     color: #b9b2ff !important;
-    border-color: rgba(147, 136, 255, 0.30) !important;
+    border-color: rgba(226, 232, 240, 0.30) !important;
   }
 
   .mob-fab-overlay {
@@ -239,15 +239,15 @@
 
   .mob-fab-dial-item {
     background: rgba(27, 35, 49, 0.96) !important;
-    border-color: rgba(147, 136, 255, 0.20) !important;
+    border-color: rgba(226, 232, 240, 0.20) !important;
     color: #d8deea !important;
     box-shadow: 0 8px 24px rgba(2, 6, 14, 0.38) !important;
   }
 
   .mob-fab-dial-item:hover {
-    background: rgba(147, 136, 255, 0.14) !important;
+    background: rgba(226, 232, 240, 0.14) !important;
     color: #c3bdff !important;
-    border-color: rgba(147, 136, 255, 0.34) !important;
+    border-color: rgba(226, 232, 240, 0.34) !important;
   }
 
   .mob-fab-dial-item svg {
@@ -269,7 +269,7 @@
 
   .mbn-btn:hover {
     color: #aeb7ca !important;
-    background: rgba(147, 136, 255, 0.055) !important;
+    background: rgba(226, 232, 240, 0.055) !important;
   }
 
   .mbn-btn.active {
@@ -277,18 +277,18 @@
   }
 
   .mbn-btn.active::after {
-    background: linear-gradient(90deg, transparent, #9388ff 30%, #63c9c0 70%, transparent) !important;
-    box-shadow: 0 0 12px rgba(147, 136, 255, 0.38) !important;
+    background: linear-gradient(90deg, transparent, #e2e8f0 30%, #63c9c0 70%, transparent) !important;
+    box-shadow: 0 0 12px rgba(226, 232, 240, 0.38) !important;
   }
 
   .mbn-btn.active svg {
-    filter: drop-shadow(0 0 5px rgba(147, 136, 255, 0.36)) !important;
+    filter: drop-shadow(0 0 5px rgba(226, 232, 240, 0.36)) !important;
   }
 
   /* Messages */
   .msg.user .bubble {
     background: linear-gradient(145deg, #1b2432 0%, #18202d 100%) !important;
-    border: 1px solid rgba(147, 136, 255, 0.16) !important;
+    border: 1px solid rgba(226, 232, 240, 0.16) !important;
     color: #f4f7fb !important;
     box-shadow: 0 5px 16px rgba(2, 6, 14, 0.22) !important;
   }
@@ -304,8 +304,8 @@
   }
 
   .act-btns button:hover {
-    background: rgba(147, 136, 255, 0.12) !important;
-    border-color: rgba(147, 136, 255, 0.24) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
+    border-color: rgba(226, 232, 240, 0.24) !important;
     color: #b9b2ff !important;
   }
 
@@ -337,7 +337,7 @@
   .welcome-card,
   .sug,
   .source-card {
-    background: linear-gradient(145deg, #171e2a 0%, #141b26 100%) !important;
+    background: linear-gradient(145deg, #181c24 0%, #141b26 100%) !important;
     border-color: rgba(190, 201, 224, 0.09) !important;
     color: #d5dbea !important;
     box-shadow: 0 4px 14px rgba(2, 6, 14, 0.18) !important;
@@ -347,8 +347,8 @@
   .welcome-card:hover,
   .sug:hover,
   .source-card:hover {
-    background: rgba(147, 136, 255, 0.10) !important;
-    border-color: rgba(147, 136, 255, 0.26) !important;
+    background: rgba(226, 232, 240, 0.10) !important;
+    border-color: rgba(226, 232, 240, 0.26) !important;
     color: #f4f7fb !important;
     box-shadow: 0 8px 24px rgba(75, 82, 165, 0.16) !important;
   }
@@ -359,7 +359,7 @@
   }
 
   .wcard-icon {
-    background: rgba(147, 136, 255, 0.12) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
   }
 
   .wcard-label {
@@ -372,7 +372,7 @@
 
   /* Composer */
   .input-area {
-    background: linear-gradient(180deg, rgba(12, 16, 24, 0) 0%, rgba(12, 16, 24, 0.92) 32%, #0c1018 58%) !important;
+    background: linear-gradient(180deg, rgba(12, 16, 24, 0) 0%, rgba(12, 16, 24, 0.92) 32%, #0d0f12 58%) !important;
   }
 
   .input-box,
@@ -384,8 +384,8 @@
 
   .input-box:focus-within,
   .claude-input-box:focus-within {
-    border-color: rgba(147, 136, 255, 0.48) !important;
-    box-shadow: 0 12px 34px rgba(2, 6, 14, 0.36), 0 0 0 3px rgba(147, 136, 255, 0.09) !important;
+    border-color: rgba(226, 232, 240, 0.48) !important;
+    box-shadow: 0 12px 34px rgba(2, 6, 14, 0.36), 0 0 0 3px rgba(226, 232, 240, 0.09) !important;
   }
 
   .input-box textarea,
@@ -411,7 +411,7 @@
   .mic-btn:hover,
   .claude-action-btn:hover,
   .claude-action-btn.active {
-    background: rgba(147, 136, 255, 0.12) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
     color: #b9b2ff !important;
   }
 
@@ -444,14 +444,14 @@
   }
 
   .fmt-bar button:hover {
-    background: rgba(147, 136, 255, 0.12) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
     color: #b9b2ff !important;
   }
 
   .scroll-btn {
-    background: #1d2634 !important;
+    background: #202530 !important;
     color: #aaa2ff !important;
-    border-color: rgba(147, 136, 255, 0.25) !important;
+    border-color: rgba(226, 232, 240, 0.25) !important;
     box-shadow: 0 7px 20px rgba(2, 6, 14, 0.34) !important;
   }
 
@@ -463,8 +463,8 @@
   }
 
   .followup-chip:hover {
-    background: rgba(147, 136, 255, 0.12) !important;
-    border-color: rgba(147, 136, 255, 0.26) !important;
+    background: rgba(226, 232, 240, 0.12) !important;
+    border-color: rgba(226, 232, 240, 0.26) !important;
     color: #c3bdff !important;
   }
 
@@ -500,8 +500,8 @@
 
   .mtab.active {
     color: #b9b2ff !important;
-    border-bottom-color: #9388ff !important;
-    background: rgba(147, 136, 255, 0.10) !important;
+    border-bottom-color: #e2e8f0 !important;
+    background: rgba(226, 232, 240, 0.10) !important;
   }
 
   .ws-model-option,
@@ -514,16 +514,16 @@
   .ws-model-option:hover,
   .ws-effort-option:hover,
   .ws-mode-card:hover {
-    background: rgba(147, 136, 255, 0.09) !important;
-    border-color: rgba(147, 136, 255, 0.22) !important;
+    background: rgba(226, 232, 240, 0.09) !important;
+    border-color: rgba(226, 232, 240, 0.22) !important;
   }
 
   .ws-model-option.active,
   .ws-effort-option.active,
   .ws-mode-card.active {
-    background: rgba(147, 136, 255, 0.14) !important;
-    border-color: rgba(147, 136, 255, 0.34) !important;
-    box-shadow: inset 0 0 0 1px rgba(147, 136, 255, 0.10) !important;
+    background: rgba(226, 232, 240, 0.14) !important;
+    border-color: rgba(226, 232, 240, 0.34) !important;
+    box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.10) !important;
   }
 
   .ws-model-copy strong,
@@ -552,8 +552,8 @@
   }
 
   .ws-model-option.active .ws-choice-check {
-    background: #9388ff !important;
-    border-color: #9388ff !important;
+    background: #e2e8f0 !important;
+    border-color: #e2e8f0 !important;
   }
 
   /* Forms / settings */
@@ -580,8 +580,8 @@
   .auth-field input:focus,
   .recents-search-bar input:focus,
   .chat-search input:focus {
-    border-color: rgba(147, 136, 255, 0.48) !important;
-    box-shadow: 0 0 0 3px rgba(147, 136, 255, 0.09) !important;
+    border-color: rgba(226, 232, 240, 0.48) !important;
+    box-shadow: 0 0 0 3px rgba(226, 232, 240, 0.09) !important;
   }
 
   .field-label,
@@ -612,20 +612,20 @@
   .lang-opt:hover,
   .preset-item:hover,
   .btn-ghost:hover {
-    background: rgba(147, 136, 255, 0.10) !important;
+    background: rgba(226, 232, 240, 0.10) !important;
     color: #f4f7fb !important;
-    border-color: rgba(147, 136, 255, 0.23) !important;
+    border-color: rgba(226, 232, 240, 0.23) !important;
   }
 
   .av-opt.sel,
   .lang-opt.sel,
   .preset-item.sel {
-    background: rgba(147, 136, 255, 0.14) !important;
-    border-color: #9388ff !important;
+    background: rgba(226, 232, 240, 0.14) !important;
+    border-color: #e2e8f0 !important;
   }
 
   .av-check {
-    background: #9388ff !important;
+    background: #e2e8f0 !important;
   }
 
   .kbd {
@@ -656,7 +656,7 @@
   }
 
   .vring {
-    border-color: rgba(147, 136, 255, 0.24) !important;
+    border-color: rgba(226, 232, 240, 0.24) !important;
   }
 
   .voice-close {
@@ -667,11 +667,11 @@
 
   /* Auth */
   .auth-glow {
-    background: radial-gradient(circle, rgba(147, 136, 255, 0.14) 0%, rgba(95, 211, 199, 0.035) 42%, transparent 72%) !important;
+    background: radial-gradient(circle, rgba(226, 232, 240, 0.14) 0%, rgba(95, 211, 199, 0.035) 42%, transparent 72%) !important;
   }
 
   .auth-box {
-    background: linear-gradient(155deg, #171e2a 0%, #121924 100%) !important;
+    background: linear-gradient(155deg, #181c24 0%, #121924 100%) !important;
     border-color: rgba(190, 201, 224, 0.11) !important;
     box-shadow: 0 16px 48px rgba(2, 6, 14, 0.42) !important;
   }
@@ -702,7 +702,7 @@
   }
 
   .feed::-webkit-scrollbar-thumb {
-    background: rgba(147, 136, 255, 0.24) !important;
+    background: rgba(226, 232, 240, 0.24) !important;
   }
 
   .history::-webkit-scrollbar-thumb {
@@ -714,7 +714,7 @@
   }
 
   .modal-x:hover {
-    background: rgba(147, 136, 255, 0.10) !important;
+    background: rgba(226, 232, 240, 0.10) !important;
     color: #f4f7fb !important;
   }
 
