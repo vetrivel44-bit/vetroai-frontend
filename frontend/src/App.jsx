@@ -2903,6 +2903,7 @@ const NEWS_LANGUAGES = [
   { code: "fr", label: "Français" },
   { code: "de", label: "Deutsch" },
   { code: "hi", label: "हिन्दी" },
+  { code: "ta", label: "தமிழ்" },
   { code: "ar", label: "العربية" },
   { code: "pt", label: "Português" },
   { code: "zh", label: "中文" },
