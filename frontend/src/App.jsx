@@ -2930,10 +2930,34 @@ const timeAgo = (dateStr) => {
   return `${Math.floor(hrs / 24)}d`;
 };
 
+// Not every provider sends a usable image (newsapi and thenewsapi both leave
+// it null fairly often — see newsProviders.js), and a real photo can still
+// 404. Either way the card should look like every other card, not lose its
+// whole image area, so a missing/broken photo gets a colored placeholder
+// instead of just leaving a gap. The color is picked deterministically from
+// the source name so the same outlet always lands on the same one.
+const NEWS_PLACEHOLDER_GRADIENTS = [
+  "linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)",
+  "linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)",
+  "linear-gradient(135deg, #10B981 0%, #06B6D4 100%)",
+  "linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%)",
+  "linear-gradient(135deg, #6366F1 0%, #3B82F6 100%)",
+  "linear-gradient(135deg, #F97316 0%, #DB2777 100%)",
+];
+function gradientForSource(name) {
+  const text = String(name || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  return NEWS_PLACEHOLDER_GRADIENTS[Math.abs(hash) % NEWS_PLACEHOLDER_GRADIENTS.length];
+}
+
 // One card, shared by the featured hero slot, the regular grid and the Saved
 // tab so all three stay visually and behaviorally in sync.
 function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleListen, onAskAI }) {
   const [copied, setCopied] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const hasImage = Boolean(article.image_url) && !imgFailed;
+  const initial = (article.source_name || article.source_id || article.title || "N").trim().charAt(0).toUpperCase();
   const descLimit = featured ? 220 : 120;
   const desc = article.description
     ? article.description.slice(0, descLimit) + (article.description.length > descLimit ? "…" : "")
@@ -2958,16 +2982,20 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
   return (
     <div className={`news-card${featured ? " news-card-hero" : ""}`}>
       <a href={article.link} target="_blank" rel="noopener noreferrer" className="news-card-link">
-        {article.image_url && (
-          <div className="news-card-img">
+        <div className="news-card-img">
+          {hasImage ? (
             <img
               src={article.image_url}
               alt=""
               loading="lazy"
-              onError={e => { e.target.parentElement.style.display = "none"; }}
+              onError={() => setImgFailed(true)}
             />
-          </div>
-        )}
+          ) : (
+            <div className="news-card-img-placeholder" style={{ background: gradientForSource(article.source_name || article.source_id) }}>
+              <span className="news-img-placeholder-letter">{initial}</span>
+            </div>
+          )}
+        </div>
         <div className="news-card-body">
           <div className="news-card-meta">
             {article.source_icon && (
