@@ -40,6 +40,7 @@ module.exports = {
     fableApiHost:        getEnv("FABLE_API_HOST",        "claude-fable-5-api.p.rapidapi.com"),
     fableApiUrl:         getEnv("FABLE_API_URL",         "https://claude-fable-5-api.p.rapidapi.com/n9zkopuh8fn4eqyi5xy5bqr3tt66mkt3"),
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
+    geminiModel:         getEnv("GEMINI_MODEL",          "gemini-3.6-flash"),
     sambanovaApiKey:     getEnv("SAMBANOVA_API_KEY",     ""),
     // Cohere — universal last-resort fallback (see ProviderManager fallbacks).
     // Uses Cohere's OpenAI-compatible endpoint so it streams standard SSE chunks.
