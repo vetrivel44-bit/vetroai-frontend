@@ -12675,150 +12675,154 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 
 
 /* ==========================================================================
-   LIGHT MODE — LAVENDER CHAT SURFACE
-   Scoped to [data-theme="light"] so dark mode is untouched. The chat column
-   is a soft violet wash with the composer and message bubbles floating on it
-   as glass cards, rather than flat panels on a flat page.
+   LIGHT MODE — LAVENDER CHAT SURFACE  (desktop only)
+   Gated to >=769px to sit alongside the mobile colour layers, which force
+   their own dark palette below 768px regardless of the chosen theme
+   (styles/mobilePalette.css, perplexityDarkMobile.css,
+   mobileMonochromePolish.css). Those layers override tokens but not the
+   properties set here, so ungated the lavender wash painted over a dark
+   background and these white pills sat on a dark composer.
    ========================================================================== */
+@media (min-width: 769px) {
+  /* The wash. `main` carries an inline background-color of var(--bg), which an
+     external rule cannot override — so this paints with background-image
+     instead, which layers over that color rather than competing with it. */
+  [data-theme="light"] main {
+    /* A vertical sweep: violet at the top, bright through the middle, pink along
+       the base, with one extra violet pool behind the top-left corner. The white
+       mid-stop is deliberate — it is what keeps the centre of a long page from
+       reading as heavy. */
+    background-image:
+      linear-gradient(170deg,
+        rgba(150,104,248,.34) 0%,
+        rgba(255,255,255,.55) 46%,
+        rgba(238,150,215,.30) 100%),
+      radial-gradient(900px 560px at 6% -6%, rgba(124,58,237,.22), transparent 60%);
+    background-attachment: fixed;
+  }
 
-/* The wash. `main` carries an inline background-color of var(--bg), which an
-   external rule cannot override — so this paints with background-image
-   instead, which layers over that color rather than competing with it. */
-[data-theme="light"] main {
-  /* A vertical sweep: violet at the top, bright through the middle, pink along
-     the base, with one extra violet pool behind the top-left corner. The white
-     mid-stop is deliberate — it is what keeps the centre of a long page from
-     reading as heavy. */
-  background-image:
-    linear-gradient(170deg,
-      rgba(150,104,248,.34) 0%,
-      rgba(255,255,255,.55) 46%,
-      rgba(238,150,215,.30) 100%),
-    radial-gradient(900px 560px at 6% -6%, rgba(124,58,237,.22), transparent 60%);
-  background-attachment: fixed;
-}
+  /* Let the wash run behind the header instead of cutting it with a band. */
+  [data-theme="light"] .chat-header {
+    background: transparent;
+    border-bottom-color: rgba(124,58,237,.10);
+    backdrop-filter: blur(10px);
+  }
 
-/* Let the wash run behind the header instead of cutting it with a band. */
-[data-theme="light"] .chat-header {
-  background: transparent;
-  border-bottom-color: rgba(124,58,237,.10);
-  backdrop-filter: blur(10px);
-}
+  /* The composer. Translucent white over the wash with a violet-tinted lift, so
+     it reads as glass rather than as a panel sitting on the page — and tall,
+     with the question on its own line and the controls as a toolbar along the
+     bottom, rather than one cramped row. */
+  [data-theme="light"] .claude-input-box {
+    background: rgba(255,255,255,.52);
+    border-color: rgba(255,255,255,.55);
+    border-radius: 26px;
+    padding: 20px 22px 14px;
+    min-height: 132px;
+    justify-content: space-between;
+    backdrop-filter: blur(22px) saturate(1.4);
+    box-shadow:
+      0 1px 2px rgba(28,19,48,.03),
+      0 16px 40px -14px rgba(124,58,237,.26),
+      inset 0 1px 0 rgba(255,255,255,.65);
+  }
+  [data-theme="light"] .claude-input-box:focus-within {
+    background: rgba(255,255,255,.66);
+    border-color: rgba(255,255,255,.80);
+    box-shadow:
+      0 1px 2px rgba(28,19,48,.05),
+      0 18px 44px -14px rgba(124,58,237,.30),
+      inset 0 1px 0 rgba(255,255,255,.85);
+  }
 
-/* The composer. Translucent white over the wash with a violet-tinted lift, so
-   it reads as glass rather than as a panel sitting on the page — and tall,
-   with the question on its own line and the controls as a toolbar along the
-   bottom, rather than one cramped row. */
-[data-theme="light"] .claude-input-box {
-  background: rgba(255,255,255,.52);
-  border-color: rgba(255,255,255,.55);
-  border-radius: 26px;
-  padding: 20px 22px 14px;
-  min-height: 132px;
-  justify-content: space-between;
-  backdrop-filter: blur(22px) saturate(1.4);
-  box-shadow:
-    0 1px 2px rgba(28,19,48,.03),
-    0 16px 40px -14px rgba(124,58,237,.26),
-    inset 0 1px 0 rgba(255,255,255,.65);
-}
-[data-theme="light"] .claude-input-box:focus-within {
-  background: rgba(255,255,255,.66);
-  border-color: rgba(255,255,255,.80);
-  box-shadow:
-    0 1px 2px rgba(28,19,48,.05),
-    0 18px 44px -14px rgba(124,58,237,.30),
-    inset 0 1px 0 rgba(255,255,255,.85);
-}
+  /* The question gets room to breathe above the toolbar. */
+  [data-theme="light"] .claude-input-box textarea {
+    min-height: 46px;
+    font-size: 1.02rem;
+  }
 
-/* The question gets room to breathe above the toolbar. */
-[data-theme="light"] .claude-input-box textarea {
-  min-height: 46px;
-  font-size: 1.02rem;
-}
+  /* Toolbar: the controls sit on a hairline, as a row of pills. */
+  [data-theme="light"] .claude-input-footer {
+    border-top: 1px solid rgba(124,58,237,.10);
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  [data-theme="light"] .claude-footer-left,
+  [data-theme="light"] .claude-footer-right { gap: 8px; }
 
-/* Toolbar: the controls sit on a hairline, as a row of pills. */
-[data-theme="light"] .claude-input-footer {
-  border-top: 1px solid rgba(124,58,237,.10);
-  padding-top: 12px;
-  margin-top: 12px;
-}
-[data-theme="light"] .claude-footer-left,
-[data-theme="light"] .claude-footer-right { gap: 8px; }
+  /* Each control becomes a pill: white, hairline-bordered, lifted just enough to
+     separate it from the glass behind it. A button with a label grows to fit it;
+     an icon-only one stays a circle. */
+  [data-theme="light"] .claude-attach-btn,
+  [data-theme="light"] .claude-action-btn {
+    background: rgba(255,255,255,.70);
+    border: 1px solid rgba(255,255,255,.70);
+    border-radius: 999px;
+    color: var(--ink-2);
+    height: 36px;
+    min-width: 36px;
+    width: auto;
+    padding: 0 10px;
+    gap: 6px;
+    box-shadow: 0 1px 2px rgba(28,19,48,.04);
+  }
+  [data-theme="light"] .claude-attach-btn:hover,
+  [data-theme="light"] .claude-action-btn:hover {
+    background: #FFFFFF;
+    border-color: rgba(124,58,237,.30);
+    color: var(--accent);
+    box-shadow: 0 4px 12px -4px rgba(124,58,237,.28);
+  }
+  [data-theme="light"] .composer-btn-label {
+    font-size: .82rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    padding-right: 2px;
+  }
 
-/* Each control becomes a pill: white, hairline-bordered, lifted just enough to
-   separate it from the glass behind it. A button with a label grows to fit it;
-   an icon-only one stays a circle. */
-[data-theme="light"] .claude-attach-btn,
-[data-theme="light"] .claude-action-btn {
-  background: rgba(255,255,255,.70);
-  border: 1px solid rgba(255,255,255,.70);
-  border-radius: 999px;
-  color: var(--ink-2);
-  height: 36px;
-  min-width: 36px;
-  width: auto;
-  padding: 0 10px;
-  gap: 6px;
-  box-shadow: 0 1px 2px rgba(28,19,48,.04);
-}
-[data-theme="light"] .claude-attach-btn:hover,
-[data-theme="light"] .claude-action-btn:hover {
-  background: #FFFFFF;
-  border-color: rgba(124,58,237,.30);
-  color: var(--accent);
-  box-shadow: 0 4px 12px -4px rgba(124,58,237,.28);
-}
-[data-theme="light"] .composer-btn-label {
-  font-size: .82rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  padding-right: 2px;
-}
+  /* The model/effort pill is the primary control in the row, so it carries the
+     accent tint the plain pills do not. */
+  [data-theme="light"] .claude-input-footer .mode-pill {
+    background: rgba(124,58,237,.08);
+    border-color: rgba(124,58,237,.18);
+    color: var(--ink);
+    height: 36px;
+    padding: 0 14px;
+  }
+  [data-theme="light"] .claude-input-footer .mode-pill:hover {
+    background: rgba(124,58,237,.14);
+    border-color: rgba(124,58,237,.32);
+  }
+  [data-theme="light"] .claude-input-footer .mode-pill-effort {
+    background: rgba(124,58,237,.14);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-style: normal;
+    font-weight: 600;
+    color: var(--accent);
+  }
 
-/* The model/effort pill is the primary control in the row, so it carries the
-   accent tint the plain pills do not. */
-[data-theme="light"] .claude-input-footer .mode-pill {
-  background: rgba(124,58,237,.08);
-  border-color: rgba(124,58,237,.18);
-  color: var(--ink);
-  height: 36px;
-  padding: 0 14px;
-}
-[data-theme="light"] .claude-input-footer .mode-pill:hover {
-  background: rgba(124,58,237,.14);
-  border-color: rgba(124,58,237,.32);
-}
-[data-theme="light"] .claude-input-footer .mode-pill-effort {
-  background: rgba(124,58,237,.14);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-style: normal;
-  font-weight: 600;
-  color: var(--accent);
-}
+  /* The user's own turn, filled in the accent so the two sides of the
+     conversation read apart at a glance. */
+  [data-theme="light"] .chat-user-bubble {
+    background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+    border-color: transparent;
+    color: #FFFFFF;
+    box-shadow: 0 8px 22px -10px rgba(124,58,237,.45);
+  }
 
-/* The user's own turn, filled in the accent so the two sides of the
-   conversation read apart at a glance. */
-[data-theme="light"] .chat-user-bubble {
-  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
-  border-color: transparent;
-  color: #FFFFFF;
-  box-shadow: 0 8px 22px -10px rgba(124,58,237,.45);
-}
+  /* The assistant's turn stays unfilled — a card would double the visual weight
+     of the longest text on the page — so it gets a glass panel only where it
+     already had a surface. */
+  [data-theme="light"] .msg-row .claude-prose pre,
+  [data-theme="light"] .msg-row .claude-prose table {
+    background: rgba(255,255,255,.72);
+    border-color: rgba(124,58,237,.12);
+  }
 
-/* The assistant's turn stays unfilled — a card would double the visual weight
-   of the longest text on the page — so it gets a glass panel only where it
-   already had a surface. */
-[data-theme="light"] .msg-row .claude-prose pre,
-[data-theme="light"] .msg-row .claude-prose table {
-  background: rgba(255,255,255,.72);
-  border-color: rgba(124,58,237,.12);
+  /* Greeting block on the empty state, matching the wash rather than sitting on
+     an opaque rectangle. */
+  [data-theme="light"] .claude-empty-container { background: transparent; }
 }
-
-/* Greeting block on the empty state, matching the wash rather than sitting on
-   an opaque rectangle. */
-[data-theme="light"] .claude-empty-container { background: transparent; }
 
 /* A control that carries a label is a pill, not a 32px circle — without this
    the label overflows the button it belongs to. Applies in both themes,
@@ -12835,7 +12839,9 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
    sidebar's group labels and the header's icon buttons both sat at 3.3:1,
    below the 4.5:1 floor for text. Measured against the sidebar's own #FBF9FE.
    The group labels are not listed here: they carry an inline var(--ink-4),
-   which no rule can override, so darkening that step is what lifts them. */
+   which no rule can override, so darkening that step is what lifts them.
+   These are not gated to desktop: they resolve through tokens, which the
+   mobile layers redefine, so they follow whichever palette is in force. */
 [data-theme="light"] .claude-sb-item,
 [data-theme="light"] .claude-sb-recent {
   color: var(--ink-2); /* ~9:1 */
@@ -12850,11 +12856,15 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 
 /* The wordmark is a light-toned PNG. The stock filter was tuned for the old
    warm-white sidebar and leaves it faint on lavender, so light mode drives the
-   contrast harder and the brightness lower. */
-[data-theme="light"] .vetro-brand-logo {
-  filter: contrast(1.5) saturate(1.9) brightness(0.58);
-}
-[data-theme="light"] .vetro-brand-link:hover .vetro-brand-logo {
-  filter: contrast(1.6) saturate(2) brightness(0.48);
-  opacity: 1;
+   contrast harder and the brightness lower — on desktop only, because below
+   769px the mobile layers put the same logo on a near-black sidebar, where
+   darkening it is exactly wrong. */
+@media (min-width: 769px) {
+  [data-theme="light"] .vetro-brand-logo {
+    filter: contrast(1.5) saturate(1.9) brightness(0.58);
+  }
+  [data-theme="light"] .vetro-brand-link:hover .vetro-brand-logo {
+    filter: contrast(1.6) saturate(2) brightness(0.48);
+    opacity: 1;
+  }
 }
