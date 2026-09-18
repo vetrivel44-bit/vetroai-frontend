@@ -2892,19 +2892,175 @@ const getStatusLabel = (status, mode) => {
 
 // ─── NEWS PANEL ──────────────────────────────────────────────────────────────
 const NEWS_CATEGORIES = ["top", "business", "technology", "sports", "entertainment", "health", "science", "politics"];
+// A pseudo-category, never sent to the API — selecting it switches the feed
+// to the locally-saved list instead of fetching.
+const SAVED_TAB = "saved";
+// Whatever the backend accepts (`/^[a-z]{2}$/`, see externalDataController.js);
+// this is just the subset worth offering as a quick picker.
+const NEWS_LANGUAGES = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Español" },
+  { code: "fr", label: "Français" },
+  { code: "de", label: "Deutsch" },
+  { code: "hi", label: "हिन्दी" },
+  { code: "ta", label: "தமிழ்" },
+  { code: "ar", label: "العربية" },
+  { code: "pt", label: "Português" },
+  { code: "zh", label: "中文" },
+];
+// A stable identity for an article across re-fetches — used for the saved
+// list, the "currently listening" marker and React keys alike. Providers
+// don't all send article_id (see newsProviders.js), so the link is the
+// fallback that's actually always unique.
+const newsArticleId = (article) => article?.article_id || article?.link || "";
 
-function NewsPanel({ onClose }) {
+const timeAgo = (dateStr) => {
+  if (!dateStr) return "";
+  // The API returns pubDate in UTC without a Z (e.g. "2026-06-26 07:30:00")
+  // Replace space with T and append Z so it parses correctly in local time
+  const utcStr = dateStr.includes("Z") ? dateStr : dateStr.replace(" ", "T") + "Z";
+  const diff = Date.now() - new Date(utcStr).getTime();
+
+  // If diff is negative (due to clock skew or future dates), just say "Just now"
+  if (diff < 0) return "Just now";
+
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
+};
+
+// Not every provider sends a usable image (newsapi and thenewsapi both leave
+// it null fairly often — see newsProviders.js), and a real photo can still
+// 404. Either way the card should look like every other card, not lose its
+// whole image area, so a missing/broken photo gets a colored placeholder
+// instead of just leaving a gap. The color is picked deterministically from
+// the source name so the same outlet always lands on the same one.
+const NEWS_PLACEHOLDER_GRADIENTS = [
+  "linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)",
+  "linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)",
+  "linear-gradient(135deg, #10B981 0%, #06B6D4 100%)",
+  "linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%)",
+  "linear-gradient(135deg, #6366F1 0%, #3B82F6 100%)",
+  "linear-gradient(135deg, #F97316 0%, #DB2777 100%)",
+];
+function gradientForSource(name) {
+  const text = String(name || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  return NEWS_PLACEHOLDER_GRADIENTS[Math.abs(hash) % NEWS_PLACEHOLDER_GRADIENTS.length];
+}
+
+// One card, shared by the featured hero slot, the regular grid and the Saved
+// tab so all three stay visually and behaviorally in sync.
+function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleListen, onAskAI }) {
+  const [copied, setCopied] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const hasImage = Boolean(article.image_url) && !imgFailed;
+  const initial = (article.source_name || article.source_id || article.title || "N").trim().charAt(0).toUpperCase();
+  const descLimit = featured ? 220 : 120;
+  const desc = article.description
+    ? article.description.slice(0, descLimit) + (article.description.length > descLimit ? "…" : "")
+    : "";
+
+  const handleShare = async () => {
+    const shareData = { title: article.title, text: desc || article.title, url: article.link };
+    if (navigator.share) {
+      try { await navigator.share(shareData); } catch { /* user dismissed the sheet */ }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(article.link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard unavailable — nothing more we can do */ }
+  };
+
+  // The action row is a sibling of the <a>, not nested inside it — a <button>
+  // inside an <a> still bubbles clicks up to the anchor's navigation in some
+  // browsers, which would fire the article link on every action-button tap.
+  return (
+    <div className={`news-card${featured ? " news-card-hero" : ""}`}>
+      <a href={article.link} target="_blank" rel="noopener noreferrer" className="news-card-link">
+        <div className="news-card-img">
+          {hasImage ? (
+            <img
+              src={article.image_url}
+              alt=""
+              loading="lazy"
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <div className="news-card-img-placeholder" style={{ background: gradientForSource(article.source_name || article.source_id) }}>
+              <span className="news-img-placeholder-letter">{initial}</span>
+            </div>
+          )}
+        </div>
+        <div className="news-card-body">
+          <div className="news-card-meta">
+            {article.source_icon && (
+              <img src={article.source_icon} alt="" className="news-source-icon" onError={e => { e.target.style.display = "none"; }} />
+            )}
+            <span className="news-source">{article.source_name || article.source_id || "News"}</span>
+            <span className="news-dot">·</span>
+            <span className="news-time">{timeAgo(article.pubDate)}</span>
+          </div>
+          {featured ? <h2 className="news-card-title">{article.title}</h2> : <h3 className="news-card-title">{article.title}</h3>}
+          {desc && <p className="news-card-desc">{desc}</p>}
+        </div>
+      </a>
+      <div className="news-card-actions">
+        <button
+          type="button"
+          className={`news-action-btn${saved ? " active" : ""}`}
+          onClick={() => onToggleSave(article)}
+          title={saved ? "Remove from saved" : "Save for later"}
+          aria-label={saved ? "Remove from saved" : "Save for later"}
+          aria-pressed={saved}
+        >
+          <BookmarkIcon />
+        </button>
+        <button type="button" className="news-action-btn" onClick={handleShare} title="Share" aria-label="Share article">
+          {copied ? <CheckIcon /> : <ShareIcon />}
+        </button>
+        <button
+          type="button"
+          className={`news-action-btn${listening ? " active" : ""}`}
+          onClick={() => onToggleListen(article)}
+          title={listening ? "Stop listening" : "Listen"}
+          aria-label={listening ? "Stop listening" : "Listen to this article"}
+          aria-pressed={listening}
+        >
+          {listening ? <Pause size={14} /> : <Volume2 size={14} />}
+        </button>
+        <button type="button" className="news-action-btn news-action-ai" onClick={() => onAskAI(article)} title="Ask AI about this story" aria-label="Ask AI about this story">
+          <SparkleIcon /><span>Ask AI</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NewsPanel({ onClose, userKey, onAskAI }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [category, setCategory] = useState("top");
+  const [language, setLanguage] = useState("en");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Saved articles are personal, read-often, write-rarely data, so a plain
+  // localStorage list (via the same helper sessions/artifacts use) is enough —
+  // no Firestore round-trip needed just to reopen the panel.
+  const [savedArticles, setSavedArticles] = useState(() => readLocalList(userKey, "savedNews") || []);
+  const [speakingId, setSpeakingId] = useState(null);
 
-  const fetchNews = useCallback(async (cat, query) => {
+  const fetchNews = useCallback(async (cat, query, lang) => {
     setLoading(true);
     setError("");
     try {
-      let url = `${API}/news/latest?language=en`;
+      let url = `${API}/news/latest?language=${lang || "en"}`;
       if (query) {
         url += `&q=${encodeURIComponent(query)}`;
       } else if (cat && cat !== "top") {
@@ -2922,29 +3078,101 @@ function NewsPanel({ onClose }) {
     }
   }, []);
 
-  useEffect(() => { fetchNews(category, ""); }, [category, fetchNews]);
+  // Live search, but debounced — searching-as-you-type without firing a
+  // request on every keystroke. Explicit submit (Enter, or the search icon)
+  // skips the wait via handleSearch below.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 450);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (category === SAVED_TAB) return; // the Saved tab never hits the network
+    fetchNews(category, debouncedQuery, language);
+  }, [category, debouncedQuery, language, fetchNews]);
+
+  // Stop reading aloud when the panel closes, not just when a card is tapped
+  // again — otherwise the voice keeps going after the overlay disappears.
+  useEffect(() => () => { if ("speechSynthesis" in window) window.speechSynthesis.cancel(); }, []);
+
+  const selectCategory = (cat) => {
+    setCategory(cat);
+    setSearchQuery("");
+    setDebouncedQuery(""); // bypass the debounce so the category switch doesn't briefly refetch the old search
+  };
 
   const handleSearch = (e) => {
     e.preventDefault();
-    if (searchQuery.trim()) fetchNews("top", searchQuery.trim());
+    setCategory(c => (c === SAVED_TAB ? "top" : c));
+    setDebouncedQuery(searchQuery.trim());
   };
 
-  const timeAgo = (dateStr) => {
-    if (!dateStr) return "";
-    // The API returns pubDate in UTC without a Z (e.g. "2026-06-26 07:30:00")
-    // Replace space with T and append Z so it parses correctly in local time
-    const utcStr = dateStr.includes("Z") ? dateStr : dateStr.replace(" ", "T") + "Z";
-    const diff = Date.now() - new Date(utcStr).getTime();
-    
-    // If diff is negative (due to clock skew or future dates), just say "Just now"
-    if (diff < 0) return "Just now";
-    
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h`;
-    return `${Math.floor(hrs / 24)}d`;
+  const clearSearch = () => { setSearchQuery(""); setDebouncedQuery(""); };
+
+  const persistSaved = (list) => {
+    setSavedArticles(list);
+    persistList(userKey, "savedNews", list);
   };
+
+  const isSaved = (article) => savedArticles.some(a => newsArticleId(a) === newsArticleId(article));
+
+  const toggleSave = (article) => {
+    const id = newsArticleId(article);
+    if (!id) return;
+    if (isSaved(article)) {
+      persistSaved(savedArticles.filter(a => newsArticleId(a) !== id));
+    } else {
+      persistSaved([{ ...article, savedAt: Date.now() }, ...savedArticles].slice(0, 200));
+    }
+  };
+
+  const toggleListen = (article) => {
+    if (!("speechSynthesis" in window)) return;
+    const id = newsArticleId(article);
+    window.speechSynthesis.cancel();
+    if (speakingId === id) { setSpeakingId(null); return; }
+    const utterance = new SpeechSynthesisUtterance(`${article.title}. ${article.description || ""}`);
+    utterance.onend = () => setSpeakingId(null);
+    utterance.onerror = () => setSpeakingId(null);
+    window.speechSynthesis.speak(utterance);
+    setSpeakingId(id);
+  };
+
+  // Both AI actions are grounded in exactly what the news API returned —
+  // the model is told plainly that it's working from a snippet, not the full
+  // article, so it doesn't present a guess as something it actually read.
+  const askAboutArticle = (article) => {
+    const lines = [`I found this news story: "${article.title}"`];
+    const meta = [article.source_name || article.source_id, timeAgo(article.pubDate) ? `${timeAgo(article.pubDate)} ago` : null].filter(Boolean).join(" • ");
+    if (meta) lines.push(meta);
+    if (article.description) lines.push(`Snippet: ${article.description}`);
+    lines.push(`Link: ${article.link}`);
+    lines.push("");
+    lines.push("Using only what's in this snippet — you don't have live access to the article — explain the background and why this matters. Say plainly if the snippet isn't enough to go on.");
+    onAskAI(lines.join("\n"));
+  };
+
+  const askForBriefing = () => {
+    const headlines = articles.slice(0, 8)
+      .map(a => `• ${a.title}${a.source_name ? ` (${a.source_name})` : ""}`)
+      .join("\n");
+    const label = category === "top" || category === SAVED_TAB ? "" : `${category} `;
+    onAskAI(
+      `Here are today's top ${label}headlines:\n${headlines}\n\n` +
+      "Based only on these headlines, write a short 3-4 sentence briefing connecting the common threads. Don't invent details the headlines don't give you."
+    );
+  };
+
+  // The Saved tab never hits the network (see the fetch effect above), so a
+  // search typed while it's open has to filter the already-saved list
+  // client-side instead of just sitting there doing nothing.
+  const savedMatches = debouncedQuery
+    ? savedArticles.filter(a => `${a.title} ${a.description || ""}`.toLowerCase().includes(debouncedQuery.toLowerCase()))
+    : savedArticles;
+  const visibleArticles = category === SAVED_TAB ? savedMatches : articles;
+  const showHero = category !== SAVED_TAB && !debouncedQuery && !loading && !error && visibleArticles.length > 0;
+  const hero = showHero ? visibleArticles[0] : null;
+  const rest = showHero ? visibleArticles.slice(1) : visibleArticles;
 
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
@@ -2954,7 +3182,30 @@ function NewsPanel({ onClose }) {
             <Newspaper size={20} />
             <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>News</h2>
           </div>
-          <button className="modal-x" onClick={onClose}><X size={16} /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <select
+              className="news-lang-select"
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              title="Language"
+              aria-label="News language"
+            >
+              {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+            </select>
+            {category !== SAVED_TAB && (
+              <button
+                type="button"
+                className="news-icon-btn"
+                onClick={() => fetchNews(category, debouncedQuery, language)}
+                title="Refresh"
+                aria-label="Refresh news"
+                disabled={loading}
+              >
+                <RotateCcw size={15} />
+              </button>
+            )}
+            <button className="modal-x" onClick={onClose}><X size={16} /></button>
+          </div>
         </div>
 
         <form className="news-search-bar" onSubmit={handleSearch}>
@@ -2967,7 +3218,7 @@ function NewsPanel({ onClose }) {
             className="news-search-input"
           />
           {searchQuery && (
-            <button type="button" onClick={() => { setSearchQuery(""); fetchNews(category, ""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", display: "flex", padding: 2 }}>
+            <button type="button" onClick={clearSearch} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", display: "flex", padding: 2 }}>
               <X size={14} />
             </button>
           )}
@@ -2978,14 +3229,25 @@ function NewsPanel({ onClose }) {
             <button
               key={cat}
               className={`news-cat-btn${category === cat ? " active" : ""}`}
-              onClick={() => { setCategory(cat); setSearchQuery(""); }}
+              onClick={() => selectCategory(cat)}
             >
               {cat.charAt(0).toUpperCase() + cat.slice(1)}
             </button>
           ))}
+          <button
+            className={`news-cat-btn news-cat-saved${category === SAVED_TAB ? " active" : ""}`}
+            onClick={() => setCategory(SAVED_TAB)}
+          >
+            <BookmarkIcon /> Saved{savedArticles.length > 0 ? ` (${savedArticles.length})` : ""}
+          </button>
         </div>
 
         <div className="news-feed">
+          {category !== SAVED_TAB && !loading && !error && articles.length > 0 && (
+            <button type="button" className="news-briefing-btn" onClick={askForBriefing}>
+              <SparkleIcon /> Get an AI briefing on these headlines
+            </button>
+          )}
           {loading ? (
             <div className="news-loading">
               {[1, 2, 3, 4, 5].map(i => (
@@ -3002,50 +3264,46 @@ function NewsPanel({ onClose }) {
           ) : error ? (
             <div className="news-error">
               <p>{error}</p>
-              <button className="btn-primary" onClick={() => fetchNews(category, searchQuery)}>Retry</button>
+              <button className="btn-primary" onClick={() => fetchNews(category, debouncedQuery, language)}>Retry</button>
             </div>
-          ) : articles.length === 0 ? (
+          ) : visibleArticles.length === 0 ? (
             <div className="news-empty">
               <Newspaper size={40} style={{ opacity: 0.3 }} />
-              <p>No articles found</p>
+              <p>
+                {category === SAVED_TAB
+                  ? (savedArticles.length === 0
+                      ? "No saved articles yet — tap the bookmark icon on any story to keep it here."
+                      : "No saved articles match your search.")
+                  : "No articles found"}
+              </p>
             </div>
           ) : (
-            <div className="news-grid">
-              {articles.map((article, i) => (
-                <a
-                  key={article.article_id || i}
-                  href={article.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="news-card"
-                >
-                  {article.image_url && (
-                    <div className="news-card-img">
-                      <img
-                        src={article.image_url}
-                        alt=""
-                        loading="lazy"
-                        onError={e => { e.target.parentElement.style.display = "none"; }}
-                      />
-                    </div>
-                  )}
-                  <div className="news-card-body">
-                    <div className="news-card-meta">
-                      {article.source_icon && (
-                        <img src={article.source_icon} alt="" className="news-source-icon" onError={e => { e.target.style.display = "none"; }} />
-                      )}
-                      <span className="news-source">{article.source_name || article.source_id || "News"}</span>
-                      <span className="news-dot">·</span>
-                      <span className="news-time">{timeAgo(article.pubDate)}</span>
-                    </div>
-                    <h3 className="news-card-title">{article.title}</h3>
-                    {article.description && (
-                      <p className="news-card-desc">{article.description.slice(0, 120)}{article.description.length > 120 ? "…" : ""}</p>
-                    )}
-                  </div>
-                </a>
-              ))}
-            </div>
+            <>
+              {hero && (
+                <NewsCard
+                  article={hero}
+                  featured
+                  saved={isSaved(hero)}
+                  onToggleSave={toggleSave}
+                  listening={speakingId === newsArticleId(hero)}
+                  onToggleListen={toggleListen}
+                  onAskAI={askAboutArticle}
+                />
+              )}
+              <div className="news-grid">
+                {rest.map((article, i) => (
+                  <NewsCard
+                    key={newsArticleId(article) || i}
+                    article={article}
+                    saved={isSaved(article)}
+                    onToggleSave={toggleSave}
+                    listening={speakingId === newsArticleId(article)}
+                    onToggleListen={toggleListen}
+                    onAskAI={askAboutArticle}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -6677,16 +6935,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             })()}
           </div>
           <div className="ch-right">
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowJobs(true)} title="Jobs" style={{ color: "var(--ink-4)" }}>
+            {/* No inline color on the inactive state — these four used to force
+                var(--ink-4) here, and an inline style always wins over a class,
+                which is enough on its own to make an icon read as much fainter
+                than the rest of the toolbar next to it. Leaving color unset
+                lets the normal .claude-sb-item cascade apply, in whichever
+                theme/palette is live. */}
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowJobs(true)} title="Jobs">
               <Briefcase size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News">
               <Newspaper size={18} />
             </button>
-            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${showWebSearchModal ? " active" : ""}`} onClick={() => setShowWebSearchModal(true)} title="Web Search" style={{ color: showWebSearchModal ? "#22d3ee" : "var(--ink-4)" }}>
+            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${showWebSearchModal ? " active" : ""}`} onClick={() => setShowWebSearchModal(true)} title="Web Search" style={showWebSearchModal ? { color: "#22d3ee" } : undefined}>
               <Globe size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={isIncognito ? { color: "var(--accent)" } : undefined}>
               <Ghost size={18} />
             </button>
             {messages.length > 0 && (
@@ -6698,21 +6962,30 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </div>
         </header>
         {showShare && <ShareModal onClose={() => setShowShare(false)} t={t} messages={messages} />}
-        {showNews && <NewsPanel onClose={() => setShowNews(false)} />}
+        {showNews && (
+          <NewsPanel
+            onClose={() => setShowNews(false)}
+            userKey={userKey}
+            onAskAI={(prompt) => { setShowNews(false); sendMessage(null, prompt); }}
+          />
+        )}
         {showJobs && <Suspense fallback={<ScreenLoader />}><JobSearchPanel onClose={() => setShowJobs(false)} /></Suspense>}
 
-        {/* Incognito banner */}
+        {/* Incognito banner — derived from var(--accent-soft)/var(--accent)
+            rather than a fixed dark-purple gradient, which only ever looked
+            right against a dark page; this way it picks up whichever theme
+            or palette is currently live instead of clashing with it. */}
         {isIncognito && (
-          <div style={{ background: 'linear-gradient(90deg, #2a1a4a, #1a1a3a)', borderBottom: '1px solid rgba(167,123,245,0.25)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <Ghost size={14} style={{ color: '#A77BF5' }} />
-            <span style={{ fontSize: 12, color: '#C4A8F8', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
-            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#8B6DBF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>Turn off</button>
+          <div style={{ background: 'var(--accent-soft)', borderBottom: '1px solid var(--accent-mid)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <Ghost size={14} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: 12, color: 'var(--ink-2)', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
+            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>Turn off</button>
           </div>
         )}
 
         {/* Content Area */}
         <div className={`flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
-          style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, rgba(30,18,60,0.06) 0%, transparent 120px)' } : {}}>
+          style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, var(--accent-soft) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
                 isWebMode ? (
                   <Suspense fallback={<ScreenLoader />}>
