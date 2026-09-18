@@ -198,11 +198,11 @@ const VetroLogo = ({ width = 150, className = "" }) => {
     >
       <svg viewBox="12 2 76 96" width={iconSize} height={iconSize * 1.06} aria-hidden="true" focusable="false" style={{ flexShrink: 0 }}>
         <rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)" />
-        <rect x="42" y="8" width="16" height="74" rx="8" fill="#3b8c9f" transform="rotate(24 50 82)" />
+        <rect x="42" y="8" width="16" height="74" rx="8" fill="#146b80" transform="rotate(24 50 82)" />
         <circle cx="50" cy="79" r="6.5" fill="var(--bg-sidebar, var(--bg))" />
       </svg>
       <span style={{ fontSize, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--ink)', lineHeight: 1, whiteSpace: 'nowrap' }}>
-        Vetro<span style={{ color: '#3b8c9f' }}>Ai</span>
+        Vetro<span style={{ color: '#146b80' }}>Ai</span>
       </span>
     </div>
   );
