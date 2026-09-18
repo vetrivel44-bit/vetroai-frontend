@@ -34,4 +34,31 @@ function browserPuterModelsTransform() {
   };
 }
 
-export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react()], server:{port:Number(env.VITE_PORT)||5173,strictPort:true,host:true,cors:{origin:'*',methods:'*',headers:'*'},headers:{"Cross-Origin-Opener-Policy":"same-origin-allow-popups","Access-Control-Allow-Origin":"*"},proxy:{'/api':{target:'http://127.0.0.1:3000',changeOrigin:true,secure:false}}} }; })
+export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react()], build:{
+    // Everything used to land in one ~7.8 MB chunk that had to be downloaded,
+    // parsed and executed before the first chat could paint. The screens, the
+    // chart/map/editor components and the syntax highlighter are behind
+    // React.lazy now, so Rollup keeps them out of the entry on its own.
+    //
+    // The groups below only name libraries the first paint genuinely needs, so
+    // that a change to app code doesn't invalidate the cached copy of React,
+    // KaTeX, Firebase and the markdown pipeline along with it. Naming a chunk
+    // for anything that is only reachable lazily has the opposite effect —
+    // a manual group is emitted as one chunk, so a single eagerly-reached
+    // module in it drags the whole group into the critical path.
+    chunkSizeWarningLimit: 900,
+    rollupOptions:{ output:{ manualChunks(id){
+      if(!id.includes('node_modules')) return;
+      if(/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
+      if(id.includes('firebase')||id.includes('@firebase')) return 'firebase-vendor';
+      if(id.includes('katex')) return 'katex-vendor';
+      if(id.includes('react-markdown')||id.includes('remark')||id.includes('rehype')||id.includes('micromark')||id.includes('mdast')||id.includes('hast')||id.includes('unified')||id.includes('unist')) return 'markdown-vendor';
+      if(id.includes('framer-motion')||id.includes('motion-dom')||id.includes('motion-utils')) return 'motion-vendor';
+      // Everything else is left to Rollup, which places a dependency in the
+      // eager bundle or in the lazy chunk that needs it based on how it is
+      // actually reached. A catch-all 'vendor' group here would force the
+      // whole remainder eager — that is how chart.js ended up in the
+      // critical path despite only being reachable through a lazy import.
+      return undefined;
+    } } }
+  }, server:{port:Number(env.VITE_PORT)||5173,strictPort:true,host:true,cors:{origin:'*',methods:'*',headers:'*'},headers:{"Cross-Origin-Opener-Policy":"same-origin-allow-popups","Access-Control-Allow-Origin":"*"},proxy:{'/api':{target:'http://127.0.0.1:3000',changeOrigin:true,secure:false}}} }; })

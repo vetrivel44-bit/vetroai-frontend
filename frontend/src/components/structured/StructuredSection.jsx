@@ -1,11 +1,13 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import React, { Suspense } from 'react';
+
+// Prism's grammars are only needed once a section actually contains code, so
+// they arrive with the first code block rather than with the app.
+const CodeHighlighter = React.lazy(() => import('../CodeHighlighter'));
 import 'katex/dist/katex.min.css';
 import '../../styles/StructuredResponse.css';
 
@@ -39,15 +41,16 @@ const StructuredSection = ({ title, content, children, delay = 0 }) => {
                         </svg>
                       </button>
                     </div>
-                    <SyntaxHighlighter 
-                      style={vscDarkPlus} 
-                      language={match[1]} 
-                      PreTag="div" 
-                      className="syntax-highlighter"
-                      customStyle={{ background: 'transparent', padding: 0 }}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
+                    <Suspense fallback={<pre className="syntax-highlighter" style={{ background: 'transparent', padding: 0, whiteSpace: 'pre-wrap' }}>{String(children).replace(/\n$/, '')}</pre>}>
+                      <CodeHighlighter
+                        raw
+                        language={match[1]}
+                        className="syntax-highlighter"
+                        customStyle={{ background: 'transparent', padding: 0 }}
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </CodeHighlighter>
+                    </Suspense>
                   </div>
                 ) : (
                   <code className={className} {...rest}>{children}</code>
