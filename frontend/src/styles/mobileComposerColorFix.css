@@ -1,13 +1,13 @@
-/* VetroAI Mobile Composer & Suggestions — Obsidian Frosted Glass */
+/* VetroAI Mobile Composer & Suggestions — Executive Slate */
 @media (max-width: 768px) {
   .input-box,
   .claude-input-box {
-    background: rgba(19, 26, 44, 0.88) !important;
+    background: #181a20 !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    backdrop-filter: blur(14px) !important;
-    -webkit-backdrop-filter: blur(14px) !important;
-    border-radius: 20px !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2) !important;
   }
 
   .input-bottom,
@@ -25,38 +25,38 @@
   .mode-pill,
   .mode-pill-btn,
   .mob-mode-chip {
-    background: rgba(16, 22, 38, 0.8) !important;
+    background: #181a20 !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
-    color: #e2e8f0 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+    color: #dcdee3 !important;
   }
 
-  /* Refined dark glass suggestions and cards */
+  /* Refined professional suggestion cards and pills */
   .claude-pill,
   .sug,
   .followup-chip,
   .welcome-card,
   .quick-action,
   .quick-action-chip {
-    background: rgba(16, 22, 38, 0.75) !important;
+    background: #181a20 !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    backdrop-filter: blur(10px) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
-    color: #f1f5f9 !important;
-    border-radius: 14px !important;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18) !important;
+    color: #dcdee3 !important;
+    border-radius: 10px !important;
+    transition: background 0.15s ease, border-color 0.15s ease !important;
   }
 
   .claude-pill:hover,
   .sug:hover,
   .followup-chip:hover,
   .welcome-card:hover {
-    background: rgba(25, 34, 58, 0.9) !important;
-    border-color: rgba(99, 102, 241, 0.45) !important;
+    background: #22262e !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
     color: #ffffff !important;
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.2) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
   }
 
   .claude-empty-suggestions,

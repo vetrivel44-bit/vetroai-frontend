@@ -1,62 +1,61 @@
 /* ============================================================================
-   VETROAI — OBSIDIAN AURORA & ELECTRIC IRIS DESIGN SYSTEM
-   Premium modern AI aesthetic: deep obsidian glass, luminous iris/cyan accents,
-   refined micro-interactions, high contrast typography, preserving all features.
+   VETROAI — EXECUTIVE TITANIUM & GRAPHITE DESIGN SYSTEM
+   Professional, understated enterprise aesthetic: warm charcoal, titanium accents,
+   editorial typography, subtle hairline borders, and zero neon/gamified glows.
    ============================================================================ */
 
 :root,
 .settings-panel-dark {
-  --bg: #090c15;
-  --bg-sidebar: #0d121f;
-  --bg-elevated: #131a2c;
-  --bg-hover: #19223a;
-  --bg-active: #212c4a;
+  --bg: #111215;
+  --bg-sidebar: #15171c;
+  --bg-elevated: #1b1e24;
+  --bg-hover: #22262e;
+  --bg-active: #2a2f3a;
 
-  --ink: #f8fafc;
-  --ink-2: #e2e8f0;
-  --ink-3: #94a3b8;
-  --ink-4: #64748b;
-  --ink-5: #475569;
+  --ink: #f4f5f7;
+  --ink-2: #dcdee3;
+  --ink-3: #9da3af;
+  --ink-4: #6b7280;
+  --ink-5: #4b5260;
 
-  --accent: #6366f1;
-  --accent-secondary: #8b5cf6;
-  --accent-cyan: #38bdf8;
-  --accent-soft: rgba(99, 102, 241, 0.14);
-  --accent-mid: rgba(99, 102, 241, 0.25);
-  --accent-glow: rgba(99, 102, 241, 0.35);
-  --accent-rgb: 99, 102, 241;
+  --accent: #e2e5eb;
+  --accent-secondary: #94a3b8;
+  --accent-soft: rgba(226, 229, 235, 0.08);
+  --accent-mid: rgba(226, 229, 235, 0.16);
+  --accent-glow: rgba(226, 229, 235, 0.10);
+  --accent-rgb: 226, 229, 235;
 
-  --border: rgba(255, 255, 255, 0.08);
-  --border-med: rgba(255, 255, 255, 0.14);
-  --border-str: rgba(99, 102, 241, 0.45);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-med: rgba(255, 255, 255, 0.15);
+  --border-str: rgba(255, 255, 255, 0.28);
 
-  --glass-bg: rgba(13, 18, 31, 0.82);
-  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-bg: rgba(21, 23, 28, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.09);
 }
 
 @media (max-width: 768px) {
   :root,
   .settings-panel-dark {
-    --bg: #090c15;
-    --bg-sidebar: #0d121f;
-    --bg-elevated: #131a2c;
-    --bg-hover: #19223a;
-    --bg-active: #212c4a;
-    --ink: #f8fafc;
-    --ink-2: #e2e8f0;
-    --ink-3: #94a3b8;
-    --ink-4: #64748b;
-    --ink-5: #475569;
-    --accent: #6366f1;
-    --accent-soft: rgba(99, 102, 241, 0.14);
-    --accent-mid: rgba(99, 102, 241, 0.25);
-    --accent-glow: rgba(99, 102, 241, 0.35);
-    --accent-rgb: 99, 102, 241;
-    --border: rgba(255, 255, 255, 0.08);
-    --border-med: rgba(255, 255, 255, 0.14);
-    --border-str: rgba(99, 102, 241, 0.45);
-    --glass-bg: rgba(13, 18, 31, 0.88);
-    --glass-border: rgba(255, 255, 255, 0.10);
+    --bg: #111215;
+    --bg-sidebar: #15171c;
+    --bg-elevated: #1b1e24;
+    --bg-hover: #22262e;
+    --bg-active: #2a2f3a;
+    --ink: #f4f5f7;
+    --ink-2: #dcdee3;
+    --ink-3: #9da3af;
+    --ink-4: #6b7280;
+    --ink-5: #4b5260;
+    --accent: #e2e5eb;
+    --accent-soft: rgba(226, 229, 235, 0.08);
+    --accent-mid: rgba(226, 229, 235, 0.16);
+    --accent-glow: rgba(226, 229, 235, 0.10);
+    --accent-rgb: 226, 229, 235;
+    --border: rgba(255, 255, 255, 0.09);
+    --border-med: rgba(255, 255, 255, 0.15);
+    --border-str: rgba(255, 255, 255, 0.28);
+    --glass-bg: rgba(21, 23, 28, 0.92);
+    --glass-border: rgba(255, 255, 255, 0.09);
   }
 
   html,
@@ -68,39 +67,37 @@
   .voice-page,
   .auth-page,
   .claude-recents-container {
-    background: #090c15 !important;
-    color: #f8fafc !important;
+    background: #111215 !important;
+    color: #f4f5f7 !important;
   }
 
   body {
-    background-image: 
-      radial-gradient(circle at 50% -15%, rgba(99, 102, 241, 0.15), transparent 45%),
-      radial-gradient(circle at 100% 40%, rgba(56, 189, 248, 0.08), transparent 35%) !important;
-    background-attachment: fixed !important;
+    background-image: none !important;
+    background-color: #111215 !important;
   }
 
-  /* Active modes, chips & badges with refined glow */
+  /* Professional mode chips and badges */
   .mob-mode-chip,
   .mode-pill,
   .sys-badge,
   .share-btn,
   .mobile-active-model-chip {
-    background: #131a2c !important;
-    border: 1px solid rgba(255, 255, 255, 0.11) !important;
-    color: #e2e8f0 !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+    background: #1b1e24 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #dcdee3 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
     backdrop-filter: blur(8px) !important;
     -webkit-backdrop-filter: blur(8px) !important;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
   }
 
   .mob-mode-chip.active,
   .mode-pill.active,
   .mobile-active-model-chip:active {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(139, 92, 246, 0.22)) !important;
-    border-color: rgba(99, 102, 241, 0.5) !important;
+    background: #262b34 !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
     color: #ffffff !important;
-    box-shadow: 0 0 14px rgba(99, 102, 241, 0.3) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
   }
 
   .icon-btn:hover,
@@ -115,12 +112,12 @@
   .welcome-card:hover,
   .sug:hover {
     color: #ffffff !important;
-    background: #19223a !important;
-    border-color: rgba(99, 102, 241, 0.35) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    background: #22262e !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
   }
 
-  /* Radiant primary action buttons & send trigger */
+  /* Executive action & primary CTA button */
   .new-btn,
   .auth-btn,
   .btn-primary,
@@ -128,41 +125,47 @@
   .send-btn,
   .claude-send-btn,
   .mob-fab {
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #38bdf8 100%) !important;
-    color: #ffffff !important;
-    border: none !important;
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4) !important;
+    background: #f1f3f7 !important;
+    color: #111215 !important;
+    border: 1px solid #ffffff !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
     font-weight: 600 !important;
     letter-spacing: -0.01em !important;
-    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+    transition: transform 0.12s ease, background 0.12s ease !important;
+  }
+
+  .send-btn:hover,
+  .claude-send-btn:hover,
+  .new-btn:hover {
+    background: #ffffff !important;
   }
 
   .send-btn:active,
   .claude-send-btn:active,
   .new-btn:active {
-    transform: scale(0.96) !important;
-    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3) !important;
+    transform: scale(0.97) !important;
+    background: #e2e5eb !important;
   }
 
   .mobile-bottom-nav,
   .chat-header,
   .mobile-header {
-    background: rgba(9, 12, 21, 0.88) !important;
+    background: rgba(17, 18, 21, 0.94) !important;
     border-color: rgba(255, 255, 255, 0.08) !important;
-    backdrop-filter: blur(16px) !important;
-    -webkit-backdrop-filter: blur(16px) !important;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) !important;
   }
 
-  .mbn-btn { color: #94a3b8 !important; }
-  .mbn-btn.active { color: #f8fafc !important; }
+  .mbn-btn { color: #8e95a2 !important; }
+  .mbn-btn.active { color: #f4f5f7 !important; }
   .mbn-btn.active::after {
-    background: linear-gradient(90deg, #6366f1, #38bdf8) !important;
-    box-shadow: 0 0 10px rgba(99, 102, 241, 0.7) !important;
+    background: #f4f5f7 !important;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.4) !important;
   }
-  .mbn-btn.active svg { filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.5)) !important; }
+  .mbn-btn.active svg { filter: none !important; }
 
-  /* Sleek floating glass input composer */
+  /* Professional input composer */
   .input-box,
   .claude-input-box,
   .auth-box,
@@ -172,11 +175,11 @@
   .welcome-card,
   .claude-pill,
   .sug {
-    background: rgba(19, 26, 44, 0.85) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    backdrop-filter: blur(12px) !important;
-    -webkit-backdrop-filter: blur(12px) !important;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25) !important;
+    background: #181a20 !important;
+    border: 1px solid rgba(255, 255, 255, 0.11) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22) !important;
   }
 
   .input-box:focus-within,
@@ -184,210 +187,202 @@
   .auth-field input:focus,
   .field-input:focus,
   .field-textarea:focus {
-    border-color: rgba(99, 102, 241, 0.6) !important;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18), 0 8px 25px rgba(0, 0, 0, 0.3) !important;
+    border-color: rgba(255, 255, 255, 0.32) !important;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.25) !important;
   }
 
   /* --------------------------------------------------------------------------
-     Model selector screen — luxury Obsidian & Electric Violet styling
+     Model selector screen — Executive Slate
      -------------------------------------------------------------------------- */
   .mobile-model-screen {
-    background: #090c15 !important;
-    color: #f8fafc !important;
-    animation: mobileModernIn .2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    background: #111215 !important;
+    color: #f4f5f7 !important;
+    animation: mobileModernIn .18s ease-out !important;
   }
 
   @keyframes mobileModernIn {
-    from { opacity: 0; transform: translateY(12px) scale(0.99); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .mobile-model-screen-header {
-    min-height: 100px !important;
-    padding: calc(18px + env(safe-area-inset-top,0px)) 20px 16px !important;
-    gap: 14px !important;
-    background: rgba(9, 12, 21, 0.94) !important;
+    min-height: 96px !important;
+    padding: calc(16px + env(safe-area-inset-top,0px)) 18px 14px !important;
+    gap: 12px !important;
+    background: #15171c !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-    backdrop-filter: blur(16px) !important;
-    -webkit-backdrop-filter: blur(16px) !important;
   }
 
   .mobile-model-screen-heading {
     display: flex !important;
     align-items: flex-start !important;
     justify-content: space-between !important;
-    gap: 18px !important;
+    gap: 16px !important;
   }
 
   .mobile-model-screen-heading strong {
     max-width: 230px !important;
-    background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%) !important;
-    -webkit-background-clip: text !important;
-    -webkit-text-fill-color: transparent !important;
-    font-size: clamp(1.55rem, 6.5vw, 1.9rem) !important;
-    font-weight: 760 !important;
-    line-height: 1.08 !important;
-    letter-spacing: -.035em !important;
+    color: #f4f5f7 !important;
+    font-size: clamp(1.45rem, 6vw, 1.8rem) !important;
+    font-weight: 700 !important;
+    line-height: 1.12 !important;
+    letter-spacing: -.025em !important;
   }
 
   .mobile-model-screen-heading span {
     max-width: 102px !important;
-    color: #94a3b8 !important;
+    color: #9da3af !important;
     font-size: .82rem !important;
     line-height: 1.35 !important;
     padding-top: 4px !important;
   }
 
   .mobile-model-screen-close {
-    width: 42px !important;
-    height: 42px !important;
-    flex-basis: 42px !important;
-    color: #f8fafc !important;
-    background: #131a2c !important;
+    width: 40px !important;
+    height: 40px !important;
+    flex-basis: 40px !important;
+    color: #e2e5eb !important;
+    background: #1f2229 !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    font-size: 1.45rem !important;
+    font-size: 1.35rem !important;
     border-radius: 50% !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: none !important;
   }
   .mobile-model-screen-close:active {
-    background: #1d263f !important;
-    border-color: rgba(99, 102, 241, 0.4) !important;
+    background: #2a2f3a !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
   }
 
   .mobile-model-screen-scroll {
     padding: 14px 16px 112px !important;
-    background: #090c15 !important;
+    background: #111215 !important;
   }
 
   .mobile-model-search {
-    height: 52px !important;
+    height: 48px !important;
     margin: 0 0 12px !important;
-    padding: 0 16px !important;
-    border-radius: 16px !important;
-    background: #101626 !important;
+    padding: 0 14px !important;
+    border-radius: 12px !important;
+    background: #181a20 !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    color: #94a3b8 !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+    color: #9da3af !important;
+    box-shadow: none !important;
   }
   .mobile-model-search:focus-within {
-    border-color: rgba(99, 102, 241, 0.6) !important;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18) !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05) !important;
   }
   .mobile-model-search input {
-    color: #f8fafc !important;
-    font-size: .94rem !important;
+    color: #f4f5f7 !important;
+    font-size: .92rem !important;
   }
-  .mobile-model-search input::placeholder { color: #64748b !important; }
+  .mobile-model-search input::placeholder { color: #6b7280 !important; }
 
   .mobile-model-filter-wrap {
-    gap: 10px !important;
-    margin-bottom: 18px !important;
+    gap: 8px !important;
+    margin-bottom: 16px !important;
   }
   .mobile-model-filter-label,
   .mobile-model-kicker {
-    color: #64748b !important;
+    color: #7b8290 !important;
     font-size: .67rem !important;
     font-weight: 600 !important;
-    letter-spacing: .09em !important;
+    letter-spacing: .08em !important;
     text-transform: uppercase !important;
   }
-  .mobile-model-filters { gap: 7px !important; }
+  .mobile-model-filters { gap: 6px !important; }
   .mobile-model-filters button {
-    min-height: 36px !important;
-    padding: 0 14px !important;
-    color: #94a3b8 !important;
-    background: #101626 !important;
+    min-height: 34px !important;
+    padding: 0 13px !important;
+    color: #9da3af !important;
+    background: #181a20 !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 20px !important;
-    font-size: .79rem !important;
-    transition: all 0.2s ease !important;
+    border-radius: 8px !important;
+    font-size: .78rem !important;
+    transition: all 0.15s ease !important;
   }
   .mobile-model-filters button.active {
     color: #ffffff !important;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35)) !important;
-    border-color: rgba(99, 102, 241, 0.55) !important;
-    box-shadow: 0 0 12px rgba(99, 102, 241, 0.25) !important;
+    background: #2a2f3a !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
   }
 
-  .mobile-model-selected { padding: 0 0 18px !important; }
+  .mobile-model-selected { padding: 0 0 16px !important; }
   .mobile-model-selected-card {
-    min-height: 64px !important;
+    min-height: 60px !important;
     gap: 11px !important;
-    padding: 9px 12px !important;
-    border-radius: 16px !important;
-    background: linear-gradient(135deg, rgba(25, 34, 58, 0.8), rgba(16, 22, 38, 0.8)) !important;
-    border: 1px solid rgba(99, 102, 241, 0.35) !important;
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.15) !important;
+    padding: 8px 12px !important;
+    border-radius: 12px !important;
+    background: #1b1e24 !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
   }
   .mobile-selected-check {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     display: grid;
     place-items: center;
     border-radius: 50%;
-    color: #ffffff !important;
-    background: linear-gradient(135deg, #6366f1, #38bdf8) !important;
-    font-size: .9rem !important;
-    font-weight: 900 !important;
-    box-shadow: 0 0 10px rgba(99, 102, 241, 0.6) !important;
+    color: #111215 !important;
+    background: #f1f3f7 !important;
+    font-size: .88rem !important;
+    font-weight: 800 !important;
   }
 
   .mobile-selected-icon,
   .mobile-model-row-icon {
-    width: 40px !important;
-    height: 40px !important;
-    flex-basis: 40px !important;
-    border-radius: 12px !important;
-    background: #090c15 !important;
+    width: 38px !important;
+    height: 38px !important;
+    flex-basis: 38px !important;
+    border-radius: 10px !important;
+    background: #13151a !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
   }
 
   .mobile-selected-copy strong,
   .mobile-model-row-copy strong {
-    color: #f8fafc !important;
-    font-size: .89rem !important;
-    font-weight: 680 !important;
+    color: #f4f5f7 !important;
+    font-size: .88rem !important;
+    font-weight: 650 !important;
   }
   .mobile-selected-copy small,
   .mobile-model-row-copy small {
-    color: #94a3b8 !important;
+    color: #9da3af !important;
     font-size: .69rem !important;
   }
 
   .mobile-model-library { padding: 0 0 16px !important; }
-  .mobile-model-list { gap: 6px !important; }
+  .mobile-model-list { gap: 4px !important; }
   .mobile-model-row {
-    min-height: 60px !important;
-    grid-template-columns: 40px minmax(0,1fr) 26px !important;
-    gap: 12px !important;
-    padding: 8px 12px !important;
-    border-radius: 14px !important;
-    color: #f1f5f9 !important;
-    background: rgba(16, 22, 38, 0.4) !important;
+    min-height: 56px !important;
+    grid-template-columns: 38px minmax(0,1fr) 24px !important;
+    gap: 11px !important;
+    padding: 7px 11px !important;
+    border-radius: 10px !important;
+    color: #dcdee3 !important;
+    background: transparent !important;
     border: 1px solid transparent !important;
-    transition: all 0.15s ease !important;
+    transition: background 0.12s ease !important;
   }
   .mobile-model-row:hover,
   .mobile-model-row:active {
-    background: rgba(25, 34, 58, 0.75) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    background: #1b1e24 !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
   }
   .mobile-model-row.active {
-    background: rgba(99, 102, 241, 0.14) !important;
-    border-color: rgba(99, 102, 241, 0.4) !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+    background: #20242c !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
   }
   .mobile-model-row-check {
-    width: 25px !important;
-    height: 25px !important;
-    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    width: 22px !important;
+    height: 22px !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
     border-radius: 50% !important;
   }
   .mobile-model-row.active .mobile-model-row-check {
-    color: #ffffff !important;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+    color: #111215 !important;
+    background: #f1f3f7 !important;
     border-color: transparent !important;
-    box-shadow: 0 0 8px rgba(99, 102, 241, 0.6) !important;
   }
 
   /* Response settings panel */
@@ -395,111 +390,108 @@
     margin: 8px 0 0 !important;
     padding: 0 !important;
     border: 1px solid rgba(255, 255, 255, 0.09) !important;
-    border-radius: 16px !important;
-    background: #0f1424 !important;
+    border-radius: 12px !important;
+    background: #15171c !important;
     overflow: hidden !important;
   }
   .mobile-model-advanced summary {
-    min-height: 56px !important;
-    padding: 0 16px !important;
-    color: #f1f5f9 !important;
-    font-size: .83rem !important;
-    font-weight: 650 !important;
+    min-height: 52px !important;
+    padding: 0 14px !important;
+    color: #f4f5f7 !important;
+    font-size: .82rem !important;
+    font-weight: 600 !important;
     border-bottom: 0 !important;
   }
   .mobile-model-advanced[open] summary {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   }
   .mobile-model-advanced summary span {
-    color: #94a3b8 !important;
+    color: #8e95a2 !important;
     font-size: .69rem !important;
   }
   .mobile-model-advanced-body {
-    padding: 14px !important;
-    background: #0b0f1b !important;
+    padding: 12px !important;
+    background: #111215 !important;
   }
-  .mobile-model-advanced-section + .mobile-model-advanced-section { margin-top: 16px !important; }
-  .mobile-model-advanced-grid { gap: 8px !important; }
+  .mobile-model-advanced-section + .mobile-model-advanced-section { margin-top: 14px !important; }
+  .mobile-model-advanced-grid { gap: 6px !important; }
   .mobile-model-advanced-grid button {
-    min-height: 46px !important;
-    border-radius: 12px !important;
-    background: #131a2c !important;
+    min-height: 42px !important;
+    border-radius: 8px !important;
+    background: #1b1e24 !important;
     border: 1px solid rgba(255, 255, 255, 0.09) !important;
-    color: #94a3b8 !important;
-    font-size: .76rem !important;
-    font-weight: 620 !important;
+    color: #9da3af !important;
+    font-size: .75rem !important;
+    font-weight: 600 !important;
     box-shadow: none !important;
-    transition: all 0.15s ease !important;
+    transition: all 0.12s ease !important;
   }
   .mobile-model-advanced-grid button.active {
     color: #ffffff !important;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3)) !important;
-    border-color: rgba(99, 102, 241, 0.5) !important;
-    box-shadow: 0 0 10px rgba(99, 102, 241, 0.25) !important;
+    background: #2a2f3a !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
   }
 
-  /* Footer controls with glowing action CTA */
+  /* Footer controls */
   .mobile-model-picker-footer {
-    grid-template-columns: 122px minmax(0,1fr) !important;
-    gap: 10px !important;
-    padding: 12px 14px calc(12px + env(safe-area-inset-bottom,0px)) !important;
-    background: rgba(9, 12, 21, 0.94) !important;
+    grid-template-columns: 120px minmax(0,1fr) !important;
+    gap: 9px !important;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom,0px)) !important;
+    background: rgba(17, 18, 21, 0.96) !important;
     border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-    backdrop-filter: blur(16px) !important;
-    -webkit-backdrop-filter: blur(16px) !important;
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25) !important;
   }
   .mobile-default-model-btn,
   .mobile-use-model-btn {
-    min-height: 50px !important;
-    border-radius: 14px !important;
-    font-size: .84rem !important;
-    font-weight: 680 !important;
-    transition: all 0.2s ease !important;
+    min-height: 46px !important;
+    border-radius: 10px !important;
+    font-size: .82rem !important;
+    font-weight: 650 !important;
+    transition: all 0.15s ease !important;
   }
   .mobile-default-model-btn {
-    color: #94a3b8 !important;
-    background: #131a2c !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #9da3af !important;
+    background: #181a20 !important;
+    border: 1px solid rgba(255, 255, 255, 0.11) !important;
   }
   .mobile-use-model-btn {
-    color: #ffffff !important;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #38bdf8 100%) !important;
-    border: none !important;
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35) !important;
+    color: #111215 !important;
+    background: #f1f3f7 !important;
+    border: 1px solid #ffffff !important;
   }
   .mobile-use-model-btn:active {
-    transform: scale(0.97) !important;
+    background: #dcdee3 !important;
   }
 
-  /* Model indicators with neon cyber dot */
+  /* Model indicators */
   .chat-header[data-active-model]::after,
   .assistant-actual-model-badge {
-    color: #e2e8f0 !important;
-    background: #131a2c !important;
-    border: 1px solid rgba(99, 102, 241, 0.3) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+    color: #dcdee3 !important;
+    background: #1b1e24 !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
   }
   .mobile-active-model-dot {
-    background: #38bdf8 !important;
-    box-shadow: 0 0 8px #38bdf8 !important;
+    background: #9da3af !important;
+    box-shadow: none !important;
   }
 
-  /* Refined ambient voice & mark glow */
   .vorb,
   .vorb.listening {
-    box-shadow: 0 0 35px rgba(99, 102, 241, 0.45) !important;
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.15) !important;
   }
   .sb-mark,
   .auth-logo-mark {
-    box-shadow: 0 0 16px rgba(99, 102, 241, 0.35) !important;
+    box-shadow: none !important;
   }
 
   @media (max-width: 390px) {
-    .mobile-model-screen-header { padding-left: 16px !important; padding-right: 16px !important; }
-    .mobile-model-screen-heading strong { font-size: 1.42rem !important; max-width: 205px !important; }
-    .mobile-model-screen-heading span { font-size: .76rem !important; max-width: 86px !important; }
+    .mobile-model-screen-header { padding-left: 14px !important; padding-right: 14px !important; }
+    .mobile-model-screen-heading strong { font-size: 1.35rem !important; max-width: 205px !important; }
+    .mobile-model-screen-heading span { font-size: .75rem !important; max-width: 86px !important; }
     .mobile-model-screen-scroll { padding-left: 12px !important; padding-right: 12px !important; }
-    .mobile-model-picker-footer { grid-template-columns: 112px minmax(0,1fr) !important; padding-left: 9px !important; padding-right: 9px !important; }
+    .mobile-model-picker-footer { grid-template-columns: 108px minmax(0,1fr) !important; padding-left: 8px !important; padding-right: 8px !important; }
   }
 }
