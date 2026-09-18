@@ -1,0 +1,274 @@
+/* ============================================================================
+   VETROAI MOBILE — REFRESH LAYER
+   ----------------------------------------------------------------------------
+   Loaded last, so this file is the single source of truth for mobile styling.
+   It exists because three separate "final" palettes (Midnight Iris, Perplexity
+   Dark, Monochrome Polish) plus five patch files each partially override one
+   another — `.claude-input-box` alone is styled ten times across them. Rather
+   than deleting those files and risking the rules only they provide, this layer
+   settles the questions that actually reach the eye: elevation, gutters, text
+   measure and tap targets.
+
+   Everything is scoped to the mobile breakpoint the other layers use, so the
+   desktop theme is untouched.
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* ── Palette ───────────────────────────────────────────────────────────────
+     The previous layer put the page at #0b0b0c and every surface at #151516 —
+     six steps of luminance apart, which is below the threshold where a panel
+     reads as a panel. The ladder below keeps the monochrome direction that
+     layer chose but makes each step legible on an OLED phone in daylight. */
+  :root,
+  .settings-panel-dark {
+    --bg: #0d0d0f;
+    --bg-sidebar: #121214;
+    --bg-elevated: #1a1a1e;
+    --bg-hover: #232329;
+    --bg-active: #2d2d34;
+
+    --ink: #f3f3f5;
+    --ink-2: #c6c6ce;
+    --ink-3: #9a9aa4;
+    --ink-4: #74747e;
+    --ink-5: #4a4a52;
+
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.16);
+
+    /* Shared geometry, so the composer, cards and drawer agree. */
+    --m-gutter: 14px;
+    --m-radius: 20px;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────────────
+     Icons sat at rgb(114,114,119) on near-black — roughly 2.3:1, under the 3:1
+     minimum for meaningful non-text contrast, and unreadable outdoors. */
+  header svg,
+  header button svg {
+    color: var(--ink-2);
+    stroke: currentColor;
+    opacity: 1;
+  }
+
+  header button {
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 12px;
+  }
+
+  header button:active {
+    background: var(--bg-hover);
+  }
+
+  /* ── Composer ──────────────────────────────────────────────────────────────
+     Rendered edge to edge (x=0, width=390) while the pills below it carried a
+     16px gutter, so the app's most-used control was also its least considered.
+     Gutters plus a real surface colour give it an edge to sit on, and the safe
+     -area inset keeps it clear of the home indicator. */
+  form.claude-input-box,
+  .claude-input-box {
+    margin-left: var(--m-gutter);
+    margin-right: var(--m-gutter);
+    margin-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: calc(100% - (var(--m-gutter) * 2));
+    border-radius: var(--m-radius);
+    background: var(--bg-elevated);
+    border: 1px solid var(--line);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  form.claude-input-box:focus-within,
+  .claude-input-box:focus-within {
+    border-color: var(--line-strong);
+  }
+
+  /* ── Home / empty state ────────────────────────────────────────────────────
+     The greeting and composer were centred in a 784px column, stranding ~330px
+     of black above and ~270px below and putting the input out of thumb reach.
+     Sitting the block low anchors it where the hand already is. */
+     The block is 291px of content in a 784px column, so both auto margins were
+     resolving to 246.5px each and splitting the slack evenly — dead centre, and
+     a reach away from the thumb. Pinning the bottom margin makes the top one
+     absorb the remainder. It stops short of flush-bottom on purpose: the
+     keyboard opens there, and a composer jammed against the edge reads as
+     cropped rather than placed. */
+  /* NOTE: the mobile placement of .claude-empty-center lives in App.css beside
+     its base rule. Declared here it was silently dropped from the parsed
+     stylesheet — the rule shipped in the bundle but never reached the CSSOM. */
+
+  /* ── Suggestion chips ──────────────────────────────────────────────────────
+     The row scrolls to 629px inside 390px, so the final chip was sliced through
+     the middle of a word. Trailing padding lets the last one clear the fade,
+     and snapping stops it resting half-visible. */
+  /* Wrapping shows every suggestion at once. Scrolling hid two of five behind a
+     word sliced down the middle at the screen edge, which reads as a broken
+     layout rather than an invitation to swipe. The row is only the scroll
+     container — `.claude-suggestion-pills` inside it is the flex track that
+     actually has to stop being `nowrap; width: max-content`. */
+  .claude-suggestion-pills-row {
+    overflow-x: visible !important;
+    padding: 0 !important;
+    padding-bottom: 0 !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+  }
+
+  .claude-suggestion-pills {
+    flex-wrap: wrap !important;
+    width: auto !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    padding: 0 var(--m-gutter) !important;
+    margin-top: 14px !important;
+  }
+
+  /* ── Conversation ──────────────────────────────────────────────────────────
+     Assistant copy ran from x=63 to x=374: a 63px left indent against a 16px
+     right margin. The asymmetry reads as broken and costs 47px of an already
+     narrow line.
+
+     That 63px is a 36px provider avatar plus a 12px flex gap, sitting inside the
+     feed's own 16px padding. The avatar says which model answered, so it stays —
+     but 36px of it is a desktop measurement. At 26px with a tighter gap the
+     badge is still legible and each answer gets 13px of line back.
+
+     To reclaim the other 34px, hide it on mobile instead:
+       .provider-response-avatar { display: none !important; }
+       .claude-feed-scroll div:has(> .msg-row) { gap: 0; } */
+  .provider-response-avatar {
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    flex: 0 0 26px !important;
+  }
+
+  .provider-response-avatar > div,
+  .provider-response-avatar > span {
+    width: 26px !important;
+    height: 26px !important;
+  }
+
+  .claude-feed-scroll div:has(> .msg-row) {
+    gap: 8px;
+  }
+
+  .msg-row,
+  .claude-prose {
+    max-width: 100%;
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  /* Restore list markers. `list-style: none` was inherited from a reset, so
+     every bulleted answer rendered as floating unattributed lines. */
+  .claude-prose ul {
+    list-style: disc outside;
+    padding-left: 1.35em;
+  }
+
+  .claude-prose ol {
+    list-style: decimal outside;
+    padding-left: 1.45em;
+  }
+
+  .claude-prose li {
+    list-style: inherit;
+    margin: 0.3em 0;
+    padding-left: 0.15em;
+  }
+
+  .claude-prose li::marker {
+    color: var(--ink-4);
+  }
+
+  /* User messages need to read as a distinct object; at #151516 on #0b0b0c the
+     bubble was effectively invisible. */
+  .claude-user-bubble,
+  [class*="user"][class*="bubble"] {
+    background: var(--bg-elevated);
+    border: 1px solid var(--line);
+  }
+
+  /* Inline code was heavy enough to break the line rhythm of the paragraph it
+     sat in — lighter fill, no border, tighter padding. */
+  .claude-prose :not(pre) > code {
+    background: rgba(255, 255, 255, 0.07);
+    border: none;
+    padding: 0.12em 0.36em;
+    border-radius: 6px;
+    font-size: 0.92em;
+  }
+
+  /* The code card was nested inside a second card, doubling the border and the
+     inset shadow for no gain. */
+  .claude-prose pre {
+    background: #121216;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: none;
+  }
+
+  /* ── Message action row ────────────────────────────────────────────────────
+     Six controls (copy, retry, share, up, down, bookmark) were crowded under
+     each answer at a size no thumb could pick apart. */
+  .claude-msg-actions button,
+  .msg-actions button {
+    min-width: 38px;
+    min-height: 38px;
+    border-radius: 10px;
+    color: var(--ink-3);
+  }
+
+  .claude-msg-actions button:active,
+  .msg-actions button:active {
+    background: var(--bg-hover);
+    color: var(--ink);
+  }
+
+  /* ── Sidebar ───────────────────────────────────────────────────────────────
+     240px of drawer against 390px of screen left the content behind it a
+     150px sliver — too narrow to orient by, too wide to ignore. */
+  nav.claude-sidebar {
+    width: min(86vw, 320px) !important;
+    max-width: min(86vw, 320px) !important;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--line);
+  }
+
+  nav.claude-sidebar a,
+  nav.claude-sidebar button,
+  nav.claude-sidebar [role="button"] {
+    min-height: 44px;
+    border-radius: 10px;
+  }
+
+  /* Recents were plain text with no press affordance and no shared left rhythm
+     with the icon rows above them. */
+  nav.claude-sidebar .sb-recent-item,
+  nav.claude-sidebar .recent-item {
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: var(--ink-2);
+    font-size: 14.5px;
+  }
+
+  nav.claude-sidebar .sb-recent-item:active,
+  nav.claude-sidebar .recent-item:active {
+    background: var(--bg-hover);
+    color: var(--ink);
+  }
+
+  /* The experimental flask badges were dim enough to look like artefacts. */
+  nav.claude-sidebar svg {
+    color: var(--ink-3);
+  }
+
+  /* ── Tap targets ───────────────────────────────────────────────────────────
+     Anything interactive clears 44px, the smallest reliably hittable target. */
+  .claude-action-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}

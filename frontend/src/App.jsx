@@ -6507,7 +6507,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     }}
                   />
                 ) : (
-                <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
+                <div className="claude-empty-center flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10">
                   <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
                     <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
                   </div>

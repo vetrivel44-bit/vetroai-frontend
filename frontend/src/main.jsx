@@ -15,6 +15,8 @@ import './styles/mobileIconSpacingFix.css'
 import './styles/mobileMonochromePolish.css'
 import './styles/mobileComposerColorFix.css'
 import './styles/richOutputTools.css'
+// Last in, so it settles the conflicts between the mobile layers above it.
+import './styles/mobileRefresh.css'
 import './mobileModelPicker.js'
 import './mobileActiveModelBadges.js'
 import './universalDownloads.js'

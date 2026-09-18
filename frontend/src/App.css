@@ -12670,3 +12670,23 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   }
 }
 
+
+/* Empty-state block (greeting + composer + suggestions). The auto margins used
+   to live in a JSX inline style, which no stylesheet could override per
+   breakpoint — see mobileRefresh.css for the mobile placement. */
+.claude-empty-center {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+/* On a phone the block is ~291px of content in a ~784px column, so two auto
+   margins split the slack evenly and park the composer dead centre — out of
+   thumb reach, with a screen of black above it. Pinning the bottom margin lets
+   the top one absorb the remainder. It stops short of flush-bottom on purpose:
+   the keyboard opens there, and a composer jammed against the edge reads as
+   cropped rather than placed. */
+@media (max-width: 768px) {
+  .claude-empty-center {
+    margin-bottom: 11vh;
+  }
+}
