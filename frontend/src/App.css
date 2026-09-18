@@ -12015,17 +12015,20 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 /* Final theme tokens intentionally override legacy feature-specific palettes. */
 :root,
 [data-theme="light"] {
-  /* Lavender light mode. The neutrals carry a violet cast rather than the
-     previous warm beige, so the accent reads as part of the surface instead of
-     sitting on top of it. Hue stays near 265deg across every step. */
-  --bg:#E6DCFA; --bg-2:#FFFFFF; --bg-sidebar:#FBF9FE; --bg-elevated:#FFFFFF;
-  --bg-hover:#F1E9FC; --bg-active:#E7DCFB;
-  --ink:#1C1330; --ink-2:#403659; --ink-3:#5B5474; --ink-4:#756E8C; --ink-5:#CFC6E4;
-  --accent:#7C3AED; --accent-soft:rgba(124,58,237,.10); --accent-mid:rgba(124,58,237,.20);
-  --accent-glow:rgba(124,58,237,.14); --accent-rgb:124,58,237;
+  /* Neutral light mode. The surface is genuinely neutral gray/white — no hue
+     tinting the backgrounds or the ink — so the single accent (a calm indigo,
+     picked to sit between the AI avatar's existing blue-to-violet gradient)
+     is the only color in the UI, the way it reads in Linear, Notion or
+     Vercel's dashboards. A previous version tinted every neutral step violet,
+     which read as a colored wash rather than a professional surface. */
+  --bg:#F7F7F9; --bg-2:#FFFFFF; --bg-sidebar:#FBFBFC; --bg-elevated:#FFFFFF;
+  --bg-hover:#F0F0F3; --bg-active:#E8E8EE;
+  --ink:#1A1A22; --ink-2:#47474F; --ink-3:#6C6C77; --ink-4:#8E8E99; --ink-5:#D6D6DD;
+  --accent:#5B5FE3; --accent-soft:rgba(91,95,227,.08); --accent-mid:rgba(91,95,227,.16);
+  --accent-glow:rgba(91,95,227,.12); --accent-rgb:91,95,227;
   --success:#1F8F67; --danger:#DC4C6B; --danger-soft:rgba(220,76,107,.10);
-  --border:#EBE2F9; --border-med:#DCCFF4; --border-str:#C6B4EA;
-  --glass-bg:rgba(255,255,255,.74); --glass-border:rgba(124,58,237,.12);
+  --border:#E7E7EC; --border-med:#D8D8DF; --border-str:#BEBEC8;
+  --glass-bg:rgba(255,255,255,.82); --glass-border:rgba(0,0,0,.06);
   color-scheme:light;
 }
 [data-theme="dark"] {
@@ -12790,60 +12793,46 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 
 
 /* ==========================================================================
-   LIGHT MODE — LAVENDER CHAT SURFACE
-   Scoped to [data-theme="light"] so dark mode is untouched. The chat column
-   is a soft violet wash with the composer and message bubbles floating on it
-   as glass cards, rather than flat panels on a flat page.
+   LIGHT MODE — CLEAN NEUTRAL SURFACE
+   Scoped to [data-theme="light"] so dark mode is untouched. A previous
+   version painted `main` with a multi-stop violet→white→pink wash and tinted
+   every panel to match — colorful, but it read as a themed skin rather than
+   a professional product surface, and it was low enough contrast in spots
+   (see the legibility note near the bottom) that header icon buttons were
+   nearly invisible against it. This version keeps the neutral gray/white
+   surface defined by the tokens above and reserves color for the one accent,
+   used only where something is interactive or selected — the same restraint
+   Linear, Notion and Vercel's own dashboards use.
    ========================================================================== */
 
-/* The wash. `main` carries an inline background-color of var(--bg), which an
-   external rule cannot override — so this paints with background-image
-   instead, which layers over that color rather than competing with it. */
-[data-theme="light"] main {
-  /* A vertical sweep: violet at the top, bright through the middle, pink along
-     the base, with one extra violet pool behind the top-left corner. The white
-     mid-stop is deliberate — it is what keeps the centre of a long page from
-     reading as heavy. */
-  background-image:
-    linear-gradient(170deg,
-      rgba(150,104,248,.34) 0%,
-      rgba(255,255,255,.55) 46%,
-      rgba(238,150,215,.30) 100%),
-    radial-gradient(900px 560px at 6% -6%, rgba(124,58,237,.22), transparent 60%);
-  background-attachment: fixed;
-}
+/* `main` carries an inline background-color of var(--bg) already (plain
+   neutral gray now, not violet) — nothing to layer over it here. */
 
-/* Let the wash run behind the header instead of cutting it with a band. */
 [data-theme="light"] .chat-header {
-  background: transparent;
-  border-bottom-color: rgba(124,58,237,.10);
-  backdrop-filter: blur(10px);
+  background: var(--bg);
+  border-bottom-color: var(--border);
 }
 
-/* The composer. Translucent white over the wash with a violet-tinted lift, so
-   it reads as glass rather than as a panel sitting on the page — and tall,
-   with the question on its own line and the controls as a toolbar along the
-   bottom, rather than one cramped row. */
+/* The composer: a plain white card lifted off the neutral page with a soft,
+   colorless shadow — not a colored glow, which is what read as "themed"
+   rather than "designed". */
 [data-theme="light"] .claude-input-box {
-  background: rgba(255,255,255,.52);
-  border-color: rgba(255,255,255,.55);
+  background: #FFFFFF;
+  border-color: var(--border);
   border-radius: 26px;
   padding: 20px 22px 14px;
   min-height: 132px;
   justify-content: space-between;
-  backdrop-filter: blur(22px) saturate(1.4);
   box-shadow:
-    0 1px 2px rgba(28,19,48,.03),
-    0 16px 40px -14px rgba(124,58,237,.26),
-    inset 0 1px 0 rgba(255,255,255,.65);
+    0 1px 2px rgba(20,20,30,.03),
+    0 12px 32px -16px rgba(20,20,30,.12);
 }
 [data-theme="light"] .claude-input-box:focus-within {
-  background: rgba(255,255,255,.66);
-  border-color: rgba(255,255,255,.80);
+  border-color: var(--accent-mid);
   box-shadow:
-    0 1px 2px rgba(28,19,48,.05),
-    0 18px 44px -14px rgba(124,58,237,.30),
-    inset 0 1px 0 rgba(255,255,255,.85);
+    0 1px 2px rgba(20,20,30,.04),
+    0 0 0 3px var(--accent-soft),
+    0 14px 34px -16px rgba(20,20,30,.14);
 }
 
 /* The question gets room to breathe above the toolbar. */
@@ -12854,20 +12843,19 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 
 /* Toolbar: the controls sit on a hairline, as a row of pills. */
 [data-theme="light"] .claude-input-footer {
-  border-top: 1px solid rgba(124,58,237,.10);
+  border-top: 1px solid var(--border);
   padding-top: 12px;
   margin-top: 12px;
 }
 [data-theme="light"] .claude-footer-left,
 [data-theme="light"] .claude-footer-right { gap: 8px; }
 
-/* Each control becomes a pill: white, hairline-bordered, lifted just enough to
-   separate it from the glass behind it. A button with a label grows to fit it;
-   an icon-only one stays a circle. */
+/* Each control becomes a pill: white, hairline-bordered. A button with a
+   label grows to fit it; an icon-only one stays a circle. */
 [data-theme="light"] .claude-attach-btn,
 [data-theme="light"] .claude-action-btn {
-  background: rgba(255,255,255,.70);
-  border: 1px solid rgba(255,255,255,.70);
+  background: #FFFFFF;
+  border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--ink-2);
   height: 36px;
@@ -12875,14 +12863,12 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   width: auto;
   padding: 0 10px;
   gap: 6px;
-  box-shadow: 0 1px 2px rgba(28,19,48,.04);
 }
 [data-theme="light"] .claude-attach-btn:hover,
 [data-theme="light"] .claude-action-btn:hover {
-  background: #FFFFFF;
-  border-color: rgba(124,58,237,.30);
+  background: var(--bg-hover);
+  border-color: var(--accent-mid);
   color: var(--accent);
-  box-shadow: 0 4px 12px -4px rgba(124,58,237,.28);
 }
 [data-theme="light"] .composer-btn-label {
   font-size: .82rem;
@@ -12894,18 +12880,17 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 /* The model/effort pill is the primary control in the row, so it carries the
    accent tint the plain pills do not. */
 [data-theme="light"] .claude-input-footer .mode-pill {
-  background: rgba(124,58,237,.08);
-  border-color: rgba(124,58,237,.18);
+  background: var(--accent-soft);
+  border-color: var(--accent-mid);
   color: var(--ink);
   height: 36px;
   padding: 0 14px;
 }
 [data-theme="light"] .claude-input-footer .mode-pill:hover {
-  background: rgba(124,58,237,.14);
-  border-color: rgba(124,58,237,.32);
+  background: var(--accent-mid);
 }
 [data-theme="light"] .claude-input-footer .mode-pill-effort {
-  background: rgba(124,58,237,.14);
+  background: var(--accent-mid);
   border-radius: 999px;
   padding: 2px 8px;
   font-style: normal;
@@ -12914,26 +12899,24 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 }
 
 /* The user's own turn, filled in the accent so the two sides of the
-   conversation read apart at a glance. */
+   conversation read apart at a glance. A single-hue gradient (two shades of
+   the same indigo) rather than the old violet-to-magenta pairing — it still
+   reads as a deliberate, branded fill without introducing a second color. */
 [data-theme="light"] .chat-user-bubble {
-  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  background: linear-gradient(135deg, #6D70E8 0%, var(--accent) 100%);
   border-color: transparent;
   color: #FFFFFF;
-  box-shadow: 0 8px 22px -10px rgba(124,58,237,.45);
+  box-shadow: 0 8px 20px -12px var(--accent-mid);
 }
 
 /* The assistant's turn stays unfilled — a card would double the visual weight
-   of the longest text on the page — so it gets a glass panel only where it
-   already had a surface. */
+   of the longest text on the page — so its code blocks and tables get a
+   plain white surface rather than a tinted one. */
 [data-theme="light"] .msg-row .claude-prose pre,
 [data-theme="light"] .msg-row .claude-prose table {
-  background: rgba(255,255,255,.72);
-  border-color: rgba(124,58,237,.12);
+  background: #FFFFFF;
+  border-color: var(--border);
 }
-
-/* Greeting block on the empty state, matching the wash rather than sitting on
-   an opaque rectangle. */
-[data-theme="light"] .claude-empty-container { background: transparent; }
 
 /* A control that carries a label is a pill, not a 32px circle — without this
    the label overflows the button it belongs to. Applies in both themes,
@@ -12945,15 +12928,17 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   gap: 6px;
 }
 
-/* Legibility on the lavender surface. The wash is lighter than the old beige,
-   so ink steps that passed on it were reading as barely-there here: the
-   sidebar's group labels and the header's icon buttons both sat at 3.3:1,
-   below the 4.5:1 floor for text. Measured against the sidebar's own #FBF9FE.
-   The group labels are not listed here: they carry an inline var(--ink-4),
-   which no rule can override, so darkening that step is what lifts them. */
+/* Legibility floor for icon-only controls against this surface: var(--ink-3)
+   (the default .claude-sb-item color) sits under the 4.5:1 text contrast
+   ratio here, so buttons that are read as icons rather than text — the
+   sidebar's own icon buttons, and the header's Jobs/News/Web
+   Search/Incognito controls — step up to var(--ink-2) (~9:1). This only
+   reaches those buttons when they don't set their own inline color (an
+   inline style always wins over a class), which is exactly the state they're
+   in at rest. */
 [data-theme="light"] .claude-sb-item,
 [data-theme="light"] .claude-sb-recent {
-  color: var(--ink-2); /* ~9:1 */
+  color: var(--ink-2);
 }
 [data-theme="light"] .claude-sb-icon-btn {
   color: var(--ink-2);
