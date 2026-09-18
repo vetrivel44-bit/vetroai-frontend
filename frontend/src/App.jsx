@@ -6935,16 +6935,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             })()}
           </div>
           <div className="ch-right">
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowJobs(true)} title="Jobs" style={{ color: "var(--ink-4)" }}>
+            {/* No inline color on the inactive state — these four used to force
+                var(--ink-4) here, and an inline style always wins over a class,
+                which is enough on its own to make an icon read as much fainter
+                than the rest of the toolbar next to it. Leaving color unset
+                lets the normal .claude-sb-item cascade apply, in whichever
+                theme/palette is live. */}
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowJobs(true)} title="Jobs">
               <Briefcase size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News" style={{ color: "var(--ink-4)" }}>
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News">
               <Newspaper size={18} />
             </button>
-            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${showWebSearchModal ? " active" : ""}`} onClick={() => setShowWebSearchModal(true)} title="Web Search" style={{ color: showWebSearchModal ? "#22d3ee" : "var(--ink-4)" }}>
+            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${showWebSearchModal ? " active" : ""}`} onClick={() => setShowWebSearchModal(true)} title="Web Search" style={showWebSearchModal ? { color: "#22d3ee" } : undefined}>
               <Globe size={18} />
             </button>
-            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={{ color: isIncognito ? '#A77BF5' : "var(--ink-4)" }}>
+            <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={isIncognito ? { color: "var(--accent)" } : undefined}>
               <Ghost size={18} />
             </button>
             {messages.length > 0 && (
@@ -6965,18 +6971,21 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         )}
         {showJobs && <Suspense fallback={<ScreenLoader />}><JobSearchPanel onClose={() => setShowJobs(false)} /></Suspense>}
 
-        {/* Incognito banner */}
+        {/* Incognito banner — derived from var(--accent-soft)/var(--accent)
+            rather than a fixed dark-purple gradient, which only ever looked
+            right against a dark page; this way it picks up whichever theme
+            or palette is currently live instead of clashing with it. */}
         {isIncognito && (
-          <div style={{ background: 'linear-gradient(90deg, #2a1a4a, #1a1a3a)', borderBottom: '1px solid rgba(167,123,245,0.25)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <Ghost size={14} style={{ color: '#A77BF5' }} />
-            <span style={{ fontSize: 12, color: '#C4A8F8', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
-            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#8B6DBF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>Turn off</button>
+          <div style={{ background: 'var(--accent-soft)', borderBottom: '1px solid var(--accent-mid)', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <Ghost size={14} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: 12, color: 'var(--ink-2)', fontFamily: "'Inter', sans-serif" }}>Incognito — this conversation won't be saved to history</span>
+            <button onClick={() => { setIsIncognito(false); addToast("Incognito off", "info", 1500); }} style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>Turn off</button>
           </div>
         )}
 
         {/* Content Area */}
         <div className={`flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
-          style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, rgba(30,18,60,0.06) 0%, transparent 120px)' } : {}}>
+          style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, var(--accent-soft) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
                 isWebMode ? (
                   <Suspense fallback={<ScreenLoader />}>
