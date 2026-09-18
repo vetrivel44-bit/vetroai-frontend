@@ -207,18 +207,18 @@ const VetroLogo = ({ width = 150, className = "" }) => (
   />
 );
 
-// Icon-only: shows just the V portion (left ~40% of the 3:1 logo)
+// Icon-only: the VetroAi mark (dark teal square, white/teal V, base dot)
 const VetroSpark = ({ size = 32, className = "" }) => (
   <div
     className={className}
-    style={{ width: size, height: size, overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center' }}
+    style={{ width: size, height: size, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
   >
-    <img
-      src="/logo.png"
-      alt="VetroAi"
-      className="vetro-brand-logo"
-      style={{ height: size, width: 'auto', maxWidth: 'none', display: 'block' }}
-    />
+    <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" focusable="false">
+      <rect x="0" y="0" width="100" height="100" rx="22" fill="#16414F" />
+      <rect x="42" y="8" width="16" height="74" rx="8" fill="#F4FBFA" transform="rotate(-24 50 82)" />
+      <rect x="42" y="8" width="16" height="74" rx="8" fill="#3b8c9f" transform="rotate(24 50 82)" />
+      <circle cx="50" cy="79" r="6.5" fill="#16414F" />
+    </svg>
   </div>
 );
 
