@@ -185,16 +185,28 @@ const extractSourceUrls = (text) => {
 };
 
 // ─── VETROAI BRAND LOGO ────────────────────────────────────────────────────────
-// Uses the actual logo.png (723×240, tightly cropped, transparent background).
-// CSS filter boosts the pastel colors to premium Electric Blue / Indigo / Purple.
-const VetroLogo = ({ width = 150, className = "" }) => (
-  <img
-    src="/logo.png"
-    alt="VetroAi"
-    className={`vetro-brand-logo ${className}`}
-    style={{ width, height: 'auto', display: 'block', flexShrink: 0 }}
-  />
-);
+// Icon + wordmark. Colors follow theme tokens (var(--ink)/var(--bg-sidebar)) so
+// it reads correctly on the light sidebar, dark sidebar, and the always-dark
+// auth hero panel without needing separate light/dark image assets.
+const VetroLogo = ({ width = 150, className = "" }) => {
+  const iconSize = width * 0.23;
+  const fontSize = width * 0.155;
+  return (
+    <div
+      className={`vetro-brand-logo ${className}`}
+      style={{ display: 'flex', alignItems: 'center', gap: width * 0.025, flexShrink: 0 }}
+    >
+      <svg viewBox="12 2 76 96" width={iconSize} height={iconSize * 1.06} aria-hidden="true" focusable="false" style={{ flexShrink: 0 }}>
+        <rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)" />
+        <rect x="42" y="8" width="16" height="74" rx="8" fill="#3b8c9f" transform="rotate(24 50 82)" />
+        <circle cx="50" cy="79" r="6.5" fill="var(--bg-sidebar, var(--bg))" />
+      </svg>
+      <span style={{ fontSize, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--ink)', lineHeight: 1, whiteSpace: 'nowrap' }}>
+        Vetro<span style={{ color: '#3b8c9f' }}>Ai</span>
+      </span>
+    </div>
+  );
+};
 
 // Icon-only: the VetroAi mark (dark teal square, white/teal V, base dot)
 const VetroSpark = ({ size = 32, className = "" }) => (

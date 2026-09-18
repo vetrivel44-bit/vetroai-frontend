@@ -1125,22 +1125,15 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 }
 .sb-credit-pill.low { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
-/* VetroAi brand logo — boosted contrast/saturation for premium look */
+/* VetroAi brand logo */
 .vetro-brand-logo {
-  filter: contrast(1.35) saturate(1.7) brightness(0.82);
-  transition: filter 0.18s ease, opacity 0.18s ease;
+  transition: opacity 0.15s ease;
 }
-/* On dark backgrounds (auth page) the filter inverts intent — brighten instead */
-.auth-hero-logo .vetro-brand-logo {
-  filter: contrast(1.15) saturate(1.5) brightness(1.2);
-}
-/* Hover: slight lift */
 .vetro-brand-link {
   transition: opacity 0.15s ease;
 }
 .vetro-brand-link:hover .vetro-brand-logo {
-  filter: contrast(1.45) saturate(1.9) brightness(0.75);
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 /* User message bubble */
@@ -12848,13 +12841,3 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   color: var(--accent);
 }
 
-/* The wordmark is a light-toned PNG. The stock filter was tuned for the old
-   warm-white sidebar and leaves it faint on lavender, so light mode drives the
-   contrast harder and the brightness lower. */
-[data-theme="light"] .vetro-brand-logo {
-  filter: contrast(1.5) saturate(1.9) brightness(0.58);
-}
-[data-theme="light"] .vetro-brand-link:hover .vetro-brand-logo {
-  filter: contrast(1.6) saturate(2) brightness(0.48);
-  opacity: 1;
-}
