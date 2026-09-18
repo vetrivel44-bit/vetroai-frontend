@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import VoiceCoverLauncher from './components/screens/VoiceCoverLauncher.jsx'
 import CallAssistantLauncher from './components/screens/CallAssistantLauncher.jsx'
 import './styles/mobilePalette.css'
@@ -20,8 +21,10 @@ import './universalDownloads.js'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
-    <VoiceCoverLauncher />
-    <CallAssistantLauncher />
+    <ErrorBoundary>
+      <App />
+      <VoiceCoverLauncher />
+      <CallAssistantLauncher />
+    </ErrorBoundary>
   </StrictMode>,
 )
