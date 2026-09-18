@@ -207,7 +207,7 @@ const VetroLogo = ({ width = 150, className = "" }) => (
   />
 );
 
-// Icon-only: the VetroAi mark (dark teal square, indigo/white wing, base dot)
+// Icon-only: the VetroAi mark (dark teal square, white/teal V, base dot)
 const VetroSpark = ({ size = 32, className = "" }) => (
   <div
     className={className}
@@ -216,7 +216,7 @@ const VetroSpark = ({ size = 32, className = "" }) => (
     <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" focusable="false">
       <rect x="0" y="0" width="100" height="100" rx="22" fill="#16414F" />
       <rect x="42" y="8" width="16" height="74" rx="8" fill="#F4FBFA" transform="rotate(-24 50 82)" />
-      <rect x="42" y="8" width="16" height="74" rx="8" fill="#8b5cf6" opacity="0.92" transform="rotate(24 50 82)" />
+      <rect x="42" y="8" width="16" height="74" rx="8" fill="#3b8c9f" transform="rotate(24 50 82)" />
       <circle cx="50" cy="79" r="6.5" fill="#16414F" />
     </svg>
   </div>
