@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, useId, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -9,25 +9,10 @@ import "katex/dist/katex.min.css";
 // grabs surrounding text. `strict: false` renders those characters as-is instead of
 // spamming the console — it doesn't change how real math expressions are rendered.
 const KATEX_OPTIONS = { strict: false };
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-
-// Prism (and so SyntaxHighlighter) only tokenizes languages it has a grammar
-// for. An unrecognized tag — a niche/DSL name a model invented for a code
-// fence (e.g. "umple" for what is really Java), or no tag at all — doesn't
-// error, it just skips tokenizing entirely and renders every line in one flat
-// color, which reads as broken/unstyled next to properly highlighted blocks.
-// Alias the near-misses we've actually seen, and fall back to "clike" (a
-// generic curly-brace grammar) for everything else so code still gets some
-// real highlighting instead of none.
-const HIGHLIGHT_LANGUAGE_ALIASES = { umple: "java", ump: "java" };
-const SUPPORTED_HIGHLIGHT_LANGUAGES = new Set(SyntaxHighlighter.supportedLanguages || []);
-function resolveHighlightLanguage(lang) {
-  const key = String(lang || "").trim().toLowerCase();
-  if (SUPPORTED_HIGHLIGHT_LANGUAGES.has(key)) return key;
-  if (HIGHLIGHT_LANGUAGE_ALIASES[key]) return HIGHLIGHT_LANGUAGE_ALIASES[key];
-  return "clike";
-}
+// Prism ships every grammar it knows and is only needed once an answer contains
+// a fenced code block, so it loads with the first one rather than with the app.
+// The language-alias handling moved into that module with it — see its comment.
+const CodeHighlighter = React.lazy(() => import("./components/CodeHighlighter"));
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
 import {
@@ -45,13 +30,17 @@ const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
 import ThinkingPanel from "./components/ThinkingPanel";
-import GlobalSearch from "./components/screens/GlobalSearch";
-import WebSearchView from "./components/screens/WebSearchView";
-import UpgradeModal from "./components/screens/UpgradeModal";
-import JobSearchPanel from "./components/screens/JobSearchPanel";
-import PluginHub from "./components/screens/PluginHub";
-import ComputerUI from "./components/screens/ComputerUI";
-import ChessArena from "./components/screens/ChessArena";
+// These screens are all behind a toggle — none of them is on screen when the app
+// opens, and between them they pull in three.js, chess.js and the map stacks.
+// Importing them eagerly meant every visitor downloaded and parsed all of it
+// before the first chat could render, so they load on the click that needs them.
+const GlobalSearch = React.lazy(() => import("./components/screens/GlobalSearch"));
+const WebSearchView = React.lazy(() => import("./components/screens/WebSearchView"));
+const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"));
+const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
+const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
+const ComputerUI = React.lazy(() => import("./components/screens/ComputerUI"));
+const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
@@ -931,19 +920,114 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
           </button>
         </div>
       </div>
-      <SyntaxHighlighter style={vscDarkPlus} language={resolveHighlightLanguage(lang)} PreTag="div"
-        customStyle={{ margin: 0, padding: "16px 20px", background: "transparent", fontSize: "0.82rem" }}>
-        {codeString}
-      </SyntaxHighlighter>
+      <Suspense fallback={<pre className="code-loading" style={{ margin: 0, padding: "16px 20px", fontSize: "0.82rem", whiteSpace: "pre-wrap" }}>{codeString}</pre>}>
+        <CodeHighlighter language={lang}
+          customStyle={{ margin: 0, padding: "16px 20px", background: "transparent", fontSize: "0.82rem" }}>
+          {codeString}
+        </CodeHighlighter>
+      </Suspense>
     </div>
   );
 }
+
+// ─── MESSAGE BODY (memoized) ──────────────────────────────────────────────────
+// Rendering one assistant message is the single most expensive thing this app
+// does: remark/rehype parse the whole message, KaTeX renders every math span and
+// Prism re-tokenizes every code block. React re-runs the feed on every streamed
+// token, so doing that work inline made the cost of a reply O(messages × length)
+// per token — a long chat visibly stalls as the answer grows.
+//
+// Two things make the memo boundaries below actually hold:
+//   1. The plugin arrays are module constants. Inline `[remarkGfm, remarkMath]`
+//      allocates a fresh array each render, which alone defeats every memo.
+//   2. The streaming updaters only replace the *last* message object, so every
+//      earlier message keeps its identity and its subtree is skipped entirely.
+// The result is O(length) per token for the one message still growing.
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
+
+// Markdown with the full code-block treatment (artifact button, download, copy).
+const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact }) {
+  const components = useMemo(() => ({
+    code({ inline, className, children }) {
+      const codeString = String(children).replace(/\n$/, "");
+      const langMatch = /language-(\w+)/.exec(className || "");
+      if (inline || !langMatch) return <code className={className}>{children}</code>;
+      const isArtifactWorthy = onSaveArtifact && codeString.split("\n").length >= 4;
+      return (
+        <CodeBlock
+          match={langMatch}
+          codeString={codeString}
+          autoOpen={autoOpen}
+          onSaveArtifact={isArtifactWorthy ? () => onSaveArtifact(codeString, langMatch[1], `${langMatch[1]} snippet`) : null}
+        />
+      );
+    },
+  }), [autoOpen, onSaveArtifact]);
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+      {content}
+    </ReactMarkdown>
+  );
+});
+
+// Plain markdown — used where code blocks need no artifact affordances.
+const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>{content}</ReactMarkdown>
+  );
+});
+
+// Markdown that still gets syntax-highlighted code blocks, minus the artifact
+// button — the per-model cards in a multi-AI answer.
+const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content }) {
+  const components = useMemo(() => ({
+    code({ inline, className, children }) {
+      const codeString = String(children).replace(/\n$/, "");
+      const langMatch = /language-(\w+)/.exec(className || "");
+      if (inline || !langMatch) return <code className={className}>{children}</code>;
+      return <CodeBlock match={langMatch} codeString={codeString} />;
+    },
+  }), []);
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+      {content}
+    </ReactMarkdown>
+  );
+});
+
+// The whole "which renderer does this answer need?" decision, behind one memo
+// boundary. The structured/writing-block probes are regex scans of the entire
+// message, so they are part of what must not re-run per token per message.
+const AssistantBody = React.memo(function AssistantBody({ content, autoOpen, onSaveArtifact }) {
+  if (hasStructuredContent(content)) return <StructuredResponseRenderer response={content} />;
+  if (isWritingBlock(content)) return <WritingBlockCard content={content} />;
+  return <RichMarkdown content={content} autoOpen={autoOpen} onSaveArtifact={onSaveArtifact} />;
+});
+
+// A multi-AI consensus/model answer: structured when the model emitted a
+// structured block, markdown otherwise.
+const MultiAiBody = React.memo(function MultiAiBody({ content, highlight }) {
+  if (hasStructuredContent(content)) return <StructuredResponseRenderer response={content} />;
+  return highlight ? <HighlightedMarkdown content={content} /> : <PlainMarkdown content={content} />;
+});
 
 const formatMath = txt => {
   if (!txt) return "";
   try { return String(txt).split("\\[").join("$$").split("\\]").join("$$").split("\\(").join("$").split("\\)").join("$"); }
   catch { return txt; }
 };
+
+// Shown while a lazily-loaded screen's chunk is on the wire. Deliberately quiet:
+// these chunks are small and usually cached, so a spinner would flash more often
+// than it would inform.
+function ScreenLoader() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40, color: "var(--ink-3)", fontSize: 13 }}>
+      Loading…
+    </div>
+  );
+}
 
 function TypingIndicator({ text = "" }) {
   return (
@@ -2085,9 +2169,11 @@ function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete
         <textarea className="artifact-editor" value={draft} onChange={e => setDraft(e.target.value)} spellCheck="false" aria-label="Edit artifact source" />
       )}
       {tab === "code" && !isEditing && (
-        <SyntaxHighlighter style={vscDarkPlus} language={resolveHighlightLanguage(language)} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
-          {draft}
-        </SyntaxHighlighter>
+        <Suspense fallback={<pre style={{ margin: 0, flex: 1, fontSize: "0.83rem", minHeight: 400, whiteSpace: "pre-wrap" }}>{draft}</pre>}>
+          <CodeHighlighter language={language} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
+            {draft}
+          </CodeHighlighter>
+        </Suspense>
       )}
       {tab === "preview" && (
         <iframe title="artifact-preview" srcDoc={draft} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
@@ -2274,9 +2360,11 @@ function DesignCanvas({ onClose }) {
                 <p>{isLoading ? "Designing…" : "Describe a UI below and I'll design it live."}</p>
               </div>
             ) : tab === "code" ? (
-              <SyntaxHighlighter style={vscDarkPlus} language="html" customStyle={{ margin: 0, flex: 1, fontSize: "0.82rem", height: "100%" }}>
-                {lastDesign.html}
-              </SyntaxHighlighter>
+              <Suspense fallback={<pre style={{ margin: 0, flex: 1, fontSize: "0.82rem", height: "100%", whiteSpace: "pre-wrap" }}>{lastDesign.html}</pre>}>
+                <CodeHighlighter language="html" customStyle={{ margin: 0, flex: 1, fontSize: "0.82rem", height: "100%" }}>
+                  {lastDesign.html}
+                </CodeHighlighter>
+              </Suspense>
             ) : (
               <div className={`design-frame-wrap viewport-${viewport}`}>
                 <iframe title="design-preview" srcDoc={lastDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />
@@ -2320,7 +2408,10 @@ const formatFreshness = (dateStr) => {
 };
 
 // ─── SOURCE CARDS (Perplexity-style) ──────────────────────────────────────────
-function SourceCards({ sources }) {
+// Memoized: rendered once per message inside a feed that re-renders on every
+// streamed token. The props come straight off the message object, whose
+// identity only changes for the message actually being streamed.
+const SourceCards = React.memo(function SourceCards({ sources }) {
   if (!sources?.length) return null;
   return (
     <div className="source-cards">
@@ -2339,7 +2430,7 @@ function SourceCards({ sources }) {
       </div>
     </div>
   );
-}
+});
 
 // ─── PERSONA SWITCHER (Quick-pick AI personality) ─────────────────────────────
 function PersonaSwitcher({ currentPersonaId, onSelect, onClose, onCreateNew }) {
@@ -3243,7 +3334,10 @@ function FootballCard({ match }) {
   );
 }
 
-function MedicalInfoCard({ data }) {
+// Memoized: rendered once per message inside a feed that re-renders on every
+// streamed token. The props come straight off the message object, whose
+// identity only changes for the message actually being streamed.
+const MedicalInfoCard = React.memo(function MedicalInfoCard({ data }) {
   if (!data || !data.answer) return null;
   return (
     <div style={{
@@ -3342,9 +3436,12 @@ function MedicalInfoCard({ data }) {
       </div>
     </div>
   );
-}
+});
 
-function LiveScoreWidget({ scores }) {
+// Memoized: rendered once per message inside a feed that re-renders on every
+// streamed token. The props come straight off the message object, whose
+// identity only changes for the message actually being streamed.
+const LiveScoreWidget = React.memo(function LiveScoreWidget({ scores }) {
   const [expanded, setExpanded] = useState(false);
   if (!scores || scores.length === 0) return null;
   const visible = expanded ? scores : scores.slice(0, 4);
@@ -3364,7 +3461,7 @@ function LiveScoreWidget({ scores }) {
       )}
     </div>
   );
-}
+});
 
 // ══════════════════════════════════════════════════════════════════════
 //  MAIN APP
@@ -3589,7 +3686,13 @@ export default function App() {
   const [reactions, setReactions]           = useState({});
   const [msgFeedback, setMsgFeedback]       = useState({});
   const [rxnFor, setRxnFor]                 = useState(null);
-  const [streamingContent, setStreamingContent] = useState("");
+  // The streamed text is mirrored here by the provider paths, but nothing
+  // renders it — `messages` already carries it, and the scroll effect keys off
+  // that. Holding it in state meant a second React render for every single
+  // token, doubling the work of a reply for no visible change, so keep it in a
+  // ref and leave the setter signature alone for the call sites.
+  const streamingContentRef = useRef("");
+  const setStreamingContent = useCallback((value) => { streamingContentRef.current = value; }, []);
   // FIX 1: track auto-continuation status
   const [isContinuing, setIsContinuing]     = useState(false);
   const [streamStatus, setStreamStatus]     = useState("idle"); // idle, preparing, streaming, retrying, recovering, failed
@@ -4060,7 +4163,7 @@ export default function App() {
         setSystemPrompt(sp.systemPrompt);
       }
     }
-  }, [currentSpaceId, spaces]);
+  }, [currentSpaceId, spaces, setStreamingContent]);
 
   const handleSwitchSpace = (spaceId) => {
     setCurrentSpaceId(spaceId);
@@ -4092,8 +4195,15 @@ export default function App() {
     addToast("Project deleted", "info", 1500);
   };
 
+  // Read the current artifact list through a ref rather than a dependency, so
+  // this callback keeps one identity for the life of the session. It is handed
+  // to the memoized message body, and a callback that changed whenever an
+  // artifact was saved would re-render every message in the feed.
+  const artifactsRef = useRef(artifacts);
+  useEffect(() => { artifactsRef.current = artifacts; }, [artifacts]);
+
   const saveArtifact = useCallback((code, language, title) => {
-    const existing = artifacts.find(a => a.code === code && a.language === (language || "text"));
+    const existing = artifactsRef.current.find(a => a.code === code && a.language === (language || "text"));
     if (existing) {
       setActiveArtifact(existing);
       return existing;
@@ -4106,7 +4216,7 @@ export default function App() {
     });
     setActiveArtifact(artifact);
     return artifact;
-  }, [artifacts, userKey]);
+  }, [userKey]);
 
   const updateArtifact = useCallback((updated) => {
     setArtifacts(prev => {
@@ -4420,10 +4530,25 @@ export default function App() {
     const far = scrollHeight - scrollTop - clientHeight > 120;
     isScrolling.current = far; setShowScrollDn(far);
   };
+  // Reading scrollHeight right after React has written to the DOM forces a
+  // synchronous layout, and the streaming paths call this once per token on top
+  // of the effect below — so a long answer paid for thousands of reflows. One
+  // animation frame can only produce one visible scroll position anyway, so
+  // coalesce every request within a frame into a single measure-and-set.
+  const scrollFrameRef = useRef(0);
   const scrollToBottom = useCallback(() => {
-    if (feedRef.current) { feedRef.current.scrollTop = feedRef.current.scrollHeight; isScrolling.current = false; setShowScrollDn(false); }
+    if (scrollFrameRef.current) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = 0;
+      const el = feedRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      isScrolling.current = false;
+      setShowScrollDn(false);
+    });
   }, []);
-  useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom, streamingContent]);
+  useEffect(() => () => { if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current); }, []);
+  useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom]);
 
   // ── Voice ─────────────────────────────────────────────────────────────────────
   const speak = async txt => {
@@ -6247,16 +6372,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   return (
     <div className={`vetro-app-shell flex h-screen w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
-      {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} />}
-      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} />}
+      {showGlobalSearch && <Suspense fallback={<ScreenLoader />}><GlobalSearch onClose={() => setShowGlobalSearch(false)} /></Suspense>}
+      {showUpgrade && <Suspense fallback={<ScreenLoader />}><UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} /></Suspense>}
       {showPlugins && (
-        <PluginHub
-          pluginState={pluginState}
-          onInstall={installPlugin}
-          onToggle={togglePlugin}
-          onUninstall={uninstallPlugin}
-          onClose={() => { setShowPlugins(false); if (activeNav === "plugins") setActiveNav("chats"); }}
-        />
+        <Suspense fallback={<ScreenLoader />}>
+          <PluginHub
+            pluginState={pluginState}
+            onInstall={installPlugin}
+            onToggle={togglePlugin}
+            onUninstall={uninstallPlugin}
+            onClose={() => { setShowPlugins(false); if (activeNav === "plugins") setActiveNav("chats"); }}
+          />
+        </Suspense>
       )}
 {showProfile && (
         <ProfileModal
@@ -6488,12 +6615,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       <main className="flex-1 flex flex-col relative h-full w-full overflow-hidden" style={{ backgroundColor: "var(--bg)" }}>
         {showComputer && (
           <div className="fixed inset-0 z-[120] flex bg-[#fbfaf7]">
-            <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
+            <Suspense fallback={<ScreenLoader />}>
+              <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
+            </Suspense>
           </div>
         )}
         {showChess && (
           <div className="fixed inset-0 z-[120] flex">
-            <ChessArena onClose={() => { setShowChess(false); setActiveNav("chats"); }} />
+            <Suspense fallback={<ScreenLoader />}>
+              <ChessArena onClose={() => { setShowChess(false); setActiveNav("chats"); }} />
+            </Suspense>
           </div>
         )}
 
@@ -6501,7 +6632,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {showWebSearchModal && (
           <div className="wsm-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowWebSearchModal(false); }}>
             <div className="wsm-container">
-              <WebSearchView onExitWebSearch={() => setShowWebSearchModal(false)} />
+              <Suspense fallback={<ScreenLoader />}>
+                <WebSearchView onExitWebSearch={() => setShowWebSearchModal(false)} />
+              </Suspense>
             </div>
           </div>
         )}
@@ -6554,7 +6687,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         </header>
         {showShare && <ShareModal onClose={() => setShowShare(false)} t={t} messages={messages} />}
         {showNews && <NewsPanel onClose={() => setShowNews(false)} />}
-        {showJobs && <JobSearchPanel onClose={() => setShowJobs(false)} />}
+        {showJobs && <Suspense fallback={<ScreenLoader />}><JobSearchPanel onClose={() => setShowJobs(false)} /></Suspense>}
 
         {/* Incognito banner */}
         {isIncognito && (
@@ -6570,13 +6703,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, rgba(30,18,60,0.06) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
                 isWebMode ? (
-                  <WebSearchView
-                    onExitWebSearch={() => {
-                      setSelectedMode("normal");
-                      setShowModelPicker(false);
-                      addToast("Exited Web Search mode", "info", 1500);
-                    }}
-                  />
+                  <Suspense fallback={<ScreenLoader />}>
+                    <WebSearchView
+                      onExitWebSearch={() => {
+                        setSelectedMode("normal");
+                        setShowModelPicker(false);
+                        addToast("Exited Web Search mode", "info", 1500);
+                      }}
+                    />
+                  </Suspense>
                 ) : (
                 <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
                   <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
@@ -6752,12 +6887,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                                 <div className="mai-synth-dots"><span /><span /><span /></div>
                                                 <span>Analyzing all 5 AI + Web responses to build the definitive answer…</span>
                                               </div>
-                                            : (() => {
-                                                const cText = m.consensus;
-                                                return hasStructuredContent(cText)
-                                                  ? <StructuredResponseRenderer response={cText} />
-                                                  : <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{cText}</ReactMarkdown>;
-                                              })()
+                                            : <MultiAiBody content={m.consensus} />
                                           }
                                         </div>
                                       </div>
@@ -6774,7 +6904,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                         <div className="mai-sources-grid">
                                           {m.models.filter(md => md.content).map((mod, midx) => {
                                             const contentToRender = mod.content;
-                                            const hasStruct = hasStructuredContent(contentToRender);
                                             return (
                                               <div key={midx} className="mai-source-card" style={{ '--mc': mod.color }}>
                                                 <div className="mai-source-header">
@@ -6785,17 +6914,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                                   {mod.elapsed && <span className="mai-source-time">{mod.elapsed}s</span>}
                                                 </div>
                                                 <div className="mai-source-body claude-prose">
-                                                  {hasStruct
-                                                    ? <StructuredResponseRenderer response={contentToRender} />
-                                                    : <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]} components={{
-                                                        code({ inline, className, children }) {
-                                                          const codeString = String(children).replace(/\n$/, "");
-                                                          const langMatch = /language-(\w+)/.exec(className || "");
-                                                          if (inline || !langMatch) return <code className={className}>{children}</code>;
-                                                          return <CodeBlock match={langMatch} codeString={codeString} />;
-                                                        }
-                                                      }}>{contentToRender}</ReactMarkdown>
-                                                  }
+                                                  <MultiAiBody content={contentToRender} highlight />
                                                 </div>
                                               </div>
                                             );
@@ -6817,30 +6936,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                      <span style={{ fontSize: 13 }}>{getStatusLabel(streamStatus, selectedMode)}</span>
                                    </div>
                                  </div>
-                               : hasStructuredContent(m.content)
-                                 ? <StructuredResponseRenderer response={m.content} />
-                                 : isWritingBlock(m.content)
-                                   ? <WritingBlockCard content={m.content} />
-                                   : <ReactMarkdown
-                                       remarkPlugins={[remarkGfm, remarkMath]}
-                                       rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
-                                       components={{
-                                         code({ inline, className, children }) {
-                                           const codeString = String(children).replace(/\n$/, "");
-                                           const langMatch = /language-(\w+)/.exec(className || "");
-                                           if (inline || !langMatch) return <code className={className}>{children}</code>;
-                                           const isArtifactWorthy = codeString.split("\n").length >= 4;
-                                           return (
-                                             <CodeBlock
-                                               match={langMatch}
-                                               codeString={codeString}
-                                               autoOpen={i === messages.length - 1 && !isLoading}
-                                               onSaveArtifact={isArtifactWorthy ? () => saveArtifact(codeString, langMatch[1], `${langMatch[1]} snippet`) : null}
-                                             />
-                                           );
-                                         },
-                                       }}
-                                     >{m.content}</ReactMarkdown>
+                               : <AssistantBody
+                                   content={m.content}
+                                   autoOpen={i === messages.length - 1 && !isLoading}
+                                   onSaveArtifact={saveArtifact}
+                                 />
                              }
                            </div>
                            {m.realtimeNotice && (

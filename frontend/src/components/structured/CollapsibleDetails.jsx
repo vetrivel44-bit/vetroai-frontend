@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDown, Code, Database, Cpu, Globe } from 'lucide-react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import React, { useState, Suspense } from 'react';
+
+// Prism's grammars load with the first code block rather than with the app.
+const CodeHighlighter = React.lazy(() => import('../CodeHighlighter'));
 import '../../styles/StructuredResponse.css';
 
 const CollapsibleDetails = ({ title, content, icon = 'code', delay = 1.0 }) => {
@@ -59,18 +60,20 @@ const CollapsibleDetails = ({ title, content, icon = 'code', delay = 1.0 }) => {
         style={{ overflow: 'hidden' }}
       >
         <div style={{ padding: '4px' }}>
-          <SyntaxHighlighter 
-            language="javascript" 
-            style={vscDarkPlus}
-            customStyle={{ 
-              margin: 0, 
-              borderRadius: '0 0 12px 12px',
-              fontSize: '0.85rem',
-              background: 'transparent'
-            }}
-          >
-            {content}
-          </SyntaxHighlighter>
+          <Suspense fallback={<pre style={{ margin: 0, fontSize: '0.85rem', background: 'transparent', whiteSpace: 'pre-wrap' }}>{content}</pre>}>
+            <CodeHighlighter
+              raw
+              language="javascript"
+              customStyle={{
+                margin: 0,
+                borderRadius: '0 0 12px 12px',
+                fontSize: '0.85rem',
+                background: 'transparent'
+              }}
+            >
+              {content}
+            </CodeHighlighter>
+          </Suspense>
         </div>
       </motion.div>
     </motion.div>

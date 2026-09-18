@@ -10,7 +10,10 @@ import "./ThinkingPanel.css";
  * backend as `reasoning` SSE events — either native reasoning tokens from the
  * provider or the contents of a <think> block stripped out of the answer.
  */
-export default function ThinkingPanel({
+// Memoized: the chat feed re-renders on every streamed token, and every message
+// that carries reasoning would otherwise re-render its whole panel each time.
+// All props are primitives, so the default shallow comparison is exact.
+const ThinkingPanel = React.memo(function ThinkingPanel({
   reasoning = "",
   isThinking = false,
   durationMs = null,
@@ -78,4 +81,6 @@ export default function ThinkingPanel({
       </div>
     </div>
   );
-}
+});
+
+export default ThinkingPanel;
