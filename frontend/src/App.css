@@ -7600,7 +7600,11 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .ws-popup-header span { color:var(--ink-4); font-size:.72rem; }
 .ws-popup-close { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:8px; color:var(--ink-3); background:transparent; cursor:pointer; }
 .ws-popup-close:hover { color:var(--ink); background:var(--bg-hover); }
-.ws-popup-scroll { overflow-y:auto; overscroll-behavior:contain; padding:2px 0 8px; scrollbar-width:thin; }
+.ws-popup-scroll { overflow-y:auto; overscroll-behavior:contain; padding:2px 0 8px; scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+.ws-popup-scroll::-webkit-scrollbar { width:6px; }
+.ws-popup-scroll::-webkit-scrollbar-track { background:transparent; }
+.ws-popup-scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:999px; }
+.ws-popup-scroll::-webkit-scrollbar-thumb:hover { background:var(--ink-4); }
 .ws-picker-section { padding:10px 12px; }
 .ws-picker-section + .ws-picker-section { border-top:1px solid var(--border); }
 .ws-section-title { display:flex; align-items:center; justify-content:space-between; margin:0 2px 7px; }
