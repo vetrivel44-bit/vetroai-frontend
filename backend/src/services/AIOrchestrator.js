@@ -660,7 +660,20 @@ Choose the single best-fitting visualization block(s) from the formats below:
         if (birthDetails) {
           const astroData = await getAstrologyData(birthDetails);
           if (astroData) {
-            astroContext = JSON.stringify(astroData);
+            // Render the rasi chart as an image in the chat immediately, using the
+            // same gallery block the frontend already renders for search images.
+            // The chart SVG is dropped from what's sent to the LLM (astroContext)
+            // since it's a large base64 blob the model has no use for in text.
+            if (astroData.chartImage) {
+              const chartBlock = `\n\n\`\`\`json\n${JSON.stringify({
+                type: "visual_gallery",
+                query: "Birth Chart",
+                images: [{ url: astroData.chartImage, caption: "Rasi Chart (North Indian style)" }],
+              })}\n\`\`\`\n\n`;
+              this.sendVetroEvent(res, "content", chartBlock);
+            }
+            const { chartImage, ...astroDataForModel } = astroData;
+            astroContext = JSON.stringify(astroDataForModel);
           } else {
             astroContext = "API_ERROR";
           }
@@ -755,7 +768,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     } else if (astroContext === "API_ERROR") {
       finalSysPrompt += `\n\n[ASTROLOGY API ERROR]\nAn error occurred while fetching data from ProKerala (timeout, rate limit, or the city could not be located). Do NOT hallucinate a chart or guess their sign. Politely inform the user that the astrology server is currently unavailable, or ask them to double-check the city name, and try again.`;
     } else if (astroContext) {
-      finalSysPrompt += `\n\n[LIVE ASTROLOGY API DATA]\nBased on the user's birth details, here is their highly accurate astrological data retrieved directly from ProKerala (kundli, planetPosition, dashaPeriods):\n${astroContext}\n\nCRITICAL ASTROLOGY RULES:\n1. ONLY use this exact fetched data. Do not guess or estimate. Provide exact mathematical degrees where available (e.g., 18°43').\n2. Clearly state: Vedic Sidereal system, Lahiri Ayanamsa.\n3. Format your response strictly using this Markdown template:\n\n### Chart Details\n* **System:** Vedic Sidereal (Lahiri Ayanamsa)\n* **Ascendant:** [Sign] at [Degree]\n* **Moon Sign:** [Sign] at [Degree] (Nakshatra: [Name], Pada: [Number])\n* **Sun Sign:** [Sign] at [Degree]\n\n### Planetary Placements\n* **[Planet]:** [Sign] at [Degree] in House [Number] [List Retrograde if true]\n(List all planets from the planetPosition data)\n\n### Current Dasha Period\n* **Mahadasha:** [Lord]\n* **Antardasha:** [Lord] (Start to End dates)\n(From the dashaPeriods data)\n\n### Vedic Interpretation\n(Provide a grounded interpretation of these specific placements based on traditional Vedic astrology. Do not use generic statements or deterministic fortunes.)\n\nFollow this structure exactly.`;
+      finalSysPrompt += `\n\n[LIVE ASTROLOGY API DATA]\nBased on the user's birth details, here is their highly accurate astrological data retrieved directly from ProKerala (kundli, planetPosition, dashaPeriods):\n${astroContext}\n\nA visual rasi (birth chart) image has ALREADY been shown above your response in the chat — do not say you cannot show a chart, and do not ask the user if they want one. Simply continue directly into explaining what is in it.\n\nCRITICAL ASTROLOGY RULES:\n1. ONLY use this exact fetched data. Do not guess or estimate. Provide exact mathematical degrees where available (e.g., 18°43').\n2. Clearly state: Vedic Sidereal system, Lahiri Ayanamsa.\n3. Format your response strictly using this Markdown template:\n\n### Chart Details\n* **System:** Vedic Sidereal (Lahiri Ayanamsa)\n* **Ascendant:** [Sign] at [Degree]\n* **Moon Sign:** [Sign] at [Degree] (Nakshatra: [Name], Pada: [Number])\n* **Sun Sign:** [Sign] at [Degree]\n\n### Planetary Placements\n* **[Planet]:** [Sign] at [Degree] in House [Number] [List Retrograde if true]\n(List all planets from the planetPosition data)\n\n### Current Dasha Period\n* **Mahadasha:** [Lord]\n* **Antardasha:** [Lord] (Start to End dates)\n(From the dashaPeriods data)\n\n### Vedic Interpretation\n(Provide a grounded interpretation of these specific placements based on traditional Vedic astrology. Do not use generic statements or deterministic fortunes.)\n\nFollow this structure exactly.`;
     }
 
     console.log(`[ORCHESTRATOR DEBUG] User Query: "${userQuery}"`);

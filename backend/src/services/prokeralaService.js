@@ -109,8 +109,35 @@ async function callProkerala(path, params) {
 }
 
 /**
+ * Fetches the rasi (birth) chart as an SVG image and returns it as a data URI
+ * ready to drop straight into an <img src>. ProKerala returns raw SVG here,
+ * not the JSON:API envelope the other endpoints use.
+ */
+async function getChartImageDataUri(params) {
+  const token = await getAccessToken();
+  const query = new URLSearchParams({
+    ...params,
+    chart_type: "rasi",
+    chart_style: "north-indian",
+    format: "svg",
+  }).toString();
+
+  const res = await fetch(`${API_BASE}/chart?${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`ProKerala API error ${res.status} on /chart: ${body}`);
+  }
+
+  const svg = await res.text();
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+}
+
+/**
  * Fetches Vedic astrological data (kundli, planet positions, current dasha
- * period) from ProKerala for the given birth details.
+ * period, and a rasi chart image) from ProKerala for the given birth details.
  * @param {Object} details { year, month, day, hour, minute, city }
  */
 async function getAstrologyData(details) {
@@ -130,10 +157,14 @@ async function getAstrologyData(details) {
       datetime,
     };
 
-    const [kundli, planetPosition, dashaPeriods] = await Promise.all([
+    const [kundli, planetPosition, dashaPeriods, chartImage] = await Promise.all([
       callProkerala("/kundli", params),
       callProkerala("/planet-position", params),
       callProkerala("/dasha-periods", params),
+      getChartImageDataUri(params).catch((e) => {
+        logger.warn("ProKerala chart image fetch failed", { error: e.message });
+        return null;
+      }),
     ]);
 
     return {
@@ -141,6 +172,7 @@ async function getAstrologyData(details) {
       kundli,
       planetPosition,
       dashaPeriods,
+      chartImage,
     };
   } catch (err) {
     logger.warn("ProKerala astrology service error", { error: err.message });
