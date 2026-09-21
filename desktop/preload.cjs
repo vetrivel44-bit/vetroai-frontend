@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   typeText: (text) => ipcRenderer.invoke("computer:type", { text }),
   pressKey: (key, modifiers = []) => ipcRenderer.invoke("computer:key", { key, modifiers }),
   scroll: (amount) => ipcRenderer.invoke("computer:scroll", { amount }),
+  drag: (fromX, fromY, toX, toY, duration = 400) => ipcRenderer.invoke("computer:drag", { fromX, fromY, toX, toY, duration }),
+  readClipboard: () => ipcRenderer.invoke("computer:clipboard-read"),
+  writeClipboard: (text) => ipcRenderer.invoke("computer:clipboard-write", { text }),
   playYouTube: (query) => ipcRenderer.invoke("computer:youtube-play", { query }),
   onStatus: (callback) => {
     const handler = (_event, status) => callback(status);

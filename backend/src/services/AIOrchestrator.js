@@ -357,6 +357,9 @@ Allowed "action" values and their fields:
 - "type": {text} — types at the current cursor/focus position, so click into the right field first if needed. Max 2000 characters.
 - "key": {key: one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, META, or a single letter A/C/V/X/Z, modifiers: array of CTRL/SHIFT/ALT (optional)}
 - "scroll": {amount} — positive scrolls down, negative scrolls up, roughly in pixels.
+- "drag": {fromX, fromY, toX, toY} — presses the left button at (fromX, fromY), moves to (toX, toY), then releases. Use for reordering, drag-selecting text, sliders, or dragging a file/icon.
+- "copy": {} — presses Ctrl+C, then reads back the system clipboard so you can see what was actually copied in the next step's action log. Click/select the source text first.
+- "paste": {text (optional)} — if "text" is given, writes it to the clipboard first, then presses Ctrl+V; with no "text", pastes whatever the clipboard already holds (e.g. from a prior "copy"). Click into the destination field first.
 - "done": {summary} — the goal is reached, or you cannot safely continue; explain why in "summary" and stop.
 
 RULES
