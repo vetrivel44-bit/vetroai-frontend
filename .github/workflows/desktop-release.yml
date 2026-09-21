@@ -7,6 +7,11 @@ on:
   push:
     tags: ["desktop-v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub Release from this run (creates the desktop-v<version> tag from package.json if it doesn't exist yet)"
+        type: boolean
+        default: false
 
 jobs:
   build-windows:
@@ -49,14 +54,26 @@ jobs:
             desktop/dist/*.exe
           if-no-files-found: error
 
+      # Two ways in here: an actual "desktop-v*" tag push (the tag already
+      # exists, so --verify-tag catches a typo'd ref instead of silently
+      # tagging the wrong commit), or a manual dispatch with "publish" checked
+      # (no tag exists yet — gh creates "desktop-v<package.json version>"
+      # pointing at whatever commit this run checked out).
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        if: startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "VetroAI Desktop ${GITHUB_REF_NAME#desktop-}" \
+          if [[ "${{ startsWith(github.ref, 'refs/tags/desktop-v') }}" == "true" ]]; then
+            TAG="$GITHUB_REF_NAME"
+            VERIFY_FLAG="--verify-tag"
+          else
+            TAG="desktop-v$(node -p "require('./desktop/package.json').version")"
+            VERIFY_FLAG=""
+          fi
+          gh release create "$TAG" \
+            --title "VetroAI Desktop ${TAG#desktop-}" \
             --notes "Download **VetroAI-Setup-*.exe** and run it. No Node.js, no terminal, no admin rights needed. Open VetroAI, go to Computer mode, and click Allow when it asks for screen control." \
-            --verify-tag \
+            $VERIFY_FLAG \
             desktop/dist/*.exe
