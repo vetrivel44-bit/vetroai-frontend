@@ -32,6 +32,13 @@ const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b
 // handle — "open the excel file I attached and summarize it" is file analysis,
 // not app control.
 const DESKTOP_CONTROL_REQUEST = /\b(?:open|launch|start|run|close)\s+(?:the\s+|a\s+|an\s+|my\s+)?(?:ms ?word|microsoft word|word|excel|powerpoint|notepad|calculator|file explorer|finder|terminal|command prompt|control panel|settings|chrome|edge|firefox|spotify|whatsapp|outlook|paint|vs ?code)\b|\b(?:open|launch|start)\s+(?:an?\s+)?(?:app|application|program|software)\b|\b(?:click|double.?click|scroll|drag)\b[\s\S]{0,40}\b(?:on|in)\s+my\s+(?:desktop|computer|screen|pc|laptop)\b|\bcontrol my (?:mouse|keyboard|screen|computer|desktop|pc)\b/i;
+// Asks for live, interactive-site data (bus/flight/train fares, hotel
+// prices, real-time schedules) that no plain-chat model can answer — the
+// numbers only exist behind a search form on the booking site itself. These
+// need the same real mouse/keyboard as app control, so they route through
+// the identical "needs desktop" / agent-loop path rather than falling
+// through to a chat answer that can only say it has no live browsing.
+const LIVE_BROWSE_REQUEST = /\b(?:redbus|irctc|makemytrip|goibibo|ixigo|abhibus|ticketgoose|yatra|cleartrip|skyscanner|expedia|booking\.com|airbnb)\b|\b(?:bus|flight|train|hotel|cab|taxi)(?:es)?\b[\s\S]{0,60}\b(?:price|prices|fare|fares|schedule|schedules|ticket|tickets)\b[\s\S]{0,40}\b(?:today|tomorrow|from\s.+\bto\b)\b|\b(?:price|prices|fare|fares|schedule|schedules|ticket|tickets)\b[\s\S]{0,60}\b(?:bus|flight|train|hotel|cab|taxi)(?:es)?\b[\s\S]{0,40}\b(?:today|tomorrow|from\s.+\bto\b)\b/i;
 // Content the browser workspace can genuinely work with, even when the
 // sentence starts with "open" — these must not be diverted to the desktop app.
 const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
@@ -751,7 +758,7 @@ export default function ComputerUI({ onClose }) {
     // diverting it to the desktop app would disable a feature that works here.
     // Attachments and file/document wording are excluded for the same reason.
     const needsDesktop = !hasDesktop
-      && DESKTOP_CONTROL_REQUEST.test(prompt)
+      && (DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt))
       && !YOUTUBE_REQUEST.test(prompt)
       && !FILE_CONTENT_REQUEST.test(prompt)
       && !files.length;
