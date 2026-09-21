@@ -138,6 +138,9 @@ function describeAgentAction(action) {
     case "type": return `Type "${String(action.text || "").slice(0, 40)}"`;
     case "key": return `Press ${action.key}${action.modifiers?.length ? ` + ${action.modifiers.join("+")}` : ""}`;
     case "scroll": return `Scroll ${action.amount > 0 ? "down" : "up"}`;
+    case "drag": return `Drag from (${Math.round(action.fromX)}, ${Math.round(action.fromY)}) to (${Math.round(action.toX)}, ${Math.round(action.toY)})`;
+    case "copy": return "Copy to clipboard";
+    case "paste": return action.text ? `Paste "${String(action.text).slice(0, 40)}"` : "Paste from clipboard";
     case "done": return action.summary || "Done";
     default: return `Unrecognized action: ${action.action}`;
   }
@@ -152,8 +155,30 @@ async function performDesktopAction(desktop, action) {
     case "type": return desktop.typeText(String(action.text || "").slice(0, 2000));
     case "key": return desktop.pressKey(action.key, action.modifiers || []);
     case "scroll": return desktop.scroll(Number(action.amount) || 0);
+    case "drag": return desktop.drag(Number(action.fromX), Number(action.fromY), Number(action.toX), Number(action.toY), action.duration);
+    case "copy": {
+      await desktop.pressKey("C", ["CTRL"]);
+      await new Promise(resolve => setTimeout(resolve, 120));
+      return desktop.readClipboard();
+    }
+    case "paste": {
+      if (action.text) await desktop.writeClipboard(String(action.text));
+      return desktop.pressKey("V", ["CTRL"]);
+    }
     default: return null;
   }
+}
+
+// Speaks each step as the agent takes it, so a run reads as something
+// actually doing the work instead of a silent, unwatchable black box.
+// Cancels any utterance still in flight rather than queuing — narration for
+// the step 4 steps ago finishing mid-run-6 would be confusing, not helpful.
+function narrateAction(text) {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.05;
+  window.speechSynthesis.speak(utterance);
 }
 function safeFilename(value, fallback) { return String(value || fallback).replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-").slice(0, 54) || fallback; }
 function downloadBlob(content, type, filename) {
@@ -253,6 +278,12 @@ export default function ComputerUI({ onClose }) {
   const [showCapabilities, setShowCapabilities] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [screenControl, setScreenControl] = useState(false);
+  const [narrate, setNarrate] = useState(() => {
+    try { return localStorage.getItem("vetroai_computer_narrate") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("vetroai_computer_narrate", narrate ? "1" : "0"); } catch { /* storage unavailable */ }
+  }, [narrate]);
   // Live view of what the screen-control agent is doing right now — deliberately
   // kept out of `tasks` state (which gets persisted to localStorage) so a run of
   // screenshots never gets written to disk or blows the storage quota.
@@ -664,10 +695,15 @@ export default function ComputerUI({ onClose }) {
         if (shotScale !== 1) {
           if (typeof action.x === "number") action.x *= shotScale;
           if (typeof action.y === "number") action.y *= shotScale;
+          if (typeof action.fromX === "number") action.fromX *= shotScale;
+          if (typeof action.fromY === "number") action.fromY *= shotScale;
+          if (typeof action.toX === "number") action.toX *= shotScale;
+          if (typeof action.toY === "number") action.toY *= shotScale;
         }
 
         const description = describeAgentAction(action);
         log.push(description);
+        if (narrate) narrateAction(description);
         // Real screenshot-pixel-space target for the cursor marker overlay —
         // undefined for actions with no coordinates (type/key/scroll/done),
         // which just clears any marker left over from the previous step.
@@ -675,14 +711,24 @@ export default function ComputerUI({ onClose }) {
           ? { x: action.x, y: action.y, naturalWidth: shotWidth * shotScale, naturalHeight: shotHeight * shotScale }
           : null;
         setAgentView(prev => (prev ? { ...prev, action: description, target } : prev));
+        // Kept on the task (not just `log`) so the step list survives a
+        // completed/failed run and can still be rewound afterward — the
+        // screenshot is the *before* frame, taken at the top of this loop.
+        const historyEntry = { index: step + 1, description, screenshot: shotDataUrl };
         patchTask(taskId, t => ({
           ...t,
           steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: description } : s),
-          messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() } : m)
+          messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() } : m),
+          actionHistory: [...(t.actionHistory || []), historyEntry]
         }));
 
         if (action.action === "done") break;
-        await performDesktopAction(desktop, action);
+        const result = await performDesktopAction(desktop, action);
+        // Lets the model see what it actually copied on the next step, instead
+        // of guessing blindly at what a Ctrl+C grabbed.
+        if (action.action === "copy" && result?.text) {
+          log.push(`Clipboard now contains: "${result.text.slice(0, 200)}"`);
+        }
         await new Promise(resolve => setTimeout(resolve, 400));
       }
 
@@ -774,6 +820,23 @@ export default function ComputerUI({ onClose }) {
   };
 
   const stopTask = () => abortRef.current?.abort();
+
+  // Rewinds the agent's *context*, not the real desktop — a click already
+  // happened on the actual screen and nothing here can un-happen it. What
+  // this buys back is the conversation: prune the steps after a wrong turn
+  // out of the action log the model sees, so its next move is planned fresh
+  // off a real screenshot instead of "correcting" a chain of bad guesses.
+  const rewindTo = (taskId, index) => {
+    abortRef.current?.abort();
+    patchTask(taskId, t => ({
+      ...t,
+      status: "ready",
+      actionHistory: (t.actionHistory || []).slice(0, index),
+    }));
+    setActiveId(taskId);
+    setQuery(`Continue the task from step ${index}. The screen may have changed since — take a fresh look before your next move rather than assuming it's still where step ${index} left it.`);
+    textareaRef.current?.focus();
+  };
 
   const togglePause = () => {
     if (!activeTask) return;
@@ -951,7 +1014,7 @@ export default function ComputerUI({ onClose }) {
                   </button>
                 ))}
               </div>
-              <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} />
+              <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} narrate={narrate} setNarrate={setNarrate} />
               <p className="cowork-footnote">
                 {hasDesktop
                   ? "Screen control is available on this device — turn it on in the composer to let VetroAI use your mouse and keyboard."
@@ -1063,6 +1126,30 @@ export default function ComputerUI({ onClose }) {
                       </div>
                     ))}
                   </div>
+                  {activeTask.actionHistory?.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-stone-100">
+                      <div className="text-[11px] font-semibold text-stone-500 mb-2 flex items-center justify-between">
+                        <span>STEP HISTORY</span>
+                        <span className="text-stone-400 normal-case font-normal">{activeTask.actionHistory.length} step{activeTask.actionHistory.length > 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                        {activeTask.actionHistory.map(entry => (
+                          <div key={entry.index} className="group flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-stone-50">
+                            <img src={entry.screenshot} alt="" className="w-9 h-6 object-cover rounded border border-stone-200 flex-shrink-0" />
+                            <div className="min-w-0 flex-1 text-[11px] text-stone-600 truncate">{entry.index}. {entry.description}</div>
+                            <button
+                              type="button"
+                              title={`Rewind to before step ${entry.index}`}
+                              onClick={() => rewindTo(activeTask.id, entry.index - 1)}
+                              className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded-md hover:bg-stone-200 text-stone-500"
+                            >
+                              <RotateCcw size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {activeTask.files?.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-stone-100">
                       <div className="text-[11px] font-semibold text-stone-500 mb-2">FILES</div>
@@ -1076,7 +1163,7 @@ export default function ComputerUI({ onClose }) {
             </section>
             <div className="cowork-bottom-composer">
               <div className="max-w-4xl mx-auto">
-                <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} />
+                <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} narrate={narrate} setNarrate={setNarrate} />
               </div>
             </div>
           </>
@@ -1180,7 +1267,7 @@ function CapabilitiesModal({ close, workspaceReady }) {
   return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail, href]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline">{detail}</a> : detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;
 }
 
-function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation, hasDesktop, screenControl, setScreenControl }) {
+function Composer({ query, setQuery, files, setFiles, submit, running, textareaRef, fileRef, onFiles, dictating, toggleDictation, hasDesktop, screenControl, setScreenControl, narrate, setNarrate }) {
   return (
     <form onSubmit={submit} className="cowork-composer">
       {files.length > 0 && (
@@ -1212,6 +1299,13 @@ function Composer({ query, setQuery, files, setFiles, submit, running, textareaR
               className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs ${screenControl ? "bg-stone-900 text-white" : "hover:bg-stone-100 text-stone-600"}`}
               title="Let VetroAI move your mouse and type, with your approval">
               <Monitor size={16} /> Screen control
+            </button>
+          )}
+          {hasDesktop && screenControl && (
+            <button type="button" onClick={() => setNarrate(v => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs ${narrate ? "bg-stone-900 text-white" : "hover:bg-stone-100 text-stone-600"}`}
+              title="Speak each action out loud as the agent takes it">
+              <Zap size={16} /> Narrate
             </button>
           )}
           <button type="button" onClick={toggleDictation} className={`p-2 rounded-xl hover:bg-stone-100 ${dictating ? "text-red-600 animate-pulse" : "text-stone-600"}`}><Mic size={17} /></button>

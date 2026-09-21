@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen, clipboard } = require("electron");
 const screenshot = require("screenshot-desktop");
 const { mouse, keyboard, Button, Key, Point, straightTo } = require("@nut-tree-fork/nut-js");
 
@@ -235,6 +235,35 @@ ipcMain.handle("computer:scroll", async (_event, action) => {
   const amount = Math.max(-1200, Math.min(1200, finite(action.amount, "amount")));
   if (amount > 0) await mouse.scrollDown(amount); else await mouse.scrollUp(Math.abs(amount));
   return { ok: true };
+});
+ipcMain.handle("computer:drag", async (_event, action) => {
+  requireControl();
+  const from = clampPoint(
+    finite(action.fromX, "fromX") / screenshotScaleFactor,
+    finite(action.fromY, "fromY") / screenshotScaleFactor
+  );
+  const to = clampPoint(
+    finite(action.toX, "toX") / screenshotScaleFactor,
+    finite(action.toY, "toY") / screenshotScaleFactor
+  );
+  const duration = Math.max(100, Math.min(2000, finite(action.duration ?? 400, "duration")));
+  await mouse.move(straightTo(new Point(from.x, from.y), 150));
+  await mouse.pressButton(Button.LEFT);
+  await mouse.move(straightTo(new Point(to.x, to.y), duration));
+  await mouse.releaseButton(Button.LEFT);
+  return { ok: true };
+});
+ipcMain.handle("computer:clipboard-read", () => {
+  requireControl();
+  // Capped well under the 2,000-char typing limit — a step's action log is
+  // meant to tell the model what it just copied, not carry a whole document.
+  return { ok: true, text: clipboard.readText().slice(0, 2000) };
+});
+ipcMain.handle("computer:clipboard-write", (_event, action) => {
+  requireControl();
+  const text = String(action?.text || "").slice(0, 2000);
+  clipboard.writeText(text);
+  return { ok: true, length: text.length };
 });
 
 ipcMain.handle("computer:youtube-play", async (_event, action) => {
