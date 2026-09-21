@@ -3,7 +3,7 @@ const logger = require("../utils/logger");
 const providerManager = require("./ProviderManager");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
-const { getAstrologyData, extractBirthDetails } = require("./astrologyService");
+const { getAstrologyData, extractBirthDetails } = require("./prokeralaService");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const Groq = require("groq-sdk");
@@ -653,14 +653,27 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     const isAstrology = this.ASTROLOGY_TRIGGERS.some(rx => rx.test(userQuery));
     if (isAstrology) {
-      this.sendVetroEvent(res, "status", "Consulting astrological charts...");
+      this.sendVetroEvent(res, "status", "Consulting ProKerala's Vedic astrology API...");
       try {
         const groq = config.groqApiKey ? new Groq({ apiKey: config.groqApiKey }) : null;
         const birthDetails = await extractBirthDetails(messages, groq);
         if (birthDetails) {
           const astroData = await getAstrologyData(birthDetails);
           if (astroData) {
-            astroContext = JSON.stringify(astroData);
+            // Render the rasi chart as an image in the chat immediately, using the
+            // same gallery block the frontend already renders for search images.
+            // The chart SVG is dropped from what's sent to the LLM (astroContext)
+            // since it's a large base64 blob the model has no use for in text.
+            if (astroData.chartImage) {
+              const chartBlock = `\n\n\`\`\`json\n${JSON.stringify({
+                type: "visual_gallery",
+                query: "Birth Chart",
+                images: [{ url: astroData.chartImage, caption: "Rasi Chart (North Indian style)" }],
+              })}\n\`\`\`\n\n`;
+              this.sendVetroEvent(res, "content", chartBlock);
+            }
+            const { chartImage, ...astroDataForModel } = astroData;
+            astroContext = JSON.stringify(astroDataForModel);
           } else {
             astroContext = "API_ERROR";
           }
@@ -751,11 +764,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
       finalSysPrompt += this.buildThinkingPrompt(params.effort);
     }
     if (astroContext === "USER_BIRTH_DETAILS_MISSING") {
-      finalSysPrompt += `\n\n[ASTROLOGY REQUEST DETECTED]\nThe user is asking about astrology. To provide highly accurate, personalized readings using our FreeAstroAPI integration, you MUST politely ask the user for their birth date (year, month, day), time of birth (hour, minute), and city of birth. Do not make up a horoscope without this data.`;
+      finalSysPrompt += `\n\n[ASTROLOGY REQUEST DETECTED]\nThe user is asking about astrology. To provide highly accurate, personalized readings using our ProKerala API integration, you MUST politely ask the user for their birth date (year, month, day), time of birth (hour, minute), and city of birth. Do not make up a horoscope without this data.`;
     } else if (astroContext === "API_ERROR") {
-      finalSysPrompt += `\n\n[ASTROLOGY API ERROR]\nAn error occurred while fetching data from FreeAstroAPI (timeout or rate limit). Do NOT hallucinate a chart or guess their sign. Politely inform the user that the astrology server is currently unavailable and ask them to try again in a few moments.`;
+      finalSysPrompt += `\n\n[ASTROLOGY API ERROR]\nAn error occurred while fetching data from ProKerala (timeout, rate limit, or the city could not be located). Do NOT hallucinate a chart or guess their sign. Politely inform the user that the astrology server is currently unavailable, or ask them to double-check the city name, and try again.`;
     } else if (astroContext) {
-      finalSysPrompt += `\n\n[LIVE ASTROLOGY API DATA]\nBased on the user's birth details, here is their highly accurate astrological data retrieved directly from FreeAstroAPI:\n${astroContext}\n\nCRITICAL ASTROLOGY RULES:\n1. ONLY use this exact fetched data. Do not guess or estimate. Provide exact mathematical degrees (e.g., 18°43').\n2. Clearly state: Vedic Sidereal system, Lahiri Ayanamsa, and Whole Sign houses.\n3. Format your response strictly using this Markdown template:\n\n### Chart Details\n* **System:** Vedic Sidereal (Lahiri Ayanamsa)\n* **Ascendant:** [Sign] at [Degree]\n* **Moon Sign:** [Sign] at [Degree] (Nakshatra: [Name], Pada: [Number])\n* **Sun Sign:** [Sign] at [Degree]\n\n### Planetary Placements\n* **[Planet]:** [Sign] at [Degree] in House [Number] [List Retrograde if true]\n(List all planets provided in the JSON)\n\n### Current Dasha Period\n* **Mahadasha:** [Lord]\n* **Antardasha:** [Lord] (Start to End dates)\n\n### Vedic Interpretation\n(Provide a grounded interpretation of these specific placements based on traditional Vedic astrology. Do not use generic statements or deterministic fortunes.)\n\nFollow this structure exactly.`;
+      finalSysPrompt += `\n\n[LIVE ASTROLOGY API DATA]\nBased on the user's birth details, here is their highly accurate astrological data retrieved directly from ProKerala (kundli, planetPosition, dashaPeriods):\n${astroContext}\n\nA visual rasi (birth chart) image has ALREADY been shown above your response in the chat — do not say you cannot show a chart, and do not ask the user if they want one. Simply continue directly into explaining what is in it.\n\nCRITICAL ASTROLOGY RULES:\n1. ONLY use this exact fetched data. Do not guess or estimate. Provide exact mathematical degrees where available (e.g., 18°43').\n2. Clearly state: Vedic Sidereal system, Lahiri Ayanamsa.\n3. You MUST explicitly credit the data source — start your response with a line stating this reading uses live data from the ProKerala Astrology API (e.g. "*Data sourced live from the ProKerala Astrology API.*"), so the user knows this isn't a guess or generic reading.\n4. Format your response strictly using this Markdown template:\n\n*Data sourced live from the ProKerala Astrology API.*\n\n### Chart Details\n* **System:** Vedic Sidereal (Lahiri Ayanamsa)\n* **Ascendant:** [Sign] at [Degree]\n* **Moon Sign:** [Sign] at [Degree] (Nakshatra: [Name], Pada: [Number])\n* **Sun Sign:** [Sign] at [Degree]\n\n### Planetary Placements\n* **[Planet]:** [Sign] at [Degree] in House [Number] [List Retrograde if true]\n(List all planets from the planetPosition data)\n\n### Current Dasha Period\n* **Mahadasha:** [Lord]\n* **Antardasha:** [Lord] (Start to End dates)\n(From the dashaPeriods data)\n\n### Vedic Interpretation\n(Provide a grounded interpretation of these specific placements based on traditional Vedic astrology. Do not use generic statements or deterministic fortunes.)\n\nFollow this structure exactly.`;
     }
 
     console.log(`[ORCHESTRATOR DEBUG] User Query: "${userQuery}"`);

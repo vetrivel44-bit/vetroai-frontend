@@ -101,6 +101,11 @@ module.exports = {
     // per plan and reject anything over, so it is only sent when set.
     newsLimit:           getEnv("NEWS_API_LIMIT",        ""),
     apiSportsKey:        getEnv("API_SPORTS_KEY",         ""),
+    // ProKerala — Vedic astrology data (kundli, planet positions, dasha periods).
+    // OAuth2 client-credentials: exchanged for a short-lived bearer token, cached
+    // in prokeralaService until it expires.
+    prokeralaClientId:     getEnv("PROKERALA_CLIENT_ID",     ""),
+    prokeralaClientSecret: getEnv("PROKERALA_CLIENT_SECRET", ""),
     stripeSecretKey:        getEnv("STRIPE_SECRET_KEY",        ""),
     stripePublishableKey:   getEnv("STRIPE_PUBLISHABLE_KEY",   ""),
     stripeWebhookSecret:    getEnv("STRIPE_WEBHOOK_SECRET",    ""),
