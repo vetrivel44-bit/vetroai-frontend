@@ -20,6 +20,8 @@ const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
+const memoryService = require("../services/memoryService");
+const attachmentService = require("../services/attachmentService");
 const { verifyAccessToken } = require("../utils/token");
 
 // Best-effort: resolves a Mongo user id from the bearer token if one is present.
@@ -183,10 +185,30 @@ async function chat(req, res) {
   if (files.length > 0) {
     logger.info("chat.attachments", { count: files.length, images: imageFiles.length, text: textFiles.length });
   }
+  const sessionId = String(req.body?.sessionId || "").trim();
+  const billingUserId = resolveBillingUserId(req);
+
   for (const file of textFiles) {
     const attachmentContext = getAttachmentContext(file);
     if (attachmentContext) {
       messages.push({ role: "user", content: attachmentContext });
+      // Keep the extracted text around for the rest of this session so later
+      // turns can reference it without the user re-attaching the same file —
+      // fire-and-forget so a slow/unavailable DB never delays the chat reply.
+      attachmentService
+        .persist(billingUserId, sessionId, file, attachmentContext)
+        .catch((err) => logger.warn("chat.attachment.persist.failed", { error: err.message }));
+    }
+  }
+
+  // Pull back text from files attached earlier in this same session (skip
+  // anything just uploaded above — that's already in `messages`).
+  if (sessionId && billingUserId) {
+    try {
+      const priorAttachments = await attachmentService.contextForSession(billingUserId, sessionId);
+      for (const context of priorAttachments) messages.push({ role: "user", content: context });
+    } catch (err) {
+      logger.warn("chat.attachment.context.failed", { error: err.message });
     }
   }
 
@@ -219,7 +241,19 @@ async function chat(req, res) {
 
   if (!messages.length) throw new ApiError(400, "No valid messages provided");
 
-  const billingUserId = resolveBillingUserId(req);
+  // Blend in semantically relevant persisted memories (server-side, retrieved
+  // by embedding similarity) alongside whatever the client already sent —
+  // the client's list is a flat, device-local cache; this is what actually
+  // makes "memory across chats" work across devices and beyond what fits in
+  // localStorage.
+  if (billingUserId) {
+    try {
+      const relevant = await memoryService.retrieveRelevant(billingUserId, input);
+      for (const m of relevant) if (!memories.includes(m)) memories.push(m);
+    } catch (err) {
+      logger.warn("chat.memory.retrieve.failed", { error: err.message });
+    }
+  }
 
   // Set up SSE headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -264,6 +298,10 @@ async function chat(req, res) {
     // exhausted every provider, or failed outright, is free.
     if (billingUserId && answered) {
       creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});
+      // Distill anything worth remembering out of what the user just said —
+      // cheap heuristic gate inside memoryService, embedding + write happen
+      // off the response path so this never adds latency to the reply.
+      memoryService.captureFromMessage(billingUserId, input);
     }
     res.end();
   }

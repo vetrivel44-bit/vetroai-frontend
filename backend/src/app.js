@@ -70,6 +70,8 @@ app.get("/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/sessions", chatSessionRoutes);
+app.use("/api/memories", require("./routes/memoryRoutes"));
+app.use("/api/attachments", require("./routes/attachmentRoutes"));
 app.use("/api/billing", require("./routes/billingRoutes"));
 app.use("/api/maps", mapsRoutes);
 app.use("/api/debug", require("./routes/debugRoutes"));

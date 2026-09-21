@@ -53,7 +53,7 @@ export function extractMemory(message) {
 }
 
 /** Normalised form used for duplicate detection. */
-const canonical = (text) => text.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.!,;]+$/, "");
+export const canonical = (text) => text.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.!,;]+$/, "");
 
 /** True if `text` is already remembered, ignoring case, spacing and punctuation. */
 export const isDuplicate = (memories, text) =>
