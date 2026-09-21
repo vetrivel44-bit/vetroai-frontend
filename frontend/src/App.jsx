@@ -21,7 +21,8 @@ import {
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
-import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
+import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse, canonical as canonicalMemoryText } from "./lib/memory";
+import { fetchRemoteMemories, addRemoteMemory, deleteRemoteMemory, clearRemoteMemories } from "./lib/memoryApi";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
@@ -4184,6 +4185,50 @@ export default function App() {
     setMemories(readLocalList(userKey, "memories") || []);
   }, [userKey]);
 
+  // Reconcile with the backend's embedding-backed memory store (see
+  // lib/memoryApi.js). The backend also auto-captures facts server-side on
+  // every authenticated chat turn (memoryService.captureFromMessage), so its
+  // list can genuinely have entries this device never created — merge rather
+  // than overwrite, matching on text since local and remote ids come from
+  // different generators.
+  useEffect(() => {
+    if (!userKey || !user) return;
+    let cancelled = false;
+    (async () => {
+      const remote = await fetchRemoteMemories(API, user);
+      if (cancelled || !remote) return;
+
+      setMemories((prev) => {
+        const byText = new Map(prev.map((m) => [canonicalMemoryText(m.text || ""), m]));
+        for (const r of remote) {
+          const key = canonicalMemoryText(r.text || "");
+          const existing = byText.get(key);
+          if (existing) {
+            if (!existing.remoteId) byText.set(key, { ...existing, remoteId: r.remoteId });
+          } else {
+            byText.set(key, { ...makeMemory(r.text, r.source), createdAt: r.createdAt, remoteId: r.remoteId });
+          }
+        }
+        const merged = [...byText.values()].slice(-MAX_MEMORIES);
+        persistList(userKey, "memories", merged);
+
+        // Anything the backend doesn't know about yet (created locally before
+        // this reconciliation, or while offline) gets pushed up so the
+        // server-side retrieval used during chat can actually find it.
+        for (const m of merged) {
+          if (!m.remoteId) {
+            addRemoteMemory(API, user, m.text).then((remoteId) => {
+              if (!remoteId) return;
+              setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, remoteId } : x)));
+            });
+          }
+        }
+        return merged;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [userKey, user]);
+
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -4520,24 +4565,33 @@ export default function App() {
       persistList(userKey, "memories", list);
       return list;
     });
+    if (created) {
+      addRemoteMemory(API, user, created.text).then((remoteId) => {
+        if (!remoteId) return;
+        setMemories((cur) => cur.map((m) => (m.id === created.id ? { ...m, remoteId } : m)));
+      });
+    }
     return created;
-  }, [userKey]);
+  }, [userKey, user]);
 
   const deleteMemory = useCallback((id) => {
     setMemories((prev) => {
+      const removed = prev.find((m) => m.id === id);
+      if (removed?.remoteId) deleteRemoteMemory(API, user, removed.remoteId);
       const list = prev.filter((m) => m.id !== id);
       persistList(userKey, "memories", list);
       return list;
     });
-  }, [userKey]);
+  }, [userKey, user]);
 
   const clearMemories = useCallback(() => {
+    clearRemoteMemories(API, user);
     setMemories(() => {
       persistList(userKey, "memories", []);
       return [];
     });
     addToast("Memory cleared", "info", 2000);
-  }, [userKey]);
+  }, [userKey, user]);
 
   // Background, best-effort "remembers like ChatGPT" pass — runs after a
   // message is already sent, never blocks or can fail the chat itself. Uses
