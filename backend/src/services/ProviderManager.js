@@ -126,11 +126,61 @@ class ProviderManager {
       },
     };
 
+    // Per-provider rolling request log + learned rate-limit budget, so a
+    // provider that's about to 429 gets skipped up front instead of being
+    // discovered mid-stream (which costs the user a full attempt + backoff
+    // before the fallback chain even starts). `rpmBudget` starts generous
+    // and self-corrects downward the first time a provider actually returns
+    // a 429 — see recordRateLimitHit — then slowly relaxes again once it's
+    // been healthy for a while, so a temporary provider-side throttle
+    // doesn't permanently cap it.
+    for (const [name, p] of Object.entries(this.providers)) {
+      p.requestLog = [];
+      p.rpmBudget = Number(process.env[`${name.toUpperCase()}_RPM_BUDGET`]) || 60;
+      p.learnedBudget = p.rpmBudget;
+    }
+
     // Background health check loop - only in non-serverless
     if (!process.env.LAMBDA_TASK_ROOT) {
       this.healthCheckTimer = setInterval(() => this.checkHealth(), 15000); // every 15 s
       this.healthCheckTimer.unref?.();
     }
+  }
+
+  // Call right before dispatching an attempt to `providerName`, so its
+  // near-limit check on the *next* request reflects this one.
+  recordRequest(providerName) {
+    const p = this.providers[providerName];
+    if (!p) return;
+    const now = Date.now();
+    p.requestLog.push(now);
+    // Trim to the last 60s — this doubles as the "how many calls in the
+    // current window" count used by isNearLimit below.
+    const cutoff = now - 60000;
+    while (p.requestLog.length && p.requestLog[0] < cutoff) p.requestLog.shift();
+  }
+
+  // True once a provider is close enough to its (learned) per-minute budget
+  // that routing another request to it is likely to just draw a 429.
+  isNearLimit(providerName) {
+    const p = this.providers[providerName];
+    if (!p) return false;
+    const cutoff = Date.now() - 60000;
+    const recent = p.requestLog.filter((t) => t >= cutoff).length;
+    return recent >= p.learnedBudget * 0.85;
+  }
+
+  // Called from AIOrchestrator when a provider actually returns a 429.
+  // Ratchets its learned budget down to just under what it was actually
+  // handling when it broke, so future routing respects the real ceiling
+  // instead of the generic default.
+  recordRateLimitHit(providerName) {
+    const p = this.providers[providerName];
+    if (!p) return;
+    const cutoff = Date.now() - 60000;
+    const recent = p.requestLog.filter((t) => t >= cutoff).length;
+    p.learnedBudget = Math.max(1, recent - 1);
+    logger.warn(`ProviderManager: learned tighter rate budget for ${providerName}`, { learnedBudget: p.learnedBudget });
   }
 
   isConfigured(providerName) {
@@ -148,10 +198,12 @@ class ProviderManager {
     return configured[providerName] === true;
   }
 
-  getAvailableProviders({ includeSuspended = false } = {}) {
+  getAvailableProviders({ includeSuspended = false, includeNearLimit = false } = {}) {
     return Object.keys(this.providers).filter((name) => {
       if (!this.isConfigured(name)) return false;
-      return includeSuspended || !this.providers[name].isSuspended;
+      if (!includeSuspended && this.providers[name].isSuspended) return false;
+      if (!includeNearLimit && this.isNearLimit(name)) return false;
+      return true;
     });
   }
 
@@ -162,6 +214,10 @@ class ProviderManager {
         p.isSuspended = false;
         p.consecutiveErrors = 0;
       }
+      // Slowly relax a learned budget back toward the configured ceiling —
+      // a provider that hit a 429 an hour ago has likely recovered, and a
+      // permanently depressed budget would keep routing away from it forever.
+      if (p.learnedBudget < p.rpmBudget) p.learnedBudget = Math.min(p.rpmBudget, p.learnedBudget + 1);
     }
   }
 
@@ -174,7 +230,9 @@ class ProviderManager {
   }
 
   getBestProvider(mode, preferredProvider) {
-    // If user explicitly chose a provider, try it first if not suspended
+    // If user explicitly chose a provider, try it first if not suspended and
+    // not already close to its rate-limit budget — routing to it anyway
+    // would very likely just draw a 429 the user then has to wait out.
     if (preferredProvider && !["undefined", "auto"].includes(preferredProvider.toLowerCase())) {
       const pref = preferredProvider.toLowerCase();
       if (this.providers[pref] && this.isConfigured(pref)) {
@@ -184,7 +242,7 @@ class ProviderManager {
           p.isSuspended = false;
           p.consecutiveErrors = 0;
         }
-        if (!p.isSuspended) return pref;
+        if (!p.isSuspended && !this.isNearLimit(pref)) return pref;
       }
     }
 
@@ -198,9 +256,11 @@ class ProviderManager {
 
     const candidates = this.getAvailableProviders();
 
-    // If all configured providers are suspended, reset only those providers.
+    // If every configured provider is either suspended or near its budget,
+    // that's not really "all down" — pick from the full set anyway rather
+    // than tell the user nothing is available.
     if (candidates.length === 0) {
-      const configured = this.getAvailableProviders({ includeSuspended: true });
+      const configured = this.getAvailableProviders({ includeSuspended: true, includeNearLimit: true });
       if (configured.length === 0) return null;
       for (const name of configured) {
         this.providers[name].isSuspended = false;
@@ -246,13 +306,16 @@ class ProviderManager {
     }
 
     for (const f of fallbackList) {
-      if (this.providers[f] && this.isConfigured(f) && !this.providers[f].isSuspended && !excluded.has(f)) {
+      if (this.providers[f] && this.isConfigured(f) && !this.providers[f].isSuspended
+        && !this.isNearLimit(f) && !excluded.has(f)) {
         return f;
       }
     }
 
-    // Try any remaining configured provider before giving up.
-    const remaining = this.getAvailableProviders().filter((name) => !excluded.has(name));
+    // Try any remaining configured provider before giving up — near-limit
+    // ones are still preferable to no answer, so this widens the search
+    // rather than stopping at the (possibly empty) non-near-limit set.
+    const remaining = this.getAvailableProviders({ includeNearLimit: true }).filter((name) => !excluded.has(name));
     if (remaining.length === 0) return null;
     return remaining.sort(
       (a, b) => this.providers[b].weight - this.providers[a].weight
@@ -298,7 +361,7 @@ class ProviderManager {
         configured: this.isConfigured(name),
         status: !this.isConfigured(name)
           ? "unconfigured"
-          : (p.isSuspended ? "suspended" : (p.consecutiveErrors > 0 ? "degraded" : "healthy")),
+          : (p.isSuspended ? "suspended" : (this.isNearLimit(name) ? "near_limit" : (p.consecutiveErrors > 0 ? "degraded" : "healthy"))),
         latency: Math.round(p.latency),
         successRate: Math.round(p.successRate * 100) / 100,
       };

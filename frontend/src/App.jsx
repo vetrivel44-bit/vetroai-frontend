@@ -5333,6 +5333,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("maxTokens", String(effectiveMaxTokens));
     fd.append("effort", selectedEffort);
     fd.append("reqId", reqId);
+    if (currentSessionId) fd.append("sessionId", currentSessionId);
     fd.append("memories", JSON.stringify(isMemoryEnabled() ? toPromptList(memories) : []));
     fd.append("plugins", JSON.stringify(requestPlugins));
 

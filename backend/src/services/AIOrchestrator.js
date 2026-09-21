@@ -780,6 +780,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
       this.sendVetroEvent(res, "status", attempts === 1 ? `Consulting ${currentProviderName}...` : `Re-routing to ${currentProviderName}...`);
       logger.info(`AIOrchestrator: Attempt ${attempts} using ${currentProviderName}`, { reqId });
+      providerManager.recordRequest(currentProviderName);
 
       const startTime = Date.now();
       try {
@@ -822,6 +823,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
         if (isRateLimit) {
           providerManager.suspendProvider(currentProviderName, "Rate limit reached");
+          providerManager.recordRateLimitHit(currentProviderName);
         } else if (["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind)) {
           // Retrying a key or model-name problem just burns the user's time —
           // park the provider so the fallback chain moves on immediately.
