@@ -2469,23 +2469,82 @@ const formatFreshness = (dateStr) => {
 // Memoized: rendered once per message inside a feed that re-renders on every
 // streamed token. The props come straight off the message object, whose
 // identity only changes for the message actually being streamed.
-const SourceCards = React.memo(function SourceCards({ sources }) {
-  if (!sources?.length) return null;
+const sourceDomain = (s) => {
+  if (s.domain) return s.domain;
+  try { return new URL(s.url).hostname.replace(/^www\./, ""); } catch { return s.url || ""; }
+};
+
+const SourceFavicon = ({ domain }) => {
+  const [failed, setFailed] = useState(false);
+  if (failed || !domain) {
+    return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{(domain || "?")[0].toUpperCase()}</span>;
+  }
   return (
-    <div className="source-cards">
-      <div className="source-cards-label">🔗 Sources</div>
-      <div className="source-cards-row">
-        {sources.map((s, i) => {
-          const freshness = formatFreshness(s.published);
-          return (
-            <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="source-card">
-              <span className="source-num">{i + 1}</span>
-              <span className="source-domain">{s.domain}</span>
-              {freshness && <span className="source-freshness">{freshness}</span>}
-            </a>
-          );
-        })}
+    <img
+      className="px-src-favicon"
+      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+};
+
+const VISIBLE_SOURCE_CARDS = 3;
+
+const SourceCards = React.memo(function SourceCards({ sources }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!sources?.length) return null;
+  const items = sources.map((s, i) => ({ ...s, n: i + 1, domain: sourceDomain(s) }));
+  const visible = items.length > VISIBLE_SOURCE_CARDS + 1 ? items.slice(0, VISIBLE_SOURCE_CARDS) : items;
+  const hidden = items.slice(visible.length);
+
+  return (
+    <div className="px-src">
+      <div className="px-src-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+        <span>Sources</span>
+        <span className="px-src-count">{items.length}</span>
       </div>
+      <div className="px-src-row">
+        {visible.map((s) => (
+          <a key={s.n} href={s.url} target="_blank" rel="noopener noreferrer" className="px-src-card" title={s.title || s.url}>
+            <span className="px-src-title">{s.title && s.title !== "(untitled)" ? s.title : s.domain}</span>
+            <span className="px-src-meta">
+              <SourceFavicon domain={s.domain} />
+              <span className="px-src-domain">{s.domain}</span>
+              <span className="px-src-num">· {s.n}</span>
+            </span>
+          </a>
+        ))}
+        {hidden.length > 0 && (
+          <button type="button" className="px-src-card px-src-more" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
+            <span className="px-src-more-icons">
+              {hidden.slice(0, 4).map((s) => <SourceFavicon key={s.n} domain={s.domain} />)}
+            </span>
+            <span className="px-src-more-label">{expanded ? "Show less" : `View ${hidden.length} more`}</span>
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <ol className="px-src-list">
+          {items.map((s) => {
+            const freshness = formatFreshness(s.published);
+            return (
+              <li key={s.n}>
+                <a href={s.url} target="_blank" rel="noopener noreferrer" className="px-src-list-item">
+                  <span className="px-src-list-num">{s.n}</span>
+                  <SourceFavicon domain={s.domain} />
+                  <span className="px-src-list-text">
+                    <span className="px-src-list-title">{s.title && s.title !== "(untitled)" ? s.title : s.url}</span>
+                    <span className="px-src-list-domain">{s.domain}{freshness ? ` · ${freshness}` : ""}</span>
+                  </span>
+                </a>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 });
@@ -7187,6 +7246,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                durationMs={m.thinkingMs}
                              />
                            )}
+                           {m.sources && m.sources.length > 0 && (
+                             <SourceCards sources={m.sources} />
+                           )}
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.isPending && m.isImageGen
                                ? <MediaGenCard type="image" text={m.content} />
@@ -7309,9 +7371,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <AlertTriangle size={13} />
                                <span>{m.realtimeNotice}</span>
                              </div>
-                           )}
-                           {m.sources && m.sources.length > 0 && (
-                             <SourceCards sources={m.sources} />
                            )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
