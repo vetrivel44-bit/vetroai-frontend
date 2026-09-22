@@ -5631,7 +5631,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
-      if (puterModelId && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+      if (puterModelId && !shouldWebSearch && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         if (fileCount > 0) {
           throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
@@ -6194,7 +6194,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form style={{ position: "relative" }} className={`claude-input-box bg-slate-800! md:bg-[rgba(255,255,255,0.03)]! border border-slate-700! md:border-[rgba(255,255,255,0.16)]! ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+        <form style={{ position: "relative" }} className={`claude-input-box ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
         <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" multiple />
         {selFiles.length > 0 && (
           <div className="multi-file-previews">
@@ -6219,7 +6219,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         <textarea
           ref={textareaRef}
-          className="placeholder-slate-400! md:placeholder-[rgba(240,240,242,0.45)]! text-slate-200! md:text-[#f0f0f2]!"
+          className="claude-input-textarea"
           rows="1"
           placeholder={
             isDictating ? t.listening || "Listening..." :
