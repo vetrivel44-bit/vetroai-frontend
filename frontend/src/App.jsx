@@ -5551,7 +5551,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         generateFollowUps(answer, userQuery);
       };
 
-      if (attachedImages.length > 0 && !puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
+      if (attachedImages.length > 0) {
+        // Already learned this session that GPT-5.6 Luna is out of credits —
+        // skip straight to the backend instead of reopening Puter's dialog.
+        if (puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
+        puterOutOfCredits = true;
+        } else {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
         }
@@ -5603,6 +5608,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return next;
           });
           setStreamingContent("");
+        }
         }
       }
 
