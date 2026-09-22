@@ -32,7 +32,7 @@ curl -s "https://ai-chatbot-backend-gvvz.onrender.com/api/youtube/resolve?q=test
 Expect `{"success":true,"data":{"videoId":...}}`. `success:false` means YouTube
 refused the server (see Known risks).
 
-## 2. Frontend (Cloudflare Pages / Netlify)
+## 2. Frontend (Cloudflare Pages)
 
 No new variables. `VITE_API_BASE_URL` may be the bare origin or end in `/api` —
 both now resolve correctly, which was the "Route not found: POST /chat" bug.
@@ -85,6 +85,6 @@ removing that needs a certificate (~$100–400/yr).
 
 ## Rollback
 
-Frontend: redeploy the previous deployment from the Cloudflare/Netlify dashboard.
+Frontend: redeploy the previous deployment from the Cloudflare Pages dashboard.
 Backend: redeploy the previous commit on Render. The new route is additive — it
 is unreachable if the frontend rolls back, and nothing else depends on it.

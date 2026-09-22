@@ -1,0 +1,376 @@
+/* ============================================================================
+   VETROAI MOBILE — COPILOT-STYLE THEME
+   Warm, editorial palette matching Microsoft Copilot's mobile chat surface,
+   for both light and dark mode, plus a floating pill composer. Loaded last
+   so it wins over the older mobile theme layers without touching desktop.
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  /* ─── Light ────────────────────────────────────────────────────────── */
+  :root[data-theme="light"],
+  [data-theme="light"] .settings-panel-dark {
+    --bg: #F6F3ED;
+    --bg-sidebar: #FBF9F5;
+    --bg-elevated: #FFFFFF;
+    --bg-hover: #EFEAE1;
+    --bg-active: #E7E1D5;
+
+    --ink: #1F1E1D;
+    --ink-2: #4A4744;
+    --ink-3: #78746E;
+    --ink-4: #9A968F;
+    --ink-5: #C7C2B8;
+
+    --accent: #D97757;
+    --accent-secondary: #B96545;
+    --accent-soft: rgba(217, 119, 87, 0.10);
+    --accent-mid: rgba(217, 119, 87, 0.20);
+    --accent-glow: rgba(217, 119, 87, 0.14);
+    --accent-rgb: 217, 119, 87;
+
+    --border: rgba(31, 30, 29, 0.08);
+    --border-med: rgba(31, 30, 29, 0.13);
+    --border-str: rgba(31, 30, 29, 0.22);
+
+    --glass-bg: rgba(246, 243, 237, 0.90);
+    --glass-border: rgba(31, 30, 29, 0.08);
+  }
+
+  /* ─── Dark ─────────────────────────────────────────────────────────── */
+  :root[data-theme="dark"],
+  [data-theme="dark"] .settings-panel-dark {
+    --bg: #1B1A19;
+    --bg-sidebar: #171615;
+    --bg-elevated: #242322;
+    --bg-hover: #2C2B29;
+    --bg-active: #363432;
+
+    --ink: #F2EFEA;
+    --ink-2: #C9C5BE;
+    --ink-3: #97938C;
+    --ink-4: #6B6862;
+    --ink-5: #454341;
+
+    --accent: #E08659;
+    --accent-secondary: #C96F49;
+    --accent-soft: rgba(224, 134, 89, 0.14);
+    --accent-mid: rgba(224, 134, 89, 0.24);
+    --accent-glow: rgba(224, 134, 89, 0.16);
+    --accent-rgb: 224, 134, 89;
+
+    --border: rgba(255, 255, 255, 0.08);
+    --border-med: rgba(255, 255, 255, 0.13);
+    --border-str: rgba(255, 255, 255, 0.24);
+
+    --glass-bg: rgba(27, 26, 25, 0.90);
+    --glass-border: rgba(255, 255, 255, 0.08);
+  }
+
+  /* ─── Base surfaces ────────────────────────────────────────────────── */
+  html, body, #root,
+  .shell, .chat, .claude-empty-container,
+  .voice-page, .auth-page, .claude-recents-container {
+    background: var(--bg) !important;
+    color: var(--ink) !important;
+  }
+
+  body { background-image: none !important; }
+
+  /* Header */
+  .chat-header, .mobile-header {
+    background: var(--glass-bg) !important;
+    border-bottom: 1px solid var(--border) !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(18px) !important;
+    -webkit-backdrop-filter: blur(18px) !important;
+  }
+
+  .mob-header-logo, .mh-logo, .sb-name, .logo-name,
+  .modal-title, .recents-title, .voice-label,
+  .claude-greeting, .welcome-title {
+    color: var(--ink) !important;
+    background: none !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+
+  .mob-menu-btn, .mh-hamburger, .icon-btn { color: var(--ink-3) !important; }
+  .icon-btn:hover, .icon-btn:focus-visible {
+    background: var(--bg-hover) !important;
+    color: var(--ink) !important;
+  }
+
+  .mob-mode-chip, .mode-pill, .sys-badge, .share-btn, .mobile-active-model-chip {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--ink-2) !important;
+    box-shadow: none !important;
+  }
+  .mob-mode-chip:hover, .mode-pill:hover, .share-btn:hover,
+  .mob-mode-chip.active, .mode-pill.active {
+    background: var(--bg-hover) !important;
+    border-color: var(--border-med) !important;
+    color: var(--ink) !important;
+  }
+
+  /* Sidebar */
+  .sidebar, .claude-sidebar, .mobile-sidebar-drawer {
+    background: var(--bg-sidebar) !important;
+    border-right: 1px solid var(--border) !important;
+    box-shadow: 10px 0 36px rgba(0, 0, 0, 0.12) !important;
+  }
+
+  .sb-overlay, .mobile-sidebar-overlay.open,
+  .fixed.inset-0.bg-black\/50, .mob-fab-overlay, .overlay {
+    background: rgba(0, 0, 0, 0.45) !important;
+    backdrop-filter: blur(4px) !important;
+    -webkit-backdrop-filter: blur(4px) !important;
+  }
+
+  .sb-mark, .sb-user-initials, .auth-logo-mark, .mbn-avatar {
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  .sb-search, .mode-row, .sb-user, .msd-new-btn, .msd-profile-btn {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--ink-2) !important;
+  }
+  .sb-search:focus-within {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-soft) !important;
+  }
+  .sb-search input, .mode-row select { color: var(--ink) !important; }
+  .sb-search input::placeholder, .sb-user-email, .hist-label,
+  .recents-item-time, .input-note, .wcard-sub, .ts, .typing-label {
+    color: var(--ink-3) !important;
+  }
+
+  .claude-sb-item.active, .claude-sb-recent.active, .hist-item.active,
+  .space-item.active, .msd-nav-item.active {
+    background: var(--accent-soft) !important;
+    color: var(--accent) !important;
+    border-color: var(--accent-mid) !important;
+    box-shadow: inset 2px 0 0 var(--accent) !important;
+  }
+  .hist-item:hover, .space-item:hover, .claude-sb-item:hover, .recents-item:hover {
+    background: var(--bg-hover) !important;
+  }
+  .hist-title, .sb-user-name, .space-item, .msd-nav-item { color: var(--ink-2) !important; }
+
+  /* Primary buttons / FAB — Copilot's orange accent */
+  .new-btn, .auth-btn, .btn-primary, .claude-btn-dark, .mob-fab {
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    border: 1px solid var(--accent) !important;
+    box-shadow: 0 4px 14px var(--accent-glow) !important;
+    font-weight: 600 !important;
+  }
+  .new-btn:hover, .auth-btn:hover, .btn-primary:hover, .claude-btn-dark:hover, .mob-fab:hover {
+    filter: brightness(1.06) !important;
+  }
+  .mob-fab.open {
+    background: var(--bg-elevated) !important;
+    color: var(--accent) !important;
+    border-color: var(--border-med) !important;
+  }
+
+  /* Bottom navigation */
+  .mobile-bottom-nav {
+    background: var(--glass-bg) !important;
+    border-top: 1px solid var(--border) !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+  }
+  .mbn-btn { color: var(--ink-3) !important; }
+  .mbn-btn:hover { color: var(--ink) !important; background: var(--bg-hover) !important; }
+  .mbn-btn.active { color: var(--accent) !important; }
+  .mbn-btn.active::after { background: var(--accent) !important; box-shadow: none !important; }
+  .mbn-btn.active svg { filter: none !important; }
+
+  /* Chat messages */
+  .msg.user .bubble {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--ink) !important;
+    box-shadow: none !important;
+  }
+  .msg.assistant .bubble { color: var(--ink) !important; }
+  .act-btns button { background: var(--bg-elevated) !important; border-color: var(--border) !important; color: var(--ink-3) !important; }
+  .act-btns button:hover { background: var(--bg-hover) !important; color: var(--ink) !important; }
+  .typing span { background: var(--ink-3) !important; }
+
+  /* Welcome / suggestions */
+  .welcome-sub, .auth-tagline, .voice-hint, .voice-transcript { color: var(--ink-3) !important; }
+  .claude-pill, .welcome-card, .sug, .source-card, .followup-chip,
+  .quick-action, .quick-action-chip {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--ink-2) !important;
+    box-shadow: none !important;
+  }
+  .claude-pill:hover, .welcome-card:hover, .sug:hover, .source-card:hover, .followup-chip:hover {
+    background: var(--bg-hover) !important;
+    border-color: var(--border-med) !important;
+    color: var(--ink) !important;
+  }
+  .claude-pill svg, .wcard-icon { color: var(--accent) !important; }
+  .wcard-icon { background: var(--accent-soft) !important; }
+  .wcard-label { color: var(--ink) !important; }
+
+  /* ─── Composer — Copilot's floating rounded pill ────────────────────── */
+  .input-area {
+    background: linear-gradient(180deg, transparent 0%, var(--bg) 45%) !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .input-box, .claude-input-box {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 26px !important;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.10) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .input-box:focus-within, .claude-input-box:focus-within {
+    border-color: var(--accent) !important;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 3px var(--accent-soft) !important;
+  }
+  .input-box textarea, .claude-input-box textarea {
+    color: var(--ink) !important;
+    caret-color: var(--accent) !important;
+  }
+  .input-box textarea::placeholder, .claude-input-box textarea::placeholder {
+    color: var(--ink-4) !important;
+  }
+
+  .attach-btn, .claude-attach-btn, .mic-btn, .claude-action-btn { color: var(--ink-3) !important; }
+  .attach-btn:hover, .claude-attach-btn:hover, .mic-btn:hover, .claude-action-btn:hover {
+    background: var(--bg-hover) !important;
+    color: var(--ink) !important;
+  }
+  .claude-action-btn.active { color: var(--accent) !important; background: var(--accent-soft) !important; }
+
+  /* Send button — the solid orange circle from Copilot's composer */
+  .send-btn, .claude-send-btn.active {
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    border: 1px solid var(--accent) !important;
+    box-shadow: 0 3px 10px var(--accent-glow) !important;
+  }
+  .send-btn:hover, .claude-send-btn.active:hover { filter: brightness(1.06) !important; }
+  .send-btn:disabled, .claude-send-btn:not(.active) {
+    background: var(--bg-hover) !important;
+    color: var(--ink-4) !important;
+    border-color: var(--border) !important;
+    box-shadow: none !important;
+  }
+
+  .fmt-bar, .ctx-bar, .claude-input-footer {
+    background: transparent !important;
+    border-color: var(--border) !important;
+    color: var(--ink-3) !important;
+  }
+  .fmt-bar button { color: var(--ink-3) !important; }
+  .fmt-bar button:hover { background: var(--bg-hover) !important; color: var(--ink) !important; }
+
+  .scroll-btn {
+    background: var(--bg-elevated) !important;
+    color: var(--accent) !important;
+    border-color: var(--border) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12) !important;
+  }
+
+  /* Modals / sheets / forms */
+  .modal, .workspace-popup {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.16) !important;
+  }
+  .modal::before { background: var(--ink-4) !important; }
+  .modal-topbar, .ws-popup-header { border-color: var(--border) !important; }
+  .mtab { color: var(--ink-3) !important; }
+  .mtab.active {
+    color: var(--accent) !important;
+    border-bottom-color: var(--accent) !important;
+    background: var(--accent-soft) !important;
+  }
+
+  .field-input, .field-textarea, .auth-field input,
+  .recents-search-bar input, .chat-search input {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--ink) !important;
+  }
+  .field-input::placeholder, .field-textarea::placeholder,
+  .auth-field input::placeholder, .recents-search-bar input::placeholder,
+  .chat-search input::placeholder { color: var(--ink-4) !important; }
+  .field-input:focus, .field-textarea:focus, .auth-field input:focus,
+  .recents-search-bar input:focus, .chat-search input:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-soft) !important;
+  }
+  .field-label, .auth-field label { color: var(--ink-3) !important; }
+
+  .btn-ghost, .claude-btn-outline, .theme-row-btn, .preset-item, .lang-opt, .sc-row, .auth-feat {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--ink-2) !important;
+  }
+  .btn-ghost:hover, .claude-btn-outline:hover, .theme-row-btn:hover, .preset-item:hover, .lang-opt:hover {
+    background: var(--bg-hover) !important;
+    color: var(--ink) !important;
+  }
+  .av-opt.sel, .lang-opt.sel, .preset-item.sel {
+    border-color: var(--accent) !important;
+    background: var(--accent-soft) !important;
+  }
+  .av-check { background: var(--accent) !important; }
+
+  /* Auth */
+  .auth-glow { background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%) !important; }
+  .auth-box {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    box-shadow: 0 14px 42px rgba(0, 0, 0, 0.14) !important;
+  }
+  .auth-switch { color: var(--ink-3) !important; }
+  .auth-switch span { color: var(--accent) !important; }
+
+  /* Voice */
+  .vorb {
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 34px var(--accent-glow) !important;
+  }
+  .vorb.listening { box-shadow: 0 0 48px var(--accent-mid) !important; }
+  .vring { border-color: var(--accent-mid) !important; }
+  .voice-close {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--ink-2) !important;
+  }
+
+  /* Search / recents / toasts / code */
+  .recents-list, .recents-item, .chat-search { border-color: var(--border) !important; }
+  .recents-item-title { color: var(--ink-2) !important; }
+  .web-searching-bar {
+    background: var(--accent-soft) !important;
+    border-color: var(--accent-mid) !important;
+    color: var(--accent) !important;
+  }
+  .toast {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--ink) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16) !important;
+  }
+  .code-block, .code-wrap { border-color: var(--border) !important; }
+  :root[data-theme="light"] .code-block, :root[data-theme="light"] .code-wrap { background: #FBF9F5 !important; }
+  :root[data-theme="dark"] .code-block, :root[data-theme="dark"] .code-wrap { background: #141312 !important; }
+
+  .feed::-webkit-scrollbar-thumb, .history::-webkit-scrollbar-thumb { background: var(--border-med) !important; }
+}

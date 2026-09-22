@@ -35,7 +35,6 @@ import ThinkingPanel from "./components/ThinkingPanel";
 // Importing them eagerly meant every visitor downloaded and parsed all of it
 // before the first chat could render, so they load on the click that needs them.
 const GlobalSearch = React.lazy(() => import("./components/screens/GlobalSearch"));
-const WebSearchView = React.lazy(() => import("./components/screens/WebSearchView"));
 const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"));
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
@@ -2770,7 +2769,7 @@ function SpacesPanel({ spaces, currentSpaceId, onOpenSpace, onNewSpace, onEditSp
 
 // ─── WORKSPACE POPUP ────────────────────────────────────────────────────────────
 
-function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectMode, onSelectProvider, onSelectEffort, onClose, onOpenWebSearchModal, variant }) {
+function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectMode, onSelectProvider, onSelectEffort, onClose, variant }) {
   const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
@@ -2878,11 +2877,6 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
                   className={`ws-mode-card${currentMode === m.id ? " active" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (m.id === "web_search" && onOpenWebSearchModal) {
-                      onOpenWebSearchModal();
-                      handleClose();
-                      return;
-                    }
                     onSelectMode(m.id);
                     handleClose();
                   }}
@@ -4191,6 +4185,11 @@ export default function App() {
   const autoWebSearchRef = useRef(autoWebSearch);
   const ttsVoiceRef      = useRef(ttsVoice);
   const autoSpeakRef     = useRef(autoSpeak);
+  // Puter's SDK pops its own "Low Balance" dialog (outside React's control)
+  // the moment a browser-model call runs out of credits. Once we've seen that
+  // once this session, every later turn skips straight to the backend fallback
+  // instead of calling puter.ai.chat again and reopening that dialog.
+  const puterCreditsExhaustedRef = useRef(new Set());
 
   useEffect(() => { inputRef.current = input; }, [input]);
   useEffect(() => { voiceRef.current = isVoiceOpen; }, [isVoiceOpen]);
@@ -5485,7 +5484,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       // Browser models already tried for this turn, so the backend-outage
       // retry below never re-runs a model that just failed.
-      const puterAttempted = new Set();
+      const puterAttempted = new Set(puterCreditsExhaustedRef.current);
 
       // Streams one Puter (browser, user-pays) model into the open assistant
       // bubble and returns the answer. Shared by the primary browser-model
@@ -5553,6 +5552,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       };
 
       if (attachedImages.length > 0) {
+        // Already learned this session that GPT-5.6 Luna is out of credits —
+        // skip straight to the backend instead of reopening Puter's dialog.
+        if (puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
+        puterOutOfCredits = true;
+        } else {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
         }
@@ -5595,6 +5599,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // the backend routes an image-carrying request to a provider that
           // can actually see it, so fall through instead of failing here.
           puterOutOfCredits = true;
+          puterCreditsExhaustedRef.current.add("GPT-5.6 Luna");
           addDebugLog("Puter.creditsExhausted", { reqId, provider: "GPT-5.6 Luna", images: attachedImages.length });
           addToast("Image analysis is out of credits. Switching to a backup model…", "info", 4000);
           setMessages((previous) => {
@@ -5604,10 +5609,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           });
           setStreamingContent("");
         }
+        }
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
-      if (puterModelId && !puterOutOfCredits) {
+      if (puterModelId && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         if (fileCount > 0) {
           throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
@@ -5622,6 +5628,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // Puter is out of credits/usage for this model — don't fail the chat,
           // fall through to the backend request below (which has its own
           // provider fallback chain, down to Cohere) instead of surfacing this.
+          puterCreditsExhaustedRef.current.add(effectivePuterProvider);
           addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
           addToast(`${effectivePuterProvider} is out of credits. Switching to a backup model…`, "info", 4000);
           setMessages((previous) => {
@@ -6246,7 +6253,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload file">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
-            <button type="button" className="claude-attach-btn ws-modal-trigger-btn" onClick={() => setShowWebSearchModal(true)} title="Open Web Search">
+            <button
+              type="button"
+              className={`claude-attach-btn ws-modal-trigger-btn${isWebMode ? " active" : ""}`}
+              onClick={() => setSelectedMode(isWebMode ? "normal" : "web_search")}
+              title="Search the web"
+            >
               <Globe size={18} />
               {/* Labelled so the control reads as a pill rather than an
                   unexplained icon; hidden on narrow screens where the toolbar
@@ -6272,7 +6284,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 onSelectProvider={setSelectedProvider}
                 onSelectEffort={setSelectedEffort}
                 onClose={() => setShowModelPicker(false)}
-                onOpenWebSearchModal={() => setShowWebSearchModal(true)}
               />}
               <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
                 <span className="mode-pill-name">{selectedProvider === "Auto" ? currentMode.name : selectedProvider}</span>
@@ -6327,7 +6338,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
   const [showChess, setShowChess] = useState(false);
-  const [showWebSearchModal, setShowWebSearchModal] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
   const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -6926,17 +6936,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </div>
         )}
 
-        {/* ── Web Search Modal ──────────────────────────────────────────── */}
-        {showWebSearchModal && (
-          <div className="wsm-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowWebSearchModal(false); }}>
-            <div className="wsm-container">
-              <Suspense fallback={<ScreenLoader />}>
-                <WebSearchView onExitWebSearch={() => setShowWebSearchModal(false)} />
-              </Suspense>
-            </div>
-          </div>
-        )}
-        
         <header className="chat-header">
           <div className="ch-left" style={{ position: "relative" }}>
             <button type="button" onClick={() => setSidebarMobileOpen(true)} title="Open menu" className="claude-sb-item claude-sb-icon-btn flex md:hidden items-center justify-center rounded-md" style={{ marginRight: 4, width: 30, height: 30 }}>
@@ -6975,7 +6974,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News">
               <Newspaper size={18} />
             </button>
-            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${showWebSearchModal ? " active" : ""}`} onClick={() => setShowWebSearchModal(true)} title="Web Search" style={showWebSearchModal ? { color: "#22d3ee" } : undefined}>
+            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${isWebMode ? " active" : ""}`} onClick={() => setSelectedMode(isWebMode ? "normal" : "web_search")} title="Search the web" style={isWebMode ? { color: "#22d3ee" } : undefined}>
               <Globe size={18} />
             </button>
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={isIncognito ? { color: "var(--accent)" } : undefined}>
@@ -7015,17 +7014,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className={`flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
           style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, var(--accent-soft) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
-                isWebMode ? (
-                  <Suspense fallback={<ScreenLoader />}>
-                    <WebSearchView
-                      onExitWebSearch={() => {
-                        setSelectedMode("normal");
-                        setShowModelPicker(false);
-                        addToast("Exited Web Search mode", "info", 1500);
-                      }}
-                    />
-                  </Suspense>
-                ) : (
                 <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
                   <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
                     <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
@@ -7056,7 +7044,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     </div>
                   )}
                 </div>
-                )
              ) : (
                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
                  <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}>
