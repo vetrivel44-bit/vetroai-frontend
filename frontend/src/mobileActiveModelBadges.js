@@ -2,6 +2,13 @@
 // response row first appears. This is deliberately DOM-level so it also covers
 // streaming/pending rows without waiting for App.jsx to finish a response.
 
+const VETRO_MARK_SRC = '/favicon.svg';
+const VETRO_MARK_SVG = '<svg class="response-model-icon vetro-response-mark" role="img" viewBox="12 2 76 96" xmlns="http://www.w3.org/2000/svg">'
+  + '<rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)"/>'
+  + '<rect x="42" y="8" width="16" height="74" rx="8" fill="#146b80" transform="rotate(24 50 82)"/>'
+  + '<circle cx="50" cy="79" r="6.5" fill="var(--bg)"/>'
+  + '</svg>';
+
 const MODEL_ICON_RULES = [
   [/^auto$|normal chat/i, '/favicon.svg'],
   [/^gpt-|openai|codex/i, '/model-icons/openai.svg'],
@@ -53,7 +60,8 @@ function avatarForRow(row) {
 function renderProviderAvatar(avatarWrap, label) {
   if (!avatarWrap) return;
   const normalized = cleanModelLabel(label) || 'Auto';
-  const src = modelIconSrc(normalized);
+  const iconSrc = modelIconSrc(normalized);
+  const src = avatarWrap.dataset.iconFailed === iconSrc ? VETRO_MARK_SRC : iconSrc;
 
   avatarWrap.classList.add('provider-response-avatar');
   avatarWrap.dataset.responseModel = normalized;
@@ -61,7 +69,21 @@ function renderProviderAvatar(avatarWrap, label) {
   avatarWrap.setAttribute('aria-label', `Response by ${normalized}`);
 
   let icon = avatarWrap.querySelector(':scope > .response-model-icon');
-  if (!icon) {
+
+  // The VetroAI mark is drawn inline, like the sidebar logo, so its strokes
+  // follow the theme and it sits on the page without the app icon's teal tile.
+  if (src === VETRO_MARK_SRC) {
+    if (!icon || icon.tagName.toLowerCase() !== 'svg') {
+      const holder = document.createElement('div');
+      holder.innerHTML = VETRO_MARK_SVG;
+      icon = holder.firstElementChild;
+      avatarWrap.replaceChildren(icon);
+    }
+    icon.setAttribute('aria-label', `${normalized} logo`);
+    return;
+  }
+
+  if (!icon || icon.tagName.toLowerCase() !== 'img') {
     icon = document.createElement('img');
     icon.className = 'response-model-icon';
     icon.decoding = 'async';
@@ -72,7 +94,8 @@ function renderProviderAvatar(avatarWrap, label) {
   if (icon.getAttribute('src') !== src) icon.setAttribute('src', src);
   icon.onerror = () => {
     icon.onerror = null;
-    icon.setAttribute('src', '/favicon.svg');
+    avatarWrap.dataset.iconFailed = src;
+    renderProviderAvatar(avatarWrap, normalized);
   };
 }
 

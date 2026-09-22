@@ -2474,18 +2474,28 @@ const sourceDomain = (s) => {
   try { return new URL(s.url).hostname.replace(/^www\./, ""); } catch { return s.url || ""; }
 };
 
+// Google's service answers 404 (and the browser fires onError) when it has no
+// icon at the requested size, so fall through a few sources before a letter.
+const faviconSources = (domain) => [
+  `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`,
+  `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`,
+  `https://${domain}/favicon.ico`,
+];
+
 const SourceFavicon = ({ domain }) => {
-  const [failed, setFailed] = useState(false);
-  if (failed || !domain) {
+  const [attempt, setAttempt] = useState(0);
+  const sources = domain ? faviconSources(domain) : [];
+  if (attempt >= sources.length) {
     return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{(domain || "?")[0].toUpperCase()}</span>;
   }
   return (
     <img
+      key={attempt}
       className="px-src-favicon"
-      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`}
+      src={sources[attempt]}
       alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
+      referrerPolicy="no-referrer"
+      onError={() => setAttempt((n) => n + 1)}
     />
   );
 };
