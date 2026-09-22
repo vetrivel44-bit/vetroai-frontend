@@ -3,7 +3,7 @@
 // streaming/pending rows without waiting for App.jsx to finish a response.
 
 const MODEL_ICON_RULES = [
-  [/^auto$|normal chat/i, '/logo.png'],
+  [/^auto$|normal chat/i, '/favicon.svg'],
   [/^gpt-|openai|codex/i, '/model-icons/openai.svg'],
   [/claude/i, '/model-icons/claude.svg'],
   [/grok|xai/i, '/model-icons/grok.svg'],
@@ -11,11 +11,11 @@ const MODEL_ICON_RULES = [
   [/gemini|google/i, '/model-icons/gemini.svg'],
   [/mistral/i, '/model-icons/mistral.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
-  [/agnes|vetro/i, '/logo.png'],
+  [/agnes|vetro/i, '/favicon.svg'],
 ];
 
 function modelIconSrc(label = '') {
-  return MODEL_ICON_RULES.find(([rx]) => rx.test(String(label)))?.[1] || '/logo.png';
+  return MODEL_ICON_RULES.find(([rx]) => rx.test(String(label)))?.[1] || '/favicon.svg';
 }
 
 function cleanModelLabel(value = '') {
@@ -72,7 +72,7 @@ function renderProviderAvatar(avatarWrap, label) {
   if (icon.getAttribute('src') !== src) icon.setAttribute('src', src);
   icon.onerror = () => {
     icon.onerror = null;
-    icon.setAttribute('src', '/logo.png');
+    icon.setAttribute('src', '/favicon.svg');
   };
 }
 

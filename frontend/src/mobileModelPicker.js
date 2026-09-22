@@ -13,7 +13,7 @@ const MODEL_TASKS = {
 // Single source of truth for provider/model branding on mobile. Never fall back
 // to unrelated Lucide action icons (the old Mistral briefcase regression).
 const MODEL_ICON_RULES = [
-  [/^auto$/i, '/logo.png'],
+  [/^auto$/i, '/favicon.svg'],
   [/^gpt-|openai|codex/i, '/model-icons/openai.svg'],
   [/claude/i, '/model-icons/claude.svg'],
   [/grok|xai/i, '/model-icons/grok.svg'],
@@ -23,7 +23,7 @@ const MODEL_ICON_RULES = [
   [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
 ];
-const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/logo.png';
+const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/favicon.svg';
 const makeModelIcon = (label, extraClass = '') => {
   const img = document.createElement('img');
   img.src = modelIconSrc(label);
