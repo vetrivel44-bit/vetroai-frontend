@@ -1,7 +1,22 @@
 const express = require("express");
 const router = express.Router();
 const providerManager = require("../services/ProviderManager");
+const crypto = require("crypto");
 const logger = require("../utils/logger");
+
+// Provider tests spend real credits, so they only answer a caller holding
+// DEBUG_TOKEN (as ?token= or an x-debug-token header). Unset = disabled.
+function hasDebugToken(req) {
+  const expected = String(process.env.DEBUG_TOKEN || "");
+  const given = String(req.get("x-debug-token") || req.query.token || "");
+  if (!expected || given.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}
+
+function requireDebugToken(req, res, next) {
+  if (!hasDebugToken(req)) return res.status(404).json({ error: "Not found" });
+  next();
+}
 
 router.get("/health", (req, res) => {
   res.json({
@@ -12,12 +27,12 @@ router.get("/health", (req, res) => {
   });
 });
 
-router.get("/test/:provider", async (req, res) => {
+router.get("/test/:provider", requireDebugToken, async (req, res) => {
   const { provider } = req.params;
   const adapter = providerManager.getAdapter(provider);
   
   if (!adapter) {
-    return res.status(404).json({ error: "Provider adapter not found", available: Object.keys(providerManager.adapters) });
+    return res.status(404).json({ error: "Provider adapter not found", available: Object.keys(providerManager.providers) });
   }
 
   logger.info("Debug.test.start", { provider });
@@ -53,7 +68,7 @@ router.get("/test/:provider", async (req, res) => {
     logger.info("Debug.test.completed", { provider });
   } catch (err) {
     logger.error("Debug.test.failed", { provider, error: err.message });
-    res.status(500).json({ error: err.message, stack: err.stack });
+    res.status(500).json({ error: err.message });
   }
 });
 
