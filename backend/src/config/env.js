@@ -55,7 +55,7 @@ module.exports = {
     // tokens when the selected model exposes them.
     plugskyApiKey:       getEnv("PLUGSKY_API_KEY",       ""),
     plugskyBaseUrl:      getEnv("PLUGSKY_BASE_URL",      "https://api.plugsky.com/v1"),
-    plugskyModel:        getEnv("PLUGSKY_MODEL",         "plugsky-reasoner"),
+    plugskyModel:        getEnv("PLUGSKY_MODEL",         "plugsky-pro"),
     plugskyTemperature:  Number(getEnv("PLUGSKY_TEMPERATURE", "0.7")),
     plugskyMaxTokens:    Number(getEnv("PLUGSKY_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.
