@@ -12845,7 +12845,9 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
    colorless shadow — not a colored glow, which is what read as "themed"
    rather than "designed". */
 [data-theme="light"] .claude-input-box {
-  background: #FFFFFF;
+  /* The palette var, not literal white: on desktop a later stylesheet keeps the
+     page on the dark palette even under data-theme="light". */
+  background: var(--bg-elevated);
   border-color: var(--border);
   border-radius: 26px;
   padding: 20px 22px 14px;
@@ -12882,7 +12884,7 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
    label grows to fit it; an icon-only one stays a circle. */
 [data-theme="light"] .claude-attach-btn,
 [data-theme="light"] .claude-action-btn {
-  background: #FFFFFF;
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--ink-2);
