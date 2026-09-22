@@ -4185,6 +4185,11 @@ export default function App() {
   const autoWebSearchRef = useRef(autoWebSearch);
   const ttsVoiceRef      = useRef(ttsVoice);
   const autoSpeakRef     = useRef(autoSpeak);
+  // Puter's SDK pops its own "Low Balance" dialog (outside React's control)
+  // the moment a browser-model call runs out of credits. Once we've seen that
+  // once this session, every later turn skips straight to the backend fallback
+  // instead of calling puter.ai.chat again and reopening that dialog.
+  const puterCreditsExhaustedRef = useRef(new Set());
 
   useEffect(() => { inputRef.current = input; }, [input]);
   useEffect(() => { voiceRef.current = isVoiceOpen; }, [isVoiceOpen]);
@@ -5479,7 +5484,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       // Browser models already tried for this turn, so the backend-outage
       // retry below never re-runs a model that just failed.
-      const puterAttempted = new Set();
+      const puterAttempted = new Set(puterCreditsExhaustedRef.current);
 
       // Streams one Puter (browser, user-pays) model into the open assistant
       // bubble and returns the answer. Shared by the primary browser-model
@@ -5546,7 +5551,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         generateFollowUps(answer, userQuery);
       };
 
-      if (attachedImages.length > 0) {
+      if (attachedImages.length > 0 && !puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
         }
@@ -5589,6 +5594,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // the backend routes an image-carrying request to a provider that
           // can actually see it, so fall through instead of failing here.
           puterOutOfCredits = true;
+          puterCreditsExhaustedRef.current.add("GPT-5.6 Luna");
           addDebugLog("Puter.creditsExhausted", { reqId, provider: "GPT-5.6 Luna", images: attachedImages.length });
           addToast("Image analysis is out of credits. Switching to a backup model…", "info", 4000);
           setMessages((previous) => {
@@ -5601,7 +5607,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
-      if (puterModelId && !puterOutOfCredits) {
+      if (puterModelId && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         if (fileCount > 0) {
           throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
@@ -5616,6 +5622,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // Puter is out of credits/usage for this model — don't fail the chat,
           // fall through to the backend request below (which has its own
           // provider fallback chain, down to Cohere) instead of surfacing this.
+          puterCreditsExhaustedRef.current.add(effectivePuterProvider);
           addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
           addToast(`${effectivePuterProvider} is out of credits. Switching to a backup model…`, "info", 4000);
           setMessages((previous) => {
