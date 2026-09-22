@@ -482,12 +482,30 @@ const getPuterResponseText = (response) => {
   return "";
 };
 
-// Puter's own account is out of usage/credits (or asking the user to sign in
-// to keep going) rather than a one-off bad request — this is the one class of
-// Puter failure worth silently retrying on the backend instead of surfacing.
-const isPuterCreditsError = (err) => {
+// Puter's own account is out of usage/credits, asking the user to sign in,
+// or just rate-limiting this request — none of these are a one-off bad
+// request, so all of them are worth silently retrying on the backend instead
+// of surfacing as a hard failure. But they aren't the same problem, so the
+// toast shown to the user should say which one actually happened rather than
+// always claiming "out of credits" — that's misleading when the account has
+// plenty of balance and Puter just rate-limited this one call.
+const classifyPuterFailure = (err) => {
   const text = `${err?.message || ""} ${err?.error?.message || ""} ${err?.error?.code || ""} ${typeof err === "string" ? err : ""}`.toLowerCase();
-  return /insufficient|credit|quota|balance|payment|usage[ -]?limit|out of funds|permission[ _-]?denied|429|too many requests|rate limit/.test(text);
+  if (/insufficient|credit|quota|balance|payment|out of funds/.test(text)) return "credits";
+  if (/429|too many requests|rate limit|usage[ -]?limit/.test(text)) return "rate_limit";
+  if (/permission[ _-]?denied/.test(text)) return "permission";
+  return null;
+};
+const isPuterCreditsError = (err) => classifyPuterFailure(err) !== null;
+const puterFailureToast = (providerName, err) => {
+  switch (classifyPuterFailure(err)) {
+    case "rate_limit":
+      return `${providerName} is rate-limited right now. Switching to a backup model…`;
+    case "permission":
+      return `${providerName} needs you to sign in again. Switching to a backup model…`;
+    default:
+      return `${providerName} is out of credits. Switching to a backup model…`;
+  }
 };
 
 
@@ -5600,8 +5618,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // can actually see it, so fall through instead of failing here.
           puterOutOfCredits = true;
           puterCreditsExhaustedRef.current.add("GPT-5.6 Luna");
-          addDebugLog("Puter.creditsExhausted", { reqId, provider: "GPT-5.6 Luna", images: attachedImages.length });
-          addToast("Image analysis is out of credits. Switching to a backup model…", "info", 4000);
+          addDebugLog("Puter.creditsExhausted", { reqId, provider: "GPT-5.6 Luna", images: attachedImages.length, reason: classifyPuterFailure(puterErr) });
+          addToast(puterFailureToast("Image analysis", puterErr), "info", 4000);
           setMessages((previous) => {
             const next = [...previous];
             next[next.length - 1] = { ...next[next.length - 1], content: "" };
@@ -5629,8 +5647,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // fall through to the backend request below (which has its own
           // provider fallback chain, down to Cohere) instead of surfacing this.
           puterCreditsExhaustedRef.current.add(effectivePuterProvider);
-          addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
-          addToast(`${effectivePuterProvider} is out of credits. Switching to a backup model…`, "info", 4000);
+          addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message, reason: classifyPuterFailure(puterErr) });
+          addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
           setMessages((previous) => {
             const next = [...previous];
             next[next.length - 1] = { ...next[next.length - 1], content: "" };
