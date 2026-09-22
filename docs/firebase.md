@@ -109,18 +109,15 @@ This app is served from more than one place, so the list covers all of them:
 | --- | --- |
 | `localhost` | local dev |
 | `vetroai.firebaseapp.com`, `vetroai.web.app` | Firebase Hosting (unused, auto-added) |
-| `vetroai.netlify.app` | Netlify project `vetroai` |
 | `vetroai-frontend.vel21873.workers.dev` | Cloudflare Workers |
 | `vetroai-frontend.pages.dev` | Cloudflare Pages project `vetroai-frontend` |
 
-Netlify and Cloudflare Pages build straight from the repo via their Git
-integrations, separately from `.github/workflows/deploy.yml`, which is why they
-are easy to miss.
+Cloudflare Pages builds straight from the repo via its Git integration,
+separately from `.github/workflows/deploy.yml`, which is why it is easy to miss.
 
-**Preview deployments will not have working Google sign-in.** Netlify and
-Cloudflare mint a fresh hostname per commit and per branch
-(`deploy-preview-23--vetroai.netlify.app`,
-`claude-confident-curie-tllvk4-vetroai-frontend.vel21873.workers.dev`, …), and
+**Preview deployments will not have working Google sign-in.** Cloudflare mints
+a fresh hostname per commit and per branch
+(`claude-confident-curie-tllvk4-vetroai-frontend.vel21873.workers.dev`, …), and
 Firebase authorized domains do not support wildcards. Either add a specific
 preview host while testing it, or test sign-in on localhost and production only.
 
