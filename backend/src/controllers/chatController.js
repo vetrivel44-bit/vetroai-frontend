@@ -18,6 +18,7 @@ const mistralAvailable = Boolean(config.mistralApiKey);
 
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
+const { withGroqModel } = require("../utils/groqModel");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
 const { verifyAccessToken } = require("../utils/token");
@@ -339,14 +340,14 @@ async function followUps(req, res) {
   if (groq) {
     callModel = async ({ system, user, maxTokens, temperature }) => {
       const completion = await withRetry(
-        () => groq.chat.completions.create({
-          // A stronger model than llama-3.1-8b-instant: the questions are the
-          // whole point, and the weaker one reached for templates.
-          model: config.groqFollowUpModel || "llama-3.3-70b-versatile",
+        // A stronger model than llama-3.1-8b-instant: the questions are the
+        // whole point, and the weaker one reached for templates.
+        () => withGroqModel(groq, config.groqFollowUpModel || "llama-3.3-70b-versatile", (model) => groq.chat.completions.create({
+          model,
           temperature,
           max_tokens: maxTokens,
           messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        }),
+        })),
         1
       );
       return completion?.choices?.[0]?.message?.content || "";

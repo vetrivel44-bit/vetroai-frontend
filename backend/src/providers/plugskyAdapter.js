@@ -20,7 +20,8 @@ function isUnknownModelError(status, detail) {
 }
 
 async function generateStream(messages, options = {}) {
-  const apiKey = config.plugskyApiKey;
+  // Tolerates the usual paste mistakes in the env var: whitespace, quotes, "Bearer ".
+  const apiKey = String(config.plugskyApiKey || "").trim().replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "").trim();
   if (!apiKey) {
     throw new ApiError(500, "Plugsky API key not configured.");
   }
