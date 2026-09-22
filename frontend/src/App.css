@@ -8549,30 +8549,34 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
     bottom: 0;
   }
 
-  /* Main input box: dark elevated card */
+  /* Main input box: layout only here — colors are theme-scoped below so
+     light mode doesn't inherit this block's hardcoded dark card. */
   .input-box {
-    background: #111111 !important;
-    border: 1.5px solid rgba(255,255,255,0.10) !important;
     border-radius: 20px !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.7), 0 1px 4px rgba(0,0,0,0.5) !important;
     padding: 10px 10px 10px 14px !important;
     min-height: 56px !important;
     max-width: 100% !important;
     align-items: flex-end;
   }
-  .input-box:focus-within {
-    border-color: rgba(214,168,95,0.35) !important;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.8), 0 0 0 3px rgba(214,168,95,0.08) !important;
-  }
-
   .input-box textarea {
     font-size: 0.94rem !important;
-    color: #F5F5F5 !important;
-    caret-color: #C96442 !important;
     line-height: 1.5 !important;
     max-height: 150px !important;
   }
-  .input-box textarea::placeholder { color: #555555 !important; }
+  [data-theme="dark"] .input-box {
+    background: #111111 !important;
+    border: 1.5px solid rgba(255,255,255,0.10) !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.7), 0 1px 4px rgba(0,0,0,0.5) !important;
+  }
+  [data-theme="dark"] .input-box:focus-within {
+    border-color: rgba(214,168,95,0.35) !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.8), 0 0 0 3px rgba(214,168,95,0.08) !important;
+  }
+  [data-theme="dark"] .input-box textarea {
+    color: #F5F5F5 !important;
+    caret-color: #C96442 !important;
+  }
+  [data-theme="dark"] .input-box textarea::placeholder { color: #555555 !important; }
 
   /* Attach button */
   .attach-btn, .claude-attach-btn {
