@@ -5487,9 +5487,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // GPT and Codex models run directly in the browser using Puter's user-pays flow.
       // Claude Fable 5 is intentionally excluded and routed through the backend so
       // its RapidAPI credential never reaches the browser.
-      const effectivePuterProvider = selectedProvider === "Auto" && fileCount === 0 && shouldUseCodex(userQuery, selectedMode)
-        ? "GPT-5.3 Codex"
-        : selectedProvider;
+      // Auto always stays on the backend's provider chain, never a Puter model.
+      const effectivePuterProvider = selectedProvider;
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
@@ -5619,6 +5618,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         // skip straight to the backend instead of reopening Puter's dialog.
         if (puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
         puterOutOfCredits = true;
+        } else if (!PUTER_MODEL_IDS[selectedProvider]) {
+          // Auto and backend models send images to the backend's vision providers.
         } else {
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
@@ -5799,8 +5800,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           attempted: [...puterAttempted],
           preferCodex: shouldUseCodex(userQuery, selectedMode),
           hasFiles: fileCount > 0,
-          // A browser model can't search, so a web search never falls back to one.
-          puterAvailable: selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
+          // Only a turn that picked a browser model may fall back to one: Auto and
+          // backend models stay off Puter, and a browser model can't search.
+          puterAvailable: Boolean(PUTER_MODEL_IDS[selectedProvider]) && selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
         });
 
         if (browserRetry) {
@@ -5935,7 +5937,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       } else if (addMemory(remembered, "chat")) {
         addToast(`Remembered: ${remembered.slice(0, 60)}${remembered.length > 60 ? "…" : ""}`, "success", 3500);
       }
-    } else if (isMemoryEnabled() && !isIncognito) {
+    } else if (isMemoryEnabled() && !isIncognito && PUTER_MODEL_IDS[selectedProvider]) {
+      // Auto-capture runs on Puter, so only when the user already chose a Puter model.
       // No explicit "remember" instruction — still let the background auto
       // capture take a look, the same way ChatGPT's memory works without
       // being asked. Fire-and-forget: never awaited, never blocks sending.
