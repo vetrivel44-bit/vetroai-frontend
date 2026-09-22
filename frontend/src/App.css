@@ -809,21 +809,6 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 .code-block > div::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 .code-block > div::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
-/* --- Smooth streaming reveal for assistant text ---
-   Applied to the newest markdown block as it streams in, so text settles
-   into place instead of popping — mirrors the soft fade-up used by other
-   AI chat surfaces. */
-.vai-stream-body .vai-fade-in {
-  animation: vaiStreamFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes vaiStreamFadeIn {
-  from { opacity: 0; transform: translateY(6px); filter: blur(3px); }
-  to { opacity: 1; transform: translateY(0); filter: blur(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .vai-stream-body .vai-fade-in { animation-duration: 0.01s; }
-}
-
 /* --- Claude-style assistant prose --- */
 .claude-prose { word-wrap: break-word; }
 .claude-prose > *:first-child { margin-top: 0; }

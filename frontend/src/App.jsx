@@ -958,32 +958,8 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
 
-// While a message is actively streaming in, fade the most recently mounted
-// markdown block in on each render instead of letting it pop in — a plain
-// CSS transition can't fade a node's own mount, so we toggle the animation
-// class in a layout effect keyed off content length and force a reflow to
-// restart it (the video reference this mimics does the same "settle in"
-// motion on each new chunk of streamed text).
-const useStreamFadeIn = (containerRef, content, active) => {
-  const prevLen = useRef(0);
-  useLayoutEffect(() => {
-    const len = content?.length || 0;
-    if (!active) { prevLen.current = len; return; }
-    if (len > prevLen.current) {
-      const el = containerRef.current;
-      const last = el?.lastElementChild;
-      if (last) {
-        last.classList.remove("vai-fade-in");
-        void last.offsetWidth;
-        last.classList.add("vai-fade-in");
-      }
-    }
-    prevLen.current = len;
-  }, [content, active]);
-};
-
 // Markdown with the full code-block treatment (artifact button, download, copy).
-const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact, isStreaming }) {
+const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact }) {
   const components = useMemo(() => ({
     code({ inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
@@ -1000,14 +976,10 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
       );
     },
   }), [autoOpen, onSaveArtifact]);
-  const containerRef = useRef(null);
-  useStreamFadeIn(containerRef, content, isStreaming);
   return (
-    <div ref={containerRef} className="vai-stream-body">
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-        {content}
-      </ReactMarkdown>
-    </div>
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+      {content}
+    </ReactMarkdown>
   );
 });
 
@@ -1039,10 +1011,10 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
 // The whole "which renderer does this answer need?" decision, behind one memo
 // boundary. The structured/writing-block probes are regex scans of the entire
 // message, so they are part of what must not re-run per token per message.
-const AssistantBody = React.memo(function AssistantBody({ content, autoOpen, onSaveArtifact, isStreaming }) {
+const AssistantBody = React.memo(function AssistantBody({ content, autoOpen, onSaveArtifact }) {
   if (hasStructuredContent(content)) return <StructuredResponseRenderer response={content} />;
   if (isWritingBlock(content)) return <WritingBlockCard content={content} />;
-  return <RichMarkdown content={content} autoOpen={autoOpen} onSaveArtifact={onSaveArtifact} isStreaming={isStreaming} />;
+  return <RichMarkdown content={content} autoOpen={autoOpen} onSaveArtifact={onSaveArtifact} />;
 });
 
 // A multi-AI consensus/model answer: structured when the model emitted a
@@ -7239,12 +7211,20 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   );
                                })()
                                : !m.content && isLoading && !m.isThinking && !m.reasoning
-                               ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
+                               ? <div style={{ paddingTop: 4, color: "var(--ink-3)" }}>
+                                   <div className="flex gap-2 items-center">
+                                     <div className="flex gap-1 items-center">
+                                       <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)' }} />
+                                       <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.15s' }} />
+                                       <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.3s' }} />
+                                     </div>
+                                     <span style={{ fontSize: 13 }}>{getStatusLabel(streamStatus, selectedMode)}</span>
+                                   </div>
+                                 </div>
                                : <AssistantBody
                                    content={m.content}
                                    autoOpen={i === messages.length - 1 && !isLoading}
                                    onSaveArtifact={saveArtifact}
-                                   isStreaming={isLoading && i === messages.length - 1}
                                  />
                              }
                            </div>
@@ -7294,8 +7274,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                          <VetroSparkWhite size={22} />
                        </div>
-                       <div style={{ paddingTop: 6 }}>
-                         <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
+                       <div style={{ paddingTop: 6, color: "var(--ink-3)" }}>
+                         <div className="flex gap-2 items-center">
+                           <div className="flex gap-1 items-center">
+                             <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)' }}></span>
+                             <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.15s' }}></span>
+                             <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--ink-3)', animationDelay: '0.3s' }}></span>
+                           </div>
+                           <span style={{ fontSize: 13 }}>{getStatusLabel(streamStatus, selectedMode)}</span>
+                         </div>
                        </div>
                      </div>
                    )}
