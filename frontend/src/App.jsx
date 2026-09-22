@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useId, Suspense } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
+import ErrorBoundary from "./components/ErrorBoundary";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -5569,6 +5570,50 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         generateFollowUps(answer, userQuery);
       };
 
+      // Web Search mode goes to the dedicated Tavily endpoint (search + its
+      // own synthesized answer) so it never depends on an LLM provider or
+      // Puter credits. If it fails, the backend /chat search below still runs.
+      if (selectedMode === "web_search" && fileCount === 0) {
+        try {
+          setStreamStatus("Searching the web…");
+          const res = await fetch(`${API}/web-search`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: userQuery }),
+            signal: ctrl.signal,
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!isActive()) return;
+          if (!res.ok || !json.success) throw new Error(json.message || `Search failed (${res.status})`);
+
+          const results = Array.isArray(json.data?.results) ? json.data.results : [];
+          const sources = results.filter((r) => /^https?:\/\//i.test(r.url || "")).map((r) => {
+            let domain = r.url;
+            try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { /* keep raw url */ }
+            return { title: r.title, url: r.url, domain, published: r.published || null, snippet: r.snippet || "" };
+          });
+          let answer = String(json.data?.answer || "").trim();
+          if (!answer && sources.length) {
+            answer = sources.slice(0, 6).map((s, i) => `${i + 1}. **[${s.title || s.domain}](${s.url})**${s.snippet ? ` — ${s.snippet}` : ""}`).join("\n");
+          }
+          if (!answer) throw new Error("No web results found for this query.");
+
+          setIsTyping(false);
+          setIsWebSearching(false);
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: answer, sources: sources.length ? sources : null, provider: "Web Search" };
+            return next;
+          });
+          finishChat(answer);
+          return;
+        } catch (searchErr) {
+          if (searchErr?.name === "AbortError" || !isActive()) throw searchErr;
+          addDebugLog("WebSearch.directFailed", { reqId, error: searchErr?.message });
+          setStreamStatus("Searching the web…");
+        }
+      }
+
       if (attachedImages.length > 0) {
         // Already learned this session that GPT-5.6 Luna is out of credits —
         // skip straight to the backend instead of reopening Puter's dialog.
@@ -5754,7 +5799,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           attempted: [...puterAttempted],
           preferCodex: shouldUseCodex(userQuery, selectedMode),
           hasFiles: fileCount > 0,
-          puterAvailable: Boolean(window.puter?.ai?.chat),
+          // A browser model can't search, so a web search never falls back to one.
+          puterAvailable: selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
         });
 
         if (browserRetry) {
@@ -7245,12 +7291,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                })()
                                : !m.content && isLoading && !m.isThinking && !m.reasoning
                                ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
-                               : <AssistantBody
-                                   content={m.content}
-                                   autoOpen={i === messages.length - 1 && !isLoading}
-                                   onSaveArtifact={saveArtifact}
-                                   isStreaming={isLoading && i === messages.length - 1}
-                                 />
+                               : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
+                                   <AssistantBody
+                                     content={m.content}
+                                     autoOpen={i === messages.length - 1 && !isLoading}
+                                     onSaveArtifact={saveArtifact}
+                                     isStreaming={isLoading && i === messages.length - 1}
+                                   />
+                                 </ErrorBoundary>
                              }
                            </div>
                            {m.realtimeNotice && (

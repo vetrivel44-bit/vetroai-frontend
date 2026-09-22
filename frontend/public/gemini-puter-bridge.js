@@ -58,8 +58,10 @@
     const isChatRequest = /\/api\/chat(?:\?|$)/i.test(url);
     const provider = body instanceof FormData ? String(body.get("provider") || "") : "";
     const isGemini = provider.toLowerCase() === "gemini";
+    // Puter's Gemini can't search the web, so search turns stay on the backend.
+    const wantsWebSearch = body instanceof FormData && String(body.get("webSearch") || "") === "true";
 
-    if (!isChatRequest || !isGemini) {
+    if (!isChatRequest || !isGemini || wantsWebSearch) {
       return originalFetch(input, init);
     }
 
