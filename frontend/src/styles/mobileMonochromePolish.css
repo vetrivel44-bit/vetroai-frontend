@@ -4,8 +4,10 @@
    editorial typography, subtle hairline borders, and zero neon/gamified glows.
    ============================================================================ */
 
-:root,
-.settings-panel-dark {
+/* Dark mode only: unscoped, this block loaded after App.css and replaced the
+   light tokens on desktop, leaving PC light mode dark. */
+:root:not([data-theme="light"]),
+:root:not([data-theme="light"]) .settings-panel-dark {
   --bg: #111215;
   --bg-sidebar: #15171c;
   --bg-elevated: #1b1e24;

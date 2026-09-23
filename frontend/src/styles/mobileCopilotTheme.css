@@ -2,40 +2,49 @@
    VETROAI MOBILE — COPILOT-STYLE THEME
    Warm, editorial palette matching Microsoft Copilot's mobile chat surface,
    for both light and dark mode, plus a floating pill composer. Loaded last
-   so it wins over the older mobile theme layers without touching desktop.
+   so it wins over the older mobile theme layers. The light tokens apply on
+   desktop too; everything else is mobile-only.
    ============================================================================ */
 
+/* ─── Light (all screen sizes) ─────────────────────────────────────────
+   Same warm palette on PC as on mobile. */
+:root[data-theme="light"],
+[data-theme="light"] .settings-panel-dark {
+  --bg: #F6F3ED;
+  --bg-sidebar: #FBF9F5;
+  --bg-elevated: #FFFFFF;
+  --bg-hover: #EFEAE1;
+  --bg-active: #E7E1D5;
+
+  --ink: #1F1E1D;
+  --ink-2: #4A4744;
+  --ink-3: #78746E;
+  --ink-4: #9A968F;
+  --ink-5: #C7C2B8;
+
+  --accent: #D97757;
+  --accent-secondary: #B96545;
+  --accent-soft: rgba(217, 119, 87, 0.10);
+  --accent-mid: rgba(217, 119, 87, 0.20);
+  --accent-glow: rgba(217, 119, 87, 0.14);
+  --accent-rgb: 217, 119, 87;
+
+  --border: rgba(31, 30, 29, 0.08);
+  --border-med: rgba(31, 30, 29, 0.13);
+  --border-str: rgba(31, 30, 29, 0.22);
+
+  --glass-bg: rgba(246, 243, 237, 0.90);
+  --glass-border: rgba(31, 30, 29, 0.08);
+}
+
+:root[data-theme="light"] .claude-pill svg { color: var(--accent); }
+:root[data-theme="light"] .claude-send-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 3px 10px var(--accent-glow);
+}
+
 @media (max-width: 768px) {
-  /* ─── Light ────────────────────────────────────────────────────────── */
-  :root[data-theme="light"],
-  [data-theme="light"] .settings-panel-dark {
-    --bg: #F6F3ED;
-    --bg-sidebar: #FBF9F5;
-    --bg-elevated: #FFFFFF;
-    --bg-hover: #EFEAE1;
-    --bg-active: #E7E1D5;
-
-    --ink: #1F1E1D;
-    --ink-2: #4A4744;
-    --ink-3: #78746E;
-    --ink-4: #9A968F;
-    --ink-5: #C7C2B8;
-
-    --accent: #D97757;
-    --accent-secondary: #B96545;
-    --accent-soft: rgba(217, 119, 87, 0.10);
-    --accent-mid: rgba(217, 119, 87, 0.20);
-    --accent-glow: rgba(217, 119, 87, 0.14);
-    --accent-rgb: 217, 119, 87;
-
-    --border: rgba(31, 30, 29, 0.08);
-    --border-med: rgba(31, 30, 29, 0.13);
-    --border-str: rgba(31, 30, 29, 0.22);
-
-    --glass-bg: rgba(246, 243, 237, 0.90);
-    --glass-border: rgba(31, 30, 29, 0.08);
-  }
-
   /* ─── Dark ─────────────────────────────────────────────────────────── */
   :root[data-theme="dark"],
   [data-theme="dark"] .settings-panel-dark {
@@ -167,9 +176,16 @@
     box-shadow: 0 4px 14px var(--accent-glow) !important;
     font-weight: 600 !important;
   }
-  .new-btn:hover, .auth-btn:hover, .btn-primary:hover, .claude-btn-dark:hover, .mob-fab:hover {
+  /* Older layers turn these white on :hover. Touch screens keep :hover after
+     a tap, so the button went white-on-white (a blank "Save" in Settings).
+     Keep the accent fill for hover and press. */
+  .new-btn:hover, .auth-btn:hover, .btn-primary:hover, .claude-btn-dark:hover, .mob-fab:hover,
+  .new-btn:active, .auth-btn:active, .btn-primary:active, .claude-btn-dark:active, .mob-fab:not(.open):active {
+    background: var(--accent) !important;
+    color: #ffffff !important;
     filter: brightness(1.06) !important;
   }
+  .btn-primary.ok, .btn-primary.ok:hover { background: var(--success, #1F8F67) !important; border-color: transparent !important; }
   .mob-fab.open {
     background: var(--bg-elevated) !important;
     color: var(--accent) !important;
@@ -261,7 +277,16 @@
     border: 1px solid var(--accent) !important;
     box-shadow: 0 3px 10px var(--accent-glow) !important;
   }
-  .send-btn:hover, .claude-send-btn.active:hover { filter: brightness(1.06) !important; }
+  .send-btn:hover, .claude-send-btn.active:hover,
+  .send-btn:active, .claude-send-btn.active:active {
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    filter: brightness(1.06) !important;
+  }
+  .claude-send-btn:not(.active):hover, .claude-send-btn:not(.active):active {
+    background: var(--bg-hover) !important;
+    color: var(--ink-4) !important;
+  }
   .send-btn:disabled, .claude-send-btn:not(.active) {
     background: var(--bg-hover) !important;
     color: var(--ink-4) !important;
@@ -324,6 +349,16 @@
     background: var(--bg-hover) !important;
     color: var(--ink) !important;
   }
+  :root[data-theme="light"] .av-opt {
+    background: var(--bg) !important;
+    border: 1px solid var(--border-med) !important;
+    color: var(--ink-2) !important;
+  }
+  :root[data-theme="light"] .av-opt.sel {
+    border: 2px solid var(--accent) !important;
+    background: var(--accent-soft) !important;
+    color: var(--accent) !important;
+  }
   .av-opt.sel, .lang-opt.sel, .preset-item.sel {
     border-color: var(--accent) !important;
     background: var(--accent-soft) !important;
@@ -378,4 +413,118 @@
   :root[data-theme="dark"] .code-block, :root[data-theme="dark"] .code-wrap { background: #141312 !important; }
 
   .feed::-webkit-scrollbar-thumb, .history::-webkit-scrollbar-thumb { background: var(--border-med) !important; }
+}
+
+/* ─── Mobile model picker — light mode ─────────────────────────────────
+   mobileModelPicker.css and the older dark layers paint this full-screen
+   picker with fixed dark colours, so in light mode it opened as a dark sheet
+   over a cream app. Re-skin it with the light tokens. */
+@media (max-width: 768px) {
+  :root[data-theme="light"] .mobile-model-screen,
+  :root[data-theme="light"] .mobile-model-screen-header,
+  :root[data-theme="light"] .mobile-model-screen-scroll {
+    background: var(--bg) !important;
+    color: var(--ink) !important;
+  }
+  :root[data-theme="light"] .mobile-model-screen-header,
+  :root[data-theme="light"] .mobile-model-advanced {
+    border-color: var(--border) !important;
+  }
+  :root[data-theme="light"] .mobile-model-screen-heading strong,
+  :root[data-theme="light"] .mobile-model-row-copy strong,
+  :root[data-theme="light"] .mobile-model-row,
+  :root[data-theme="light"] .mobile-model-advanced summary {
+    color: var(--ink) !important;
+  }
+  :root[data-theme="light"] .mobile-model-screen-heading span,
+  :root[data-theme="light"] .mobile-model-row-copy small,
+  :root[data-theme="light"] .mobile-model-advanced summary span,
+  :root[data-theme="light"] .mobile-model-empty {
+    color: var(--ink-3) !important;
+  }
+  :root[data-theme="light"] .mobile-model-kicker,
+  :root[data-theme="light"] .mobile-model-filter-label {
+    color: var(--ink-4) !important;
+  }
+  :root[data-theme="light"] .mobile-model-screen-close,
+  :root[data-theme="light"] .mobile-model-search,
+  :root[data-theme="light"] .mobile-model-filters button,
+  :root[data-theme="light"] .mobile-model-advanced-grid button,
+  :root[data-theme="light"] .mobile-default-model-btn {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border-med) !important;
+    color: var(--ink-2) !important;
+    box-shadow: none !important;
+  }
+  :root[data-theme="light"] .mobile-model-search:focus-within {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-soft) !important;
+  }
+  :root[data-theme="light"] .mobile-model-search input { color: var(--ink) !important; }
+  :root[data-theme="light"] .mobile-model-search input::placeholder { color: var(--ink-4) !important; }
+  :root[data-theme="light"] .mobile-model-filters button.active,
+  :root[data-theme="light"] .mobile-model-advanced-grid button.active {
+    background: var(--accent-soft) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent-secondary) !important;
+  }
+  :root[data-theme="light"] .mobile-model-row-icon {
+    background: #ffffff !important;
+    border: 1px solid var(--border-med) !important;
+  }
+  :root[data-theme="light"] .mobile-model-row:hover {
+    background: var(--bg-hover) !important;
+    border-color: var(--border) !important;
+  }
+  :root[data-theme="light"] .mobile-model-selected-card,
+  :root[data-theme="light"] .mobile-model-row.active {
+    background: var(--bg-elevated) !important;
+    border: 1.5px solid var(--accent) !important;
+    box-shadow: 0 4px 14px var(--accent-glow) !important;
+  }
+  :root[data-theme="light"] .mobile-model-row-check {
+    border-color: var(--border-str) !important;
+    background: transparent !important;
+  }
+  :root[data-theme="light"] .mobile-model-row.active .mobile-model-row-check,
+  :root[data-theme="light"] .mobile-model-selected-card .mobile-model-row-check {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #ffffff !important;
+  }
+  :root[data-theme="light"] .mobile-selected-check {
+    color: #ffffff !important;
+    background: var(--accent) !important;
+  }
+  :root[data-theme="light"] .mode-pill-effort {
+    color: var(--accent-secondary) !important;
+    background: var(--accent-soft) !important;
+  }
+  :root[data-theme="light"] .claude-input-footer .mode-pill {
+    color: var(--ink) !important;
+    font-weight: 600 !important;
+  }
+  :root[data-theme="light"] .mobile-selected-copy strong { color: var(--ink) !important; }
+  :root[data-theme="light"] .mobile-selected-copy small { color: var(--ink-3) !important; }
+  :root[data-theme="light"] .mobile-selected-icon {
+    background: #ffffff !important;
+    border-color: var(--border-med) !important;
+  }
+  /* White-on-dark brand marks: draw them near-black on the light tiles. */
+  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/openai.svg"],
+  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/grok.svg"],
+  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/perplexity.svg"],
+  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/local.svg"] {
+    filter: invert(1) brightness(0.2) !important;
+  }
+  :root[data-theme="light"] .mobile-model-picker-footer {
+    background: rgba(246, 243, 237, 0.96) !important;
+    border-top: 1px solid var(--border) !important;
+  }
+  :root[data-theme="light"] .mobile-use-model-btn {
+    background: var(--accent) !important;
+    border: none !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 18px var(--accent-glow) !important;
+  }
 }
