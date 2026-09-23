@@ -439,137 +439,172 @@ function generateJobs(query) {
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = `
-  .jsp-ov{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;padding:12px;}
-  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:linear-gradient(155deg,#0d0d16 0%,#111120 60%,#0b0b12 100%);border:1px solid rgba(255,255,255,0.08);border-radius:22px;box-shadow:0 40px 100px rgba(0,0,0,0.85);overflow:hidden;animation:jIn .25s cubic-bezier(.16,1,.3,1);}
-  @keyframes jIn{from{opacity:0;transform:scale(.95) translateY(16px)}to{opacity:1;transform:none}}
+  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;
+    position:fixed;inset:0;z-index:9999;background:rgba(5,7,14,.72);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
+  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--ln);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
+  @keyframes jIn{from{opacity:0;transform:scale(.97) translateY(12px)}to{opacity:1;transform:none}}
+  @keyframes jUp{from{transform:translateY(100%)}to{transform:none}}
   @keyframes jSpin{to{transform:rotate(360deg)}}
   @keyframes jShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 
-  .jsp-hd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.025);}
-  .jsp-hdl{display:flex;align-items:center;gap:9px;}
-  .jsp-ico{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#20c997,#0d9488);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(32,201,151,.28);}
-  .jsp-hdtit{font-size:16px;font-weight:700;color:#fff;letter-spacing:-.3px;margin:0;}
-  .jsp-pill{padding:2px 9px;border-radius:100px;background:rgba(32,201,151,.1);border:1px solid rgba(32,201,151,.2);font-size:9px;font-weight:700;color:#20c997;letter-spacing:.5px;}
-  .jsp-xb{width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,0.06);color:rgba(255,255,255,.5);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;}
-  .jsp-xb:hover{background:rgba(255,255,255,0.12);color:#fff;}
+  .jsp-hd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 20px;}
+  .jsp-hdl{display:flex;align-items:center;gap:10px;min-width:0;}
+  .jsp-ico{width:34px;height:34px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,var(--ac),var(--ac2));display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.35);}
+  .jsp-hdtit{font-size:17px;font-weight:700;color:var(--tx);letter-spacing:-.3px;margin:0;white-space:nowrap;}
+  .jsp-pill{padding:3px 9px;border-radius:100px;background:var(--acs);font-size:10px;font-weight:700;color:var(--ac);letter-spacing:.3px;white-space:nowrap;}
+  .jsp-xb{width:34px;height:34px;flex-shrink:0;border-radius:10px;border:none;background:var(--sf);color:var(--tx2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;}
+  .jsp-xb:hover{background:var(--sf2);color:var(--tx);}
 
-  .jsp-srchbar{flex-shrink:0;padding:14px 22px 12px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,0.015);}
-  .jsp-srchrow{display:flex;gap:10px;align-items:center;}
-  .jsp-srchinwrap{flex:1;position:relative;}
-  .jsp-srchinico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:rgba(255,255,255,.3);pointer-events:none;}
-  .jsp-srchin{width:100%;padding:12px 50px 12px 42px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;color:#fff;font-size:14px;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;}
-  .jsp-srchin::placeholder{color:rgba(255,255,255,.25);}
-  .jsp-srchin:focus{border-color:rgba(32,201,151,.45);box-shadow:0 0 0 4px rgba(32,201,151,.09);}
-  .jsp-srchbtn{width:42px;height:42px;border-radius:11px;border:none;background:linear-gradient(135deg,#20c997,#0d9488);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 12px rgba(32,201,151,.28);transition:opacity .2s;flex-shrink:0;}
-  .jsp-srchbtn:hover{opacity:.82;} .jsp-srchbtn:disabled{opacity:.4;cursor:not-allowed;}
+  .jsp-srchbar{flex-shrink:0;padding:4px 20px 14px;}
+  .jsp-srchrow{display:flex;gap:8px;align-items:center;}
+  .jsp-srchinwrap{flex:1;position:relative;min-width:0;}
+  .jsp-srchinico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--tx3);pointer-events:none;display:flex;}
+  .jsp-srchin{width:100%;height:46px;padding:0 14px 0 42px;background:var(--sf);border:1px solid var(--ln);border-radius:12px;color:var(--tx);font-size:15px;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;text-overflow:ellipsis;}
+  .jsp-srchin::placeholder{color:var(--tx3);}
+  .jsp-srchin:focus{border-color:var(--acb);box-shadow:0 0 0 4px rgba(139,123,255,.12);}
+  .jsp-srchbtn{width:46px;height:46px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .2s,transform .1s;flex-shrink:0;}
+  .jsp-srchbtn:active{transform:scale(.96);} .jsp-srchbtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;}
   .jsp-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;}
-  .jsp-chlbl{font-size:10px;color:rgba(255,255,255,.3);font-weight:600;}
-  .jsp-chip{padding:4px 11px;border-radius:100px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);color:rgba(255,255,255,.5);font-size:11px;font-family:inherit;cursor:pointer;transition:all .15s;}
-  .jsp-chip:hover{background:rgba(32,201,151,.1);border-color:rgba(32,201,151,.3);color:#20c997;}
+  .jsp-chlbl{font-size:11px;color:var(--tx3);font-weight:600;}
+  .jsp-chip{flex-shrink:0;padding:6px 12px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
+  .jsp-chip:hover{background:var(--acs);border-color:var(--acb);color:var(--tx);}
 
-  .jsp-tabs{flex-shrink:0;display:flex;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.07);}
-  .jsp-tab{padding:9px 14px 11px;font-size:13px;font-weight:600;color:rgba(255,255,255,.35);background:none;border:none;cursor:pointer;position:relative;transition:color .15s;font-family:inherit;}
-  .jsp-tab:hover{color:rgba(255,255,255,.7);} .jsp-tab.on{color:#fff;}
-  .jsp-tab.on::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#20c997,#0d9488);border-radius:2px 2px 0 0;}
-  .jsp-tb{display:inline-flex;align-items:center;justify-content:center;background:rgba(32,201,151,.15);color:#20c997;font-size:10px;font-weight:700;padding:1px 5px;border-radius:100px;margin-left:4px;}
+  .jsp-tabs{flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 20px;border-bottom:1px solid var(--ln);}
+  .jsp-tab{padding:10px 12px 12px;font-size:14px;font-weight:600;color:var(--tx3);background:none;border:none;cursor:pointer;position:relative;transition:color .15s;font-family:inherit;display:flex;align-items:center;}
+  .jsp-tab:hover{color:var(--tx2);} .jsp-tab.on{color:var(--tx);}
+  .jsp-tab.on::after{content:'';position:absolute;bottom:-1px;left:10px;right:10px;height:2px;background:linear-gradient(90deg,var(--ac),var(--ac2));border-radius:2px;}
+  .jsp-tb{display:inline-flex;align-items:center;justify-content:center;min-width:18px;background:var(--acs);color:var(--ac);font-size:11px;font-weight:700;padding:1px 6px;border-radius:100px;margin-left:6px;}
+  .jsp-fbtn{display:none;margin-left:auto;align-items:center;gap:6px;padding:6px 12px;border-radius:100px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;}
+  .jsp-fbtn.on{border-color:var(--acb);color:var(--ac);background:var(--acs);}
+  .jsp-fdot{width:6px;height:6px;border-radius:50%;background:var(--ac);}
 
-  .jsp-body{flex:1;display:flex;overflow:hidden;min-height:0;}
-  .jsp-main{flex:1;min-height:0;overflow-y:scroll;padding:18px 22px;scrollbar-width:none;-ms-overflow-style:none;}
+  .jsp-body{flex:1;display:flex;overflow:hidden;min-height:0;position:relative;}
+  .jsp-main{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:18px 20px;scrollbar-width:none;-ms-overflow-style:none;}
   .jsp-main::-webkit-scrollbar{display:none;}
-  .jsp-sb{flex-shrink:0;width:210px;border-left:1px solid rgba(255,255,255,.07);padding:18px 16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:16px;}
+  .jsp-sb{flex-shrink:0;width:230px;border-left:1px solid var(--ln);background:var(--bg);padding:18px 16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:18px;}
   .jsp-sb::-webkit-scrollbar{display:none;}
-  .jsp-sbt{font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:rgba(255,255,255,.35);margin:0 0 8px;}
-  .jsp-sbinp{width:100%;padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#fff;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color .15s;}
-  .jsp-sbinp:focus{border-color:rgba(32,201,151,.4);} .jsp-sbinp::placeholder{color:rgba(255,255,255,.2);}
-  .jsp-sbsel{width:100%;padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#fff;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;cursor:pointer;}
-  .jsp-sbsel option{background:#1a1a2e;}
-  .jsp-togrow{display:flex;align-items:center;justify-content:space-between;padding:4px 0;}
-  .jsp-toglbl{font-size:12px;color:rgba(255,255,255,.5);}
-  .jsp-tog{width:32px;height:17px;border-radius:100px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
-  .jsp-tog.on{background:#20c997;} .jsp-tog.off{background:rgba(255,255,255,.1);}
-  .jsp-togk{position:absolute;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
-  .jsp-tog.on .jsp-togk{left:17px;} .jsp-tog.off .jsp-togk{left:2px;}
-  .jsp-applyf{width:100%;padding:9px;border-radius:9px;border:none;background:linear-gradient(135deg,#20c997,#0d9488);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
-  .jsp-applyf:hover{opacity:.82;}
+  .jsp-sbhd{display:none;}
+  .jsp-scrim{display:none;}
+  .jsp-sbt{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);margin:0 0 8px;}
+  .jsp-sbinp,.jsp-sbsel{width:100%;height:40px;padding:0 12px;background:var(--sf);border:1px solid var(--ln);border-radius:10px;color:var(--tx);font-size:13px;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color .15s;}
+  .jsp-sbinp:focus,.jsp-sbsel:focus{border-color:var(--acb);} .jsp-sbinp::placeholder{color:var(--tx3);}
+  .jsp-sbsel{cursor:pointer;} .jsp-sbsel option{background:#121829;}
+  .jsp-togrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;}
+  .jsp-toglbl{font-size:13px;color:var(--tx2);}
+  .jsp-tog{width:36px;height:20px;border-radius:100px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
+  .jsp-tog.on{background:var(--ac);} .jsp-tog.off{background:var(--sf2);}
+  .jsp-togk{position:absolute;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .jsp-tog.on .jsp-togk{left:18px;} .jsp-tog.off .jsp-togk{left:2px;}
+  .jsp-applyf{width:100%;height:42px;border-radius:11px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
+  .jsp-applyf:hover{opacity:.88;}
 
-  .jsp-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
-  @media(max-width:640px){.jsp-grid{grid-template-columns:1fr;}}
+  .jsp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
 
-  .jsp-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:15px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:11px;position:relative;overflow:hidden;transition:border-color .2s,background .2s,transform .15s,box-shadow .2s;}
-  .jsp-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--cc,#20c997);opacity:0;transition:opacity .2s;}
-  .jsp-card:hover{border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.065);transform:translateY(-2px);box-shadow:0 10px 32px rgba(0,0,0,.25);}
-  .jsp-card:hover::after{opacity:1;}
-  .jsp-ctop{display:flex;align-items:flex-start;gap:11px;}
-  .jsp-logo{border-radius:10px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-card{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden;transition:border-color .2s,background .2s,transform .15s,box-shadow .2s;}
+  .jsp-card::before{content:'';position:absolute;top:14px;bottom:14px;left:0;width:3px;border-radius:0 3px 3px 0;background:var(--cc,var(--ac));opacity:.85;}
+  .jsp-card:hover{border-color:var(--ln2);background:var(--sf2);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.3);}
+  .jsp-ctop{display:flex;align-items:flex-start;gap:12px;}
+  .jsp-logo{border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-logo img{width:78%;height:78%;object-fit:contain;}
   .jsp-cinfo{flex:1;min-width:0;}
-  .jsp-ctit{font-size:14px;font-weight:700;color:#fff;margin:0 0 3px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .jsp-cco{font-size:12px;color:rgba(255,255,255,.45);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .jsp-sv{width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.06);color:rgba(255,255,255,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
-  .jsp-sv:hover{background:rgba(255,255,255,.12);color:#fff;} .jsp-sv.on{background:rgba(32,201,151,.15);color:#20c997;}
-  .jsp-cmeta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
-  .b-r{padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(32,201,151,.12);color:#20c997;border:1px solid rgba(32,201,151,.2);}
-  .b-t{padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(255,255,255,.07);color:rgba(255,255,255,.5);}
-  .b-e{padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(167,139,250,.1);color:#a78bfa;border:1px solid rgba(167,139,250,.18);}
-  .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;}
-  .jsp-sal{font-size:13px;font-weight:700;color:#20c997;} .jsp-age{font-size:11px;color:rgba(255,255,255,.3);}
+  .jsp-ctit{font-size:15px;font-weight:700;color:var(--tx);margin:0 0 4px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .jsp-cco{font-size:12.5px;color:var(--tx2);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .jsp-sv{width:32px;height:32px;border-radius:9px;border:none;background:transparent;color:var(--tx3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
+  .jsp-sv:hover{background:var(--sf2);color:var(--tx);} .jsp-sv.on{background:var(--acs);color:var(--ac);}
+  .jsp-cmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .b-r,.b-t,.b-e{padding:3px 9px;border-radius:100px;font-size:11px;font-weight:600;white-space:nowrap;}
+  .b-r{background:rgba(56,189,248,.12);color:var(--sky);}
+  .b-t{background:var(--sf2);color:var(--tx2);}
+  .b-e{background:var(--acs);color:var(--ac);}
+  .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--ln);}
+  .jsp-sal{font-size:13.5px;font-weight:700;color:var(--ok);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .jsp-age{font-size:12px;color:var(--tx3);white-space:nowrap;}
 
-  .jsp-skel{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:15px;padding:16px;display:flex;gap:11px;}
-  .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.05) 25%,rgba(255,255,255,.1) 50%,rgba(255,255,255,.05) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
+  .jsp-skel{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:16px;display:flex;gap:12px;}
+  .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.09) 50%,rgba(255,255,255,.04) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
 
-  .jsp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;padding:32px;}
-  .jsp-emico{width:60px;height:60px;border-radius:16px;background:rgba(32,201,151,.08);border:1px solid rgba(32,201,151,.16);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
-  .jsp-emtit{font-size:16px;font-weight:700;color:#fff;margin:0 0 6px;} .jsp-emsub{font-size:13px;color:rgba(255,255,255,.35);margin:0;line-height:1.6;max-width:360px;}
+  .jsp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;padding:32px 16px;}
+  .jsp-emico{width:60px;height:60px;border-radius:18px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
+  .jsp-emtit{font-size:16px;font-weight:700;color:var(--tx);margin:0 0 6px;} .jsp-emsub{font-size:13px;color:var(--tx2);margin:0;line-height:1.6;max-width:360px;}
 
-  .jsp-hrow{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);cursor:pointer;transition:background .15s;margin-bottom:7px;}
-  .jsp-hrow:hover{background:rgba(255,255,255,.07);}
+  .jsp-hrow{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-radius:12px;background:var(--sf);border:1px solid var(--ln);cursor:pointer;transition:background .15s;margin-bottom:8px;}
+  .jsp-hrow:hover{background:var(--sf2);}
 
-  .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.15);border-top-color:#20c997;border-radius:50%;animation:jSpin .7s linear infinite;}
+  .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:jSpin .7s linear infinite;}
 
-  .jsp-det{position:absolute;inset:0;z-index:20;background:linear-gradient(155deg,#0d0d16,#111120);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
-  .jsp-dhd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:13px 22px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap;gap:10px;}
-  .jsp-backb{display:flex;align-items:center;gap:7px;background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-size:13px;font-weight:600;padding:0;transition:color .15s;font-family:inherit;}
-  .jsp-backb:hover{color:#fff;}
-  .jsp-dacts{display:flex;gap:7px;align-items:center;}
-  .jsp-dactb{display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(255,255,255,.55);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;}
-  .jsp-dactb:hover{border-color:rgba(255,255,255,.2);color:#fff;} .jsp-dactb.on{border-color:rgba(32,201,151,.3);color:#20c997;background:rgba(32,201,151,.08);}
-  .jsp-applybig{display:flex;align-items:center;gap:6px;padding:9px 16px;border-radius:9px;border:none;background:linear-gradient(135deg,#20c997,#0d9488);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(32,201,151,.28);transition:opacity .15s;font-family:inherit;}
-  .jsp-applybig:hover{opacity:.82;}
+  .jsp-det{position:absolute;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
+  .jsp-dhd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--ln);gap:10px;}
+  .jsp-backb{display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--tx2);cursor:pointer;font-size:13px;font-weight:600;padding:0;transition:color .15s;font-family:inherit;white-space:nowrap;}
+  .jsp-backb:hover{color:var(--tx);}
+  .jsp-dacts{display:flex;gap:8px;align-items:center;}
+  .jsp-dactb{display:flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;}
+  .jsp-dactb:hover{border-color:var(--ln2);color:var(--tx);} .jsp-dactb.on{border-color:var(--acb);color:var(--ac);background:var(--acs);}
+  .jsp-applybig{display:flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .15s;font-family:inherit;white-space:nowrap;}
+  .jsp-applybig:hover{opacity:.88;}
   .jsp-dbody{flex:1;min-height:0;display:flex;overflow:hidden;}
-  .jsp-dmain{flex:1;min-height:0;overflow-y:scroll;padding:22px;scrollbar-width:none;-ms-overflow-style:none;}
+  .jsp-dmain{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:22px;scrollbar-width:none;-ms-overflow-style:none;}
   .jsp-dmain::-webkit-scrollbar{display:none;}
-  .jsp-dside{flex-shrink:0;width:268px;border-left:1px solid rgba(255,255,255,.07);padding:22px 18px;overflow-y:scroll;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:14px;}
+  .jsp-dside{flex-shrink:0;width:280px;border-left:1px solid var(--ln);padding:22px 18px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:14px;}
   .jsp-dside::-webkit-scrollbar{display:none;}
-  .jsp-dco{display:flex;align-items:center;gap:13px;margin-bottom:18px;}
-  .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
-  .jsp-dlogo img{width:34px;height:34px;object-fit:contain;}
-  .jsp-djt{font-size:22px;font-weight:800;color:#fff;margin:0 0 4px;letter-spacing:-.4px;line-height:1.2;}
-  .jsp-djco{font-size:13px;color:rgba(255,255,255,.45);margin:0;}
+  .jsp-dco{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+  .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-dlogo img{width:40px;height:40px;object-fit:contain;}
+  .jsp-djt{font-size:21px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
+  .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
   .jsp-dbdgs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px;}
-  .jsp-stit{font-size:14px;font-weight:700;color:#fff;margin:0 0 9px;}
-  .jsp-desc{font-size:13px;color:rgba(255,255,255,.5);line-height:1.75;margin:0;}
-  .jsp-hr{border:none;border-top:1px solid rgba(255,255,255,.07);margin:16px 0;}
+  .jsp-stit{font-size:14px;font-weight:700;color:var(--tx);margin:0 0 9px;}
+  .jsp-desc{font-size:13.5px;color:var(--tx2);line-height:1.75;margin:0;white-space:pre-line;}
+  .jsp-hr{border:none;border-top:1px solid var(--ln);margin:18px 0;}
   .jsp-rlist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
-  .jsp-rit{display:flex;align-items:flex-start;gap:8px;font-size:13px;color:rgba(255,255,255,.5);line-height:1.5;}
-  .jsp-rdot{width:5px;height:5px;border-radius:50%;background:#20c997;flex-shrink:0;margin-top:6px;}
+  .jsp-rit{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:var(--tx2);line-height:1.55;}
+  .jsp-rdot{width:6px;height:6px;border-radius:50%;background:var(--ac);flex-shrink:0;margin-top:7px;}
   .jsp-skg{display:flex;flex-wrap:wrap;gap:6px;}
-  .jsp-sk{padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.6);font-size:11px;font-weight:600;}
-  .jsp-aic{border-radius:14px;padding:16px;background:linear-gradient(135deg,#180d2e 0%,#0d1828 100%);border:1px solid rgba(167,139,250,.18);position:relative;overflow:hidden;}
-  .jsp-aic::before{content:'';position:absolute;top:-28px;right:-28px;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,.15),transparent 70%);}
+  .jsp-sk{padding:4px 10px;border-radius:8px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-weight:600;}
+  .jsp-aic{border-radius:16px;padding:16px;background:linear-gradient(145deg,rgba(139,123,255,.16),rgba(56,189,248,.07));border:1px solid var(--acb);position:relative;overflow:hidden;}
   .jsp-aihd{display:flex;align-items:center;gap:6px;margin-bottom:12px;}
-  .jsp-ailbl{font-size:10px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.8px;}
+  .jsp-ailbl{font-size:11px;font-weight:700;color:var(--ac);text-transform:uppercase;letter-spacing:.6px;}
   .jsp-rw{position:relative;width:70px;height:70px;margin:0 auto 12px;}
   .jsp-rn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
-  .jsp-rbig{font-size:19px;font-weight:900;color:#fff;line-height:1;} .jsp-rpct{font-size:9px;color:rgba(255,255,255,.4);font-weight:600;}
-  .jsp-ml{font-size:10px;font-weight:700;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+  .jsp-rbig{font-size:19px;font-weight:900;color:var(--tx);line-height:1;} .jsp-rpct{font-size:9px;color:var(--tx3);font-weight:600;}
+  .jsp-ml{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
   .jsp-mt{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px;}
-  .m-y{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600;background:rgba(32,201,151,.12);color:#20c997;}
-  .m-n{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600;background:rgba(248,113,113,.12);color:#f87171;}
+  .m-y{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:var(--oks);color:var(--ok);}
+  .m-n{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(248,113,113,.12);color:#f87171;}
   .jsp-sugl{display:flex;flex-direction:column;gap:4px;}
-  .jsp-sugi{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.45);padding:5px 8px;background:rgba(255,255,255,.03);border-radius:6px;}
-  .jsp-coc{border-radius:13px;padding:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);}
-  .jsp-cor{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);}
-  .jsp-cor:last-child{border-bottom:none;} .jsp-cok{font-size:11px;color:rgba(255,255,255,.3);} .jsp-cov{font-size:11px;font-weight:700;color:rgba(255,255,255,.6);}
-  .jsp-catbadge{padding:2px 9px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(255,255,255,.07);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.1);}
+  .jsp-sugi{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);padding:6px 9px;background:rgba(255,255,255,.04);border-radius:8px;}
+  .jsp-coc{border-radius:14px;padding:14px;background:var(--sf);border:1px solid var(--ln);}
+  .jsp-cor{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--ln);}
+  .jsp-cor:last-child{border-bottom:none;} .jsp-cok{font-size:12px;color:var(--tx3);} .jsp-cov{font-size:12px;font-weight:600;color:var(--tx2);text-align:right;overflow-wrap:anywhere;}
+  .jsp-catbadge{padding:2px 9px;border-radius:100px;font-size:10px;font-weight:700;background:var(--sf2);color:var(--tx2);}
+
+  /* ── Mobile: full-screen sheet, one-line chips, filters as bottom sheet ── */
+  @media(max-width:760px){
+    .jsp-ov{padding:0;align-items:stretch;}
+    .jsp-box{max-width:none;height:100%;height:100dvh;border-radius:0;border:none;}
+    .jsp-hd{padding:12px 16px;}
+    .jsp-hdtit{font-size:16px;}
+    .jsp-srchbar{padding:2px 16px 12px;}
+    .jsp-chips{flex-wrap:nowrap;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none;}
+    .jsp-chips::-webkit-scrollbar{display:none;}
+    .jsp-chlbl{display:none;}
+    .jsp-tabs{padding:0 12px;}
+    .jsp-tab{padding:10px 10px 12px;}
+    .jsp-fbtn{display:flex;}
+    .jsp-main{padding:14px 16px 24px;}
+    .jsp-grid{grid-template-columns:1fr;gap:10px;}
+    .jsp-sb{position:absolute;left:0;right:0;bottom:0;z-index:15;width:auto;max-height:78%;border-left:none;border-top:1px solid var(--ln2);border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 50px rgba(0,0,0,.5);display:none;animation:jUp .25s cubic-bezier(.16,1,.3,1);}
+    .jsp-sb.open{display:flex;}
+    .jsp-sbhd{display:flex;align-items:center;justify-content:space-between;padding:6px 0 0;}
+    .jsp-sbhd::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:4px;background:var(--ln2);}
+    .jsp-sbhd b{font-size:16px;color:var(--tx);padding-top:12px;}
+    .jsp-scrim{display:block;position:absolute;inset:0;z-index:14;background:rgba(0,0,0,.5);}
+    .jsp-dhd{padding:10px 14px;}
+    .jsp-dbody{flex-direction:column;overflow-y:auto;}
+    .jsp-dmain,.jsp-dside{overflow:visible;flex:none;}
+    .jsp-dmain{padding:18px 16px 8px;}
+    .jsp-dside{width:auto;border-left:none;padding:8px 16px 24px;}
+    .jsp-djt{font-size:19px;}
+  }
+  @media(max-width:400px){ .jsp-pill{display:none;} .jsp-dactb span{display:none;} }
 `;
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
@@ -581,6 +616,7 @@ export default function JobSearchPanel({ onClose }) {
   const [searched, setSearched] = useState(false);
   const [noMatch, setNoMatch] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({ location: "", remote: false, experience: "" });
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
@@ -629,7 +665,7 @@ export default function JobSearchPanel({ onClose }) {
           postedAt: j.job_posted_at_datetime_utc || new Date().toISOString(), 
           applyUrl: j.job_apply_link || `https://www.google.com/search?q=${encodeURIComponent(j.job_title + ' ' + j.employer_name)}`, 
           skills: j.job_required_skills || [], 
-          color: "#20c997", 
+          color: "#8b7bff", 
           tags: [],
           logo: j.employer_logo || null,
           industry: j.employer_company_type || null,
@@ -656,12 +692,12 @@ export default function JobSearchPanel({ onClose }) {
     <div className="jsp-logo" style={{ width: sz, height: sz, borderRadius: rad }}>
       {job.logo
         ? <img src={job.logo} alt="" onError={e => { e.target.style.display = "none"; }} />
-        : <div style={{ width: 26, height: 26, borderRadius: 7, background: (job.color || "#20c997") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: job.color || "#20c997" }}>{(job.company || "?")[0]}</div>}
+        : <div style={{ width: 26, height: 26, borderRadius: 7, background: (job.color || "#8b7bff") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: job.color || "#8b7bff" }}>{(job.company || "?")[0]}</div>}
     </div>
   );
 
   const Card = ({ job }) => (
-    <div className="jsp-card" style={{ "--cc": job.color || "#20c997" }} onClick={() => setDetail(job)}>
+    <div className="jsp-card" style={{ "--cc": job.color || "#8b7bff" }} onClick={() => setDetail(job)}>
       <div className="jsp-ctop">
         <Logo job={job} />
         <div className="jsp-cinfo">
@@ -669,7 +705,7 @@ export default function JobSearchPanel({ onClose }) {
           <p className="jsp-cco">{job.company} · {job.location}</p>
         </div>
         <button className={`jsp-sv ${isSv(job) ? "on" : ""}`} onClick={e => togSv(job, e)}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill={isSv(job) ? "#20c997" : "none"} stroke={isSv(job) ? "#20c997" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill={isSv(job) ? "#8b7bff" : "none"} stroke={isSv(job) ? "#8b7bff" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
         </button>
       </div>
       <div className="jsp-cmeta">
@@ -701,7 +737,7 @@ export default function JobSearchPanel({ onClose }) {
 
   const Empty = ({ title, sub }) => (
     <div className="jsp-empty">
-      <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#20c997" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
+      <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8b7bff" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
       <p className="jsp-emtit">{title}</p>
       <p className="jsp-emsub">{sub}</p>
     </div>
@@ -725,8 +761,8 @@ export default function JobSearchPanel({ onClose }) {
           </button>
           <div className="jsp-dacts">
             <button className={`jsp-dactb ${isSv(job) ? "on" : ""}`} onClick={() => togSv(job)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill={isSv(job) ? "#20c997" : "none"} stroke={isSv(job) ? "#20c997" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
-              {isSv(job) ? "Saved" : "Save"}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill={isSv(job) ? "#8b7bff" : "none"} stroke={isSv(job) ? "#8b7bff" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+              <span>{isSv(job) ? "Saved" : "Save"}</span>
             </button>
             <button className="jsp-applybig" onClick={e => { e.stopPropagation(); window.open(job.applyUrl, "_blank", "noopener,noreferrer"); }}>
               Apply Now <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
@@ -736,14 +772,14 @@ export default function JobSearchPanel({ onClose }) {
         <div className="jsp-dbody">
           <div className="jsp-dmain">
             <div className="jsp-dco">
-              <div className="jsp-dlogo">{job.logo ? <img src={job.logo} alt="" onError={e => e.target.style.display = "none"} /> : <div style={{ width: 34, height: 34, borderRadius: 10, background: (job.color || "#20c997") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: job.color || "#20c997" }}>{(job.company || "?")[0]}</div>}</div>
+              <div className="jsp-dlogo">{job.logo ? <img src={job.logo} alt="" onError={e => e.target.style.display = "none"} /> : <div style={{ width: 34, height: 34, borderRadius: 10, background: (job.color || "#8b7bff") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: job.color || "#8b7bff" }}>{(job.company || "?")[0]}</div>}</div>
               <div><p className="jsp-djt">{job.title}</p><p className="jsp-djco">{job.company} · {job.location}</p></div>
             </div>
             <div className="jsp-dbdgs">
               {job.remote && <span className="b-r" style={{ fontSize: 12, padding: "4px 11px" }}>🌐 Remote</span>}
               <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>💼 {job.type}</span>
               <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>
-              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "rgba(32,201,151,.1)", color: "#20c997", border: "1px solid rgba(32,201,151,.2)" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
+              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "rgba(52,211,153,.12)", color: "#34d399" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
             </div>
             {job.description && (
               <>
@@ -772,25 +808,25 @@ export default function JobSearchPanel({ onClose }) {
           </div>
           <div className="jsp-dside">
             <div className="jsp-aic">
-              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
+              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
               <div className="jsp-rw">
                 <svg width="70" height="70" viewBox="0 0 70 70">
                   <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
                   <circle cx={cx} cy={cy} r={r} fill="none" stroke="url(#jg)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ} transform={`rotate(-90 ${cx} ${cy})`} />
-                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#20c997" /></linearGradient></defs>
+                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#38bdf8" /><stop offset="100%" stopColor="#8b7bff" /></linearGradient></defs>
                 </svg>
                 <div className="jsp-rn"><span className="jsp-rbig">{score}</span><span className="jsp-rpct">%</span></div>
               </div>
               {matched.length > 0 && <div><div className="jsp-ml">Matched</div><div className="jsp-mt">{matched.map(s => <span key={s} className="m-y">✓ {s}</span>)}</div></div>}
               {missing.length > 0 && <div><div className="jsp-ml">Missing</div><div className="jsp-mt">{missing.map(s => <span key={s} className="m-n">✗ {s}</span>)}</div></div>}
-              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "#a78bfa" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
+              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "#38bdf8" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
             </div>
             <div className="jsp-coc">
               <p className="jsp-stit" style={{ fontSize: 12, marginBottom: 8 }}>Company Info</p>
-              {[job.industry && ["Industry", job.industry], job.website && ["Website", job.website], ["Location", job.location]].filter(Boolean).map(([k, v]) => <div key={k} className="jsp-cor"><span className="jsp-cok">{k}</span><span className="jsp-cov" style={k === "Website" ? { color: "#20c997", cursor: "pointer", textDecoration: "underline" } : {}} onClick={(e) => { if (k === "Website") { e.stopPropagation(); window.open(v); } }}>{k === "Website" ? "Link" : v}</span></div>)}
+              {[job.industry && ["Industry", job.industry], job.website && ["Website", job.website], ["Location", job.location]].filter(Boolean).map(([k, v]) => <div key={k} className="jsp-cor"><span className="jsp-cok">{k}</span><span className="jsp-cov" style={k === "Website" ? { color: "#8b7bff", cursor: "pointer", textDecoration: "underline" } : {}} onClick={(e) => { if (k === "Website") { e.stopPropagation(); window.open(v); } }}>{k === "Website" ? "Link" : v}</span></div>)}
               {job.contact && (
                 <>
-                  <div className="jsp-cor"><span className="jsp-cok">HR Email</span><span className="jsp-cov" style={{ color: "#20c997", cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); window.open(`mailto:${job.contact.email}`); }}>{job.contact.email}</span></div>
+                  <div className="jsp-cor"><span className="jsp-cok">HR Email</span><span className="jsp-cov" style={{ color: "#8b7bff", cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); window.open(`mailto:${job.contact.email}`); }}>{job.contact.email}</span></div>
                   <div className="jsp-cor"><span className="jsp-cok">HR Phone</span><span className="jsp-cov">{job.contact.phone}</span></div>
                 </>
               )}
@@ -841,6 +877,12 @@ export default function JobSearchPanel({ onClose }) {
             <button className={`jsp-tab ${tab === "search" ? "on" : ""}`} onClick={() => setTab("search")}>Search{searched && <span className="jsp-tb">{jobs.length}</span>}</button>
             <button className={`jsp-tab ${tab === "saved" ? "on" : ""}`} onClick={() => setTab("saved")}>Saved{saved.length > 0 && <span className="jsp-tb">{saved.length}</span>}</button>
             <button className={`jsp-tab ${tab === "history" ? "on" : ""}`} onClick={() => setTab("history")}>History</button>
+            {tab === "search" && searched && !loading && !noMatch && (
+              <button type="button" className={`jsp-fbtn ${showFilters ? "on" : ""}`} onClick={() => setShowFilters(v => !v)}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" /></svg>
+                Filters{(filters.location || filters.remote || filters.experience) && <span className="jsp-fdot" />}
+              </button>
+            )}
           </div>
 
           <div className="jsp-body">
@@ -864,8 +906,13 @@ export default function JobSearchPanel({ onClose }) {
             </div>
 
             {tab === "search" && searched && !loading && !noMatch && (
-              <div className="jsp-sb">
-                <div><p className="jsp-sbt">Filters</p><input className="jsp-sbinp" value={filters.location} onChange={e => setFilters(f => ({ ...f, location: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') search(); }} placeholder="Filter by city…" /></div>
+              <>
+              {showFilters && <div className="jsp-scrim" onClick={() => setShowFilters(false)} />}
+              <div className={`jsp-sb ${showFilters ? "open" : ""}`}>
+                <div className="jsp-sbhd"><b>Filters</b>
+                  <button className="jsp-xb" onClick={() => setShowFilters(false)}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+                </div>
+                <div><p className="jsp-sbt">Location</p><input className="jsp-sbinp" value={filters.location} onChange={e => setFilters(f => ({ ...f, location: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') search(); }} placeholder="Filter by city…" /></div>
                 <div><p className="jsp-sbt">Work Type</p>
                   {["Remote", "Hybrid", "On-site"].map(t => (
                     <div key={t} className="jsp-togrow">
@@ -879,8 +926,9 @@ export default function JobSearchPanel({ onClose }) {
                     <option value="">Any</option><option value="intern">Internship</option><option value="entry">Entry Level</option><option value="mid">Mid-Level</option><option value="senior">Senior</option>
                   </select>
                 </div>
-                <button className="jsp-applyf" onClick={() => search()} style={{ marginTop: 'auto' }}>Apply Filters</button>
+                <button className="jsp-applyf" onClick={() => { setShowFilters(false); search(); }} style={{ marginTop: 'auto' }}>Apply Filters</button>
               </div>
+              </>
             )}
 
             {detail && <Detail job={detail} />}
