@@ -31,3 +31,38 @@ test("other errors are passed through without switching models", async () => {
   const rateLimited = Object.assign(new Error("429 rate limit"), { status: 429 });
   await assert.rejects(withGroqModel(client, "retired-model-b", async () => { throw rateLimited; }), /429/);
 });
+
+const dailyLimit = (model) => Object.assign(
+  new Error(`429 {"error":{"message":"Rate limit reached for model \`${model}\` in organization \`org_x\` service tier \`on_demand\` on tokens per day (TPD): Limit 200000, Used 198823, Requested 3126. Please try again in 14m1.968s.","type":"tokens","code":"rate_limit_exceeded"}}`),
+  { status: 429 }
+);
+
+test("a model that used up its daily tokens hands over to another Groq model", async () => {
+  const { _exhaustedUntil } = require("../src/utils/groqModel");
+  _exhaustedUntil.clear();
+  const client = fakeClient(["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "whisper-large-v3"]);
+  const tried = [];
+  const call = async (model) => {
+    tried.push(model);
+    if (model === "openai/gpt-oss-120b") throw dailyLimit(model);
+    return `ok:${model}`;
+  };
+
+  assert.equal(await withGroqModel(client, "openai/gpt-oss-120b", call), "ok:llama-3.3-70b-versatile");
+  // The next request skips the exhausted model straight away.
+  assert.equal(await withGroqModel(client, "openai/gpt-oss-120b", call), "ok:llama-3.3-70b-versatile");
+  assert.deepEqual(tried, ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.3-70b-versatile"]);
+});
+
+test("when every Groq model is out for the day, the error is passed on", async () => {
+  const { _exhaustedUntil } = require("../src/utils/groqModel");
+  _exhaustedUntil.clear();
+  const client = fakeClient(["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]);
+  await assert.rejects(withGroqModel(client, "openai/gpt-oss-120b", async (m) => { throw dailyLimit(m); }), /tokens per day/);
+});
+
+test("the reset time is read from Groq's message", () => {
+  const { dailyLimitResetMs } = require("../src/utils/groqModel");
+  assert.equal(Math.round(dailyLimitResetMs(dailyLimit("m")) / 1000), 842);
+  assert.equal(dailyLimitResetMs(Object.assign(new Error("429 rate limit per minute"), { status: 429 })), null);
+});
