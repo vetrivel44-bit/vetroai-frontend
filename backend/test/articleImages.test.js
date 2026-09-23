@@ -89,3 +89,46 @@ test("GET /api/news/preview-image rejects missing or non-http URLs", async (t) =
   assert.equal(local.status, 200);
   assert.deepEqual(await local.json(), { image_url: null }, "private hosts are never fetched");
 });
+
+// A site that blocks our fetch (403) — Firecrawl's scraper gets the photo.
+function blockedSiteWithFirecrawl(image, calls) {
+  return async (url, opts = {}) => {
+    calls.push(url);
+    if (url === "https://api.firecrawl.dev/v2/scrape") {
+      assert.equal(opts.headers.Authorization, "Bearer fc-test");
+      assert.equal(JSON.parse(opts.body).url, "https://blocked.example/story");
+      return new Response(JSON.stringify({ success: true, data: { metadata: { ogImage: image } } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("Forbidden", { status: 403, headers: { "content-type": "text/html" } });
+  };
+}
+const anyPublicLookup = async () => [{ address: "93.184.216.34" }];
+
+test("an article that blocks our fetch gets its photo through Firecrawl", async () => {
+  _cache.clear();
+  const calls = [];
+  const fetchImpl = blockedSiteWithFirecrawl("https://cdn.blocked.example/photo.jpg", calls);
+  const image = await findArticleImage("https://blocked.example/story", { fetchImpl, lookup: anyPublicLookup, firecrawlApiKey: "fc-test" });
+  assert.equal(image, "https://cdn.blocked.example/photo.jpg");
+  assert.deepEqual(calls, ["https://blocked.example/story", "https://api.firecrawl.dev/v2/scrape"]);
+});
+
+test("Firecrawl is not used without a key, nor for private hosts", async () => {
+  _cache.clear();
+  const calls = [];
+  const fetchImpl = blockedSiteWithFirecrawl("https://cdn.blocked.example/photo.jpg", calls);
+  assert.equal(await findArticleImage("https://blocked.example/story", { fetchImpl, lookup: anyPublicLookup, firecrawlApiKey: "" }), null);
+  _cache.clear();
+  assert.equal(await findArticleImage("http://10.0.0.5/story", { fetchImpl, lookup: anyPublicLookup, firecrawlApiKey: "fc-test" }), null);
+  assert.ok(!calls.includes("https://api.firecrawl.dev/v2/scrape"));
+});
+
+test("two lookups of the same article share one Firecrawl call", async () => {
+  _cache.clear();
+  const calls = [];
+  const fetchImpl = blockedSiteWithFirecrawl("https://cdn.blocked.example/photo.jpg", calls);
+  const opts = { fetchImpl, lookup: anyPublicLookup, firecrawlApiKey: "fc-test" };
+  const [a, b] = await Promise.all([findArticleImage("https://blocked.example/story", opts), findArticleImage("https://blocked.example/story", opts)]);
+  assert.equal(a, b);
+  assert.equal(calls.filter((u) => u.includes("firecrawl")).length, 1);
+});
