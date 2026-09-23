@@ -6,6 +6,7 @@ const {
   buildNewsRequest,
   buildNewsAuthFallback,
   normalizeNewsPayload,
+  nextNewsPage,
   providerLabel,
 } = require("../services/newsProviders");
 
@@ -41,6 +42,10 @@ async function latestNews(req, res, next) {
       ? String(req.query.language || "en")
       : "en";
     const limit = /^\d{1,3}$/.test(String(config.newsLimit || "")) ? Number(config.newsLimit) : 0;
+    // Page cursor from the previous response's `nextPage` (opaque for
+    // newsdata, a number for the others).
+    const rawPage = String(req.query.page || "").trim();
+    const page = /^[A-Za-z0-9_-]{1,80}$/.test(rawPage) ? rawPage : "";
 
     const requestParams = {
       apiKey: config.newsDataApiKey,
@@ -48,6 +53,7 @@ async function latestNews(req, res, next) {
       category,
       language,
       limit,
+      page,
     };
     const request = buildNewsRequest(provider, requestParams);
 
@@ -83,7 +89,7 @@ async function latestNews(req, res, next) {
     // Articles the feed sent without a picture get the outlet's own preview
     // image (bounded in time, so the feed is never held up for long).
     await fillMissingImages(results);
-    return res.json({ results });
+    return res.json({ results, nextPage: nextNewsPage(provider, payload, page) });
   } catch (error) {
     return next(error);
   }

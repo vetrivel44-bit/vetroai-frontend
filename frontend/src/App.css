@@ -13228,6 +13228,14 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .dv-skel-line { height: 16px; margin-top: 12px; border-radius: 8px; background: var(--bg-hover); animation: dvPulse 1.4s ease-in-out infinite; }
 .dv-skel-line.w90 { width: 90%; height: 24px; margin-top: 18px; } .dv-skel-line.w70 { width: 70%; height: 24px; } .dv-skel-line.w40 { width: 40%; }
 @keyframes dvPulse { 50% { opacity: .55; } }
+.dv-more { min-height: 40px; }
+.dv-more-end { margin: 8px 0 0; text-align: center; color: var(--ink-3); font-size: .95rem; }
+.dv-more-retry {
+  display: block; margin: 0 auto; padding: 12px 18px;
+  border-radius: 999px; border: 1px solid var(--border-med);
+  background: var(--bg-elevated); color: var(--ink-2);
+  font: inherit; font-size: .92rem; cursor: pointer;
+}
 
 @media (max-width: 768px) {
   .news-panel.dv-panel { width: 100vw; height: 100dvh; border-radius: 0; border: none; }

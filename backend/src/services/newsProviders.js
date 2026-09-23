@@ -50,12 +50,15 @@ const PROVIDERS = {
       entertainment: "entertainment", health: "health", science: "science",
       politics: "politics",
     },
-    buildRequest({ apiKey, query, category, language }) {
+    buildRequest({ apiKey, query, category, language, page }) {
       const params = new URLSearchParams({ apikey: apiKey, language });
       if (query) params.set("q", query);
       else if (category) params.set("category", category);
+      // newsdata pages with an opaque cursor it returns as `nextPage`.
+      if (page) params.set("page", page);
       return { url: `https://newsdata.io/api/1/latest?${params}`, headers: {} };
     },
+    nextPage: (payload) => (payload?.nextPage ? String(payload.nextPage) : null),
     // Already the shape the frontend wants.
     normalize: (payload) => (Array.isArray(payload?.results) ? payload.results : []),
   },
@@ -70,8 +73,9 @@ const PROVIDERS = {
       entertainment: "entertainment", health: "health", science: "science",
       politics: "politics",
     },
-    buildRequest({ apiKey, query, category, language, limit }) {
+    buildRequest({ apiKey, query, category, language, limit, page }) {
       const params = new URLSearchParams({ api_token: apiKey, language });
+      if (page) params.set("page", page);
       // `limit` is plan-capped (3 on the free tier) and a request over the cap
       // is rejected outright, so it is only sent when explicitly configured.
       if (limit) params.set("limit", String(limit));
@@ -81,6 +85,14 @@ const PROVIDERS = {
       }
       if (category) params.set("categories", category);
       return { url: `https://api.thenewsapi.com/v1/news/top?${params}`, headers: {} };
+    },
+    nextPage: (payload, page) => {
+      const meta = payload?.meta || {};
+      const current = Number(meta.page || page || 1);
+      const returned = Number(meta.returned ?? (payload?.data || []).length);
+      const found = Number(meta.found || 0);
+      const perPage = Number(meta.limit || returned || 1);
+      return returned > 0 && current * perPage < found ? String(current + 1) : null;
     },
     normalize: (payload) => (Array.isArray(payload?.data) ? payload.data : []).map((item) => ({
       article_id: item.uuid || item.url || null,
@@ -104,8 +116,9 @@ const PROVIDERS = {
       business: "business", technology: "technology", sports: "sports",
       entertainment: "entertainment", health: "health", science: "science",
     },
-    buildRequest({ apiKey, query, category, language }) {
-      const params = new URLSearchParams({ language });
+    buildRequest({ apiKey, query, category, language, page }) {
+      const params = new URLSearchParams({ language, pageSize: "20" });
+      if (page) params.set("page", page);
       if (query) {
         params.set("q", query);
         return {
@@ -118,6 +131,11 @@ const PROVIDERS = {
         url: `https://newsapi.org/v2/top-headlines?${params}`,
         headers: { "X-Api-Key": apiKey },
       };
+    },
+    nextPage: (payload, page) => {
+      const current = Number(page || 1);
+      const count = (payload?.articles || []).length;
+      return count > 0 && current * 20 < Number(payload?.totalResults || 0) ? String(current + 1) : null;
     },
     normalize: (payload) => (Array.isArray(payload?.articles) ? payload.articles : []).map((item) => ({
       article_id: item.url || null,
@@ -141,9 +159,10 @@ const PROVIDERS = {
       entertainment: "entertainment", health: "health", science: "science",
       politics: "politics",
     },
-    buildRequest({ apiKey, query, category, language, limit }) {
+    buildRequest({ apiKey, query, category, language, limit, page }) {
       const params = new URLSearchParams({ language });
       if (category) params.set("category", category);
+      if (page) params.set("page_number", page);
       // Plan-capped like thenewsapi's, so only sent when configured.
       if (limit) params.set("page_size", String(limit));
       // Search and latest are separate endpoints; `keywords` is the search term.
@@ -156,6 +175,12 @@ const PROVIDERS = {
         url: `https://api.currentsapi.services/v1/${path}?${params}`,
         headers: { Authorization: `Bearer ${apiKey}` },
       };
+    },
+    // Currents reports no total, so keep paging while pages come back full-ish
+    // (capped, since its free tier serves the same recent window).
+    nextPage: (payload, page) => {
+      const current = Number(page || 1);
+      return (payload?.news || []).length > 0 && current < 10 ? String(current + 1) : null;
     },
     // Retried once, and only after the first form is rejected as unauthorized.
     // Currents accepts the token as an `apiKey` query parameter as well, which
@@ -228,6 +253,13 @@ function normalizeNewsPayload(provider, payload) {
   return definition.normalize(payload);
 }
 
+// The cursor for the page after this one, or null when the provider has no
+// more. Always a string, since newsdata's is opaque and the others' numeric.
+function nextNewsPage(provider, payload, page) {
+  const definition = PROVIDERS[provider];
+  return definition?.nextPage ? definition.nextPage(payload, page) : null;
+}
+
 function providerLabel(provider) {
   return PROVIDERS[provider]?.label || provider || "unknown";
 }
@@ -240,5 +272,6 @@ module.exports = {
   buildNewsRequest,
   buildNewsAuthFallback,
   normalizeNewsPayload,
+  nextNewsPage,
   providerLabel,
 };

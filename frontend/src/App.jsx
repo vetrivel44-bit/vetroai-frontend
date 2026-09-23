@@ -3341,27 +3341,118 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   const [savedArticles, setSavedArticles] = useState(() => readLocalList(userKey, "savedNews") || []);
   const [speakingId, setSpeakingId] = useState(null);
 
+  // Endless feed: each response carries a `nextPage` cursor. When the current
+  // category runs dry the feed carries on into the other categories, so
+  // scrolling keeps producing stories the way Discover / Perplexity do.
+  // `stream` is kept in a ref (read by the scroll handler); `feedState` is its
+  // render-facing mirror.
+  const streamRef = useRef({ cat: "top", query: "", lang: "en", page: null, queue: [] });
+  const requestIdRef = useRef(0);
+  const seenRef = useRef(new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [feedState, setFeedState] = useState("more"); // "more" | "end" | "error"
+  // Bumped when a load finishes with nothing new, so the observer re-arms
+  // (the sentinel is still in view and would not fire again on its own).
+  const [loadTick, setLoadTick] = useState(0);
+  const feedRef = useRef(null);
+  const sentinelRef = useRef(null);
+
+  const newsUrl = (cat, query, lang, page) => {
+    let url = `${API}/news/latest?language=${lang || "en"}`;
+    if (query) url += `&q=${encodeURIComponent(query)}`;
+    else if (cat && cat !== "top") url += `&category=${cat}`;
+    if (page) url += `&page=${encodeURIComponent(page)}`;
+    return url;
+  };
+  const storyKey = (a) => newsArticleId(a) || a.link || a.title;
+  const keepNew = (list) => list.filter((a) => {
+    const key = storyKey(a);
+    if (!key || seenRef.current.has(key)) return false;
+    seenRef.current.add(key);
+    return true;
+  });
+
   const fetchNews = useCallback(async (cat, query, lang) => {
+    const id = ++requestIdRef.current;
     setLoading(true);
+    setLoadingMore(false);
     setError("");
+    setFeedState("more");
+    seenRef.current = new Set();
     try {
-      let url = `${API}/news/latest?language=${lang || "en"}`;
-      if (query) {
-        url += `&q=${encodeURIComponent(query)}`;
-      } else if (cat && cat !== "top") {
-        url += `&category=${cat}`;
-      }
-      const res = await fetch(url);
+      const res = await fetch(newsUrl(cat, query, lang));
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      setArticles(data.results || []);
+      if (id !== requestIdRef.current) return;
+      streamRef.current = {
+        cat, query, lang,
+        page: data.nextPage || null,
+        // A search is one stream; a category continues into the others.
+        queue: query ? [] : NEWS_CATEGORIES.filter((c) => c !== cat),
+      };
+      setArticles(keepNew(data.results || []));
+      if (feedRef.current) feedRef.current.scrollTop = 0;
     } catch (e) {
+      if (id !== requestIdRef.current) return;
       setError("Failed to load news. Please try again.");
       console.error("News fetch error:", e);
     } finally {
-      setLoading(false);
+      if (id === requestIdRef.current) setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- helpers only read refs
+
+  const loadingMoreRef = useRef(false);
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    const id = requestIdRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      // A page can be all repeats; keep going (briefly) until something new
+      // turns up or every stream is exhausted.
+      for (let hop = 0; hop < 6; hop++) {
+        const stream = streamRef.current;
+        let cat = stream.cat, page = stream.page;
+        if (!page) {
+          if (!stream.queue.length) { setFeedState("end"); return; }
+          cat = stream.queue[0];
+          page = null;
+          streamRef.current = { ...stream, cat, page: null, queue: stream.queue.slice(1) };
+        }
+        const res = await fetch(newsUrl(cat, stream.query, stream.lang, page));
+        if (id !== requestIdRef.current) return;
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const data = await res.json();
+        if (id !== requestIdRef.current) return;
+        streamRef.current = { ...streamRef.current, cat, page: data.nextPage || null };
+        const fresh = keepNew(data.results || []);
+        if (fresh.length) {
+          setArticles((prev) => [...prev, ...fresh]);
+          setFeedState("more");
+          return;
+        }
+      }
+      // Several pages in a row brought nothing new; try again on the next tick.
+      if (id === requestIdRef.current) setLoadTick((t) => t + 1);
+    } catch (e) {
+      if (id === requestIdRef.current) setFeedState("error");
+      console.error("News load-more error:", e);
+    } finally {
+      loadingMoreRef.current = false;
+      if (id === requestIdRef.current) setLoadingMore(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- helpers only read refs
+
+  // Start loading the next batch well before the reader reaches the bottom.
+  useEffect(() => {
+    const target = sentinelRef.current;
+    if (!target || loading || error || category === SAVED_TAB || feedState !== "more") return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore();
+    }, { root: feedRef.current, rootMargin: "0px 0px 1200px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, error, category, feedState, articles.length, loadTick, loadMore]);
 
   // Live search, but debounced — searching-as-you-type without firing a
   // request on every keystroke. Explicit submit (Enter, or the search icon)
@@ -3518,7 +3609,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
           </div>
         </div>
 
-        <div className={`dv-feed${hero && !loading && !error ? " has-hero" : ""}${searchOpen || searchQuery ? " searching" : ""}`}>
+        <div ref={feedRef} className={`dv-feed${hero && !loading && !error ? " has-hero" : ""}${searchOpen || searchQuery ? " searching" : ""}`}>
           {loading ? (
             <div className="dv-list">
               {[1, 2, 3].map(i => (
@@ -3561,7 +3652,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
               )}
               {rest.map((article, i) => (
                 <NewsCard
-                  key={newsArticleId(article) || i}
+                  key={storyKey(article) || i}
                   article={article}
                   saved={isSaved(article)}
                   onToggleSave={toggleSave}
@@ -3570,6 +3661,21 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
                   onAskAI={askAboutArticle}
                 />
               ))}
+              {category !== SAVED_TAB && (
+                <div className="dv-more" ref={sentinelRef}>
+                  {feedState === "error" ? (
+                    <button type="button" className="dv-more-retry" onClick={() => { setFeedState("more"); loadMore(); }}>Couldn't load more stories — tap to retry</button>
+                  ) : feedState === "end" && !loadingMore ? (
+                    <p className="dv-more-end">You're all caught up</p>
+                  ) : (
+                    <div className="dv-skel" aria-label="Loading more stories">
+                      <div className="dv-skel-img" />
+                      <div className="dv-skel-line w90" />
+                      <div className="dv-skel-line w70" />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -276,3 +276,27 @@ test("a payload with no articles normalizes to an empty list", () => {
     assert.deepEqual(normalizeNewsPayload(provider, { results: null, data: null, articles: null, news: null }), []);
   }
 });
+
+test("each provider pages: request carries the cursor and nextPage reads the response", () => {
+  const { buildNewsRequest, nextNewsPage } = require("../src/services/newsProviders");
+  const base = { apiKey: "k", query: "", category: "top", language: "en", limit: 0 };
+
+  assert.match(buildNewsRequest("newsdata", { ...base, page: "abc123" }).url, /[?&]page=abc123/);
+  assert.equal(nextNewsPage("newsdata", { nextPage: "abc124" }, "abc123"), "abc124");
+  assert.equal(nextNewsPage("newsdata", { results: [] }, "abc123"), null);
+
+  assert.match(buildNewsRequest("thenewsapi", { ...base, page: "2" }).url, /[?&]page=2/);
+  assert.equal(nextNewsPage("thenewsapi", { meta: { found: 30, returned: 3, limit: 3, page: 2 }, data: [1, 2, 3] }, "2"), "3");
+  assert.equal(nextNewsPage("thenewsapi", { meta: { found: 6, returned: 3, limit: 3, page: 2 }, data: [1, 2, 3] }, "2"), null);
+
+  assert.match(buildNewsRequest("newsapi", { ...base, page: "3" }).url, /[?&]page=3/);
+  assert.equal(nextNewsPage("newsapi", { totalResults: 100, articles: new Array(20).fill({}) }, "1"), "2");
+  assert.equal(nextNewsPage("newsapi", { totalResults: 40, articles: new Array(20).fill({}) }, "2"), null);
+
+  assert.match(buildNewsRequest("currents", { ...base, page: "4" }).url, /[?&]page_number=4/);
+  assert.equal(nextNewsPage("currents", { news: [{}] }, "4"), "5");
+  assert.equal(nextNewsPage("currents", { news: [] }, "4"), null);
+
+  // No page on the first request.
+  assert.doesNotMatch(buildNewsRequest("newsdata", base).url, /[?&]page=/);
+});
