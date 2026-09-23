@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { requestedFileFormats, fileRequestInstruction, exportDocument } from "./lib/documentExport";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -1023,7 +1024,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   return (
     <div ref={containerRef} className="vai-stream-body">
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-        {content}
+        {normalizeMathDelimiters(content)}
       </ReactMarkdown>
     </div>
   );
@@ -1032,7 +1033,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
 // Plain markdown — used where code blocks need no artifact affordances.
 const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
   return (
-    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>{content}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>{normalizeMathDelimiters(content)}</ReactMarkdown>
   );
 });
 
@@ -1049,7 +1050,7 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
   }), []);
   return (
     <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-      {content}
+      {normalizeMathDelimiters(content)}
     </ReactMarkdown>
   );
 });
@@ -1070,10 +1071,19 @@ const MultiAiBody = React.memo(function MultiAiBody({ content, highlight }) {
   return highlight ? <HighlightedMarkdown content={content} /> : <PlainMarkdown content={content} />;
 });
 
-const formatMath = txt => {
-  if (!txt) return "";
-  try { return String(txt).split("\\[").join("$$").split("\\]").join("$$").split("\\(").join("$").split("\\)").join("$"); }
-  catch { return txt; }
+// remark-math only understands $…$ and $$…$$, but models usually write LaTeX
+// as \[…\] / \(…\) — or, once the backslash is lost, a line like
+// "[ z = \frac{a}{b} ]". Rewrite those outside code so KaTeX renders them.
+const CODE_SEGMENT = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g;
+const normalizeMathDelimiters = (text) => {
+  if (!text || !/\\[[(]|\[\s[^\]\n]*\\[a-zA-Z]/.test(text)) return text;
+  return String(text).split(CODE_SEGMENT).map((part, i) => {
+    if (i % 2 === 1) return part;
+    return part
+      .replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`)
+      .replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m.trim()}$`)
+      .replace(/^[ \t]*\[[ \t]+([^\n]*\\[a-zA-Z]+[^\n]*?)[ \t]+\][ \t]*$/gm, (_, m) => `$$\n${m.trim()}\n$$`);
+  }).join("");
 };
 
 // Shown while a lazily-loaded screen's chunk is on the wire. Deliberately quiet:
@@ -2486,7 +2496,8 @@ const SourceFavicon = ({ domain }) => {
   const [attempt, setAttempt] = useState(0);
   const sources = domain ? faviconSources(domain) : [];
   if (attempt >= sources.length) {
-    return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{(domain || "?")[0].toUpperCase()}</span>;
+    const siteName = (domain || "?").split(".").slice(-2)[0] || "?";
+    return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{siteName[0].toUpperCase()}</span>;
   }
   return (
     <img
@@ -2499,6 +2510,79 @@ const SourceFavicon = ({ domain }) => {
     />
   );
 };
+
+const DOWNLOAD_FORMATS = [
+  { id: "pdf", label: "PDF", ext: ".pdf" },
+  { id: "docx", label: "Word", ext: ".docx" },
+  { id: "xlsx", label: "Excel", ext: ".xlsx" },
+];
+
+// Structured PDF / Word / Excel downloads for one assistant reply. `requested`
+// are the formats the user asked for; those get a prominent file card, and
+// every reply also carries a compact Download menu.
+function DocumentDownloads({ content, requested = [], variant = "menu" }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const run = async (format) => {
+    setBusy(format);
+    setError("");
+    try {
+      await exportDocument(format, content);
+      setOpen(false);
+    } catch (err) {
+      setError(err?.message || "Download failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (variant === "card") {
+    const formats = DOWNLOAD_FORMATS.filter((f) => requested.includes(f.id) || (f.id === "xlsx" && requested.includes("csv")));
+    if (!formats.length) return null;
+    const title = (String(content).match(/^#\s+(.+)$/m)?.[1] || "Your document").replace(/[*_`]/g, "").slice(0, 80);
+    return (
+      <div className="doc-dl-card" role="group" aria-label="Download this document">
+        <div className="doc-dl-card-info">
+          <span className="doc-dl-card-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h5" /></svg>
+          </span>
+          <span className="doc-dl-card-text">
+            <strong>{title}</strong>
+            <span>Ready to download</span>
+          </span>
+        </div>
+        <div className="doc-dl-card-actions">
+          {formats.map((f) => (
+            <button key={f.id} type="button" className="doc-dl-btn" onClick={() => run(f.id)} disabled={Boolean(busy)}>
+              {busy === f.id ? "Preparing…" : `Download ${f.label}`}
+            </button>
+          ))}
+        </div>
+        {error && <p className="doc-dl-error">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <span className="doc-dl-menu-wrap">
+      <button type="button" className="msg-action-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Download as a file" aria-label="Download as a file">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+        <span>Download</span>
+      </button>
+      {open && (
+        <span className="doc-dl-menu" role="menu">
+          {DOWNLOAD_FORMATS.map((f) => (
+            <button key={f.id} type="button" role="menuitem" onClick={() => run(f.id)} disabled={Boolean(busy)}>
+              {busy === f.id ? "Preparing…" : <>{f.label} <small>{f.ext}</small></>}
+            </button>
+          ))}
+          {error && <span className="doc-dl-error">{error}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const VISIBLE_SOURCE_CARDS = 3;
 
@@ -5465,6 +5549,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
       }
     }
+    // First, because the backend keeps only the first 2000 characters.
+    const requestedFiles = requestedFileFormats(userQuery);
+    if (requestedFiles.length) {
+      finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
+    }
     if (finalSystemPrompt.trim()) {
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
@@ -5638,10 +5727,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         generateFollowUps(answer, userQuery);
       };
 
-      // Web Search mode goes to the dedicated Tavily endpoint (search + its
-      // own synthesized answer) so it never depends on an LLM provider or
-      // Puter credits. If it fails, the backend /chat search below still runs.
-      if (selectedMode === "web_search" && fileCount === 0) {
+      // Fallback for Web Search when the backend's search + AI answer fails:
+      // Tavily's own summary via /web-search. It can't follow formatting
+      // requests ("in points"), so it's only used when no AI answer is possible.
+      const answerWithDirectSearch = async () => {
         try {
           setStreamStatus("Searching the web…");
           const res = await fetch(`${API}/web-search`, {
@@ -5674,13 +5763,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return next;
           });
           finishChat(answer);
-          return;
+          return true;
         } catch (searchErr) {
           if (searchErr?.name === "AbortError" || !isActive()) throw searchErr;
           addDebugLog("WebSearch.directFailed", { reqId, error: searchErr?.message });
-          setStreamStatus("Searching the web…");
+          return false;
         }
-      }
+      };
 
       if (attachedImages.length > 0) {
         // Already learned this session that GPT-5.6 Luna is out of credits —
@@ -5862,6 +5951,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (backendFailure) {
+        if (selectedMode === "web_search" && fileCount === 0) {
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+            return next;
+          });
+          setStreamingContent("");
+          if (await answerWithDirectSearch()) return;
+          if (!isActive()) return;
+        }
+
         // Files only reach a model through the backend, so an attachment turn
         // has nowhere left to go. A plain text turn does: retry it on a browser
         // model that hasn't already been tried this turn.
@@ -7382,6 +7482,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <span>{m.realtimeNotice}</span>
                              </div>
                            )}
+                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
+                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
                                <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
@@ -7393,6 +7496,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <button className="msg-action-btn" onClick={() => shareAiMsg(m.content)} title="Share response" aria-label="Share">
                                  <ShareIcon /><span>Share</span>
                                </button>
+                               <DocumentDownloads content={m.content} />
                                <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Like" aria-label="Like response">
                                  <ThumbsUpIcon />
                                </button>

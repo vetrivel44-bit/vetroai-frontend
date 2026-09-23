@@ -369,7 +369,12 @@
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16) !important;
   }
   .code-block, .code-wrap { border-color: var(--border) !important; }
-  :root[data-theme="light"] .code-block, :root[data-theme="light"] .code-wrap { background: #FBF9F5 !important; }
+  /* Code stays on a dark card in light mode too: the syntax theme (vscDarkPlus)
+     has light token colors that disappear on a cream surface. */
+  :root[data-theme="light"] .code-block, :root[data-theme="light"] .code-wrap { background: #1f1e1d !important; color: #e8e6e3 !important; }
+  :root[data-theme="light"] .code-wrap .code-header { border-color: rgba(255, 255, 255, 0.08) !important; }
+  :root[data-theme="light"] .code-wrap .code-lang,
+  :root[data-theme="light"] .code-wrap .code-copy-btn { color: #c9c5bf !important; }
   :root[data-theme="dark"] .code-block, :root[data-theme="dark"] .code-wrap { background: #141312 !important; }
 
   .feed::-webkit-scrollbar-thumb, .history::-webkit-scrollbar-thumb { background: var(--border-med) !important; }

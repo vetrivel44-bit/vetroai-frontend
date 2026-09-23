@@ -10,6 +10,7 @@ function withFetch(responses, fn) {
     const originalFetch = global.fetch;
     const saved = { key: config.plugskyApiKey, model: config.plugskyModel };
     config.plugskyApiKey = "test-key";
+    plugsky.resetAcceptedModel();
     global.fetch = async (url, init) => {
       calls.push({ url, body: JSON.parse(init.body) });
       const next = responses.shift();
@@ -49,4 +50,15 @@ test("errors unrelated to the model are not retried", withFetch([
   config.plugskyModel = "plugsky-reasoner";
   await assert.rejects(plugsky.generateStream([{ role: "user", content: "hi" }]), /Plugsky service error: 401/);
   assert.equal(calls.length, 1);
+}));
+
+test("a plan-restricted model switches to the model the plan allows, and remembers it", withFetch([
+  { status: 400, body: '{"error":{"message":"Model \\"plugsky-pro\\" is not available on your \\"free\\" plan (cap: plugsky-lite). Upgrade your plan or use a model allowed on \\"free\\".","type":"invalid_request_error","code":"400"}}' },
+  { status: 200, body: "data: [DONE]\n\n" },
+  { status: 200, body: "data: [DONE]\n\n" },
+], async (calls) => {
+  config.plugskyModel = "";
+  await plugsky.generateStream([{ role: "user", content: "hi" }]);
+  await plugsky.generateStream([{ role: "user", content: "again" }]);
+  assert.deepEqual(calls.map((c) => c.body.model), ["plugsky-pro", "plugsky-lite", "plugsky-lite"]);
 }));

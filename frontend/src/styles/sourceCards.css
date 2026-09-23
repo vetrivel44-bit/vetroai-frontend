@@ -178,3 +178,96 @@
 @media (max-width: 768px) {
   .px-src .px-src-card { width: 148px; }
 }
+
+/* Tailwind's preflight strips list markers everywhere, so Markdown lists in
+   replies showed neither bullets nor numbers. Restore them for plain
+   (class-less) Markdown lists only; styled components keep their own look. */
+.claude-prose ul:not([class]) { list-style: disc; }
+.claude-prose ul:not([class]) ul:not([class]) { list-style: circle; }
+.claude-prose ol:not([class]) { list-style: decimal; }
+.claude-prose li::marker { color: var(--ink-3); }
+
+/* ReactMarkdown wraps each fenced block in a <pre>, and our code card renders
+   inside it; drop the outer frame so it doesn't read as a box in a box. */
+.claude-prose pre:has(> .code-wrap) {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ── Document downloads (PDF / Word / Excel) ─────────────────────────────── */
+.doc-dl-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  color: var(--ink);
+}
+.doc-dl-card-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.doc-dl-card-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--bg-active);
+  color: var(--ink-2);
+}
+.doc-dl-card-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.doc-dl-card-text strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-dl-card-text span { font-size: 12px; color: var(--ink-3); }
+.doc-dl-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-dl-btn {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--ink);
+  color: var(--bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.doc-dl-btn:disabled { opacity: 0.6; cursor: default; }
+.doc-dl-error { width: 100%; margin: 0; font-size: 12px; color: #d9534f; }
+
+.doc-dl-menu-wrap { position: relative; display: inline-flex; }
+.doc-dl-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+.doc-dl-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.doc-dl-menu button:hover { background: var(--bg-hover); }
+.doc-dl-menu small { color: var(--ink-4); }

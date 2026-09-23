@@ -49,3 +49,12 @@
     border-color: #29292c !important;
   }
 }
+
+/* These brand marks are drawn in pure white for dark surfaces. Beside a reply
+   on the light theme they vanish, so render them near-black there. (The model
+   picker sheet stays dark in both themes, so it keeps the white marks.) */
+[data-theme="light"] .provider-response-avatar img[src$="/model-icons/openai.svg"],
+[data-theme="light"] .provider-response-avatar img[src$="/model-icons/grok.svg"],
+[data-theme="light"] .provider-response-avatar img[src$="/model-icons/perplexity.svg"] {
+  filter: invert(1) brightness(0.2);
+}

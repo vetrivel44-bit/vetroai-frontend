@@ -45,7 +45,7 @@ function nearestActions(row,img){return row.querySelector('.msg-actions,.message
 function enhance(){
  document.querySelectorAll('.msg-row').forEach(row=>{
    const text=row.innerText?.trim(); if(!text)return;
-   if(!row.dataset.downloadEnhanced){const request=previousUserText(row),formats=requestedFormats(request);if(isFileRequest(request)&&formats.length){const host=row.querySelector('.msg-actions,.message-actions,.response-actions')||row,b=iconButton(`Download ${formats.map(label).join(' / ')}`);b.onclick=e=>{e.stopPropagation();const items=formats.map(f=>[label(f),()=>exportText(text,f)]);if(items.length===1)items[0][1]();else menu(items,e.clientX,e.clientY)};host.appendChild(b)}row.dataset.downloadEnhanced='1'}
+   // Reply file downloads (PDF/Word/Excel) are rendered by DocumentDownloads in App.jsx.
    row.querySelectorAll('img').forEach(img=>{if(img.dataset.vetroImageActions||!img.src||img.width<180||img.height<120)return;removeLegacyImageButtons(row);const host=nearestActions(row,img),b=iconButton('Download image');b.classList.add('vetro-image-download');b.onclick=e=>{e.stopPropagation();menu([['PNG',()=>saveImage(img.src,'png')],['JPG',()=>saveImage(img.src,'jpg')],['WebP',()=>saveImage(img.src,'webp')]],e.clientX,e.clientY)};
      const share=[...host.querySelectorAll('button')].find(x=>(x.title||x.getAttribute('aria-label')||x.textContent||'').toLowerCase().includes('share'));if(share)share.insertAdjacentElement('beforebegin',b);else host.appendChild(b);img.dataset.vetroImageActions='1';
    });

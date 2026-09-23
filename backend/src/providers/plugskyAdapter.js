@@ -19,8 +19,19 @@ function isUnknownModelError(status, detail) {
   return [400, 404, 422].includes(status) && /model/i.test(detail);
 }
 
+// Plugsky names the model a plan allows when it refuses one, e.g.
+// 'Model "plugsky-pro" is not available on your "free" plan (cap: plugsky-lite)'.
+function planCapModel(detail) {
+  return /cap:\s*([a-z0-9][a-z0-9._-]*)/i.exec(detail)?.[1] || null;
+}
+
+// The model Plugsky last accepted after a refusal, reused so later requests
+// don't pay for the same rejection first.
+let acceptedModel = null;
+
 async function generateStream(messages, options = {}) {
-  const apiKey = config.plugskyApiKey;
+  // Tolerates the usual paste mistakes in the env var: whitespace, quotes, "Bearer ".
+  const apiKey = String(config.plugskyApiKey || "").trim().replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "").trim();
   if (!apiKey) {
     throw new ApiError(500, "Plugsky API key not configured.");
   }
@@ -44,16 +55,20 @@ async function generateStream(messages, options = {}) {
   });
 
   try {
-    let modelName = model || config.plugskyModel || DEFAULT_MODEL;
+    let modelName = model || acceptedModel || config.plugskyModel || DEFAULT_MODEL;
     let res = await request(modelName);
 
     if (!res.ok) {
       let detail = await res.text();
-      if (modelName !== DEFAULT_MODEL && isUnknownModelError(res.status, detail)) {
-        logger.warn("plugskyAdapter.modelRejected", { model: modelName, status: res.status, retryWith: DEFAULT_MODEL });
-        modelName = DEFAULT_MODEL;
-        res = await request(modelName);
-        if (!res.ok) detail = await res.text();
+      if (isUnknownModelError(res.status, detail)) {
+        const retryWith = planCapModel(detail) || DEFAULT_MODEL;
+        if (retryWith !== modelName) {
+          logger.warn("plugskyAdapter.modelRejected", { model: modelName, status: res.status, retryWith });
+          modelName = retryWith;
+          res = await request(modelName);
+          if (res.ok) acceptedModel = modelName;
+          else detail = await res.text();
+        }
       }
       if (!res.ok) {
         throw new Error(`Plugsky service error: ${res.status} ${detail.slice(0, 300)}`);
@@ -70,4 +85,5 @@ async function generateStream(messages, options = {}) {
 module.exports = {
   generateStream,
   DEFAULT_MODEL,
+  resetAcceptedModel: () => { acceptedModel = null; },
 };

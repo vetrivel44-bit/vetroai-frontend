@@ -12940,9 +12940,9 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 }
 
 /* The assistant's turn stays unfilled — a card would double the visual weight
-   of the longest text on the page — so its code blocks and tables get a
-   plain white surface rather than a tinted one. */
-[data-theme="light"] .msg-row .claude-prose pre,
+   of the longest text on the page — so its tables get a plain white surface
+   rather than a tinted one. Code blocks keep their dark surface: the syntax
+   theme's token colors are light and vanish on white. */
 [data-theme="light"] .msg-row .claude-prose table {
   background: #FFFFFF;
   border-color: var(--border);
