@@ -300,3 +300,29 @@ test("each provider pages: request carries the cursor and nextPage reads the res
   // No page on the first request.
   assert.doesNotMatch(buildNewsRequest("newsdata", base).url, /[?&]page=/);
 });
+
+test("requests ask for recent news and results are sorted newest first", () => {
+  const { buildNewsRequest, sortNewestFirst } = require("../src/services/newsProviders");
+  const now = Date.parse("2026-09-23T12:00:00Z");
+  const base = { apiKey: "k", category: "top", language: "en", limit: 0, now };
+
+  const newsapiSearch = new URL(buildNewsRequest("newsapi", { ...base, query: "floods" }).url);
+  assert.equal(newsapiSearch.searchParams.get("sortBy"), "publishedAt");
+  assert.equal(newsapiSearch.searchParams.get("from"), "2026-09-20T12:00:00");
+
+  const tnaTop = new URL(buildNewsRequest("thenewsapi", { ...base, query: "" }).url);
+  assert.equal(tnaTop.searchParams.get("published_after"), "2026-09-20T12:00:00");
+  const tnaSearch = new URL(buildNewsRequest("thenewsapi", { ...base, query: "ai" }).url);
+  assert.equal(tnaSearch.searchParams.get("sort"), "published_at");
+
+  const currentsSearch = new URL(buildNewsRequest("currents", { ...base, query: "ai" }).url);
+  assert.equal(currentsSearch.searchParams.get("start_date"), "2026-09-20T12:00:00+00:00");
+
+  const sorted = sortNewestFirst([
+    { title: "old", pubDate: "2026-09-21 08:00:00" },
+    { title: "undated" },
+    { title: "new", pubDate: "2026-09-23T11:00:00Z" },
+    { title: "mid", pubDate: "2026-09-22T10:00:00+05:30" },
+  ]);
+  assert.deepEqual(sorted.map((a) => a.title), ["new", "mid", "old", "undated"]);
+});

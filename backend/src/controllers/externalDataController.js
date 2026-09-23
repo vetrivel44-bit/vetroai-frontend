@@ -7,6 +7,7 @@ const {
   buildNewsAuthFallback,
   normalizeNewsPayload,
   nextNewsPage,
+  sortNewestFirst,
   providerLabel,
 } = require("../services/newsProviders");
 
@@ -85,10 +86,12 @@ async function latestNews(req, res, next) {
 
     // Always the newsdata-shaped `results` array the frontend panel renders,
     // whichever service answered.
-    const results = normalizeNewsPayload(provider, payload);
+    const results = sortNewestFirst(normalizeNewsPayload(provider, payload));
     // Articles the feed sent without a picture get the outlet's own preview
     // image (bounded in time, so the feed is never held up for long).
     await fillMissingImages(results);
+    // News goes stale in minutes — never let a browser or CDN reuse a copy.
+    res.set("Cache-Control", "no-store, max-age=0");
     return res.json({ results, nextPage: nextNewsPage(provider, payload, page) });
   } catch (error) {
     return next(error);

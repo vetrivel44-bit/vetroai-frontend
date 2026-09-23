@@ -3157,10 +3157,26 @@ function topicForArticle(article) {
 
 // "5 min ago" / "3 hr ago" / "2 days ago", the long form the Discover-style
 // footer uses.
+// Publish time in ms. newsdata sends "YYYY-MM-DD HH:MM:SS" in UTC with no zone.
+const newsTime = (dateStr) => {
+  if (!dateStr) return 0;
+  const t = Date.parse(/Z$|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : String(dateStr).replace(" ", "T") + "Z");
+  return Number.isNaN(t) ? 0 : t;
+};
+// Stories older than this are left out of the feed so it stays current.
+const NEWS_MAX_AGE_MS = 3 * 24 * 3600 * 1000;
+// Newest first, and only recent stories — unless nothing recent came back, in
+// which case the (sorted) page is shown rather than an empty feed.
+const freshNewsFirst = (list) => {
+  const sorted = [...list].sort((a, b) => newsTime(b.pubDate) - newsTime(a.pubDate));
+  const cutoff = Date.now() - NEWS_MAX_AGE_MS;
+  const recent = sorted.filter((a) => !newsTime(a.pubDate) || newsTime(a.pubDate) >= cutoff);
+  return recent.length ? recent : sorted;
+};
+
 const newsAgo = (dateStr) => {
   if (!dateStr) return "";
-  const date = new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : dateStr.replace(" ", "T") + "Z");
-  const mins = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  const mins = Math.max(0, Math.floor((Date.now() - newsTime(dateStr)) / 60000));
   if (Number.isNaN(mins)) return "";
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins} min ago`;
@@ -3354,6 +3370,9 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   // Bumped when a load finishes with nothing new, so the observer re-arms
   // (the sentinel is still in view and would not fire again on its own).
   const [loadTick, setLoadTick] = useState(0);
+  // Stories published since the feed was loaded, found by a quiet check.
+  const [newCount, setNewCount] = useState(0);
+  const lastFetchRef = useRef(0);
   const feedRef = useRef(null);
   const sentinelRef = useRef(null);
 
@@ -3380,7 +3399,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
     setFeedState("more");
     seenRef.current = new Set();
     try {
-      const res = await fetch(newsUrl(cat, query, lang));
+      const res = await fetch(newsUrl(cat, query, lang), { cache: "no-store" });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       if (id !== requestIdRef.current) return;
@@ -3390,7 +3409,9 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
         // A search is one stream; a category continues into the others.
         queue: query ? [] : NEWS_CATEGORIES.filter((c) => c !== cat),
       };
-      setArticles(keepNew(data.results || []));
+      setArticles(keepNew(freshNewsFirst(data.results || [])));
+      setNewCount(0);
+      lastFetchRef.current = Date.now();
       if (feedRef.current) feedRef.current.scrollTop = 0;
     } catch (e) {
       if (id !== requestIdRef.current) return;
@@ -3419,13 +3440,15 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
           page = null;
           streamRef.current = { ...stream, cat, page: null, queue: stream.queue.slice(1) };
         }
-        const res = await fetch(newsUrl(cat, stream.query, stream.lang, page));
+        const res = await fetch(newsUrl(cat, stream.query, stream.lang, page), { cache: "no-store" });
         if (id !== requestIdRef.current) return;
         if (!res.ok) throw new Error(`API error ${res.status}`);
         const data = await res.json();
         if (id !== requestIdRef.current) return;
         streamRef.current = { ...streamRef.current, cat, page: data.nextPage || null };
-        const fresh = keepNew(data.results || []);
+        // Later pages only add stories that are still recent.
+        const cutoff = Date.now() - NEWS_MAX_AGE_MS;
+        const fresh = keepNew(freshNewsFirst(data.results || []).filter((a) => !newsTime(a.pubDate) || newsTime(a.pubDate) >= cutoff));
         if (fresh.length) {
           setArticles((prev) => [...prev, ...fresh]);
           setFeedState("more");
@@ -3442,6 +3465,34 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
       if (id === requestIdRef.current) setLoadingMore(false);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- helpers only read refs
+
+  // While the feed is open, look for newer stories every few minutes (and
+  // when the app comes back to the foreground) and offer them with a pill,
+  // rather than reshuffling the list under the reader.
+  useEffect(() => {
+    if (category === SAVED_TAB || debouncedQuery) return undefined;
+    let alive = true;
+    const check = async () => {
+      if (document.hidden || loadingMoreRef.current) return;
+      try {
+        const res = await fetch(newsUrl(category, "", language), { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const newest = articles.reduce((max, a) => Math.max(max, newsTime(a.pubDate)), 0);
+        const unseen = (data.results || []).filter((a) => !seenRef.current.has(storyKey(a)) && newsTime(a.pubDate) > newest);
+        if (alive) setNewCount(unseen.length);
+      } catch { /* offline — try again next time */ }
+    };
+    const timer = setInterval(check, 4 * 60 * 1000);
+    const onVisible = () => {
+      if (document.hidden) return;
+      // Back after a long break: just reload rather than show a stale feed.
+      if (Date.now() - lastFetchRef.current > 20 * 60 * 1000) fetchNews(category, "", language);
+      else check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [category, debouncedQuery, language, articles, fetchNews]);
 
   // Start loading the next batch well before the reader reaches the bottom.
   useEffect(() => {
@@ -3609,6 +3660,11 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
           </div>
         </div>
 
+        {newCount > 0 && !loading && (
+          <button type="button" className="dv-newpill" onClick={() => fetchNews(category, "", language)}>
+            ↑ {newCount} new {newCount === 1 ? "story" : "stories"}
+          </button>
+        )}
         <div ref={feedRef} className={`dv-feed${hero && !loading && !error ? " has-hero" : ""}${searchOpen || searchQuery ? " searching" : ""}`}>
           {loading ? (
             <div className="dv-list">
