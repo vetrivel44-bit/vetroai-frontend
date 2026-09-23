@@ -1,6 +1,7 @@
 const { fillMissingImages, findArticleImage } = require("../services/articleImages");
 const ApiError = require("../utils/apiError");
 const { config } = require("../config/env");
+const logger = require("../utils/logger");
 const {
   detectNewsProvider,
   buildNewsRequest,
@@ -31,13 +32,60 @@ async function fetchJson(url, options = {}) {
   }
 }
 
+// Fetches one page from one news service, trying the provider's other auth
+// form once on a 401/403. Throws an ApiError that never echoes the key.
+async function fetchNewsPage(provider, requestParams) {
+  const request = buildNewsRequest(provider, requestParams);
+  try {
+    try {
+      return await fetchJson(request.url, { method: request.method, headers: request.headers, body: request.body });
+    } catch (error) {
+      // Some services document more than one way to pass the key (Currents
+      // has moved between a bare Authorization header, a Bearer one and an
+      // `apiKey` parameter). Rather than making the operator work out which
+      // their account wants, an unauthorized answer is retried once on the
+      // provider's other form.
+      const unauthorized = error?.statusCode === 401 || error?.statusCode === 403;
+      const fallback = unauthorized ? buildNewsAuthFallback(provider, requestParams, request) : null;
+      if (!fallback) throw error;
+      return await fetchJson(fallback.url, { headers: fallback.headers });
+    }
+  } catch (error) {
+    // The upstream status is the useful part, but its body can carry the key
+    // back in an echoed request URL — so only the status and the service name
+    // are passed on.
+    const status = error?.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
+    const reason = status === 401 || status === 403
+      ? `${providerLabel(provider)} rejected the configured news API key.`
+      : `${providerLabel(provider)} could not be reached (${status}).`;
+    throw new ApiError(status === 401 || status === 403 ? 503 : status, reason);
+  }
+}
+
+// Firecrawl's page cursors are tagged so a page fetched from the fallback is
+// continued from the fallback, not handed to the news API as its own cursor.
+const FIRECRAWL_PAGE_TAG = "fc_";
+
+// Which services serve the feed, in order. The news API (NEWS_API_KEY) is a
+// real-time feed sorted by publish time, so it comes first; Firecrawl's news
+// search ranks by relevance (stories hours old at the top), so it is only the
+// fallback — unless NEWS_PROVIDER=firecrawl asks for it outright.
+function newsProviderChain() {
+  const chain = [];
+  const forceFirecrawl = String(config.newsProvider || "").trim().toLowerCase() === "firecrawl";
+  if (config.newsDataApiKey && !forceFirecrawl) {
+    const provider = detectNewsProvider(config.newsDataApiKey, config.newsProvider);
+    if (provider && provider !== "firecrawl") chain.push({ provider, apiKey: config.newsDataApiKey });
+  }
+  const firecrawlKey = config.firecrawlApiKey || (detectNewsProvider(config.newsDataApiKey) === "firecrawl" ? config.newsDataApiKey : "");
+  if (firecrawlKey) chain.push({ provider: "firecrawl", apiKey: firecrawlKey });
+  return chain;
+}
+
 async function latestNews(req, res, next) {
   try {
-    // FIRECRAWL_API_KEY, when set, takes over the feed from NEWS_API_KEY.
-    const apiKey = config.firecrawlApiKey || config.newsDataApiKey;
-    if (!apiKey) throw new ApiError(503, "News service is not configured.");
-    const provider = config.firecrawlApiKey ? "firecrawl" : detectNewsProvider(apiKey, config.newsProvider);
-    if (!provider) throw new ApiError(503, "News service is not configured.");
+    let chain = newsProviderChain();
+    if (!chain.length) throw new ApiError(503, "News service is not configured.");
 
     const query = String(req.query.q || "").trim().slice(0, 100);
     const requested = String(req.query.category || "top").toLowerCase();
@@ -47,45 +95,32 @@ async function latestNews(req, res, next) {
       : "en";
     const limit = /^\d{1,3}$/.test(String(config.newsLimit || "")) ? Number(config.newsLimit) : 0;
     // Page cursor from the previous response's `nextPage` (opaque for
-    // newsdata, a number for the others).
+    // newsdata, a number for the others, `fc_N` for the Firecrawl fallback).
     const rawPage = String(req.query.page || "").trim();
-    const page = /^[A-Za-z0-9_-]{1,80}$/.test(rawPage) ? rawPage : "";
-
-    const requestParams = {
-      apiKey,
-      query,
-      category,
-      language,
-      limit,
-      page,
-    };
-    const request = buildNewsRequest(provider, requestParams);
-
-    let payload;
-    try {
-      try {
-        payload = await fetchJson(request.url, { method: request.method, headers: request.headers, body: request.body });
-      } catch (error) {
-        // Some services document more than one way to pass the key (Currents
-        // has moved between a bare Authorization header, a Bearer one and an
-        // `apiKey` parameter). Rather than making the operator work out which
-        // their account wants, an unauthorized answer is retried once on the
-        // provider's other form.
-        const unauthorized = error?.statusCode === 401 || error?.statusCode === 403;
-        const fallback = unauthorized ? buildNewsAuthFallback(provider, requestParams, request) : null;
-        if (!fallback) throw error;
-        payload = await fetchJson(fallback.url, { headers: fallback.headers });
-      }
-    } catch (error) {
-      // The upstream status is the useful part, but its body can carry the key
-      // back in an echoed request URL — so only the status and the service name
-      // are passed on.
-      const status = error?.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
-      const reason = status === 401 || status === 403
-        ? `${providerLabel(provider)} rejected the configured news API key.`
-        : `${providerLabel(provider)} could not be reached (${status}).`;
-      throw new ApiError(status === 401 || status === 403 ? 503 : status, reason);
+    let page = /^[A-Za-z0-9_-]{1,80}$/.test(rawPage) ? rawPage : "";
+    if (page.startsWith(FIRECRAWL_PAGE_TAG)) {
+      chain = chain.filter((entry) => entry.provider === "firecrawl");
+      page = page.slice(FIRECRAWL_PAGE_TAG.length);
+      if (!chain.length) throw new ApiError(400, "Invalid page cursor.");
     }
+
+    let provider;
+    let payload;
+    let lastError;
+    for (const entry of chain) {
+      try {
+        payload = await fetchNewsPage(entry.provider, { apiKey: entry.apiKey, query, category, language, limit, page });
+        provider = entry.provider;
+        break;
+      } catch (error) {
+        lastError = error;
+        logger.warn("news.providerFailed", { provider: entry.provider, status: error.statusCode, message: error.message });
+        // A cursor belongs to the service that issued it; the next service
+        // starts from its own first page.
+        page = "";
+      }
+    }
+    if (!provider) throw lastError;
 
     // Always the newsdata-shaped `results` array the frontend panel renders,
     // whichever service answered.
@@ -103,9 +138,10 @@ async function latestNews(req, res, next) {
       }
       delete article.thumbnail_url;
     }
+    const nextPage = nextNewsPage(provider, payload, page);
     // News goes stale in minutes — never let a browser or CDN reuse a copy.
     res.set("Cache-Control", "no-store, max-age=0");
-    return res.json({ results, nextPage: nextNewsPage(provider, payload, page) });
+    return res.json({ results, nextPage: nextPage && provider === "firecrawl" ? `${FIRECRAWL_PAGE_TAG}${nextPage}` : nextPage });
   } catch (error) {
     return next(error);
   }
