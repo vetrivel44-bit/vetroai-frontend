@@ -6009,7 +6009,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // bubble and returns the answer. Shared by the primary browser-model
       // path and the last-resort retry after the backend runs out of
       // providers. Returns null when the turn was superseded mid-stream.
-      const streamWithPuter = async (providerName) => {
+      const streamWithPuter = async (providerName, extraSystem = "") => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
         await window.whenPuter?.();
@@ -6021,8 +6021,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
           .slice(-50)
           .map(({ role, content }) => ({ role, content }));
-        if (finalSystemPrompt.trim()) {
-          puterMessages.unshift({ role: "system", content: finalSystemPrompt.trim() });
+        const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
+        if (puterSystem) {
+          puterMessages.unshift({ role: "system", content: puterSystem });
         }
 
         const puterOptions = {
@@ -6074,26 +6075,41 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Fallback for Web Search when the backend's search + AI answer fails:
       // Tavily's own summary via /web-search. It can't follow formatting
       // requests ("in points"), so it's only used when no AI answer is possible.
+      // Live web results from the backend's search endpoint, shaped like the
+      // `sources` the chat stream sends, so the source cards render the same.
+      const fetchWebResults = async () => {
+        setStreamStatus("Searching the web…");
+        const res = await fetch(`${API}/web-search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: userQuery }),
+          signal: ctrl.signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.success) throw new Error(json.message || `Search failed (${res.status})`);
+        const results = Array.isArray(json.data?.results) ? json.data.results : [];
+        const sources = results.filter((r) => /^https?:\/\//i.test(r.url || "")).map((r) => {
+          let domain = r.url;
+          try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { /* keep raw url */ }
+          return { title: r.title, url: r.url, domain, published: r.published || null, snippet: r.snippet || "" };
+        });
+        return { sources, summary: String(json.data?.answer || "").trim() };
+      };
+
+      // The same grounding instructions the backend gives its own models.
+      const webContextPrompt = ({ sources, summary }) => {
+        const list = sources.slice(0, 8).map((s, i) =>
+          `[${i + 1}] ${s.title || s.domain} — ${s.url}${s.published ? ` (${s.published})` : ""}\n${(s.snippet || "").slice(0, 700)}`
+        ).join("\n\n");
+        return `LIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
+          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally.";
+      };
+
       const answerWithDirectSearch = async () => {
         try {
-          setStreamStatus("Searching the web…");
-          const res = await fetch(`${API}/web-search`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: userQuery }),
-            signal: ctrl.signal,
-          });
-          const json = await res.json().catch(() => ({}));
+          const { sources, summary } = await fetchWebResults();
           if (!isActive()) return;
-          if (!res.ok || !json.success) throw new Error(json.message || `Search failed (${res.status})`);
-
-          const results = Array.isArray(json.data?.results) ? json.data.results : [];
-          const sources = results.filter((r) => /^https?:\/\//i.test(r.url || "")).map((r) => {
-            let domain = r.url;
-            try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { /* keep raw url */ }
-            return { title: r.title, url: r.url, domain, published: r.published || null, snippet: r.snippet || "" };
-          });
-          let answer = String(json.data?.answer || "").trim();
+          let answer = summary;
           if (!answer && sources.length) {
             answer = sources.slice(0, 6).map((s, i) => `${i + 1}. **[${s.title || s.domain}](${s.url})**${s.snippet ? ` — ${s.snippet}` : ""}`).join("\n");
           }
@@ -6180,6 +6196,47 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
+
+      // Web search with a browser model: browser models can't search, and the
+      // backend doesn't know them — it used to answer with its own top-weighted
+      // model (Plugsky) instead of the one the user picked. So search here via
+      // the backend, then let the chosen model answer from those results.
+      if (puterModelId && shouldWebSearch && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+        let web = null;
+        try {
+          web = await fetchWebResults();
+        } catch (searchErr) {
+          if (searchErr?.name === "AbortError" || !isActive()) throw searchErr;
+          addDebugLog("WebSearch.groundingFailed", { reqId, error: searchErr?.message });
+        }
+        if (!isActive()) return;
+        if (web && (web.sources.length || web.summary)) {
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], sources: web.sources.length ? web.sources : null };
+            return next;
+          });
+          try {
+            const groundedBot = await streamWithPuter(effectivePuterProvider, webContextPrompt(web));
+            if (!isActive() || groundedBot === null) return;
+            finishChat(groundedBot);
+            return;
+          } catch (puterErr) {
+            if (!isActive()) return;
+            if (isPuterCreditsError(puterErr)) puterCreditsExhaustedRef.current.add(effectivePuterProvider);
+            addDebugLog("WebSearch.browserModelFailed", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: "" };
+              return next;
+            });
+            setStreamingContent("");
+            // Falls through to the backend, which now maps this model to its
+            // own closest equivalent.
+          }
+        }
+      }
+
       if (puterModelId && !shouldWebSearch && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         if (fileCount > 0) {
           throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);

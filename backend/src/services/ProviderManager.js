@@ -10,6 +10,34 @@ const fableAdapter = require("../providers/fableAdapter");
 const plugskyAdapter = require("../providers/plugskyAdapter");
 const cohereAdapter = require("../providers/cohereAdapter");
 
+// The picker's model names (most of which run in the browser) mapped to the
+// backend provider of the same family. Without this, an unknown name such as
+// "GPT-5.6 Sol" was ignored and the request went to whichever provider had the
+// highest weight — so every browser-model web search was answered by Plugsky.
+const PROVIDER_ALIASES = [
+  [/^gpt[-\s]|openai|codex|chatgpt/i, "chatgpt"],
+  [/claude|fable/i, "fable"],
+  [/gemini|google/i, "gemini"],
+  [/^groq$/i, "groq"],
+  [/mistral/i, "mistral"],
+  [/sambanova/i, "sambanova"],
+  [/agnes/i, "agnes"],
+  [/plugsky/i, "plugsky"],
+  [/cohere/i, "cohere"],
+];
+
+function resolveProviderName(label) {
+  const text = String(label || "").trim();
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  const alias = PROVIDER_ALIASES.find(([rx]) => rx.test(text));
+  return alias ? alias[1] : lower;
+}
+
+// Modes that answer from live search results. Plugsky's long visible-thinking
+// style is a poor fit there, so Auto prefers models that answer directly.
+const SEARCH_MODES = new Set(["web_search", "research", "deep_search"]);
+
 class ProviderManager {
   constructor() {
     this.providers = {
@@ -176,7 +204,7 @@ class ProviderManager {
   getBestProvider(mode, preferredProvider) {
     // If user explicitly chose a provider, try it first if not suspended
     if (preferredProvider && !["undefined", "auto"].includes(preferredProvider.toLowerCase())) {
-      const pref = preferredProvider.toLowerCase();
+      const pref = resolveProviderName(preferredProvider);
       if (this.providers[pref] && this.isConfigured(pref)) {
         // Unsuspend if cooldown has passed
         const p = this.providers[pref];
@@ -226,6 +254,10 @@ class ProviderManager {
       } else if (mode === "creative") {
         if (a === "mistral") scoreA += 50;
         if (b === "mistral") scoreB += 50;
+      }
+      if (SEARCH_MODES.has(mode)) {
+        if (a === "plugsky") scoreA -= 60;
+        if (b === "plugsky") scoreB -= 60;
       }
 
       return scoreB - scoreA;
