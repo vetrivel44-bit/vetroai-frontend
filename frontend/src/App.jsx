@@ -105,7 +105,8 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       const type = event.type || (event.content ? "content" : null);
       const data = event.data ?? event.content;
       if (type === "content" && data) {
-        accumulated += data;
+        // Tokenizer placeholders from a degraded model are never for the reader.
+        accumulated += String(data).replace(/<unk>|<\|[a-z_]{1,24}\|>/gi, "");
         onChunk(accumulated);
       } else if (type === "clear") {
         accumulated = "";
@@ -115,7 +116,7 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       } else if (type === "reasoning_start") {
         emitReasoning(true);
       } else if (type === "reasoning" && data) {
-        reasoning += data;
+        reasoning += String(data).replace(/<unk>|<\|[a-z_]{1,24}\|>/gi, "");
         emitReasoning(true);
       } else if (type === "reasoning_end") {
         emitReasoning(false, Number(data) || null);
@@ -6196,6 +6197,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
+
+      // Web Search with "Auto": the user wants the web's answer, not a chat
+      // model's — so answer straight from the search (its summary plus the
+      // source cards). Only if that finds nothing does a model get the turn.
+      if (selectedMode === "web_search" && selectedProvider === "Auto" && fileCount === 0) {
+        if (await answerWithDirectSearch()) return;
+        if (!isActive()) return;
+      }
 
       // Web search with a browser model: browser models can't search, and the
       // backend doesn't know them — it used to answer with its own top-weighted

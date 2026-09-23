@@ -20,7 +20,43 @@ function TaskReply({ content }) {
   const segments = useMemo(() => splitVisualBlocks(content), [content]);
   return segments.map((segment, i) => segment.kind === "visual"
     ? <div key={i} className="cowork-visual not-prose"><StructuredResponseRenderer response={segment.raw} /></div>
-    : <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>);
+    : <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>{segment.text}</ReactMarkdown>);
+}
+
+const textOf = (node) => {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  return textOf(node.props?.children);
+};
+
+// Code in a task reply. A generated website is hundreds of lines of HTML/CSS
+// that used to be dumped into the thread as plain text; long blocks now start
+// collapsed behind a compact card (language, line count, copy), since the
+// live preview and the download button are what the reader actually wants.
+function CodeBlock({ children }) {
+  const code = textOf(children).replace(/\n$/, "");
+  const langClass = Array.isArray(children) ? children[0]?.props?.className : children?.props?.className;
+  const lang = /language-([\w+-]+)/.exec(langClass || "")?.[1] || "code";
+  const lines = code ? code.split("\n").length : 0;
+  const [open, setOpen] = useState(lines <= 24);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
+  };
+  return (
+    <div className="cowork-code not-prose">
+      <div className="cowork-code-head">
+        <span className="cowork-code-lang">{lang.toUpperCase()}</span>
+        <span className="cowork-code-lines">{lines} line{lines === 1 ? "" : "s"}</span>
+        <button type="button" onClick={copy}>{copied ? <><Check size={13} /> Copied</> : "Copy"}</button>
+        <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open}>
+          {open ? "Hide code" : "Show code"} <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
+        </button>
+      </div>
+      {open && <pre className="cowork-code-body"><code>{code}</code></pre>}
+    </div>
+  );
 }
 
 const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
