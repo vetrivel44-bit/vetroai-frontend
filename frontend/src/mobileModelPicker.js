@@ -13,7 +13,7 @@ const MODEL_TASKS = {
 // Single source of truth for provider/model branding on mobile. Never fall back
 // to unrelated Lucide action icons (the old Mistral briefcase regression).
 const MODEL_ICON_RULES = [
-  [/^auto$/i, '/favicon.svg'],
+  [/^auto$|agnes|vetro/i, '/model-icons/vetro.svg'],
   [/^gpt-|openai|codex/i, '/model-icons/openai.svg'],
   [/claude/i, '/model-icons/claude.svg'],
   [/grok|xai/i, '/model-icons/grok.svg'],
@@ -24,7 +24,7 @@ const MODEL_ICON_RULES = [
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
-const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/favicon.svg';
+const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/model-icons/vetro.svg';
 const makeModelIcon = (label, extraClass = '') => {
   const img = document.createElement('img');
   img.src = modelIconSrc(label);
@@ -73,9 +73,16 @@ function syncHeaderModel() {
   if (selected) setHeaderModel(selected);
 }
 
+// The logo sits inside its own tile element, so theme styling can recolour
+// the glyph (white brand marks go dark in light mode) without touching the
+// tile — when the <img> itself was the tile, that filter turned it black.
 function cloneModelIcon(option) {
   const name = modelNameFromOption(option) || 'Auto';
-  return makeModelIcon(name, 'mobile-model-row-icon');
+  const tile = document.createElement('span');
+  tile.className = 'mobile-model-row-icon';
+  tile.setAttribute('aria-hidden', 'true');
+  tile.appendChild(makeModelIcon(name));
+  return tile;
 }
 
 function syncSelectedModel() {

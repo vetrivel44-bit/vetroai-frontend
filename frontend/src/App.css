@@ -13136,6 +13136,16 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 
 /* Feed: the lead photo slides up under the floating header. */
 .dv-feed { flex: 1; min-height: 0; overflow-y: auto; padding: var(--dv-head) 16px 48px; }
+/* A slim scrollbar that only shows while the pointer is over the feed —
+   the platform default (grey track + arrow buttons on Windows) cut a hard
+   stripe down the rounded panel. Wheel/touch scrolling is unaffected. */
+.dv-feed { scrollbar-width: thin; scrollbar-color: transparent transparent; scrollbar-gutter: auto; overscroll-behavior: contain; }
+.dv-feed:hover, .dv-feed:focus-within { scrollbar-color: color-mix(in srgb, var(--ink) 28%, transparent) transparent; }
+.dv-feed::-webkit-scrollbar { width: 10px; }
+.dv-feed::-webkit-scrollbar-track { background: transparent; }
+.dv-feed::-webkit-scrollbar-button { display: none; height: 0; }
+.dv-feed::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+.dv-feed:hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--ink) 28%, transparent); }
 .dv-feed.searching { padding-top: calc(var(--dv-head) + 58px); }
 .dv-feed.has-hero { padding-top: 12px; }
 .dv-feed.has-hero.searching { padding-top: 70px; }

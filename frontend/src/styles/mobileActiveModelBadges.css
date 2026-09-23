@@ -50,9 +50,14 @@
   }
 }
 
-/* These brand marks are drawn in pure white for dark surfaces. Beside a reply
-   on the light theme they vanish, so render them near-black there. (The model
-   picker sheet stays dark in both themes, so it keeps the white marks.) */
+/* On the light theme the avatar circle is light, and these pure-white brand
+   marks are rendered near-black on it. (The circle must be light too — a dark
+   circle with a darkened mark hid the logo entirely.) */
+[data-theme="light"] .provider-response-avatar > div,
+[data-theme="light"] .provider-response-avatar > span {
+  background: #ffffff !important;
+  border: 1px solid rgba(31, 30, 29, 0.14) !important;
+}
 [data-theme="light"] .provider-response-avatar img[src$="/model-icons/openai.svg"],
 [data-theme="light"] .provider-response-avatar img[src$="/model-icons/grok.svg"],
 [data-theme="light"] .provider-response-avatar img[src$="/model-icons/perplexity.svg"],

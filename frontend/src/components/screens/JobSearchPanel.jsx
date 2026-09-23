@@ -668,7 +668,7 @@ const S = `
 
   .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:jSpin .7s linear infinite;}
 
-  .jsp-det{position:absolute;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
+  .jsp-det{position:absolute;inset:0;z-index:30;border-radius:inherit;background:var(--bg);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
   .jsp-dhd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--ln);gap:10px;}
   .jsp-backb{display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--tx2);cursor:pointer;font-size:13px;font-weight:600;padding:0;transition:color .15s;font-family:inherit;white-space:nowrap;}
   .jsp-backb:hover{color:var(--tx);}
@@ -678,9 +678,10 @@ const S = `
   .jsp-applybig{display:flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .15s;font-family:inherit;white-space:nowrap;}
   .jsp-applybig:hover{opacity:.88;}
   .jsp-dbody{flex:1;min-height:0;display:flex;overflow:hidden;}
-  .jsp-dmain{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:22px;scrollbar-width:none;-ms-overflow-style:none;}
+  .jsp-dmain{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:24px 28px 40px;scrollbar-width:thin;scrollbar-color:var(--ln2) transparent;}
   .jsp-dmain::-webkit-scrollbar{display:none;}
-  .jsp-dside{flex-shrink:0;width:280px;border-left:1px solid var(--ln);padding:22px 18px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:14px;}
+  .jsp-dside{flex-shrink:0;width:300px;border-left:1px solid var(--ln);padding:22px 18px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--ln2) transparent;display:flex;flex-direction:column;gap:14px;}
+  .jsp-dside > *{flex-shrink:0;}
   .jsp-dside::-webkit-scrollbar{display:none;}
   .jsp-dco{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
   .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
@@ -689,7 +690,7 @@ const S = `
   .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
   .jsp-dbdgs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px;}
   .jsp-stit{font-size:14px;font-weight:700;color:var(--tx);margin:0 0 9px;}
-  .jsp-desc{font-size:13.5px;color:var(--tx2);line-height:1.75;margin:0;white-space:pre-line;}
+  .jsp-desc{font-size:14.5px;color:var(--tx2);line-height:1.75;margin:0;white-space:pre-line;max-width:72ch;}
   .jsp-hr{border:none;border-top:1px solid var(--ln);margin:18px 0;}
   .jsp-rlist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
   .jsp-rit{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:var(--tx2);line-height:1.55;}
@@ -1029,6 +1030,7 @@ export default function JobSearchPanel({ onClose }) {
             <button className="jsp-applybig" onClick={e => { e.stopPropagation(); window.open(job.applyUrl, "_blank", "noopener,noreferrer"); }}>
               Apply Now <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
             </button>
+            <button className="jsp-xb" onClick={onClose} aria-label="Close job search"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
           </div>
         </div>
         <div className="jsp-dbody">
@@ -1217,8 +1219,11 @@ export default function JobSearchPanel({ onClose }) {
               </>
             )}
 
-            {detail && <Detail job={detail} />}
           </div>
+
+          {/* Details cover the whole panel (not just the results area under
+              the search bar, chips and tabs) so there is room to read them. */}
+          {detail && <Detail job={detail} />}
         </div>
       </div>
     </>
