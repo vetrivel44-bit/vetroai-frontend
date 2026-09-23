@@ -543,9 +543,9 @@ const fmtKm = km => km < 1 ? `${Math.max(100, Math.round(km * 10) * 100)} m` : `
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = `
-  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;--skys:rgba(56,189,248,.12);--shA:rgba(255,255,255,.04);--shB:rgba(255,255,255,.09);--sh:0 30px 80px rgba(0,0,0,.6);--scrim:rgba(5,7,14,.72);--err:#f87171;--errs:rgba(248,113,113,.12);
+  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;--skys:rgba(56,189,248,.12);--shA:rgba(255,255,255,.04);--shB:rgba(255,255,255,.09);--sh:0 30px 80px rgba(0,0,0,.6);--scrim:rgba(5,7,14,.72);--scrim2:rgba(0,0,0,.5);--err:#f87171;--errs:rgba(248,113,113,.12);
     position:fixed;inset:0;z-index:9999;background:var(--scrim);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
-  :root[data-theme="light"] .jsp-ov{--bg:#f5f6fb;--sf:#ffffff;--sf2:#eceff7;--ln:rgba(30,41,82,.11);--ln2:rgba(30,41,82,.2);--tx:#141a2e;--tx2:#4b5575;--tx3:#8a93ad;--ac:#6a55f0;--ac2:#3b6ff5;--acs:rgba(106,85,240,.1);--acb:rgba(106,85,240,.35);--ok:#059669;--oks:rgba(5,150,105,.1);--sky:#0284c7;--skys:rgba(2,132,199,.1);--shA:rgba(20,26,46,.05);--shB:rgba(20,26,46,.1);--sh:0 30px 80px rgba(20,26,46,.25);--scrim:rgba(20,26,46,.4);--err:#dc2626;--errs:rgba(220,38,38,.08);}
+  :root[data-theme="light"] .jsp-ov{--bg:#f5f6fb;--sf:#ffffff;--sf2:#eceff7;--ln:rgba(30,41,82,.11);--ln2:rgba(30,41,82,.2);--tx:#141a2e;--tx2:#4b5575;--tx3:#8a93ad;--ac:#6a55f0;--ac2:#3b6ff5;--acs:rgba(106,85,240,.1);--acb:rgba(106,85,240,.35);--ok:#059669;--oks:rgba(5,150,105,.1);--sky:#0284c7;--skys:rgba(2,132,199,.1);--shA:rgba(20,26,46,.05);--shB:rgba(20,26,46,.1);--sh:0 24px 64px rgba(30,41,82,.16),0 2px 6px rgba(30,41,82,.06);--scrim:rgba(232,235,245,.8);--scrim2:rgba(20,26,46,.28);--err:#dc2626;--errs:rgba(220,38,38,.08);}
   .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--ln);border-radius:20px;box-shadow:var(--sh);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
   @keyframes jIn{from{opacity:0;transform:scale(.97) translateY(12px)}to{opacity:1;transform:none}}
   @keyframes jUp{from{transform:translateY(100%)}to{transform:none}}
@@ -739,7 +739,7 @@ const S = `
     .jsp-sbhd{display:flex;align-items:center;justify-content:space-between;padding:6px 0 0;}
     .jsp-sbhd::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:4px;background:var(--ln2);}
     .jsp-sbhd b{font-size:16px;color:var(--tx);padding-top:12px;}
-    .jsp-scrim{display:block;position:absolute;inset:0;z-index:14;background:rgba(0,0,0,.5);}
+    .jsp-scrim{display:block;position:absolute;inset:0;z-index:14;background:var(--scrim2);}
     .jsp-dhd{padding:10px 14px;}
     .jsp-dbody{flex-direction:column;overflow-y:auto;}
     .jsp-dmain,.jsp-dside{overflow:visible;flex:none;}
