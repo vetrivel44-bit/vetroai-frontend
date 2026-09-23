@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import StructuredResponseRenderer from "../structured/StructuredResponseRenderer";
+import { splitVisualBlocks, visualsToMarkdown } from "../../lib/structuredSegments";
 import "./ComputerUI.css";
 import { resolveApiBase } from "../../lib/apiBase";
 import {
@@ -10,6 +13,16 @@ import {
 } from "lucide-react";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
+// Replies can mix prose with visual JSON blocks (timeline, chart, metrics…).
+// Draw each block with the chat's visual renderer, in place, instead of
+// showing the raw JSON.
+function TaskReply({ content }) {
+  const segments = useMemo(() => splitVisualBlocks(content), [content]);
+  return segments.map((segment, i) => segment.kind === "visual"
+    ? <div key={i} className="cowork-visual not-prose"><StructuredResponseRenderer response={segment.raw} /></div>
+    : <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>);
+}
+
 const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
 const STORE_KEY = "vetroai_cowork_tasks_v2";
 // Mouse/keyboard/app control needs the local companion — a page served from
@@ -200,7 +213,7 @@ function markdownTableToCsv(markdown) {
   return data.length ? data : [["VetroAI result"], [String(markdown || "").replace(/[#*_]/g, "")]];
 }
 function downloadSpreadsheet(title, markdown) {
-  const csv = markdownTableToCsv(markdown).map(row => row.map(cell => JSON.stringify(String(cell))).join(",")).join("\\r\\n");
+  const csv = markdownTableToCsv(markdown).map(row => row.map(cell => JSON.stringify(String(cell))).join(",")).join("\r\n");
   downloadBlob("\ufeff" + csv, "text/csv;charset=utf-8", safeFilename(title, "VetroAI-spreadsheet") + ".csv");
 }
 async function requestCurrentLocation() {
@@ -1036,11 +1049,11 @@ export default function ComputerUI({ onClose }) {
                         {message.role === "assistant"
                           ? (message.content ? (
                             <>
-                              <ReactMarkdown>{message.content}</ReactMarkdown>
+                              <TaskReply content={message.content} />
                               {message.exports?.length > 0 && (
                                 <div className="cowork-export-actions">
-                                  {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, message.content)}><Download size={15} /> Download Word document</button>}
-                                  {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, message.content)}><Download size={15} /> Download spreadsheet</button>}
+                                  {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, visualsToMarkdown(message.content))}><Download size={15} /> Download Word document</button>}
+                                  {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, visualsToMarkdown(message.content))}><Download size={15} /> Download spreadsheet</button>}
                                   {message.exports.includes("website") && extractHtmlDocument(message.content) && (
                                     <>
                                       <button type="button" onClick={() => downloadBlob(extractHtmlDocument(message.content), "text/html;charset=utf-8", safeFilename(activeTask.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
