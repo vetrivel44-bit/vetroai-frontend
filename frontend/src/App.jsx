@@ -27,6 +27,7 @@ import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userS
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -3123,25 +3124,34 @@ const timeAgo = (dateStr) => {
   return `${Math.floor(hrs / 24)}d`;
 };
 
-// Not every provider sends a usable image (newsapi and thenewsapi both leave
-// it null fairly often — see newsProviders.js), and a real photo can still
-// 404. Either way the card should look like every other card, not lose its
-// whole image area, so a missing/broken photo gets a colored placeholder
-// instead of just leaving a gap. The color is picked deterministically from
-// the source name so the same outlet always lands on the same one.
-const NEWS_PLACEHOLDER_GRADIENTS = [
-  "linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)",
-  "linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)",
-  "linear-gradient(135deg, #10B981 0%, #06B6D4 100%)",
-  "linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%)",
-  "linear-gradient(135deg, #6366F1 0%, #3B82F6 100%)",
-  "linear-gradient(135deg, #F97316 0%, #DB2777 100%)",
+// When no photo can be found (the backend already tries the article page's own
+// preview image), the card shows the story's topic instead of a bare letter:
+// an icon picked from the article's category, else from words in the headline.
+const NEWS_TOPICS = [
+  { id: "conflict", Icon: Swords, label: "World", bg: "linear-gradient(135deg, #7F1D1D 0%, #B45309 100%)", words: /\b(war|wars|military|missile|strike|strikes|army|troops|attack|conflict|ceasefire|defen[cs]e|nato|pentagon|iran|israel|gaza|ukraine|russia)\b/i },
+  { id: "politics", Icon: Landmark, label: "Politics", bg: "linear-gradient(135deg, #1E3A8A 0%, #6D28D9 100%)", words: /\b(election|senate|congress|parliament|minister|president|gop|democrat|republican|government|policy|vote|lok sabha|bjp|campaign)\b/i },
+  { id: "sports", Icon: Trophy, label: "Sports", bg: "linear-gradient(135deg, #047857 0%, #0EA5E9 100%)", words: /\b(cricket|football|soccer|match|league|cup|olympic|games|tennis|nba|nfl|ipl|goal|tournament|medal|athlet\w*|coach)\b/i },
+  { id: "business", Icon: TrendingUp, label: "Business", bg: "linear-gradient(135deg, #065F46 0%, #15803D 100%)", words: /\b(market|markets|stock|stocks|shares|economy|inflation|rbi|fed|bank|earnings|revenue|profit|ipo|startup|funding|trade|tariff|sensex|nifty)\b/i },
+  { id: "technology", Icon: Cpu, label: "Technology", bg: "linear-gradient(135deg, #312E81 0%, #0891B2 100%)", words: /\b(ai|tech|software|app|apple|google|microsoft|openai|chip|chips|smartphone|iphone|android|cyber|robot|startup|gadget)\b/i },
+  { id: "health", Icon: HeartPulse, label: "Health", bg: "linear-gradient(135deg, #9D174D 0%, #E11D48 100%)", words: /\b(health|hospital|doctor|virus|disease|vaccine|covid|cancer|medical|patients?|who)\b/i },
+  { id: "science", Icon: Atom, label: "Science", bg: "linear-gradient(135deg, #0F766E 0%, #4338CA 100%)", words: /\b(science|space|nasa|isro|research|scientists?|planet|climate|study|discovery)\b/i },
+  { id: "entertainment", Icon: Clapperboard, label: "Entertainment", bg: "linear-gradient(135deg, #86198F 0%, #DB2777 100%)", words: /\b(film|movie|actor|actress|bollywood|hollywood|music|album|series|netflix|celebrity|box office|trailer)\b/i },
+  { id: "weather", Icon: CloudSun, label: "Weather", bg: "linear-gradient(135deg, #0369A1 0%, #38BDF8 100%)", words: /\b(weather|rain|monsoon|storm|cyclone|flood|heatwave|temperature|snow)\b/i },
+  { id: "travel", Icon: Plane, label: "Travel", bg: "linear-gradient(135deg, #1D4ED8 0%, #0EA5E9 100%)", words: /\b(flight|airline|airport|travel|tourism|visa)\b/i },
+  { id: "auto", Icon: Car, label: "Auto", bg: "linear-gradient(135deg, #374151 0%, #B91C1C 100%)", words: /\b(car|cars|ev|tesla|auto|vehicle|motors?)\b/i },
+  { id: "crime", Icon: Scale, label: "Law", bg: "linear-gradient(135deg, #3F3F46 0%, #52525B 100%)", words: /\b(court|judge|police|arrest\w*|crime|lawsuit|trial|verdict|supreme court)\b/i },
 ];
-function gradientForSource(name) {
-  const text = String(name || "");
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
-  return NEWS_PLACEHOLDER_GRADIENTS[Math.abs(hash) % NEWS_PLACEHOLDER_GRADIENTS.length];
+const NEWS_TOPIC_DEFAULT = { id: "news", Icon: Newspaper, label: "News", bg: "linear-gradient(135deg, #334155 0%, #64748B 100%)" };
+const NEWS_CATEGORY_TOPIC = { business: "business", technology: "technology", sports: "sports", entertainment: "entertainment", health: "health", science: "science", politics: "politics", world: "conflict", environment: "weather", crime: "crime" };
+
+function topicForArticle(article) {
+  const categories = [].concat(article.category || []).map((c) => String(c).toLowerCase());
+  const text = `${article.title || ""} ${article.description || ""}`;
+  const byWords = NEWS_TOPICS.find((t) => t.words.test(article.title || "")) || NEWS_TOPICS.find((t) => t.words.test(text));
+  const byCategory = categories.map((c) => NEWS_TOPICS.find((t) => t.id === NEWS_CATEGORY_TOPIC[c])).find(Boolean);
+  // A headline about a war filed under "top" should still read as world news,
+  // so specific words win over a generic category.
+  return byWords || byCategory || NEWS_TOPIC_DEFAULT;
 }
 
 // One card, shared by the featured hero slot, the regular grid and the Saved
@@ -3150,7 +3160,8 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
   const [copied, setCopied] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const hasImage = Boolean(article.image_url) && !imgFailed;
-  const initial = (article.source_name || article.source_id || article.title || "N").trim().charAt(0).toUpperCase();
+  const topic = topicForArticle(article);
+  const TopicIcon = topic.Icon;
   const descLimit = featured ? 220 : 120;
   const desc = article.description
     ? article.description.slice(0, descLimit) + (article.description.length > descLimit ? "…" : "")
@@ -3184,8 +3195,12 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
               onError={() => setImgFailed(true)}
             />
           ) : (
-            <div className="news-card-img-placeholder" style={{ background: gradientForSource(article.source_name || article.source_id) }}>
-              <span className="news-img-placeholder-letter">{initial}</span>
+            <div className="news-card-img-placeholder" style={{ background: topic.bg }} aria-label={`${topic.label} story`}>
+              <TopicIcon className="news-topic-icon" size={featured ? 64 : 40} strokeWidth={1.5} aria-hidden="true" />
+              <span className="news-topic-source">
+                {article.source_icon && <img src={article.source_icon} alt="" onError={e => { e.target.style.display = "none"; }} />}
+                {article.source_name || article.source_id || topic.label}
+              </span>
             </div>
           )}
         </div>
@@ -5978,84 +5993,106 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       let backendFailure = null;
       let streamError = "";
       let bot = "";
-      try {
-        const res = await fetch(API + "/chat", {
-          method: "POST",
-          body: fd,
-          signal: ctrl.signal
-        });
+      // An empty reply or a dropped connection is usually momentary (a provider
+      // closing early, the server waking up), so one quiet retry of the same
+      // request is cheaper for the user than an error they have to retry by hand.
+      for (let backendAttempt = 0; backendAttempt < 2; backendAttempt++) {
+        backendFailure = null;
+        streamError = "";
+        bot = "";
+        try {
+          const res = await fetch(API + "/chat", {
+            method: "POST",
+            body: fd,
+            signal: ctrl.signal
+          });
 
-        if (!isActive()) return;
+          if (!isActive()) return;
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.message || `Server error: ${res.status}`);
-        }
-
-        const reader = res.body.getReader();
-
-        setIsTyping(false);
-        setIsWebSearching(false); // Clear web searching indicator once streaming starts
-        setStreamStatus("streaming");
-        bot = await readSSEStream(
-          reader,
-          (acc) => {
-            if (!isActive()) return;
-            setMessages(prev => {
-              const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
-            });
-            setStreamingContent(acc);
-            if (!isScrolling.current) scrollToBottom();
-          },
-          (statusMsg) => {
-            if (!isActive()) return;
-            setStreamStatus(statusMsg);
-            addDebugLog("SSE.status", { status: statusMsg });
-          },
-          (errorMsg) => {
-            streamError = errorMsg;
-          },
-          isActive,
-          reqId,
-          (reasoningText, { isThinking, durationMs }) => {
-            if (!isActive()) return;
-            setMessages(prev => {
-              if (prev.length === 0) return prev;
-              const u = [...prev];
-              const last = u[u.length - 1];
-              u[u.length - 1] = {
-                ...last,
-                reasoning: reasoningText,
-                isThinking,
-                thinkingMs: durationMs ?? last.thinkingMs ?? null,
-              };
-              return u;
-            });
-            if (!isScrolling.current) scrollToBottom();
-          },
-          (metaType, metaData) => {
-            if (!isActive()) return;
-            setMessages(prev => {
-              if (prev.length === 0) return prev;
-              const u = [...prev];
-              const last = { ...u[u.length - 1] };
-              if (metaType === "sources") last.sources = metaData;
-              if (metaType === "realtime_notice") last.realtimeNotice = metaData;
-              u[u.length - 1] = last;
-              return u;
-            });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message || `Server error: ${res.status}`);
           }
-        );
 
-        if (!isActive()) return;
+          const reader = res.body.getReader();
 
-        if (!bot || !bot.trim()) {
-          throw new Error(streamError
-            || "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models.");
+          setIsTyping(false);
+          setIsWebSearching(false); // Clear web searching indicator once streaming starts
+          setStreamStatus("streaming");
+          bot = await readSSEStream(
+            reader,
+            (acc) => {
+              if (!isActive()) return;
+              setMessages(prev => {
+                const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+              });
+              setStreamingContent(acc);
+              if (!isScrolling.current) scrollToBottom();
+            },
+            (statusMsg) => {
+              if (!isActive()) return;
+              setStreamStatus(statusMsg);
+              addDebugLog("SSE.status", { status: statusMsg });
+            },
+            (errorMsg) => {
+              streamError = errorMsg;
+            },
+            isActive,
+            reqId,
+            (reasoningText, { isThinking, durationMs }) => {
+              if (!isActive()) return;
+              setMessages(prev => {
+                if (prev.length === 0) return prev;
+                const u = [...prev];
+                const last = u[u.length - 1];
+                u[u.length - 1] = {
+                  ...last,
+                  reasoning: reasoningText,
+                  isThinking,
+                  thinkingMs: durationMs ?? last.thinkingMs ?? null,
+                };
+                return u;
+              });
+              if (!isScrolling.current) scrollToBottom();
+            },
+            (metaType, metaData) => {
+              if (!isActive()) return;
+              setMessages(prev => {
+                if (prev.length === 0) return prev;
+                const u = [...prev];
+                const last = { ...u[u.length - 1] };
+                if (metaType === "sources") last.sources = metaData;
+                if (metaType === "realtime_notice") last.realtimeNotice = metaData;
+                u[u.length - 1] = last;
+                return u;
+              });
+            }
+          );
+
+          if (!isActive()) return;
+
+          if (!bot || !bot.trim()) {
+            throw new Error(streamError
+              || "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models.");
+          }
+        } catch (err) {
+          if (err.name === "AbortError" || !isActive()) throw err;
+          backendFailure = err;
         }
-      } catch (err) {
-        if (err.name === "AbortError" || !isActive()) throw err;
-        backendFailure = err;
+        const emptyReply = backendFailure && !streamError && !bot.trim();
+        const droppedConnection = backendFailure instanceof TypeError
+          || /Server error: 50[234]\b/.test(backendFailure?.message || "");
+        if (!backendFailure || backendAttempt > 0 || !(emptyReply || droppedConnection)) break;
+        addDebugLog("Backend.retry", { reqId, error: backendFailure.message });
+        setMessages((previous) => {
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+          return next;
+        });
+        setStreamingContent("");
+        setStreamStatus("Retrying…");
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        if (!isActive()) return;
       }
 
       if (backendFailure) {

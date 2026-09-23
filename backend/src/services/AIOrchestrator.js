@@ -814,7 +814,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
         if (!stream) throw new Error("Provider returned empty stream");
 
         // Handle stream
-        await this.pipeStream(stream, res, currentProviderName);
+        const answer = await this.pipeStream(stream, res, currentProviderName);
+
+        // A stream can end cleanly without a single word of answer — the
+        // provider closed early, or the model spent the whole turn inside an
+        // unclosed <think> block. Counting that as success left the user with
+        // an empty reply ("The AI model failed to respond"); treat it as a
+        // provider failure so the fallback chain tries the next model.
+        if (!answer || !answer.trim()) throw new Error("Provider returned an empty response");
 
         // Append a real-image gallery if this query warranted one — fetched in parallel
         // above, so it's typically already resolved by the time the text stream finishes.
