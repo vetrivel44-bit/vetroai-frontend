@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { requestedFileFormats, fileRequestInstruction, exportDocument } from "./lib/documentExport";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -2509,6 +2510,79 @@ const SourceFavicon = ({ domain }) => {
     />
   );
 };
+
+const DOWNLOAD_FORMATS = [
+  { id: "pdf", label: "PDF", ext: ".pdf" },
+  { id: "docx", label: "Word", ext: ".docx" },
+  { id: "xlsx", label: "Excel", ext: ".xlsx" },
+];
+
+// Structured PDF / Word / Excel downloads for one assistant reply. `requested`
+// are the formats the user asked for; those get a prominent file card, and
+// every reply also carries a compact Download menu.
+function DocumentDownloads({ content, requested = [], variant = "menu" }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const run = async (format) => {
+    setBusy(format);
+    setError("");
+    try {
+      await exportDocument(format, content);
+      setOpen(false);
+    } catch (err) {
+      setError(err?.message || "Download failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (variant === "card") {
+    const formats = DOWNLOAD_FORMATS.filter((f) => requested.includes(f.id) || (f.id === "xlsx" && requested.includes("csv")));
+    if (!formats.length) return null;
+    const title = (String(content).match(/^#\s+(.+)$/m)?.[1] || "Your document").replace(/[*_`]/g, "").slice(0, 80);
+    return (
+      <div className="doc-dl-card" role="group" aria-label="Download this document">
+        <div className="doc-dl-card-info">
+          <span className="doc-dl-card-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h5" /></svg>
+          </span>
+          <span className="doc-dl-card-text">
+            <strong>{title}</strong>
+            <span>Ready to download</span>
+          </span>
+        </div>
+        <div className="doc-dl-card-actions">
+          {formats.map((f) => (
+            <button key={f.id} type="button" className="doc-dl-btn" onClick={() => run(f.id)} disabled={Boolean(busy)}>
+              {busy === f.id ? "Preparing…" : `Download ${f.label}`}
+            </button>
+          ))}
+        </div>
+        {error && <p className="doc-dl-error">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <span className="doc-dl-menu-wrap">
+      <button type="button" className="msg-action-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Download as a file" aria-label="Download as a file">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+        <span>Download</span>
+      </button>
+      {open && (
+        <span className="doc-dl-menu" role="menu">
+          {DOWNLOAD_FORMATS.map((f) => (
+            <button key={f.id} type="button" role="menuitem" onClick={() => run(f.id)} disabled={Boolean(busy)}>
+              {busy === f.id ? "Preparing…" : <>{f.label} <small>{f.ext}</small></>}
+            </button>
+          ))}
+          {error && <span className="doc-dl-error">{error}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const VISIBLE_SOURCE_CARDS = 3;
 
@@ -5475,6 +5549,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
       }
     }
+    // First, because the backend keeps only the first 2000 characters.
+    const requestedFiles = requestedFileFormats(userQuery);
+    if (requestedFiles.length) {
+      finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
+    }
     if (finalSystemPrompt.trim()) {
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
@@ -7403,6 +7482,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <span>{m.realtimeNotice}</span>
                              </div>
                            )}
+                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
+                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
                                <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
@@ -7414,6 +7496,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <button className="msg-action-btn" onClick={() => shareAiMsg(m.content)} title="Share response" aria-label="Share">
                                  <ShareIcon /><span>Share</span>
                                </button>
+                               <DocumentDownloads content={m.content} />
                                <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Like" aria-label="Like response">
                                  <ThumbsUpIcon />
                                </button>
