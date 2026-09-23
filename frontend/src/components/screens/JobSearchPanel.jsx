@@ -437,11 +437,27 @@ function generateJobs(query) {
   return results;
 }
 
+// ─── GEO HELPERS ─────────────────────────────────────────────────────────────
+const RADIUS_OPTIONS = [2, 5, 10, 25, 50];
+const toRad = d => d * Math.PI / 180;
+function distanceKm(lat1, lng1, lat2, lng2) {
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const fmtKm = km => km < 1 ? `${Math.max(100, Math.round(km * 10) * 100)} m` : `${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
+
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = `
-  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;
-    position:fixed;inset:0;z-index:9999;background:rgba(5,7,14,.72);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
-  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--ln);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
+  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;--skys:rgba(56,189,248,.12);--shA:rgba(255,255,255,.04);--shB:rgba(255,255,255,.09);--sh:0 30px 80px rgba(0,0,0,.6);--scrim:rgba(5,7,14,.72);--err:#f87171;--errs:rgba(248,113,113,.12);
+    position:fixed;inset:0;z-index:9999;background:var(--scrim);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
+  :root[data-theme="light"] .jsp-ov{--bg:#f5f6fb;--sf:#ffffff;--sf2:#eceff7;--ln:rgba(30,41,82,.11);--ln2:rgba(30,41,82,.2);--tx:#141a2e;--tx2:#4b5575;--tx3:#8a93ad;--ac:#6a55f0;--ac2:#3b6ff5;--acs:rgba(106,85,240,.1);--acb:rgba(106,85,240,.35);--ok:#059669;--oks:rgba(5,150,105,.1);--sky:#0284c7;--skys:rgba(2,132,199,.1);--shA:rgba(20,26,46,.05);--shB:rgba(20,26,46,.1);--sh:0 30px 80px rgba(20,26,46,.25);--scrim:rgba(20,26,46,.4);--err:#dc2626;--errs:rgba(220,38,38,.08);}
+  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--ln);border-radius:20px;box-shadow:var(--sh);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
   @keyframes jIn{from{opacity:0;transform:scale(.97) translateY(12px)}to{opacity:1;transform:none}}
   @keyframes jUp{from{transform:translateY(100%)}to{transform:none}}
   @keyframes jSpin{to{transform:rotate(360deg)}}
@@ -465,6 +481,36 @@ const S = `
   .jsp-srchbtn{width:46px;height:46px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .2s,transform .1s;flex-shrink:0;}
   .jsp-srchbtn:active{transform:scale(.96);} .jsp-srchbtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;}
   .jsp-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;}
+  .jsp-near{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;}
+  .jsp-nearbtn{display:flex;align-items:center;gap:7px;height:34px;padding:0 13px 0 10px;border-radius:100px;border:1px solid var(--acb);background:var(--acs);color:var(--ac);font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap;max-width:240px;transition:all .15s;}
+  .jsp-nearbtn span{overflow:hidden;text-overflow:ellipsis;}
+  .jsp-nearbtn:hover{border-color:var(--ac);}
+  .jsp-nearbtn.on{background:linear-gradient(135deg,var(--ac),var(--ac2));border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.3);}
+  .jsp-nearbtn:disabled{cursor:progress;opacity:.8;}
+  .jsp-nearbtn .jsp-spin{width:13px;height:13px;border-width:2px;border-color:var(--acb);border-top-color:var(--ac);}
+  .jsp-rads{display:flex;gap:4px;padding:3px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);}
+  .jsp-rad{height:28px;padding:0 10px;border-radius:100px;border:none;background:none;color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
+  .jsp-rad:hover{color:var(--tx);} .jsp-rad.on{background:var(--acs);color:var(--ac);}
+  .jsp-nearmsg{margin:8px 0 0;font-size:12px;color:var(--err);line-height:1.5;}
+  .jsp-dist{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ac);white-space:nowrap;}
+
+  .jsp-radar{display:flex;align-items:center;gap:18px;padding:14px 18px;margin-bottom:14px;border-radius:18px;background:var(--sf);border:1px solid var(--ln);}
+  .jsp-radar svg{width:190px;height:190px;flex-shrink:0;display:block;}
+  .jsp-radar .rg-bg{fill:var(--acs);} .jsp-radar .rg-ring{fill:none;stroke:var(--acb);stroke-width:.8;stroke-dasharray:3 3;}
+  .jsp-radar .rg-lbl{fill:var(--tx3);font-size:8px;font-weight:600;}
+  .jsp-radar .rg-me{fill:var(--ac);stroke:var(--sf);stroke-width:3;} .jsp-radar .rg-pulse{fill:var(--ac);}
+  .jsp-radar .rg-dot{stroke:var(--sf);stroke-width:2;cursor:pointer;transition:r .15s;} .jsp-radar .rg-dot:hover{r:8;}
+  .jsp-radar .rg-sweep{fill:url(#jsp-sweep);}
+  .jsp-rinfo{min-width:0;}
+  .jsp-rtit{font-size:16px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.2px;}
+  .jsp-rsub{font-size:13px;color:var(--tx2);margin:0 0 10px;line-height:1.5;}
+  .jsp-rnear{display:flex;flex-direction:column;gap:6px;}
+  .jsp-rnear button{display:flex;align-items:center;gap:8px;padding:0;border:none;background:none;font-family:inherit;cursor:pointer;text-align:left;color:var(--tx2);font-size:12.5px;min-width:0;}
+  .jsp-rnear button:hover{color:var(--tx);}
+  .jsp-rnear i{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+  .jsp-rnear em{font-style:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .jsp-rnear b{margin-left:auto;padding-left:8px;color:var(--ac);white-space:nowrap;}
+  .jsp-cta{margin-top:16px;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:100px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);}
   .jsp-chlbl{font-size:11px;color:var(--tx3);font-weight:600;}
   .jsp-chip{flex-shrink:0;padding:6px 12px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
   .jsp-chip:hover{background:var(--acs);border-color:var(--acb);color:var(--tx);}
@@ -488,7 +534,7 @@ const S = `
   .jsp-sbt{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);margin:0 0 8px;}
   .jsp-sbinp,.jsp-sbsel{width:100%;height:40px;padding:0 12px;background:var(--sf);border:1px solid var(--ln);border-radius:10px;color:var(--tx);font-size:13px;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color .15s;}
   .jsp-sbinp:focus,.jsp-sbsel:focus{border-color:var(--acb);} .jsp-sbinp::placeholder{color:var(--tx3);}
-  .jsp-sbsel{cursor:pointer;} .jsp-sbsel option{background:#121829;}
+  .jsp-sbsel{cursor:pointer;} .jsp-sbsel option{background:var(--sf);color:var(--tx);}
   .jsp-togrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;}
   .jsp-toglbl{font-size:13px;color:var(--tx2);}
   .jsp-tog{width:36px;height:20px;border-radius:100px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
@@ -504,7 +550,7 @@ const S = `
   .jsp-card::before{content:'';position:absolute;top:14px;bottom:14px;left:0;width:3px;border-radius:0 3px 3px 0;background:var(--cc,var(--ac));opacity:.85;}
   .jsp-card:hover{border-color:var(--ln2);background:var(--sf2);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.3);}
   .jsp-ctop{display:flex;align-items:flex-start;gap:12px;}
-  .jsp-logo{border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-logo{border-radius:10px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
   .jsp-logo img{width:78%;height:78%;object-fit:contain;}
   .jsp-cinfo{flex:1;min-width:0;}
   .jsp-ctit{font-size:15px;font-weight:700;color:var(--tx);margin:0 0 4px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -513,21 +559,22 @@ const S = `
   .jsp-sv:hover{background:var(--sf2);color:var(--tx);} .jsp-sv.on{background:var(--acs);color:var(--ac);}
   .jsp-cmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .b-r,.b-t,.b-e{padding:3px 9px;border-radius:100px;font-size:11px;font-weight:600;white-space:nowrap;}
-  .b-r{background:rgba(56,189,248,.12);color:var(--sky);}
+  .b-r{background:var(--skys);color:var(--sky);}
   .b-t{background:var(--sf2);color:var(--tx2);}
   .b-e{background:var(--acs);color:var(--ac);}
   .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--ln);}
   .jsp-sal{font-size:13.5px;font-weight:700;color:var(--ok);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .jsp-age{font-size:12px;color:var(--tx3);white-space:nowrap;}
 
   .jsp-skel{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:16px;display:flex;gap:12px;}
-  .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.09) 50%,rgba(255,255,255,.04) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
+  .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,var(--shA) 25%,var(--shB) 50%,var(--shA) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
 
   .jsp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;padding:32px 16px;}
-  .jsp-emico{width:60px;height:60px;border-radius:18px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
+  .jsp-emico{width:60px;height:60px;border-radius:18px;background:var(--acs);color:var(--ac);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
   .jsp-emtit{font-size:16px;font-weight:700;color:var(--tx);margin:0 0 6px;} .jsp-emsub{font-size:13px;color:var(--tx2);margin:0;line-height:1.6;max-width:360px;}
 
   .jsp-hrow{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-radius:12px;background:var(--sf);border:1px solid var(--ln);cursor:pointer;transition:background .15s;margin-bottom:8px;}
   .jsp-hrow:hover{background:var(--sf2);}
+  .jsp-hrow svg{color:var(--tx3);} .jsp-hrow span{font-size:13px;color:var(--tx2);font-weight:500;}
 
   .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:jSpin .7s linear infinite;}
 
@@ -546,7 +593,7 @@ const S = `
   .jsp-dside{flex-shrink:0;width:280px;border-left:1px solid var(--ln);padding:22px 18px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:14px;}
   .jsp-dside::-webkit-scrollbar{display:none;}
   .jsp-dco{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
-  .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
   .jsp-dlogo img{width:40px;height:40px;object-fit:contain;}
   .jsp-djt{font-size:21px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
   .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
@@ -562,15 +609,16 @@ const S = `
   .jsp-aic{border-radius:16px;padding:16px;background:linear-gradient(145deg,rgba(139,123,255,.16),rgba(56,189,248,.07));border:1px solid var(--acb);position:relative;overflow:hidden;}
   .jsp-aihd{display:flex;align-items:center;gap:6px;margin-bottom:12px;}
   .jsp-ailbl{font-size:11px;font-weight:700;color:var(--ac);text-transform:uppercase;letter-spacing:.6px;}
+  .jsp-rtrack{stroke:var(--sf2);}
   .jsp-rw{position:relative;width:70px;height:70px;margin:0 auto 12px;}
   .jsp-rn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
   .jsp-rbig{font-size:19px;font-weight:900;color:var(--tx);line-height:1;} .jsp-rpct{font-size:9px;color:var(--tx3);font-weight:600;}
   .jsp-ml{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
   .jsp-mt{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px;}
   .m-y{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:var(--oks);color:var(--ok);}
-  .m-n{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(248,113,113,.12);color:#f87171;}
+  .m-n{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:var(--errs);color:var(--err);}
   .jsp-sugl{display:flex;flex-direction:column;gap:4px;}
-  .jsp-sugi{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);padding:6px 9px;background:rgba(255,255,255,.04);border-radius:8px;}
+  .jsp-sugi{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);padding:6px 9px;background:var(--shA);border-radius:8px;}
   .jsp-coc{border-radius:14px;padding:14px;background:var(--sf);border:1px solid var(--ln);}
   .jsp-cor{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--ln);}
   .jsp-cor:last-child{border-bottom:none;} .jsp-cok{font-size:12px;color:var(--tx3);} .jsp-cov{font-size:12px;font-weight:600;color:var(--tx2);text-align:right;overflow-wrap:anywhere;}
@@ -586,6 +634,11 @@ const S = `
     .jsp-chips{flex-wrap:nowrap;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none;}
     .jsp-chips::-webkit-scrollbar{display:none;}
     .jsp-chlbl{display:none;}
+    .jsp-near{flex-wrap:nowrap;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none;}
+    .jsp-near::-webkit-scrollbar{display:none;}
+    .jsp-nearbtn{flex-shrink:0;max-width:170px;} .jsp-rads{flex-shrink:0;}
+    .jsp-radar{flex-direction:column;align-items:stretch;gap:12px;padding:14px;}
+    .jsp-radar svg{width:100%;max-width:180px;height:auto;margin:0 auto;}
     .jsp-tabs{padding:0 12px;}
     .jsp-tab{padding:10px 10px 12px;}
     .jsp-fbtn{display:flex;}
@@ -617,12 +670,19 @@ export default function JobSearchPanel({ onClose }) {
   const [noMatch, setNoMatch] = useState(false);
   const [detail, setDetail] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [near, setNear] = useState(() => {
+    let radius = 10;
+    try { const r = Number(localStorage.getItem("vsj3_radius")); if (RADIUS_OPTIONS.includes(r)) radius = r; } catch { /* ignore */ }
+    return { on: false, status: "idle", lat: null, lng: null, place: "", area: "", radius };
+  });
+  const [resultNear, setResultNear] = useState(null);
   const [filters, setFilters] = useState({ location: "", remote: false, experience: "" });
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
 
   useEffect(() => { localStorage.setItem("vsj3_saved", JSON.stringify(saved)); }, [saved]);
   useEffect(() => { localStorage.setItem("vsj3_hist", JSON.stringify(hist)); }, [hist]);
+  useEffect(() => { try { localStorage.setItem("vsj3_radius", String(near.radius)); } catch { /* ignore */ } }, [near.radius]);
 
   const isSv = j => saved.some(s => s.id === j.id);
   const togSv = (j, e) => { if (e) e.stopPropagation(); setSaved(p => isSv(j) ? p.filter(s => s.id !== j.id) : [{ ...j }, ...p]); };
@@ -636,16 +696,68 @@ export default function JobSearchPanel({ onClose }) {
     });
   };
 
-  const search = async (query = q, overrideFilters = null) => {
-    if (!query.trim()) return;
+  // Ask the browser for the user's position, then turn it into a place name for the job query.
+  const locate = () => new Promise(resolve => {
+    if (!navigator.geolocation) {
+      setNear(n => ({ ...n, on: false, status: "unsupported" }));
+      return resolve(null);
+    }
+    setNear(n => ({ ...n, status: "locating" }));
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      let place = "", area = "";
+      try {
+        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
+        const d = await r.json();
+        place = d.city || d.locality || d.principalSubdivision || "";
+        area = d.locality && d.locality !== place ? `${d.locality}, ${place}` : place;
+      } catch { /* distance filtering still works without a place name */ }
+      const next = { ...near, on: true, status: "ready", lat, lng, place, area };
+      setNear(next);
+      resolve(next);
+    }, err => {
+      setNear(n => ({ ...n, on: false, status: err.code === 1 ? "denied" : "error" }));
+      resolve(null);
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 });
+  });
+
+  const toggleNear = async () => {
+    if (near.status === "locating") return;
+    if (near.on) {
+      const next = { ...near, on: false };
+      setNear(next);
+      if (searched && q.trim()) search(q, null, next); else if (searched) { setSearched(false); setJobs([]); setResultNear(null); }
+      return;
+    }
+    let next = near.status === "ready" ? { ...near, on: true } : await locate();
+    if (!next) return;
+    setNear(next);
+    setTab("search");
+    search(q, null, next);
+  };
+
+  const setRadius = km => {
+    const next = { ...near, radius: km };
+    setNear(next);
+    if (next.on && next.status === "ready") search(q, null, next);
+  };
+
+  const search = async (query = q, overrideFilters = null, nearOverride = null) => {
+    const nr = nearOverride || near;
+    const useNear = nr.on && nr.status === "ready";
+    const role = query.trim();
+    if (!role && !useNear) return;
     setLoading(true); setSearched(true); setDetail(null); setNoMatch(false);
-    setHist(p => [query, ...p.filter(x => x !== query)].slice(0, 10));
+    setResultNear(useNear ? nr : null);
+    if (role) setHist(p => [role, ...p.filter(x => x !== role)].slice(0, 10));
 
     const activeFilters = overrideFilters || filters;
+    const apiQuery = useNear && nr.place ? `${role || "jobs"} in ${nr.place}` : (role || "jobs");
+    const radiusParam = useNear ? `&radius=${nr.radius}` : "";
 
     // Try live API first
     try {
-      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(query)}&page=1&num_pages=1`, {
+      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}`, {
         headers: { "x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST }
       });
       if (!res.ok) throw new Error("api");
@@ -669,9 +781,20 @@ export default function JobSearchPanel({ onClose }) {
           tags: [],
           logo: j.employer_logo || null,
           industry: j.employer_company_type || null,
-          website: j.employer_website || null
+          website: j.employer_website || null,
+          lat: typeof j.job_latitude === "number" ? j.job_latitude : null,
+          lng: typeof j.job_longitude === "number" ? j.job_longitude : null
         }));
         parsedJobs = applyClientFilters(parsedJobs, activeFilters);
+        if (useNear) {
+          // Jobs with coordinates must fall inside the radius; ones without keep the API's own radius match.
+          parsedJobs = parsedJobs
+            .map(j => j.lat != null && j.lng != null
+              ? { ...j, distance: distanceKm(nr.lat, nr.lng, j.lat, j.lng), bearing: bearingDeg(nr.lat, nr.lng, j.lat, j.lng) }
+              : { ...j, distance: null, bearing: null })
+            .filter(j => j.distance == null || j.distance <= nr.radius)
+            .sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity));
+        }
         if (parsedJobs.length === 0) setNoMatch(true);
         setJobs(parsedJobs);
         setLoading(false); return;
@@ -705,7 +828,7 @@ export default function JobSearchPanel({ onClose }) {
           <p className="jsp-cco">{job.company} · {job.location}</p>
         </div>
         <button className={`jsp-sv ${isSv(job) ? "on" : ""}`} onClick={e => togSv(job, e)}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill={isSv(job) ? "#8b7bff" : "none"} stroke={isSv(job) ? "#8b7bff" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill={isSv(job) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
         </button>
       </div>
       <div className="jsp-cmeta">
@@ -715,7 +838,9 @@ export default function JobSearchPanel({ onClose }) {
       </div>
       <div className="jsp-cfoot">
         <span className="jsp-sal">{job.salary ? formatSalary(job.salary.min, job.salary.max, job.salary.currency) : "Salary TBD"}</span>
-        <span className="jsp-age">{timeAgo(job.postedAt)}</span>
+        {job.distance != null
+          ? <span className="jsp-dist"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>{fmtKm(job.distance)}</span>
+          : <span className="jsp-age">{timeAgo(job.postedAt)}</span>}
       </div>
     </div>
   );
@@ -735,11 +860,65 @@ export default function JobSearchPanel({ onClose }) {
     </div>
   );
 
-  const Empty = ({ title, sub }) => (
+  const Radar = ({ list, nr, scanning }) => {
+    const C = 110, R = 96;
+    const pts = list.filter(j => j.distance != null).slice(0, 40);
+    const unknown = list.length - pts.length;
+    const place = nr.area || nr.place || "your location";
+    return (
+      <div className="jsp-radar">
+        <svg viewBox="0 0 220 220" role="img" aria-label={`Jobs within ${nr.radius} km`}>
+          <defs>
+            <radialGradient id="jsp-sweep" cx="0" cy="1" r="1"><stop offset="0%" style={{ stopColor: "var(--ac)", stopOpacity: .05 }} /><stop offset="100%" style={{ stopColor: "var(--ac)", stopOpacity: .35 }} /></radialGradient>
+          </defs>
+          <circle className="rg-bg" cx={C} cy={C} r={R} />
+          {[1 / 3, 2 / 3, 1].map(f => <circle key={f} className="rg-ring" cx={C} cy={C} r={R * f} />)}
+          {[1 / 3, 2 / 3].map(f => <text key={f} className="rg-lbl" x={C + 3} y={C - R * f + 9}>{fmtKm(nr.radius * f)}</text>)}
+          <text className="rg-lbl" x={C + 3} y={C - R + 9}>{nr.radius} km</text>
+          {scanning && (
+            <path className="rg-sweep" d={`M${C} ${C} L${C} ${C - R} A${R} ${R} 0 0 1 ${C + R * Math.sin(Math.PI / 3)} ${C - R * Math.cos(Math.PI / 3)} Z`}>
+              <animateTransform attributeName="transform" type="rotate" from={`0 ${C} ${C}`} to={`360 ${C} ${C}`} dur="2.2s" repeatCount="indefinite" />
+            </path>
+          )}
+          {pts.map(j => {
+            const d = Math.max(.06, j.distance / nr.radius) * R;
+            const a = toRad(j.bearing);
+            return (
+              <circle key={j.id} className="rg-dot" cx={C + Math.sin(a) * d} cy={C - Math.cos(a) * d} r="6" style={{ fill: j.color || "var(--ac)" }} onClick={() => setDetail(j)}>
+                <title>{`${j.title} · ${j.company} · ${fmtKm(j.distance)}`}</title>
+              </circle>
+            );
+          })}
+          <circle className="rg-pulse" cx={C} cy={C} r="7" opacity=".4">
+            <animate attributeName="r" values="7;26" dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values=".45;0" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+          <circle className="rg-me" cx={C} cy={C} r="7" />
+        </svg>
+        <div className="jsp-rinfo">
+          {scanning ? <>
+            <p className="jsp-rtit">Looking for jobs nearby…</p>
+            <p className="jsp-rsub">Searching within {nr.radius} km of {place}</p>
+          </> : <>
+            <p className="jsp-rtit">{list.length} job{list.length === 1 ? "" : "s"} within {nr.radius} km</p>
+            <p className="jsp-rsub">Around {place}{unknown > 0 ? ` · ${unknown} without an exact pin` : ""}</p>
+            {pts.length > 0 && <div className="jsp-rnear">
+              {pts.slice(0, 3).map(j => (
+                <button key={j.id} type="button" onClick={() => setDetail(j)}><i style={{ background: j.color || "var(--ac)" }} /><em>{j.title} · {j.company}</em><b>{fmtKm(j.distance)}</b></button>
+              ))}
+            </div>}
+          </>}
+        </div>
+      </div>
+    );
+  };
+
+  const Empty = ({ title, sub, action }) => (
     <div className="jsp-empty">
-      <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8b7bff" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
+      <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
       <p className="jsp-emtit">{title}</p>
       <p className="jsp-emsub">{sub}</p>
+      {action}
     </div>
   );
 
@@ -761,7 +940,7 @@ export default function JobSearchPanel({ onClose }) {
           </button>
           <div className="jsp-dacts">
             <button className={`jsp-dactb ${isSv(job) ? "on" : ""}`} onClick={() => togSv(job)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill={isSv(job) ? "#8b7bff" : "none"} stroke={isSv(job) ? "#8b7bff" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill={isSv(job) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
               <span>{isSv(job) ? "Saved" : "Save"}</span>
             </button>
             <button className="jsp-applybig" onClick={e => { e.stopPropagation(); window.open(job.applyUrl, "_blank", "noopener,noreferrer"); }}>
@@ -779,7 +958,7 @@ export default function JobSearchPanel({ onClose }) {
               {job.remote && <span className="b-r" style={{ fontSize: 12, padding: "4px 11px" }}>🌐 Remote</span>}
               <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>💼 {job.type}</span>
               <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>
-              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "rgba(52,211,153,.12)", color: "#34d399" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
+              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
             </div>
             {job.description && (
               <>
@@ -811,7 +990,7 @@ export default function JobSearchPanel({ onClose }) {
               <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
               <div className="jsp-rw">
                 <svg width="70" height="70" viewBox="0 0 70 70">
-                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
+                  <circle cx={cx} cy={cy} r={r} fill="none" className="jsp-rtrack" strokeWidth="7" />
                   <circle cx={cx} cy={cy} r={r} fill="none" stroke="url(#jg)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ} transform={`rotate(-90 ${cx} ${cy})`} />
                   <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#38bdf8" /><stop offset="100%" stopColor="#8b7bff" /></linearGradient></defs>
                 </svg>
@@ -823,10 +1002,10 @@ export default function JobSearchPanel({ onClose }) {
             </div>
             <div className="jsp-coc">
               <p className="jsp-stit" style={{ fontSize: 12, marginBottom: 8 }}>Company Info</p>
-              {[job.industry && ["Industry", job.industry], job.website && ["Website", job.website], ["Location", job.location]].filter(Boolean).map(([k, v]) => <div key={k} className="jsp-cor"><span className="jsp-cok">{k}</span><span className="jsp-cov" style={k === "Website" ? { color: "#8b7bff", cursor: "pointer", textDecoration: "underline" } : {}} onClick={(e) => { if (k === "Website") { e.stopPropagation(); window.open(v); } }}>{k === "Website" ? "Link" : v}</span></div>)}
+              {[job.industry && ["Industry", job.industry], job.website && ["Website", job.website], ["Location", job.location]].filter(Boolean).map(([k, v]) => <div key={k} className="jsp-cor"><span className="jsp-cok">{k}</span><span className="jsp-cov" style={k === "Website" ? { color: "var(--ac)", cursor: "pointer", textDecoration: "underline" } : {}} onClick={(e) => { if (k === "Website") { e.stopPropagation(); window.open(v); } }}>{k === "Website" ? "Link" : v}</span></div>)}
               {job.contact && (
                 <>
-                  <div className="jsp-cor"><span className="jsp-cok">HR Email</span><span className="jsp-cov" style={{ color: "#8b7bff", cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); window.open(`mailto:${job.contact.email}`); }}>{job.contact.email}</span></div>
+                  <div className="jsp-cor"><span className="jsp-cok">HR Email</span><span className="jsp-cov" style={{ color: "var(--ac)", cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); window.open(`mailto:${job.contact.email}`); }}>{job.contact.email}</span></div>
                   <div className="jsp-cor"><span className="jsp-cok">HR Phone</span><span className="jsp-cov">{job.contact.phone}</span></div>
                 </>
               )}
@@ -839,6 +1018,11 @@ export default function JobSearchPanel({ onClose }) {
 
   const RAPID_API_HOST = "jsearch.p.rapidapi.com";
   const RAPID_API_KEY = "b8afe4b388mshe2317a4c7eb24bbp17fb60jsn09f0ea443459";
+
+  const NEAR_CHIPS = ["Delivery Partner","Driver","Sales Executive","Receptionist","Software Engineer","Nurse","Teacher","Electrician"];
+  const nearReady = near.on && near.status === "ready";
+  const pinIcon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>;
+  const nearMsg = { denied: "Location access is blocked. Allow it in your browser's site settings to find jobs near you.", error: "Couldn't get your location. Check that location is on and try again.", unsupported: "This browser can't share your location." }[near.status];
 
   const SAMPLE_CHIPS = ["Software Engineer Bangalore","Delivery Boy Hyderabad","Doctor Mumbai","Data Scientist Remote","Civil Engineer Chennai","Bank PO Delhi","UI Designer Pune","Sales Executive India"];
 
@@ -861,15 +1045,27 @@ export default function JobSearchPanel({ onClose }) {
               <div className="jsp-srchinwrap">
                 <div className="jsp-srchinico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
                 <input className="jsp-srchin" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") search(); }}
-                  placeholder='Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"' autoFocus />
+                  placeholder={nearReady ? "What kind of job? (optional)" : 'Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"'} autoFocus />
               </div>
-              <button className="jsp-srchbtn" onClick={() => search()} disabled={!q.trim() || loading}>
+              <button className="jsp-srchbtn" onClick={() => search()} disabled={(!q.trim() && !nearReady) || loading}>
                 {loading ? <div className="jsp-spin" /> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>}
               </button>
             </div>
+            <div className="jsp-near">
+              <button type="button" className={`jsp-nearbtn ${near.on ? "on" : ""}`} onClick={toggleNear} disabled={near.status === "locating"} aria-pressed={near.on}>
+                {near.status === "locating" ? <div className="jsp-spin" /> : pinIcon}
+                <span>{near.status === "locating" ? "Finding you…" : nearReady ? ((near.area || near.place).split(",")[0] || "Near me") : "Jobs near me"}</span>
+              </button>
+              {nearReady && (
+                <div className="jsp-rads" role="group" aria-label="Search radius">
+                  {RADIUS_OPTIONS.map(km => <button key={km} type="button" className={`jsp-rad ${near.radius === km ? "on" : ""}`} onClick={() => setRadius(km)}>{km} km</button>)}
+                </div>
+              )}
+            </div>
+            {nearMsg && <p className="jsp-nearmsg">{nearMsg}</p>}
             <div className="jsp-chips">
               <span className="jsp-chlbl">Try:</span>
-              {SAMPLE_CHIPS.map(s => <button key={s} type="button" className="jsp-chip" onClick={() => { setQ(s); search(s); }}>{s}</button>)}
+              {(nearReady ? NEAR_CHIPS : SAMPLE_CHIPS).map(s => <button key={s} type="button" className="jsp-chip" onClick={() => { setQ(s); search(s); }}>{s}</button>)}
             </div>
           </div>
 
@@ -888,19 +1084,26 @@ export default function JobSearchPanel({ onClose }) {
           <div className="jsp-body">
             <div className="jsp-main">
               {tab === "search" && (
-                loading ? <Skels /> :
-                !searched ? <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`} /> :
-                noMatch ? <Empty title="No jobs found" sub={`We couldn't find any real jobs matching your criteria right now.`} /> :
-                <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
+                loading ? (resultNear ? <Radar list={[]} nr={resultNear} scanning /> : <Skels />) :
+                !searched ? <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`}
+                  action={!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Find jobs near me</button>} /> :
+                noMatch ? (resultNear
+                  ? <Empty title={`No jobs within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
+                      action={resultNear.radius < RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1] && <button type="button" className="jsp-cta" onClick={() => setRadius(RADIUS_OPTIONS.find(r => r > resultNear.radius))}>Search within {RADIUS_OPTIONS.find(r => r > resultNear.radius)} km</button>} />
+                  : <Empty title="No jobs found" sub={`We couldn't find any real jobs matching your criteria right now.`} />) :
+                <>
+                  {resultNear && <Radar list={jobs} nr={resultNear} />}
+                  <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
+                </>
               )}
               {tab === "saved" && (saved.length === 0 ? <Empty title="No saved jobs" sub="Bookmark any job to save it here." /> : <div className="jsp-grid">{saved.map(j => <Card key={j.id} job={j} />)}</div>)}
               {tab === "history" && (hist.length === 0 ? <Empty title="No history yet" sub="Your recent searches will appear here." /> : hist.map((h, i) => (
                 <div key={i} className="jsp-hrow" onClick={() => { setQ(h); setTab("search"); search(h); }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                    <span style={{ fontSize: 13, color: "rgba(255,255,255,.6)", fontWeight: 500 }}>{h}</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                    <span>{h}</span>
                   </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
                 </div>
               )))}
             </div>
