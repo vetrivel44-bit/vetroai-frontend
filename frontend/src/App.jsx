@@ -27,6 +27,7 @@ import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userS
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -3087,6 +3088,7 @@ const NEWS_CATEGORIES = ["top", "business", "technology", "sports", "entertainme
 // A pseudo-category, never sent to the API — selecting it switches the feed
 // to the locally-saved list instead of fetching.
 const SAVED_TAB = "saved";
+const NEWS_CATEGORY_LABELS = { top: "Top Stories", technology: "Tech", science: "Science" };
 // Whatever the backend accepts (`/^[a-z]{2}$/`, see externalDataController.js);
 // this is just the subset worth offering as a quick picker.
 const NEWS_LANGUAGES = [
@@ -3123,38 +3125,128 @@ const timeAgo = (dateStr) => {
   return `${Math.floor(hrs / 24)}d`;
 };
 
-// Not every provider sends a usable image (newsapi and thenewsapi both leave
-// it null fairly often — see newsProviders.js), and a real photo can still
-// 404. Either way the card should look like every other card, not lose its
-// whole image area, so a missing/broken photo gets a colored placeholder
-// instead of just leaving a gap. The color is picked deterministically from
-// the source name so the same outlet always lands on the same one.
-const NEWS_PLACEHOLDER_GRADIENTS = [
-  "linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)",
-  "linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)",
-  "linear-gradient(135deg, #10B981 0%, #06B6D4 100%)",
-  "linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%)",
-  "linear-gradient(135deg, #6366F1 0%, #3B82F6 100%)",
-  "linear-gradient(135deg, #F97316 0%, #DB2777 100%)",
+// When no photo can be found (the backend already tries the article page's own
+// preview image), the card shows the story's topic instead of a bare letter:
+// an icon picked from the article's category, else from words in the headline.
+const NEWS_TOPICS = [
+  { id: "conflict", Icon: Swords, label: "World", bg: "linear-gradient(135deg, #7F1D1D 0%, #B45309 100%)", words: /\b(war|wars|military|missile|strike|strikes|army|troops|attack|conflict|ceasefire|defen[cs]e|nato|pentagon|iran|israel|gaza|ukraine|russia)\b/i },
+  { id: "politics", Icon: Landmark, label: "Politics", bg: "linear-gradient(135deg, #1E3A8A 0%, #6D28D9 100%)", words: /\b(election|senate|congress|parliament|minister|president|gop|democrat|republican|government|policy|vote|lok sabha|bjp|campaign)\b/i },
+  { id: "sports", Icon: Trophy, label: "Sports", bg: "linear-gradient(135deg, #047857 0%, #0EA5E9 100%)", words: /\b(cricket|football|soccer|match|league|cup|olympic|games|tennis|nba|nfl|ipl|goal|tournament|medal|athlet\w*|coach)\b/i },
+  { id: "business", Icon: TrendingUp, label: "Business", bg: "linear-gradient(135deg, #065F46 0%, #15803D 100%)", words: /\b(market|markets|stock|stocks|shares|economy|inflation|rbi|fed|bank|earnings|revenue|profit|ipo|startup|funding|trade|tariff|sensex|nifty)\b/i },
+  { id: "technology", Icon: Cpu, label: "Technology", bg: "linear-gradient(135deg, #312E81 0%, #0891B2 100%)", words: /\b(ai|tech|software|app|apple|google|microsoft|openai|chip|chips|smartphone|iphone|android|cyber|robot|startup|gadget)\b/i },
+  { id: "health", Icon: HeartPulse, label: "Health", bg: "linear-gradient(135deg, #9D174D 0%, #E11D48 100%)", words: /\b(health|hospital|doctor|virus|disease|vaccine|covid|cancer|medical|patients?|who)\b/i },
+  { id: "science", Icon: Atom, label: "Science", bg: "linear-gradient(135deg, #0F766E 0%, #4338CA 100%)", words: /\b(science|space|nasa|isro|research|scientists?|planet|climate|study|discovery)\b/i },
+  { id: "entertainment", Icon: Clapperboard, label: "Entertainment", bg: "linear-gradient(135deg, #86198F 0%, #DB2777 100%)", words: /\b(film|movie|actor|actress|bollywood|hollywood|music|album|series|netflix|celebrity|box office|trailer)\b/i },
+  { id: "weather", Icon: CloudSun, label: "Weather", bg: "linear-gradient(135deg, #0369A1 0%, #38BDF8 100%)", words: /\b(weather|rain|monsoon|storm|cyclone|flood|heatwave|temperature|snow)\b/i },
+  { id: "travel", Icon: Plane, label: "Travel", bg: "linear-gradient(135deg, #1D4ED8 0%, #0EA5E9 100%)", words: /\b(flight|airline|airport|travel|tourism|visa)\b/i },
+  { id: "auto", Icon: Car, label: "Auto", bg: "linear-gradient(135deg, #374151 0%, #B91C1C 100%)", words: /\b(car|cars|ev|tesla|auto|vehicle|motors?)\b/i },
+  { id: "crime", Icon: Scale, label: "Law", bg: "linear-gradient(135deg, #3F3F46 0%, #52525B 100%)", words: /\b(court|judge|police|arrest\w*|crime|lawsuit|trial|verdict|supreme court)\b/i },
 ];
-function gradientForSource(name) {
-  const text = String(name || "");
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
-  return NEWS_PLACEHOLDER_GRADIENTS[Math.abs(hash) % NEWS_PLACEHOLDER_GRADIENTS.length];
+const NEWS_TOPIC_DEFAULT = { id: "news", Icon: Newspaper, label: "News", bg: "linear-gradient(135deg, #334155 0%, #64748B 100%)" };
+const NEWS_CATEGORY_TOPIC = { business: "business", technology: "technology", sports: "sports", entertainment: "entertainment", health: "health", science: "science", politics: "politics", world: "conflict", environment: "weather", crime: "crime" };
+
+function topicForArticle(article) {
+  const categories = [].concat(article.category || []).map((c) => String(c).toLowerCase());
+  const text = `${article.title || ""} ${article.description || ""}`;
+  const byWords = NEWS_TOPICS.find((t) => t.words.test(article.title || "")) || NEWS_TOPICS.find((t) => t.words.test(text));
+  const byCategory = categories.map((c) => NEWS_TOPICS.find((t) => t.id === NEWS_CATEGORY_TOPIC[c])).find(Boolean);
+  // A headline about a war filed under "top" should still read as world news,
+  // so specific words win over a generic category.
+  return byWords || byCategory || NEWS_TOPIC_DEFAULT;
 }
 
-// One card, shared by the featured hero slot, the regular grid and the Saved
-// tab so all three stay visually and behaviorally in sync.
+// "5 min ago" / "3 hr ago" / "2 days ago", the long form the Discover-style
+// footer uses.
+// Publish time in ms. newsdata sends "YYYY-MM-DD HH:MM:SS" in UTC with no zone.
+const newsTime = (dateStr) => {
+  if (!dateStr) return 0;
+  const t = Date.parse(/Z$|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : String(dateStr).replace(" ", "T") + "Z");
+  return Number.isNaN(t) ? 0 : t;
+};
+// Stories older than this are left out of the feed so it stays current.
+const NEWS_MAX_AGE_MS = 3 * 24 * 3600 * 1000;
+// Newest first, and only recent stories — unless nothing recent came back, in
+// which case the (sorted) page is shown rather than an empty feed.
+const freshNewsFirst = (list) => {
+  const sorted = [...list].sort((a, b) => newsTime(b.pubDate) - newsTime(a.pubDate));
+  const cutoff = Date.now() - NEWS_MAX_AGE_MS;
+  const recent = sorted.filter((a) => !newsTime(a.pubDate) || newsTime(a.pubDate) >= cutoff);
+  return recent.length ? recent : sorted;
+};
+
+const newsAgo = (dateStr) => {
+  if (!dateStr) return "";
+  const mins = Math.max(0, Math.floor((Date.now() - newsTime(dateStr)) / 60000));
+  if (Number.isNaN(mins)) return "";
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+};
+
+// Photos for news cards. A feed image can fail for reasons that have nothing
+// to do with the photo: outlets that block hotlinking when a foreign Referer
+// is sent, or an http:// URL on an https page. So each photo is tried
+// directly (without a Referer), then through an image relay that fetches it
+// server-side; and a story with no photo at all asks the backend for the
+// article page's own preview image.
+const newsImageRelay = (url) => `https://images.weserv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//, ""))}&w=1200&output=webp&q=78`;
+const newsPreviewCache = new Map(); // article link -> Promise<string|null>
+function fetchNewsPreviewImage(link) {
+  if (!link) return Promise.resolve(null);
+  if (!newsPreviewCache.has(link)) {
+    newsPreviewCache.set(link, fetch(`${API}/news/preview-image?url=${encodeURIComponent(link)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d?.image_url || null)
+      .catch(() => null));
+  }
+  return newsPreviewCache.get(link);
+}
+
+function useNewsImage(article) {
+  const [found, setFound] = useState(null);
+  // Failures are counted per photo URL, so a new URL starts from its first source.
+  const [failed, setFailed] = useState({ base: null, count: 0 });
+  const base = article.image_url || found;
+  const attempt = failed.base === base ? failed.count : 0;
+
+  useEffect(() => {
+    if (article.image_url || !article.link) return undefined;
+    let alive = true;
+    fetchNewsPreviewImage(article.link).then(url => { if (alive && url) setFound(url); });
+    return () => { alive = false; };
+  }, [article.image_url, article.link]);
+
+  const sources = base ? [base, newsImageRelay(base)] : [];
+  const src = sources[attempt] || null;
+  const onError = () => setFailed(f => ({ base, count: (f.base === base ? f.count : 0) + 1 }));
+  return { src, onError };
+}
+
+// One Discover-style story: a large rounded photo, a serif headline, a short
+// summary that expands in place, and a footer with time, Listen, share and a
+// "more" menu. Shared by the lead story, the feed and the Saved tab.
 function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleListen, onAskAI }) {
   const [copied, setCopied] = useState(false);
-  const [imgFailed, setImgFailed] = useState(false);
-  const hasImage = Boolean(article.image_url) && !imgFailed;
-  const initial = (article.source_name || article.source_id || article.title || "N").trim().charAt(0).toUpperCase();
-  const descLimit = featured ? 220 : 120;
-  const desc = article.description
-    ? article.description.slice(0, descLimit) + (article.description.length > descLimit ? "…" : "")
-    : "";
+  const { src: imageSrc, onError: onImageError } = useNewsImage(article);
+  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const topic = topicForArticle(article);
+  const TopicIcon = topic.Icon;
+  const source = article.source_name || article.source_id || "";
+  const desc = (article.description || "").trim();
+  const cut = 92;
+  const long = desc.length > cut;
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (e) => { if (!menuRef.current?.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuOpen]);
 
   const handleShare = async () => {
     const shareData = { title: article.title, text: desc || article.title, url: article.link };
@@ -3169,70 +3261,86 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
     } catch { /* clipboard unavailable — nothing more we can do */ }
   };
 
-  // The action row is a sibling of the <a>, not nested inside it — a <button>
-  // inside an <a> still bubbles clicks up to the anchor's navigation in some
-  // browsers, which would fire the article link on every action-button tap.
+  // The footer is a sibling of the <a>, not inside it — a <button> inside an
+  // <a> still bubbles clicks up to the link in some browsers.
   return (
-    <div className={`news-card${featured ? " news-card-hero" : ""}`}>
-      <a href={article.link} target="_blank" rel="noopener noreferrer" className="news-card-link">
-        <div className="news-card-img">
-          {hasImage ? (
-            <img
-              src={article.image_url}
-              alt=""
-              loading="lazy"
-              onError={() => setImgFailed(true)}
-            />
+    <article className={`dv-card${featured ? " dv-card-lead" : ""}`}>
+      <a href={article.link} target="_blank" rel="noopener noreferrer" className="dv-card-link">
+        <div className="dv-media">
+          {imageSrc ? (
+            <img key={imageSrc} src={imageSrc} alt="" loading={featured ? "eager" : "lazy"} referrerPolicy="no-referrer" decoding="async" onError={onImageError} />
           ) : (
-            <div className="news-card-img-placeholder" style={{ background: gradientForSource(article.source_name || article.source_id) }}>
-              <span className="news-img-placeholder-letter">{initial}</span>
+            <div className="dv-media-topic" style={{ background: topic.bg }} aria-label={`${topic.label} story`}>
+              <TopicIcon className="dv-topic-icon" size={featured ? 72 : 52} strokeWidth={1.4} aria-hidden="true" />
+              {source && <span className="dv-topic-source">{source}</span>}
             </div>
           )}
         </div>
-        <div className="news-card-body">
-          <div className="news-card-meta">
-            {article.source_icon && (
-              <img src={article.source_icon} alt="" className="news-source-icon" onError={e => { e.target.style.display = "none"; }} />
-            )}
-            <span className="news-source">{article.source_name || article.source_id || "News"}</span>
-            <span className="news-dot">·</span>
-            <span className="news-time">{timeAgo(article.pubDate)}</span>
-          </div>
-          {featured ? <h2 className="news-card-title">{article.title}</h2> : <h3 className="news-card-title">{article.title}</h3>}
-          {desc && <p className="news-card-desc">{desc}</p>}
-        </div>
+        {featured && <div className="dv-kicker"><span className="dv-trending">Trending now</span></div>}
+        {featured ? <h2 className="dv-title">{article.title}</h2> : <h3 className="dv-title">{article.title}</h3>}
       </a>
-      <div className="news-card-actions">
-        <button
-          type="button"
-          className={`news-action-btn${saved ? " active" : ""}`}
-          onClick={() => onToggleSave(article)}
-          title={saved ? "Remove from saved" : "Save for later"}
-          aria-label={saved ? "Remove from saved" : "Save for later"}
-          aria-pressed={saved}
-        >
-          <BookmarkIcon />
-        </button>
-        <button type="button" className="news-action-btn" onClick={handleShare} title="Share" aria-label="Share article">
-          {copied ? <CheckIcon /> : <ShareIcon />}
-        </button>
-        <button
-          type="button"
-          className={`news-action-btn${listening ? " active" : ""}`}
-          onClick={() => onToggleListen(article)}
-          title={listening ? "Stop listening" : "Listen"}
-          aria-label={listening ? "Stop listening" : "Listen to this article"}
-          aria-pressed={listening}
-        >
-          {listening ? <Pause size={14} /> : <Volume2 size={14} />}
-        </button>
-        <button type="button" className="news-action-btn news-action-ai" onClick={() => onAskAI(article)} title="Ask AI about this story" aria-label="Ask AI about this story">
-          <SparkleIcon /><span>Ask AI</span>
-        </button>
+      {desc && (
+        <p className={`dv-desc${expanded ? " open" : ""}`}>
+          {expanded || !long ? desc : desc.slice(0, cut).replace(/\s+\S*$/, "") + "…"}
+          {long && (
+            <button type="button" className="dv-more-text" onClick={() => setExpanded(v => !v)}>
+              {expanded ? " See less" : " See more"}
+            </button>
+          )}
+        </p>
+      )}
+      <div className="dv-foot">
+        <span className="dv-time" title={source || undefined}>{newsAgo(article.pubDate)}</span>
+        <div className="dv-actions">
+          <button
+            type="button"
+            className={`dv-listen${listening ? " on" : ""}`}
+            onClick={() => onToggleListen(article)}
+            aria-pressed={listening}
+            aria-label={listening ? "Stop listening" : "Listen to this article"}
+          >
+            {listening ? <Pause size={17} /> : <HeadphonesIcon />}
+            <span>{listening ? "Stop" : "Listen"}</span>
+          </button>
+          <span className="dv-sep" aria-hidden="true" />
+          <button type="button" className="dv-icon" onClick={handleShare} title="Share" aria-label="Share article">
+            {copied ? <Check size={18} /> : <ShareIcon />}
+          </button>
+          <div className="dv-menu-wrap" ref={menuRef}>
+            <button type="button" className="dv-icon" onClick={() => setMenuOpen(v => !v)} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="More options">
+              <MoreVertical size={19} />
+            </button>
+            {menuOpen && (
+              <div className="dv-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => { onToggleSave(article); setMenuOpen(false); }}>
+                  <BookmarkIcon /> {saved ? "Remove from saved" : "Save for later"}
+                </button>
+                <button type="button" role="menuitem" onClick={() => { onAskAI(article); setMenuOpen(false); }}>
+                  <SparkleIcon /> Ask AI about this
+                </button>
+                <a role="menuitem" href={article.link} target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)}>
+                  <ExternalLink size={15} /> {source ? `Open on ${source}` : "Open original"}
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
+
+const HeartPlusIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M13.5 19.5 12 21l-7.5-7.5A5 5 0 0 1 12 6.5a5 5 0 0 1 7.5 6.5" /><path d="M18 15v6M15 18h6" />
+  </svg>
+);
+
+const HeadphonesIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+  </svg>
+);
 
 function NewsPanel({ onClose, userKey, onAskAI }) {
   const [articles, setArticles] = useState([]);
@@ -3242,33 +3350,160 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   const [language, setLanguage] = useState("en");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   // Saved articles are personal, read-often, write-rarely data, so a plain
   // localStorage list (via the same helper sessions/artifacts use) is enough —
   // no Firestore round-trip needed just to reopen the panel.
   const [savedArticles, setSavedArticles] = useState(() => readLocalList(userKey, "savedNews") || []);
   const [speakingId, setSpeakingId] = useState(null);
 
+  // Endless feed: each response carries a `nextPage` cursor. When the current
+  // category runs dry the feed carries on into the other categories, so
+  // scrolling keeps producing stories the way Discover / Perplexity do.
+  // `stream` is kept in a ref (read by the scroll handler); `feedState` is its
+  // render-facing mirror.
+  const streamRef = useRef({ cat: "top", query: "", lang: "en", page: null, queue: [] });
+  const requestIdRef = useRef(0);
+  const seenRef = useRef(new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [feedState, setFeedState] = useState("more"); // "more" | "end" | "error"
+  // Bumped when a load finishes with nothing new, so the observer re-arms
+  // (the sentinel is still in view and would not fire again on its own).
+  const [loadTick, setLoadTick] = useState(0);
+  // Stories published since the feed was loaded, found by a quiet check.
+  const [newCount, setNewCount] = useState(0);
+  const lastFetchRef = useRef(0);
+  const feedRef = useRef(null);
+  const sentinelRef = useRef(null);
+
+  const newsUrl = (cat, query, lang, page) => {
+    let url = `${API}/news/latest?language=${lang || "en"}`;
+    if (query) url += `&q=${encodeURIComponent(query)}`;
+    else if (cat && cat !== "top") url += `&category=${cat}`;
+    if (page) url += `&page=${encodeURIComponent(page)}`;
+    return url;
+  };
+  const storyKey = (a) => newsArticleId(a) || a.link || a.title;
+  const keepNew = (list) => list.filter((a) => {
+    const key = storyKey(a);
+    if (!key || seenRef.current.has(key)) return false;
+    seenRef.current.add(key);
+    return true;
+  });
+
   const fetchNews = useCallback(async (cat, query, lang) => {
+    const id = ++requestIdRef.current;
     setLoading(true);
+    setLoadingMore(false);
     setError("");
+    setFeedState("more");
+    seenRef.current = new Set();
     try {
-      let url = `${API}/news/latest?language=${lang || "en"}`;
-      if (query) {
-        url += `&q=${encodeURIComponent(query)}`;
-      } else if (cat && cat !== "top") {
-        url += `&category=${cat}`;
-      }
-      const res = await fetch(url);
+      const res = await fetch(newsUrl(cat, query, lang), { cache: "no-store" });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      setArticles(data.results || []);
+      if (id !== requestIdRef.current) return;
+      streamRef.current = {
+        cat, query, lang,
+        page: data.nextPage || null,
+        // A search is one stream; a category continues into the others.
+        queue: query ? [] : NEWS_CATEGORIES.filter((c) => c !== cat),
+      };
+      setArticles(keepNew(freshNewsFirst(data.results || [])));
+      setNewCount(0);
+      lastFetchRef.current = Date.now();
+      if (feedRef.current) feedRef.current.scrollTop = 0;
     } catch (e) {
+      if (id !== requestIdRef.current) return;
       setError("Failed to load news. Please try again.");
       console.error("News fetch error:", e);
     } finally {
-      setLoading(false);
+      if (id === requestIdRef.current) setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- helpers only read refs
+
+  const loadingMoreRef = useRef(false);
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    const id = requestIdRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      // A page can be all repeats; keep going (briefly) until something new
+      // turns up or every stream is exhausted.
+      for (let hop = 0; hop < 6; hop++) {
+        const stream = streamRef.current;
+        let cat = stream.cat, page = stream.page;
+        if (!page) {
+          if (!stream.queue.length) { setFeedState("end"); return; }
+          cat = stream.queue[0];
+          page = null;
+          streamRef.current = { ...stream, cat, page: null, queue: stream.queue.slice(1) };
+        }
+        const res = await fetch(newsUrl(cat, stream.query, stream.lang, page), { cache: "no-store" });
+        if (id !== requestIdRef.current) return;
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const data = await res.json();
+        if (id !== requestIdRef.current) return;
+        streamRef.current = { ...streamRef.current, cat, page: data.nextPage || null };
+        // Later pages only add stories that are still recent.
+        const cutoff = Date.now() - NEWS_MAX_AGE_MS;
+        const fresh = keepNew(freshNewsFirst(data.results || []).filter((a) => !newsTime(a.pubDate) || newsTime(a.pubDate) >= cutoff));
+        if (fresh.length) {
+          setArticles((prev) => [...prev, ...fresh]);
+          setFeedState("more");
+          return;
+        }
+      }
+      // Several pages in a row brought nothing new; try again on the next tick.
+      if (id === requestIdRef.current) setLoadTick((t) => t + 1);
+    } catch (e) {
+      if (id === requestIdRef.current) setFeedState("error");
+      console.error("News load-more error:", e);
+    } finally {
+      loadingMoreRef.current = false;
+      if (id === requestIdRef.current) setLoadingMore(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- helpers only read refs
+
+  // While the feed is open, look for newer stories every few minutes (and
+  // when the app comes back to the foreground) and offer them with a pill,
+  // rather than reshuffling the list under the reader.
+  useEffect(() => {
+    if (category === SAVED_TAB || debouncedQuery) return undefined;
+    let alive = true;
+    const check = async () => {
+      if (document.hidden || loadingMoreRef.current) return;
+      try {
+        const res = await fetch(newsUrl(category, "", language), { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const newest = articles.reduce((max, a) => Math.max(max, newsTime(a.pubDate)), 0);
+        const unseen = (data.results || []).filter((a) => !seenRef.current.has(storyKey(a)) && newsTime(a.pubDate) > newest);
+        if (alive) setNewCount(unseen.length);
+      } catch { /* offline — try again next time */ }
+    };
+    const timer = setInterval(check, 4 * 60 * 1000);
+    const onVisible = () => {
+      if (document.hidden) return;
+      // Back after a long break: just reload rather than show a stale feed.
+      if (Date.now() - lastFetchRef.current > 20 * 60 * 1000) fetchNews(category, "", language);
+      else check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [category, debouncedQuery, language, articles, fetchNews]);
+
+  // Start loading the next batch well before the reader reaches the bottom.
+  useEffect(() => {
+    const target = sentinelRef.current;
+    if (!target || loading || error || category === SAVED_TAB || feedState !== "more") return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore();
+    }, { root: feedRef.current, rootMargin: "0px 0px 1200px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, error, category, feedState, articles.length, loadTick, loadMore]);
 
   // Live search, but debounced — searching-as-you-type without firing a
   // request on every keystroke. Explicit submit (Enter, or the search icon)
@@ -3288,6 +3523,9 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   useEffect(() => () => { if ("speechSynthesis" in window) window.speechSynthesis.cancel(); }, []);
 
   const selectCategory = (cat) => {
+    // Tapping the chip that's already selected refreshes it — the refresh
+    // button is hidden on phones to keep the header uncluttered.
+    if (cat === category && !searchQuery) { fetchNews(cat, "", language); return; }
     setCategory(cat);
     setSearchQuery("");
     setDebouncedQuery(""); // bypass the debounce so the category switch doesn't briefly refetch the old search
@@ -3367,89 +3605,75 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   const rest = showHero ? visibleArticles.slice(1) : visibleArticles;
 
   return (
-    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
-      <div className="news-panel" onClick={e => e.stopPropagation()}>
-        <div className="news-panel-header">
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Newspaper size={20} />
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>News</h2>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select
-              className="news-lang-select"
-              value={language}
-              onChange={e => setLanguage(e.target.value)}
-              title="Language"
-              aria-label="News language"
-            >
-              {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-            </select>
-            {category !== SAVED_TAB && (
+    <div className="overlay dv-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
+      <div className="news-panel dv-panel" onClick={e => e.stopPropagation()}>
+        {/* The header floats over the lead photo, like Discover: translucent
+            pills, no bar behind them. */}
+        <div className="dv-top">
+          <div className="dv-bar">
+            <div className="dv-titlepill">
+              <button type="button" className="dv-round" onClick={onClose} aria-label="Close Discover"><ArrowLeft size={20} /></button>
+              <h2 className="dv-heading">{category === SAVED_TAB ? "Saved" : "Discover"}</h2>
+            </div>
+            <div className="dv-bar-right">
+              <button type="button" className={`dv-round${searchOpen || searchQuery ? " on" : ""}`} onClick={() => setSearchOpen(v => !v)} aria-label="Search news" aria-expanded={searchOpen}>
+                <Search size={19} />
+              </button>
               <button
                 type="button"
-                className="news-icon-btn"
-                onClick={() => fetchNews(category, debouncedQuery, language)}
-                title="Refresh"
-                aria-label="Refresh news"
-                disabled={loading}
+                className={`dv-round${category === SAVED_TAB ? " on" : ""}`}
+                onClick={() => setCategory(category === SAVED_TAB ? "top" : SAVED_TAB)}
+                aria-label={`Saved stories${savedArticles.length ? ` (${savedArticles.length})` : ""}`}
+                title="Saved stories"
               >
-                <RotateCcw size={15} />
+                <HeartPlusIcon />
+                {savedArticles.length > 0 && <span className="dv-badge">{savedArticles.length}</span>}
+              </button>
+            </div>
+          </div>
+
+          {(searchOpen || searchQuery) && (
+            <form className="dv-search" onSubmit={handleSearch}>
+              <Search size={16} aria-hidden="true" />
+              <input type="text" placeholder="Search news…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} autoFocus aria-label="Search news" />
+              {searchQuery && <button type="button" onClick={clearSearch} aria-label="Clear search"><X size={15} /></button>}
+            </form>
+          )}
+
+          <div className="dv-chips" role="tablist" aria-label="News categories">
+            {NEWS_CATEGORIES.map(cat => (
+              <button key={cat} type="button" role="tab" aria-selected={category === cat} className={`dv-chip${category === cat ? " on" : ""}`} onClick={() => selectCategory(cat)}>
+                {NEWS_CATEGORY_LABELS[cat] || cat.charAt(0).toUpperCase() + cat.slice(1)}
+              </button>
+            ))}
+            {category !== SAVED_TAB && articles.length > 0 && (
+              <button type="button" className="dv-chip dv-chip-ai" onClick={askForBriefing}>
+                <SparkleIcon /> AI briefing
               </button>
             )}
-            <button className="modal-x" onClick={onClose}><X size={16} /></button>
+            <label className="dv-chip dv-chip-lang">
+              <GlobeIcon />
+              <select value={language} onChange={e => setLanguage(e.target.value)} aria-label="News language">
+                {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+            </label>
           </div>
         </div>
 
-        <form className="news-search-bar" onSubmit={handleSearch}>
-          <Search size={15} style={{ color: "var(--ink-4)", flexShrink: 0 }} />
-          <input
-            type="text"
-            placeholder="Search news…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="news-search-input"
-          />
-          {searchQuery && (
-            <button type="button" onClick={clearSearch} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", display: "flex", padding: 2 }}>
-              <X size={14} />
-            </button>
-          )}
-        </form>
-
-        <div className="news-categories">
-          {NEWS_CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              className={`news-cat-btn${category === cat ? " active" : ""}`}
-              onClick={() => selectCategory(cat)}
-            >
-              {cat.charAt(0).toUpperCase() + cat.slice(1)}
-            </button>
-          ))}
-          <button
-            className={`news-cat-btn news-cat-saved${category === SAVED_TAB ? " active" : ""}`}
-            onClick={() => setCategory(SAVED_TAB)}
-          >
-            <BookmarkIcon /> Saved{savedArticles.length > 0 ? ` (${savedArticles.length})` : ""}
+        {newCount > 0 && !loading && (
+          <button type="button" className="dv-newpill" onClick={() => fetchNews(category, "", language)}>
+            ↑ {newCount} new {newCount === 1 ? "story" : "stories"}
           </button>
-        </div>
-
-        <div className="news-feed">
-          {category !== SAVED_TAB && !loading && !error && articles.length > 0 && (
-            <button type="button" className="news-briefing-btn" onClick={askForBriefing}>
-              <SparkleIcon /> Get an AI briefing on these headlines
-            </button>
-          )}
+        )}
+        <div ref={feedRef} className={`dv-feed${hero && !loading && !error ? " has-hero" : ""}${searchOpen || searchQuery ? " searching" : ""}`}>
           {loading ? (
-            <div className="news-loading">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="news-card-skeleton">
-                  <div className="news-skel-img" />
-                  <div className="news-skel-lines">
-                    <div className="news-skel-line w80" />
-                    <div className="news-skel-line w60" />
-                    <div className="news-skel-line w40" />
-                  </div>
+            <div className="dv-list">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="dv-skel">
+                  <div className="dv-skel-img" />
+                  <div className="dv-skel-line w90" />
+                  <div className="dv-skel-line w70" />
+                  <div className="dv-skel-line w40" />
                 </div>
               ))}
             </div>
@@ -3464,13 +3688,13 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
               <p>
                 {category === SAVED_TAB
                   ? (savedArticles.length === 0
-                      ? "No saved articles yet — tap the bookmark icon on any story to keep it here."
-                      : "No saved articles match your search.")
+                      ? "No saved stories yet — use the ⋮ menu on any story to keep it here."
+                      : "No saved stories match your search.")
                   : "No articles found"}
               </p>
             </div>
           ) : (
-            <>
+            <div className="dv-list">
               {hero && (
                 <NewsCard
                   article={hero}
@@ -3482,20 +3706,33 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
                   onAskAI={askAboutArticle}
                 />
               )}
-              <div className="news-grid">
-                {rest.map((article, i) => (
-                  <NewsCard
-                    key={newsArticleId(article) || i}
-                    article={article}
-                    saved={isSaved(article)}
-                    onToggleSave={toggleSave}
-                    listening={speakingId === newsArticleId(article)}
-                    onToggleListen={toggleListen}
-                    onAskAI={askAboutArticle}
-                  />
-                ))}
-              </div>
-            </>
+              {rest.map((article, i) => (
+                <NewsCard
+                  key={storyKey(article) || i}
+                  article={article}
+                  saved={isSaved(article)}
+                  onToggleSave={toggleSave}
+                  listening={speakingId === newsArticleId(article)}
+                  onToggleListen={toggleListen}
+                  onAskAI={askAboutArticle}
+                />
+              ))}
+              {category !== SAVED_TAB && (
+                <div className="dv-more" ref={sentinelRef}>
+                  {feedState === "error" ? (
+                    <button type="button" className="dv-more-retry" onClick={() => { setFeedState("more"); loadMore(); }}>Couldn't load more stories — tap to retry</button>
+                  ) : feedState === "end" && !loadingMore ? (
+                    <p className="dv-more-end">You're all caught up</p>
+                  ) : (
+                    <div className="dv-skel" aria-label="Loading more stories">
+                      <div className="dv-skel-img" />
+                      <div className="dv-skel-line w90" />
+                      <div className="dv-skel-line w70" />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -5978,84 +6215,106 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       let backendFailure = null;
       let streamError = "";
       let bot = "";
-      try {
-        const res = await fetch(API + "/chat", {
-          method: "POST",
-          body: fd,
-          signal: ctrl.signal
-        });
+      // An empty reply or a dropped connection is usually momentary (a provider
+      // closing early, the server waking up), so one quiet retry of the same
+      // request is cheaper for the user than an error they have to retry by hand.
+      for (let backendAttempt = 0; backendAttempt < 2; backendAttempt++) {
+        backendFailure = null;
+        streamError = "";
+        bot = "";
+        try {
+          const res = await fetch(API + "/chat", {
+            method: "POST",
+            body: fd,
+            signal: ctrl.signal
+          });
 
-        if (!isActive()) return;
+          if (!isActive()) return;
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.message || `Server error: ${res.status}`);
-        }
-
-        const reader = res.body.getReader();
-
-        setIsTyping(false);
-        setIsWebSearching(false); // Clear web searching indicator once streaming starts
-        setStreamStatus("streaming");
-        bot = await readSSEStream(
-          reader,
-          (acc) => {
-            if (!isActive()) return;
-            setMessages(prev => {
-              const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
-            });
-            setStreamingContent(acc);
-            if (!isScrolling.current) scrollToBottom();
-          },
-          (statusMsg) => {
-            if (!isActive()) return;
-            setStreamStatus(statusMsg);
-            addDebugLog("SSE.status", { status: statusMsg });
-          },
-          (errorMsg) => {
-            streamError = errorMsg;
-          },
-          isActive,
-          reqId,
-          (reasoningText, { isThinking, durationMs }) => {
-            if (!isActive()) return;
-            setMessages(prev => {
-              if (prev.length === 0) return prev;
-              const u = [...prev];
-              const last = u[u.length - 1];
-              u[u.length - 1] = {
-                ...last,
-                reasoning: reasoningText,
-                isThinking,
-                thinkingMs: durationMs ?? last.thinkingMs ?? null,
-              };
-              return u;
-            });
-            if (!isScrolling.current) scrollToBottom();
-          },
-          (metaType, metaData) => {
-            if (!isActive()) return;
-            setMessages(prev => {
-              if (prev.length === 0) return prev;
-              const u = [...prev];
-              const last = { ...u[u.length - 1] };
-              if (metaType === "sources") last.sources = metaData;
-              if (metaType === "realtime_notice") last.realtimeNotice = metaData;
-              u[u.length - 1] = last;
-              return u;
-            });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message || `Server error: ${res.status}`);
           }
-        );
 
-        if (!isActive()) return;
+          const reader = res.body.getReader();
 
-        if (!bot || !bot.trim()) {
-          throw new Error(streamError
-            || "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models.");
+          setIsTyping(false);
+          setIsWebSearching(false); // Clear web searching indicator once streaming starts
+          setStreamStatus("streaming");
+          bot = await readSSEStream(
+            reader,
+            (acc) => {
+              if (!isActive()) return;
+              setMessages(prev => {
+                const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+              });
+              setStreamingContent(acc);
+              if (!isScrolling.current) scrollToBottom();
+            },
+            (statusMsg) => {
+              if (!isActive()) return;
+              setStreamStatus(statusMsg);
+              addDebugLog("SSE.status", { status: statusMsg });
+            },
+            (errorMsg) => {
+              streamError = errorMsg;
+            },
+            isActive,
+            reqId,
+            (reasoningText, { isThinking, durationMs }) => {
+              if (!isActive()) return;
+              setMessages(prev => {
+                if (prev.length === 0) return prev;
+                const u = [...prev];
+                const last = u[u.length - 1];
+                u[u.length - 1] = {
+                  ...last,
+                  reasoning: reasoningText,
+                  isThinking,
+                  thinkingMs: durationMs ?? last.thinkingMs ?? null,
+                };
+                return u;
+              });
+              if (!isScrolling.current) scrollToBottom();
+            },
+            (metaType, metaData) => {
+              if (!isActive()) return;
+              setMessages(prev => {
+                if (prev.length === 0) return prev;
+                const u = [...prev];
+                const last = { ...u[u.length - 1] };
+                if (metaType === "sources") last.sources = metaData;
+                if (metaType === "realtime_notice") last.realtimeNotice = metaData;
+                u[u.length - 1] = last;
+                return u;
+              });
+            }
+          );
+
+          if (!isActive()) return;
+
+          if (!bot || !bot.trim()) {
+            throw new Error(streamError
+              || "The AI model failed to respond. This can happen if the provider is temporarily unavailable or if there is a timeout. Please try again or switch AI models.");
+          }
+        } catch (err) {
+          if (err.name === "AbortError" || !isActive()) throw err;
+          backendFailure = err;
         }
-      } catch (err) {
-        if (err.name === "AbortError" || !isActive()) throw err;
-        backendFailure = err;
+        const emptyReply = backendFailure && !streamError && !bot.trim();
+        const droppedConnection = backendFailure instanceof TypeError
+          || /Server error: 50[234]\b/.test(backendFailure?.message || "");
+        if (!backendFailure || backendAttempt > 0 || !(emptyReply || droppedConnection)) break;
+        addDebugLog("Backend.retry", { reqId, error: backendFailure.message });
+        setMessages((previous) => {
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+          return next;
+        });
+        setStreamingContent("");
+        setStreamStatus("Retrying…");
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        if (!isActive()) return;
       }
 
       if (backendFailure) {
@@ -6974,6 +7233,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       <div className="auth-form-side">
         <div className="auth-form-card">
           <div className="auth-form-header">
+            {/* Phones hide the hero panel, so the brand shows here instead. */}
+            <div className="auth-form-logo"><VetroLogo width={150} /></div>
             <h2 className="auth-form-title">{authMode === "login" ? "Welcome back 👋" : "Join VetroAI 🚀"}</h2>
             <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Create a free account in seconds."}</p>
           </div>

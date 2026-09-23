@@ -43,8 +43,19 @@
   .claude-footer-right {
     gap: 6px !important;
   }
+  /* The right group itself has to be allowed to shrink too, or the pill's
+     min-width:0 never takes effect and the row outgrows the composer. */
+  .claude-footer-left { flex-shrink: 0; }
+  .claude-footer-right { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
   .claude-footer-right .block { min-width: 0; flex-shrink: 1; }
-  .claude-footer-right .mode-pill { min-width: 0; }
+  .claude-footer-right .mode-pill { min-width: 0; max-width: 100%; overflow: hidden; }
+  .claude-footer-right .mode-pill-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .claude-footer-right .mode-pill svg { flex-shrink: 0; }
   .claude-footer-right .claude-action-btn,
   .claude-footer-right .claude-send-btn {
     flex-shrink: 0;
@@ -77,6 +88,11 @@
     background-repeat: no-repeat;
     background-position: center;
     background-size: contain;
+  }
+
+  /* Most phones: drop the effort badge so the model name reads in full. */
+  @media (max-width: 430px) {
+    .claude-footer-right .mode-pill-effort { display: none; }
   }
 
   @media (max-width: 390px) {

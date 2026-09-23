@@ -79,3 +79,41 @@ test("processRequest reports failure when no provider is configured, so the turn
   assert.equal(answered, false, "an unanswered turn must not report success");
   assert.match(written.join(""), /not configured with an AI provider/i);
 });
+
+test("processRequest falls back to the next provider when one streams an empty answer", async () => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const providerManager = require("../src/services/ProviderManager");
+
+  const streamOf = (lines) => (async function* () { for (const line of lines) yield line + "\n"; })();
+  const adapters = {
+    first: { generateStream: async () => streamOf(['data: {"choices":[{"delta":{"content":"<think>planning a reply"}}]}']) },
+    second: { generateStream: async () => streamOf(['data: {"choices":[{"delta":{"content":"Hello there!"}}]}']) },
+  };
+
+  const originals = {};
+  const patch = (target, name, fn) => { originals[name] = [target, target[name]]; target[name] = fn; };
+  patch(providerManager, "getBestProvider", () => "first");
+  patch(providerManager, "getAdapter", (name) => adapters[name]);
+  patch(providerManager, "getAvailableProviders", () => ["first", "second"]);
+  patch(providerManager, "isConfigured", (name) => name in adapters);
+  patch(providerManager, "updateMetrics", () => {});
+  patch(providerManager, "suspendProvider", () => {});
+  patch(orchestrator, "nextFallback", (failed, attempted) => ["first", "second"].find((n) => !attempted.has(n)) || null);
+
+  try {
+    const written = [];
+    const res = { write: (chunk) => written.push(chunk), end: () => {}, writableEnded: false };
+    const answered = await orchestrator.processRequest("test_empty", {
+      messages: [{ role: "user", content: "hi" }],
+      mode: "normal",
+      options: { temperature: 0.7, maxTokens: 256 },
+    }, res);
+
+    const events = written.join("").split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)));
+    assert.equal(answered, true);
+    assert.ok(events.some((e) => e.type === "clear"), "the empty attempt is cleared before the retry");
+    assert.equal(events.filter((e) => e.type === "content").map((e) => e.data).join(""), "Hello there!");
+  } finally {
+    for (const [name, [target, fn]] of Object.entries(originals)) target[name] = fn;
+  }
+});

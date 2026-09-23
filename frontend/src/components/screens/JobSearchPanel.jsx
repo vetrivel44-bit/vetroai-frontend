@@ -437,139 +437,317 @@ function generateJobs(query) {
   return results;
 }
 
+// ─── COMPANY LOGOS ───────────────────────────────────────────────────────────
+// Official domains for employers that often appear without a logo in listings.
+const KNOWN_DOMAINS = {
+  "infosys": "infosys.com", "tcs": "tcs.com", "tata consultancy services": "tcs.com", "wipro": "wipro.com",
+  "hcl": "hcltech.com", "hcl technologies": "hcltech.com", "hcltech": "hcltech.com", "accenture": "accenture.com",
+  "ibm": "ibm.com", "capgemini": "capgemini.com", "cognizant": "cognizant.com", "tech mahindra": "techmahindra.com",
+  "google": "google.com", "microsoft": "microsoft.com", "amazon": "amazon.com", "flipkart": "flipkart.com",
+  "razorpay": "razorpay.com", "paytm": "paytm.com", "zoho": "zoho.com", "freshworks": "freshworks.com",
+  "swiggy": "swiggy.com", "zomato": "zomato.com", "ola": "olacabs.com", "cred": "cred.club", "phonepe": "phonepe.com",
+  "byjus": "byjus.com", "meesho": "meesho.com", "makemytrip": "makemytrip.com", "rapido": "rapido.bike",
+  "zepto": "zeptonow.com", "blinkit": "blinkit.com", "bigbasket": "bigbasket.com", "dunzo": "dunzo.com",
+  "uber": "uber.com", "dmart": "dmartindia.com", "reliance": "ril.com", "reliance jio": "jio.com", "jio": "jio.com",
+  "airtel": "airtel.in", "bharti airtel": "airtel.in", "vodafone idea": "myvi.in", "hdfc bank": "hdfcbank.com",
+  "icici bank": "icicibank.com", "axis bank": "axisbank.com", "kotak mahindra bank": "kotak.com", "sbi": "sbi.co.in",
+  "state bank of india": "sbi.co.in", "bajaj finserv": "bajajfinserv.in", "lic": "licindia.in", "deloitte": "deloitte.com",
+  "ey": "ey.com", "kpmg": "kpmg.com", "pwc": "pwc.com", "mphasis": "mphasis.com", "mindtree": "ltimindtree.com",
+  "ltimindtree": "ltimindtree.com", "larsen toubro": "larsentoubro.com", "l&t": "larsentoubro.com",
+  "thoughtworks": "thoughtworks.com", "publicis sapient": "publicissapient.com", "intuit": "intuit.com",
+  "samsung": "samsung.com", "intel": "intel.com", "qualcomm": "qualcomm.com", "nvidia": "nvidia.com", "oracle": "oracle.com",
+  "adobe": "adobe.com", "salesforce": "salesforce.com", "sap": "sap.com", "cisco": "cisco.com", "dell": "dell.com",
+  "apollo hospitals": "apollohospitals.com", "fortis healthcare": "fortishealthcare.com", "manipal hospitals": "manipalhospitals.com",
+  "max healthcare": "maxhealthcare.in", "narayana health": "narayanahealth.org", "taj hotels": "tajhotels.com",
+  "ihcl": "ihcl.com", "oyo": "oyorooms.com", "marriott": "marriott.com", "indigo": "goindigo.in", "air india": "airindia.com",
+  "tata motors": "tatamotors.com", "mahindra": "mahindra.com", "maruti suzuki": "marutisuzuki.com", "hindustan unilever": "hul.co.in",
+  "itc": "itcportal.com", "asian paints": "asianpaints.com", "nestle": "nestle.com", "delhivery": "delhivery.com",
+  "ecom express": "ecomexpress.in", "blue dart": "bluedart.com", "decathlon": "decathlon.in", "lenskart": "lenskart.com",
+  "nykaa": "nykaa.com", "myntra": "myntra.com", "urban company": "urbancompany.com", "policybazaar": "policybazaar.com",
+  "fractal analytics": "fractal.ai", "mu sigma": "mu-sigma.com", "tiger analytics": "tigeranalytics.com",
+};
+// Hosts that serve job listings for many employers, so their domain is never the employer's.
+const JOB_BOARD_RE = /(linkedin|indeed|naukri|glassdoor|foundit|monsterindia|monster|shine|timesjobs|apna|ziprecruiter|simplyhired|careerbuilder|google|workday|greenhouse|lever|smartrecruiters|icims|jobvite|ashbyhq|wellfound|instahyre|cutshort|internshala|freshersworld|hirist|iimjobs|jooble|adzuna|bebee|jobrapido|whatjobs|workable|breezy|bamboohr|successfactors|taleo|oraclecloud|dice|upwork|freelancer|talent\.com|jobs\.|careers360)/i;
+
+const normCompany = name => (name || "").toLowerCase().replace(/[’'.,()]/g, "").replace(/\b(pvt|private|ltd|limited|inc|llp|llc|corp|corporation|co|india|technologies|services|solutions)\b/g, " ").replace(/\s+/g, " ").trim();
+
+function rootDomain(url) {
+  try {
+    const host = new URL(/^https?:\/\//.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, "");
+    const parts = host.split(".");
+    const n = parts.length > 2 && /^(co|com|net|org|gov|ac|edu)$/.test(parts[parts.length - 2]) ? 3 : 2;
+    return parts.slice(-n).join(".");
+  } catch { return null; }
+}
+
+function companyDomain(job) {
+  if (job.website) { const d = rootDomain(job.website); if (d) return d; }
+  const name = normCompany(job.company);
+  const raw = (job.company || "").toLowerCase().trim();
+  if (KNOWN_DOMAINS[raw]) return KNOWN_DOMAINS[raw];
+  if (KNOWN_DOMAINS[name]) return KNOWN_DOMAINS[name];
+  // Only trust the apply link when it is the employer's own site (its name appears in the domain).
+  if (job.applyUrl) {
+    const d = rootDomain(job.applyUrl);
+    const label = d && d.split(".")[0].replace(/-/g, "");
+    const compact = name.replace(/[^a-z0-9]/g, "");
+    if (label && !JOB_BOARD_RE.test(d) && label.length >= 3 && compact.length >= 3 && (compact.startsWith(label) || label.startsWith(compact))) return d;
+  }
+  return null;
+}
+
+function logoSources(job) {
+  const domain = companyDomain(job);
+  return [
+    job.logo,
+    domain && `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+    domain && `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+  ].filter(Boolean);
+}
+
+// Remembered across re-renders so a logo that failed once isn't retried on every render.
+const badLogos = new Set();
+
+function CompanyLogo({ job, size = 42, radius = 10, className = "jsp-logo" }) {
+  const sources = logoSources(job).filter(u => !badLogos.has(u));
+  const [, rerender] = useState(0);
+  const src = sources[0];
+  const fail = () => { badLogos.add(src); rerender(n => n + 1); };
+  const color = job.color || "#8b7bff";
+  return (
+    <div className={className} style={{ width: size, height: size, borderRadius: radius }}>
+      {src
+        ? <img key={src} src={src} alt={`${job.company || "Company"} logo`} loading="lazy" referrerPolicy="no-referrer"
+            onError={fail}
+            // Google returns a 16px globe when it has no icon for a domain; treat that as missing.
+            onLoad={e => { if (src.includes("google.com/s2/favicons") && e.currentTarget.naturalWidth <= 16) fail(); }} />
+        : <div className="jsp-logofb" style={{ background: color + "28", color, fontSize: Math.round(size * 0.36) }}>{((job.company || "").trim()[0] || "?").toUpperCase()}</div>}
+    </div>
+  );
+}
+
+// ─── GEO HELPERS ─────────────────────────────────────────────────────────────
+const RADIUS_OPTIONS = [2, 5, 10, 25, 50];
+const toRad = d => d * Math.PI / 180;
+function distanceKm(lat1, lng1, lat2, lng2) {
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const fmtKm = km => km < 1 ? `${Math.max(100, Math.round(km * 10) * 100)} m` : `${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
+
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = `
-  .jsp-ov{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;padding:12px;}
-  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:linear-gradient(155deg,#0d0d16 0%,#111120 60%,#0b0b12 100%);border:1px solid rgba(255,255,255,0.08);border-radius:22px;box-shadow:0 40px 100px rgba(0,0,0,0.85);overflow:hidden;animation:jIn .25s cubic-bezier(.16,1,.3,1);}
-  @keyframes jIn{from{opacity:0;transform:scale(.95) translateY(16px)}to{opacity:1;transform:none}}
+  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;--skys:rgba(56,189,248,.12);--shA:rgba(255,255,255,.04);--shB:rgba(255,255,255,.09);--sh:0 30px 80px rgba(0,0,0,.6);--scrim:rgba(5,7,14,.72);--scrim2:rgba(0,0,0,.5);--err:#f87171;--errs:rgba(248,113,113,.12);
+    position:fixed;inset:0;z-index:9999;background:var(--scrim);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
+  :root[data-theme="light"] .jsp-ov{--bg:#f5f6fb;--sf:#ffffff;--sf2:#eceff7;--ln:rgba(30,41,82,.11);--ln2:rgba(30,41,82,.2);--tx:#141a2e;--tx2:#4b5575;--tx3:#8a93ad;--ac:#6a55f0;--ac2:#3b6ff5;--acs:rgba(106,85,240,.1);--acb:rgba(106,85,240,.35);--ok:#059669;--oks:rgba(5,150,105,.1);--sky:#0284c7;--skys:rgba(2,132,199,.1);--shA:rgba(20,26,46,.05);--shB:rgba(20,26,46,.1);--sh:0 24px 64px rgba(30,41,82,.16),0 2px 6px rgba(30,41,82,.06);--scrim:rgba(232,235,245,.8);--scrim2:rgba(20,26,46,.28);--err:#dc2626;--errs:rgba(220,38,38,.08);}
+  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--ln);border-radius:20px;box-shadow:var(--sh);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
+  @keyframes jIn{from{opacity:0;transform:scale(.97) translateY(12px)}to{opacity:1;transform:none}}
+  @keyframes jUp{from{transform:translateY(100%)}to{transform:none}}
   @keyframes jSpin{to{transform:rotate(360deg)}}
   @keyframes jShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 
-  .jsp-hd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.025);}
-  .jsp-hdl{display:flex;align-items:center;gap:9px;}
-  .jsp-ico{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#20c997,#0d9488);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(32,201,151,.28);}
-  .jsp-hdtit{font-size:16px;font-weight:700;color:#fff;letter-spacing:-.3px;margin:0;}
-  .jsp-pill{padding:2px 9px;border-radius:100px;background:rgba(32,201,151,.1);border:1px solid rgba(32,201,151,.2);font-size:9px;font-weight:700;color:#20c997;letter-spacing:.5px;}
-  .jsp-xb{width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,0.06);color:rgba(255,255,255,.5);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;}
-  .jsp-xb:hover{background:rgba(255,255,255,0.12);color:#fff;}
+  .jsp-hd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 20px;}
+  .jsp-hdl{display:flex;align-items:center;gap:10px;min-width:0;}
+  .jsp-ico{width:34px;height:34px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,var(--ac),var(--ac2));display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.35);}
+  .jsp-hdtit{font-size:17px;font-weight:700;color:var(--tx);letter-spacing:-.3px;margin:0;white-space:nowrap;}
+  .jsp-pill{padding:3px 9px;border-radius:100px;background:var(--acs);font-size:10px;font-weight:700;color:var(--ac);letter-spacing:.3px;white-space:nowrap;}
+  .jsp-xb{width:34px;height:34px;flex-shrink:0;border-radius:10px;border:none;background:var(--sf);color:var(--tx2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;}
+  .jsp-xb:hover{background:var(--sf2);color:var(--tx);}
 
-  .jsp-srchbar{flex-shrink:0;padding:14px 22px 12px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,0.015);}
-  .jsp-srchrow{display:flex;gap:10px;align-items:center;}
-  .jsp-srchinwrap{flex:1;position:relative;}
-  .jsp-srchinico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:rgba(255,255,255,.3);pointer-events:none;}
-  .jsp-srchin{width:100%;padding:12px 50px 12px 42px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;color:#fff;font-size:14px;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;}
-  .jsp-srchin::placeholder{color:rgba(255,255,255,.25);}
-  .jsp-srchin:focus{border-color:rgba(32,201,151,.45);box-shadow:0 0 0 4px rgba(32,201,151,.09);}
-  .jsp-srchbtn{width:42px;height:42px;border-radius:11px;border:none;background:linear-gradient(135deg,#20c997,#0d9488);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 12px rgba(32,201,151,.28);transition:opacity .2s;flex-shrink:0;}
-  .jsp-srchbtn:hover{opacity:.82;} .jsp-srchbtn:disabled{opacity:.4;cursor:not-allowed;}
+  .jsp-srchbar{flex-shrink:0;padding:4px 20px 14px;}
+  .jsp-srchrow{display:flex;gap:8px;align-items:center;}
+  .jsp-srchinwrap{flex:1;position:relative;min-width:0;}
+  .jsp-srchinico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--tx3);pointer-events:none;display:flex;}
+  .jsp-srchin{width:100%;height:46px;padding:0 14px 0 42px;background:var(--sf);border:1px solid var(--ln);border-radius:12px;color:var(--tx);font-size:15px;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;text-overflow:ellipsis;}
+  .jsp-srchin::placeholder{color:var(--tx3);}
+  .jsp-srchin:focus{border-color:var(--acb);box-shadow:0 0 0 4px rgba(139,123,255,.12);}
+  .jsp-srchbtn{width:46px;height:46px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .2s,transform .1s;flex-shrink:0;}
+  .jsp-srchbtn:active{transform:scale(.96);} .jsp-srchbtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;}
   .jsp-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;}
-  .jsp-chlbl{font-size:10px;color:rgba(255,255,255,.3);font-weight:600;}
-  .jsp-chip{padding:4px 11px;border-radius:100px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);color:rgba(255,255,255,.5);font-size:11px;font-family:inherit;cursor:pointer;transition:all .15s;}
-  .jsp-chip:hover{background:rgba(32,201,151,.1);border-color:rgba(32,201,151,.3);color:#20c997;}
+  .jsp-near{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;}
+  .jsp-nearbtn{display:flex;align-items:center;gap:7px;height:34px;padding:0 13px 0 10px;border-radius:100px;border:1px solid var(--acb);background:var(--acs);color:var(--ac);font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap;max-width:240px;transition:all .15s;}
+  .jsp-nearbtn span{overflow:hidden;text-overflow:ellipsis;}
+  .jsp-nearbtn:hover{border-color:var(--ac);}
+  .jsp-nearbtn.on{background:linear-gradient(135deg,var(--ac),var(--ac2));border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.3);}
+  .jsp-nearbtn:disabled{cursor:progress;opacity:.8;}
+  .jsp-nearbtn .jsp-spin{width:13px;height:13px;border-width:2px;border-color:var(--acb);border-top-color:var(--ac);}
+  .jsp-rads{display:flex;gap:4px;padding:3px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);}
+  .jsp-rad{height:28px;padding:0 10px;border-radius:100px;border:none;background:none;color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
+  .jsp-rad:hover{color:var(--tx);} .jsp-rad.on{background:var(--acs);color:var(--ac);}
+  .jsp-nearmsg{margin:8px 0 0;font-size:12px;color:var(--err);line-height:1.5;}
+  .jsp-dist{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ac);white-space:nowrap;}
 
-  .jsp-tabs{flex-shrink:0;display:flex;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.07);}
-  .jsp-tab{padding:9px 14px 11px;font-size:13px;font-weight:600;color:rgba(255,255,255,.35);background:none;border:none;cursor:pointer;position:relative;transition:color .15s;font-family:inherit;}
-  .jsp-tab:hover{color:rgba(255,255,255,.7);} .jsp-tab.on{color:#fff;}
-  .jsp-tab.on::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#20c997,#0d9488);border-radius:2px 2px 0 0;}
-  .jsp-tb{display:inline-flex;align-items:center;justify-content:center;background:rgba(32,201,151,.15);color:#20c997;font-size:10px;font-weight:700;padding:1px 5px;border-radius:100px;margin-left:4px;}
+  .jsp-radar{display:flex;align-items:center;gap:18px;padding:14px 18px;margin-bottom:14px;border-radius:18px;background:var(--sf);border:1px solid var(--ln);}
+  .jsp-radar svg{width:190px;height:190px;flex-shrink:0;display:block;}
+  .jsp-radar .rg-bg{fill:var(--acs);} .jsp-radar .rg-ring{fill:none;stroke:var(--acb);stroke-width:.8;stroke-dasharray:3 3;}
+  .jsp-radar .rg-lbl{fill:var(--tx3);font-size:8px;font-weight:600;}
+  .jsp-radar .rg-me{fill:var(--ac);stroke:var(--sf);stroke-width:3;} .jsp-radar .rg-pulse{fill:var(--ac);}
+  .jsp-radar .rg-dot{stroke:var(--sf);stroke-width:2;cursor:pointer;transition:r .15s;} .jsp-radar .rg-dot:hover{r:8;}
+  .jsp-radar .rg-sweep{fill:url(#jsp-sweep);}
+  .jsp-rinfo{min-width:0;}
+  .jsp-rtit{font-size:16px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.2px;}
+  .jsp-rsub{font-size:13px;color:var(--tx2);margin:0 0 10px;line-height:1.5;}
+  .jsp-rnear{display:flex;flex-direction:column;gap:6px;}
+  .jsp-rnear button{display:flex;align-items:center;gap:8px;padding:0;border:none;background:none;font-family:inherit;cursor:pointer;text-align:left;color:var(--tx2);font-size:12.5px;min-width:0;}
+  .jsp-rnear button:hover{color:var(--tx);}
+  .jsp-rnear i{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+  .jsp-rnear em{font-style:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .jsp-rnear b{margin-left:auto;padding-left:8px;color:var(--ac);white-space:nowrap;}
+  .jsp-cta{margin-top:16px;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:100px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);}
+  .jsp-chlbl{font-size:11px;color:var(--tx3);font-weight:600;}
+  .jsp-chip{flex-shrink:0;padding:6px 12px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
+  .jsp-chip:hover{background:var(--acs);border-color:var(--acb);color:var(--tx);}
 
-  .jsp-body{flex:1;display:flex;overflow:hidden;min-height:0;}
-  .jsp-main{flex:1;min-height:0;overflow-y:scroll;padding:18px 22px;scrollbar-width:none;-ms-overflow-style:none;}
+  .jsp-tabs{flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 20px;border-bottom:1px solid var(--ln);}
+  .jsp-tab{padding:10px 12px 12px;font-size:14px;font-weight:600;color:var(--tx3);background:none;border:none;cursor:pointer;position:relative;transition:color .15s;font-family:inherit;display:flex;align-items:center;}
+  .jsp-tab:hover{color:var(--tx2);} .jsp-tab.on{color:var(--tx);}
+  .jsp-tab.on::after{content:'';position:absolute;bottom:-1px;left:10px;right:10px;height:2px;background:linear-gradient(90deg,var(--ac),var(--ac2));border-radius:2px;}
+  .jsp-tb{display:inline-flex;align-items:center;justify-content:center;min-width:18px;background:var(--acs);color:var(--ac);font-size:11px;font-weight:700;padding:1px 6px;border-radius:100px;margin-left:6px;}
+  .jsp-fbtn{display:none;margin-left:auto;align-items:center;gap:6px;padding:6px 12px;border-radius:100px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;}
+  .jsp-fbtn.on{border-color:var(--acb);color:var(--ac);background:var(--acs);}
+  .jsp-fdot{width:6px;height:6px;border-radius:50%;background:var(--ac);}
+
+  .jsp-body{flex:1;display:flex;overflow:hidden;min-height:0;position:relative;}
+  .jsp-main{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:18px 20px;scrollbar-width:none;-ms-overflow-style:none;}
   .jsp-main::-webkit-scrollbar{display:none;}
-  .jsp-sb{flex-shrink:0;width:210px;border-left:1px solid rgba(255,255,255,.07);padding:18px 16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:16px;}
+  .jsp-sb{flex-shrink:0;width:230px;border-left:1px solid var(--ln);background:var(--bg);padding:18px 16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:18px;}
   .jsp-sb::-webkit-scrollbar{display:none;}
-  .jsp-sbt{font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:rgba(255,255,255,.35);margin:0 0 8px;}
-  .jsp-sbinp{width:100%;padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#fff;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color .15s;}
-  .jsp-sbinp:focus{border-color:rgba(32,201,151,.4);} .jsp-sbinp::placeholder{color:rgba(255,255,255,.2);}
-  .jsp-sbsel{width:100%;padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#fff;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;cursor:pointer;}
-  .jsp-sbsel option{background:#1a1a2e;}
-  .jsp-togrow{display:flex;align-items:center;justify-content:space-between;padding:4px 0;}
-  .jsp-toglbl{font-size:12px;color:rgba(255,255,255,.5);}
-  .jsp-tog{width:32px;height:17px;border-radius:100px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
-  .jsp-tog.on{background:#20c997;} .jsp-tog.off{background:rgba(255,255,255,.1);}
-  .jsp-togk{position:absolute;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
-  .jsp-tog.on .jsp-togk{left:17px;} .jsp-tog.off .jsp-togk{left:2px;}
-  .jsp-applyf{width:100%;padding:9px;border-radius:9px;border:none;background:linear-gradient(135deg,#20c997,#0d9488);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
-  .jsp-applyf:hover{opacity:.82;}
+  .jsp-sbhd{display:none;}
+  .jsp-scrim{display:none;}
+  .jsp-sbt{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);margin:0 0 8px;}
+  .jsp-sbinp,.jsp-sbsel{width:100%;height:40px;padding:0 12px;background:var(--sf);border:1px solid var(--ln);border-radius:10px;color:var(--tx);font-size:13px;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color .15s;}
+  .jsp-sbinp:focus,.jsp-sbsel:focus{border-color:var(--acb);} .jsp-sbinp::placeholder{color:var(--tx3);}
+  .jsp-sbsel{cursor:pointer;} .jsp-sbsel option{background:var(--sf);color:var(--tx);}
+  .jsp-togrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;}
+  .jsp-toglbl{font-size:13px;color:var(--tx2);}
+  .jsp-tog{width:36px;height:20px;border-radius:100px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
+  .jsp-tog.on{background:var(--ac);} .jsp-tog.off{background:var(--sf2);}
+  .jsp-togk{position:absolute;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .jsp-tog.on .jsp-togk{left:18px;} .jsp-tog.off .jsp-togk{left:2px;}
+  .jsp-applyf{width:100%;height:42px;border-radius:11px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
+  .jsp-applyf:hover{opacity:.88;}
 
-  .jsp-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
-  @media(max-width:640px){.jsp-grid{grid-template-columns:1fr;}}
+  .jsp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
 
-  .jsp-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:15px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:11px;position:relative;overflow:hidden;transition:border-color .2s,background .2s,transform .15s,box-shadow .2s;}
-  .jsp-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--cc,#20c997);opacity:0;transition:opacity .2s;}
-  .jsp-card:hover{border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.065);transform:translateY(-2px);box-shadow:0 10px 32px rgba(0,0,0,.25);}
-  .jsp-card:hover::after{opacity:1;}
-  .jsp-ctop{display:flex;align-items:flex-start;gap:11px;}
-  .jsp-logo{border-radius:10px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-card{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden;transition:border-color .2s,background .2s,transform .15s,box-shadow .2s;}
+  .jsp-card::before{content:'';position:absolute;top:14px;bottom:14px;left:0;width:3px;border-radius:0 3px 3px 0;background:var(--cc,var(--ac));opacity:.85;}
+  .jsp-card:hover{border-color:var(--ln2);background:var(--sf2);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.3);}
+  .jsp-ctop{display:flex;align-items:flex-start;gap:12px;}
+  .jsp-logo{border-radius:10px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-logo img{width:78%;height:78%;object-fit:contain;}
+  .jsp-logofb{width:62%;height:62%;border-radius:22%;display:flex;align-items:center;justify-content:center;font-weight:800;}
   .jsp-cinfo{flex:1;min-width:0;}
-  .jsp-ctit{font-size:14px;font-weight:700;color:#fff;margin:0 0 3px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .jsp-cco{font-size:12px;color:rgba(255,255,255,.45);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .jsp-sv{width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.06);color:rgba(255,255,255,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
-  .jsp-sv:hover{background:rgba(255,255,255,.12);color:#fff;} .jsp-sv.on{background:rgba(32,201,151,.15);color:#20c997;}
-  .jsp-cmeta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
-  .b-r{padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(32,201,151,.12);color:#20c997;border:1px solid rgba(32,201,151,.2);}
-  .b-t{padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(255,255,255,.07);color:rgba(255,255,255,.5);}
-  .b-e{padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(167,139,250,.1);color:#a78bfa;border:1px solid rgba(167,139,250,.18);}
-  .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;}
-  .jsp-sal{font-size:13px;font-weight:700;color:#20c997;} .jsp-age{font-size:11px;color:rgba(255,255,255,.3);}
+  .jsp-ctit{font-size:15px;font-weight:700;color:var(--tx);margin:0 0 4px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .jsp-cco{font-size:12.5px;color:var(--tx2);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .jsp-sv{width:32px;height:32px;border-radius:9px;border:none;background:transparent;color:var(--tx3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
+  .jsp-sv:hover{background:var(--sf2);color:var(--tx);} .jsp-sv.on{background:var(--acs);color:var(--ac);}
+  .jsp-cmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .b-r,.b-t,.b-e{padding:3px 9px;border-radius:100px;font-size:11px;font-weight:600;white-space:nowrap;}
+  .b-r{background:var(--skys);color:var(--sky);}
+  .b-t{background:var(--sf2);color:var(--tx2);}
+  .b-e{background:var(--acs);color:var(--ac);}
+  .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--ln);}
+  .jsp-sal{font-size:13.5px;font-weight:700;color:var(--ok);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .jsp-age{font-size:12px;color:var(--tx3);white-space:nowrap;}
 
-  .jsp-skel{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:15px;padding:16px;display:flex;gap:11px;}
-  .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.05) 25%,rgba(255,255,255,.1) 50%,rgba(255,255,255,.05) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
+  .jsp-skel{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:16px;display:flex;gap:12px;}
+  .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,var(--shA) 25%,var(--shB) 50%,var(--shA) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
 
-  .jsp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;padding:32px;}
-  .jsp-emico{width:60px;height:60px;border-radius:16px;background:rgba(32,201,151,.08);border:1px solid rgba(32,201,151,.16);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
-  .jsp-emtit{font-size:16px;font-weight:700;color:#fff;margin:0 0 6px;} .jsp-emsub{font-size:13px;color:rgba(255,255,255,.35);margin:0;line-height:1.6;max-width:360px;}
+  .jsp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;padding:32px 16px;}
+  .jsp-emico{width:60px;height:60px;border-radius:18px;background:var(--acs);color:var(--ac);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
+  .jsp-emtit{font-size:16px;font-weight:700;color:var(--tx);margin:0 0 6px;} .jsp-emsub{font-size:13px;color:var(--tx2);margin:0;line-height:1.6;max-width:360px;}
 
-  .jsp-hrow{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);cursor:pointer;transition:background .15s;margin-bottom:7px;}
-  .jsp-hrow:hover{background:rgba(255,255,255,.07);}
+  .jsp-hrow{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-radius:12px;background:var(--sf);border:1px solid var(--ln);cursor:pointer;transition:background .15s;margin-bottom:8px;}
+  .jsp-hrow:hover{background:var(--sf2);}
+  .jsp-hrow svg{color:var(--tx3);} .jsp-hrow span{font-size:13px;color:var(--tx2);font-weight:500;}
 
-  .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.15);border-top-color:#20c997;border-radius:50%;animation:jSpin .7s linear infinite;}
+  .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:jSpin .7s linear infinite;}
 
-  .jsp-det{position:absolute;inset:0;z-index:20;background:linear-gradient(155deg,#0d0d16,#111120);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
-  .jsp-dhd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:13px 22px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap;gap:10px;}
-  .jsp-backb{display:flex;align-items:center;gap:7px;background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-size:13px;font-weight:600;padding:0;transition:color .15s;font-family:inherit;}
-  .jsp-backb:hover{color:#fff;}
-  .jsp-dacts{display:flex;gap:7px;align-items:center;}
-  .jsp-dactb{display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(255,255,255,.55);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;}
-  .jsp-dactb:hover{border-color:rgba(255,255,255,.2);color:#fff;} .jsp-dactb.on{border-color:rgba(32,201,151,.3);color:#20c997;background:rgba(32,201,151,.08);}
-  .jsp-applybig{display:flex;align-items:center;gap:6px;padding:9px 16px;border-radius:9px;border:none;background:linear-gradient(135deg,#20c997,#0d9488);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(32,201,151,.28);transition:opacity .15s;font-family:inherit;}
-  .jsp-applybig:hover{opacity:.82;}
+  .jsp-det{position:absolute;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
+  .jsp-dhd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--ln);gap:10px;}
+  .jsp-backb{display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--tx2);cursor:pointer;font-size:13px;font-weight:600;padding:0;transition:color .15s;font-family:inherit;white-space:nowrap;}
+  .jsp-backb:hover{color:var(--tx);}
+  .jsp-dacts{display:flex;gap:8px;align-items:center;}
+  .jsp-dactb{display:flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;}
+  .jsp-dactb:hover{border-color:var(--ln2);color:var(--tx);} .jsp-dactb.on{border-color:var(--acb);color:var(--ac);background:var(--acs);}
+  .jsp-applybig{display:flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .15s;font-family:inherit;white-space:nowrap;}
+  .jsp-applybig:hover{opacity:.88;}
   .jsp-dbody{flex:1;min-height:0;display:flex;overflow:hidden;}
-  .jsp-dmain{flex:1;min-height:0;overflow-y:scroll;padding:22px;scrollbar-width:none;-ms-overflow-style:none;}
+  .jsp-dmain{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:22px;scrollbar-width:none;-ms-overflow-style:none;}
   .jsp-dmain::-webkit-scrollbar{display:none;}
-  .jsp-dside{flex-shrink:0;width:268px;border-left:1px solid rgba(255,255,255,.07);padding:22px 18px;overflow-y:scroll;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:14px;}
+  .jsp-dside{flex-shrink:0;width:280px;border-left:1px solid var(--ln);padding:22px 18px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:14px;}
   .jsp-dside::-webkit-scrollbar{display:none;}
-  .jsp-dco{display:flex;align-items:center;gap:13px;margin-bottom:18px;}
-  .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
-  .jsp-dlogo img{width:34px;height:34px;object-fit:contain;}
-  .jsp-djt{font-size:22px;font-weight:800;color:#fff;margin:0 0 4px;letter-spacing:-.4px;line-height:1.2;}
-  .jsp-djco{font-size:13px;color:rgba(255,255,255,.45);margin:0;}
+  .jsp-dco{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+  .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .jsp-dlogo img{width:72%;height:72%;object-fit:contain;}
+  .jsp-djt{font-size:21px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
+  .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
   .jsp-dbdgs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px;}
-  .jsp-stit{font-size:14px;font-weight:700;color:#fff;margin:0 0 9px;}
-  .jsp-desc{font-size:13px;color:rgba(255,255,255,.5);line-height:1.75;margin:0;}
-  .jsp-hr{border:none;border-top:1px solid rgba(255,255,255,.07);margin:16px 0;}
+  .jsp-stit{font-size:14px;font-weight:700;color:var(--tx);margin:0 0 9px;}
+  .jsp-desc{font-size:13.5px;color:var(--tx2);line-height:1.75;margin:0;white-space:pre-line;}
+  .jsp-hr{border:none;border-top:1px solid var(--ln);margin:18px 0;}
   .jsp-rlist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
-  .jsp-rit{display:flex;align-items:flex-start;gap:8px;font-size:13px;color:rgba(255,255,255,.5);line-height:1.5;}
-  .jsp-rdot{width:5px;height:5px;border-radius:50%;background:#20c997;flex-shrink:0;margin-top:6px;}
+  .jsp-rit{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:var(--tx2);line-height:1.55;}
+  .jsp-rdot{width:6px;height:6px;border-radius:50%;background:var(--ac);flex-shrink:0;margin-top:7px;}
   .jsp-skg{display:flex;flex-wrap:wrap;gap:6px;}
-  .jsp-sk{padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.6);font-size:11px;font-weight:600;}
-  .jsp-aic{border-radius:14px;padding:16px;background:linear-gradient(135deg,#180d2e 0%,#0d1828 100%);border:1px solid rgba(167,139,250,.18);position:relative;overflow:hidden;}
-  .jsp-aic::before{content:'';position:absolute;top:-28px;right:-28px;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,.15),transparent 70%);}
+  .jsp-sk{padding:4px 10px;border-radius:8px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-weight:600;}
+  .jsp-aic{border-radius:16px;padding:16px;background:linear-gradient(145deg,rgba(139,123,255,.16),rgba(56,189,248,.07));border:1px solid var(--acb);position:relative;overflow:hidden;}
   .jsp-aihd{display:flex;align-items:center;gap:6px;margin-bottom:12px;}
-  .jsp-ailbl{font-size:10px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.8px;}
+  .jsp-ailbl{font-size:11px;font-weight:700;color:var(--ac);text-transform:uppercase;letter-spacing:.6px;}
+  .jsp-rtrack{stroke:var(--sf2);}
   .jsp-rw{position:relative;width:70px;height:70px;margin:0 auto 12px;}
   .jsp-rn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
-  .jsp-rbig{font-size:19px;font-weight:900;color:#fff;line-height:1;} .jsp-rpct{font-size:9px;color:rgba(255,255,255,.4);font-weight:600;}
-  .jsp-ml{font-size:10px;font-weight:700;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+  .jsp-rbig{font-size:19px;font-weight:900;color:var(--tx);line-height:1;} .jsp-rpct{font-size:9px;color:var(--tx3);font-weight:600;}
+  .jsp-ml{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
   .jsp-mt{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px;}
-  .m-y{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600;background:rgba(32,201,151,.12);color:#20c997;}
-  .m-n{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:600;background:rgba(248,113,113,.12);color:#f87171;}
+  .m-y{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:var(--oks);color:var(--ok);}
+  .m-n{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;background:var(--errs);color:var(--err);}
   .jsp-sugl{display:flex;flex-direction:column;gap:4px;}
-  .jsp-sugi{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.45);padding:5px 8px;background:rgba(255,255,255,.03);border-radius:6px;}
-  .jsp-coc{border-radius:13px;padding:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);}
-  .jsp-cor{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);}
-  .jsp-cor:last-child{border-bottom:none;} .jsp-cok{font-size:11px;color:rgba(255,255,255,.3);} .jsp-cov{font-size:11px;font-weight:700;color:rgba(255,255,255,.6);}
-  .jsp-catbadge{padding:2px 9px;border-radius:100px;font-size:10px;font-weight:700;background:rgba(255,255,255,.07);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.1);}
+  .jsp-sugi{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);padding:6px 9px;background:var(--shA);border-radius:8px;}
+  .jsp-coc{border-radius:14px;padding:14px;background:var(--sf);border:1px solid var(--ln);}
+  .jsp-cor{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--ln);}
+  .jsp-cor:last-child{border-bottom:none;} .jsp-cok{font-size:12px;color:var(--tx3);} .jsp-cov{font-size:12px;font-weight:600;color:var(--tx2);text-align:right;overflow-wrap:anywhere;}
+  .jsp-catbadge{padding:2px 9px;border-radius:100px;font-size:10px;font-weight:700;background:var(--sf2);color:var(--tx2);}
+
+  /* ── Mobile: full-screen sheet, one-line chips, filters as bottom sheet ── */
+  @media(max-width:760px){
+    .jsp-ov{padding:0;align-items:stretch;}
+    .jsp-box{max-width:none;height:100%;height:100dvh;border-radius:0;border:none;}
+    .jsp-hd{padding:12px 16px;}
+    .jsp-hdtit{font-size:16px;}
+    .jsp-srchbar{padding:2px 16px 12px;}
+    .jsp-chips{flex-wrap:nowrap;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none;}
+    .jsp-chips::-webkit-scrollbar{display:none;}
+    .jsp-chlbl{display:none;}
+    .jsp-near{flex-wrap:nowrap;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none;}
+    .jsp-near::-webkit-scrollbar{display:none;}
+    .jsp-nearbtn{flex-shrink:0;max-width:170px;} .jsp-rads{flex-shrink:0;}
+    .jsp-radar{flex-direction:column;align-items:stretch;gap:12px;padding:14px;}
+    .jsp-radar svg{width:100%;max-width:180px;height:auto;margin:0 auto;}
+    .jsp-tabs{padding:0 12px;}
+    .jsp-tab{padding:10px 10px 12px;}
+    .jsp-fbtn{display:flex;}
+    .jsp-main{padding:14px 16px 24px;}
+    .jsp-grid{grid-template-columns:1fr;gap:10px;}
+    .jsp-sb{position:absolute;left:0;right:0;bottom:0;z-index:15;width:auto;max-height:78%;border-left:none;border-top:1px solid var(--ln2);border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 50px rgba(0,0,0,.5);display:none;animation:jUp .25s cubic-bezier(.16,1,.3,1);}
+    .jsp-sb.open{display:flex;}
+    .jsp-sbhd{display:flex;align-items:center;justify-content:space-between;padding:6px 0 0;}
+    .jsp-sbhd::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:4px;background:var(--ln2);}
+    .jsp-sbhd b{font-size:16px;color:var(--tx);padding-top:12px;}
+    .jsp-scrim{display:block;position:absolute;inset:0;z-index:14;background:var(--scrim2);}
+    .jsp-dhd{padding:10px 14px;}
+    .jsp-dbody{flex-direction:column;overflow-y:auto;}
+    .jsp-dmain,.jsp-dside{overflow:visible;flex:none;}
+    .jsp-dmain{padding:18px 16px 8px;}
+    .jsp-dside{width:auto;border-left:none;padding:8px 16px 24px;}
+    .jsp-djt{font-size:19px;}
+  }
+  @media(max-width:400px){ .jsp-pill{display:none;} .jsp-dactb span{display:none;} }
 `;
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
@@ -581,12 +759,20 @@ export default function JobSearchPanel({ onClose }) {
   const [searched, setSearched] = useState(false);
   const [noMatch, setNoMatch] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [near, setNear] = useState(() => {
+    let radius = 10;
+    try { const r = Number(localStorage.getItem("vsj3_radius")); if (RADIUS_OPTIONS.includes(r)) radius = r; } catch { /* ignore */ }
+    return { on: false, status: "idle", lat: null, lng: null, place: "", area: "", radius };
+  });
+  const [resultNear, setResultNear] = useState(null);
   const [filters, setFilters] = useState({ location: "", remote: false, experience: "" });
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
 
   useEffect(() => { localStorage.setItem("vsj3_saved", JSON.stringify(saved)); }, [saved]);
   useEffect(() => { localStorage.setItem("vsj3_hist", JSON.stringify(hist)); }, [hist]);
+  useEffect(() => { try { localStorage.setItem("vsj3_radius", String(near.radius)); } catch { /* ignore */ } }, [near.radius]);
 
   const isSv = j => saved.some(s => s.id === j.id);
   const togSv = (j, e) => { if (e) e.stopPropagation(); setSaved(p => isSv(j) ? p.filter(s => s.id !== j.id) : [{ ...j }, ...p]); };
@@ -600,16 +786,68 @@ export default function JobSearchPanel({ onClose }) {
     });
   };
 
-  const search = async (query = q, overrideFilters = null) => {
-    if (!query.trim()) return;
+  // Ask the browser for the user's position, then turn it into a place name for the job query.
+  const locate = () => new Promise(resolve => {
+    if (!navigator.geolocation) {
+      setNear(n => ({ ...n, on: false, status: "unsupported" }));
+      return resolve(null);
+    }
+    setNear(n => ({ ...n, status: "locating" }));
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      let place = "", area = "";
+      try {
+        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
+        const d = await r.json();
+        place = d.city || d.locality || d.principalSubdivision || "";
+        area = d.locality && d.locality !== place ? `${d.locality}, ${place}` : place;
+      } catch { /* distance filtering still works without a place name */ }
+      const next = { ...near, on: true, status: "ready", lat, lng, place, area };
+      setNear(next);
+      resolve(next);
+    }, err => {
+      setNear(n => ({ ...n, on: false, status: err.code === 1 ? "denied" : "error" }));
+      resolve(null);
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 });
+  });
+
+  const toggleNear = async () => {
+    if (near.status === "locating") return;
+    if (near.on) {
+      const next = { ...near, on: false };
+      setNear(next);
+      if (searched && q.trim()) search(q, null, next); else if (searched) { setSearched(false); setJobs([]); setResultNear(null); }
+      return;
+    }
+    let next = near.status === "ready" ? { ...near, on: true } : await locate();
+    if (!next) return;
+    setNear(next);
+    setTab("search");
+    search(q, null, next);
+  };
+
+  const setRadius = km => {
+    const next = { ...near, radius: km };
+    setNear(next);
+    if (next.on && next.status === "ready") search(q, null, next);
+  };
+
+  const search = async (query = q, overrideFilters = null, nearOverride = null) => {
+    const nr = nearOverride || near;
+    const useNear = nr.on && nr.status === "ready";
+    const role = query.trim();
+    if (!role && !useNear) return;
     setLoading(true); setSearched(true); setDetail(null); setNoMatch(false);
-    setHist(p => [query, ...p.filter(x => x !== query)].slice(0, 10));
+    setResultNear(useNear ? nr : null);
+    if (role) setHist(p => [role, ...p.filter(x => x !== role)].slice(0, 10));
 
     const activeFilters = overrideFilters || filters;
+    const apiQuery = useNear && nr.place ? `${role || "jobs"} in ${nr.place}` : (role || "jobs");
+    const radiusParam = useNear ? `&radius=${nr.radius}` : "";
 
     // Try live API first
     try {
-      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(query)}&page=1&num_pages=1`, {
+      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}`, {
         headers: { "x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST }
       });
       if (!res.ok) throw new Error("api");
@@ -629,13 +867,24 @@ export default function JobSearchPanel({ onClose }) {
           postedAt: j.job_posted_at_datetime_utc || new Date().toISOString(), 
           applyUrl: j.job_apply_link || `https://www.google.com/search?q=${encodeURIComponent(j.job_title + ' ' + j.employer_name)}`, 
           skills: j.job_required_skills || [], 
-          color: "#20c997", 
+          color: "#8b7bff", 
           tags: [],
           logo: j.employer_logo || null,
           industry: j.employer_company_type || null,
-          website: j.employer_website || null
+          website: j.employer_website || null,
+          lat: typeof j.job_latitude === "number" ? j.job_latitude : null,
+          lng: typeof j.job_longitude === "number" ? j.job_longitude : null
         }));
         parsedJobs = applyClientFilters(parsedJobs, activeFilters);
+        if (useNear) {
+          // Jobs with coordinates must fall inside the radius; ones without keep the API's own radius match.
+          parsedJobs = parsedJobs
+            .map(j => j.lat != null && j.lng != null
+              ? { ...j, distance: distanceKm(nr.lat, nr.lng, j.lat, j.lng), bearing: bearingDeg(nr.lat, nr.lng, j.lat, j.lng) }
+              : { ...j, distance: null, bearing: null })
+            .filter(j => j.distance == null || j.distance <= nr.radius)
+            .sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity));
+        }
         if (parsedJobs.length === 0) setNoMatch(true);
         setJobs(parsedJobs);
         setLoading(false); return;
@@ -652,24 +901,17 @@ export default function JobSearchPanel({ onClose }) {
     }
   };
 
-  const Logo = ({ job, sz = 42, rad = 10 }) => (
-    <div className="jsp-logo" style={{ width: sz, height: sz, borderRadius: rad }}>
-      {job.logo
-        ? <img src={job.logo} alt="" onError={e => { e.target.style.display = "none"; }} />
-        : <div style={{ width: 26, height: 26, borderRadius: 7, background: (job.color || "#20c997") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: job.color || "#20c997" }}>{(job.company || "?")[0]}</div>}
-    </div>
-  );
 
   const Card = ({ job }) => (
-    <div className="jsp-card" style={{ "--cc": job.color || "#20c997" }} onClick={() => setDetail(job)}>
+    <div className="jsp-card" style={{ "--cc": job.color || "#8b7bff" }} onClick={() => setDetail(job)}>
       <div className="jsp-ctop">
-        <Logo job={job} />
+        <CompanyLogo job={job} />
         <div className="jsp-cinfo">
           <p className="jsp-ctit">{job.title}</p>
           <p className="jsp-cco">{job.company} · {job.location}</p>
         </div>
         <button className={`jsp-sv ${isSv(job) ? "on" : ""}`} onClick={e => togSv(job, e)}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill={isSv(job) ? "#20c997" : "none"} stroke={isSv(job) ? "#20c997" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill={isSv(job) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
         </button>
       </div>
       <div className="jsp-cmeta">
@@ -679,7 +921,9 @@ export default function JobSearchPanel({ onClose }) {
       </div>
       <div className="jsp-cfoot">
         <span className="jsp-sal">{job.salary ? formatSalary(job.salary.min, job.salary.max, job.salary.currency) : "Salary TBD"}</span>
-        <span className="jsp-age">{timeAgo(job.postedAt)}</span>
+        {job.distance != null
+          ? <span className="jsp-dist"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>{fmtKm(job.distance)}</span>
+          : <span className="jsp-age">{timeAgo(job.postedAt)}</span>}
       </div>
     </div>
   );
@@ -699,11 +943,65 @@ export default function JobSearchPanel({ onClose }) {
     </div>
   );
 
-  const Empty = ({ title, sub }) => (
+  const Radar = ({ list, nr, scanning }) => {
+    const C = 110, R = 96;
+    const pts = list.filter(j => j.distance != null).slice(0, 40);
+    const unknown = list.length - pts.length;
+    const place = nr.area || nr.place || "your location";
+    return (
+      <div className="jsp-radar">
+        <svg viewBox="0 0 220 220" role="img" aria-label={`Jobs within ${nr.radius} km`}>
+          <defs>
+            <radialGradient id="jsp-sweep" cx="0" cy="1" r="1"><stop offset="0%" style={{ stopColor: "var(--ac)", stopOpacity: .05 }} /><stop offset="100%" style={{ stopColor: "var(--ac)", stopOpacity: .35 }} /></radialGradient>
+          </defs>
+          <circle className="rg-bg" cx={C} cy={C} r={R} />
+          {[1 / 3, 2 / 3, 1].map(f => <circle key={f} className="rg-ring" cx={C} cy={C} r={R * f} />)}
+          {[1 / 3, 2 / 3].map(f => <text key={f} className="rg-lbl" x={C + 3} y={C - R * f + 9}>{fmtKm(nr.radius * f)}</text>)}
+          <text className="rg-lbl" x={C + 3} y={C - R + 9}>{nr.radius} km</text>
+          {scanning && (
+            <path className="rg-sweep" d={`M${C} ${C} L${C} ${C - R} A${R} ${R} 0 0 1 ${C + R * Math.sin(Math.PI / 3)} ${C - R * Math.cos(Math.PI / 3)} Z`}>
+              <animateTransform attributeName="transform" type="rotate" from={`0 ${C} ${C}`} to={`360 ${C} ${C}`} dur="2.2s" repeatCount="indefinite" />
+            </path>
+          )}
+          {pts.map(j => {
+            const d = Math.max(.06, j.distance / nr.radius) * R;
+            const a = toRad(j.bearing);
+            return (
+              <circle key={j.id} className="rg-dot" cx={C + Math.sin(a) * d} cy={C - Math.cos(a) * d} r="6" style={{ fill: j.color || "var(--ac)" }} onClick={() => setDetail(j)}>
+                <title>{`${j.title} · ${j.company} · ${fmtKm(j.distance)}`}</title>
+              </circle>
+            );
+          })}
+          <circle className="rg-pulse" cx={C} cy={C} r="7" opacity=".4">
+            <animate attributeName="r" values="7;26" dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values=".45;0" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+          <circle className="rg-me" cx={C} cy={C} r="7" />
+        </svg>
+        <div className="jsp-rinfo">
+          {scanning ? <>
+            <p className="jsp-rtit">Looking for jobs nearby…</p>
+            <p className="jsp-rsub">Searching within {nr.radius} km of {place}</p>
+          </> : <>
+            <p className="jsp-rtit">{list.length} job{list.length === 1 ? "" : "s"} within {nr.radius} km</p>
+            <p className="jsp-rsub">Around {place}{unknown > 0 ? ` · ${unknown} without an exact pin` : ""}</p>
+            {pts.length > 0 && <div className="jsp-rnear">
+              {pts.slice(0, 3).map(j => (
+                <button key={j.id} type="button" onClick={() => setDetail(j)}><i style={{ background: j.color || "var(--ac)" }} /><em>{j.title} · {j.company}</em><b>{fmtKm(j.distance)}</b></button>
+              ))}
+            </div>}
+          </>}
+        </div>
+      </div>
+    );
+  };
+
+  const Empty = ({ title, sub, action }) => (
     <div className="jsp-empty">
-      <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#20c997" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
+      <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
       <p className="jsp-emtit">{title}</p>
       <p className="jsp-emsub">{sub}</p>
+      {action}
     </div>
   );
 
@@ -725,8 +1023,8 @@ export default function JobSearchPanel({ onClose }) {
           </button>
           <div className="jsp-dacts">
             <button className={`jsp-dactb ${isSv(job) ? "on" : ""}`} onClick={() => togSv(job)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill={isSv(job) ? "#20c997" : "none"} stroke={isSv(job) ? "#20c997" : "currentColor"} strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
-              {isSv(job) ? "Saved" : "Save"}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill={isSv(job) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+              <span>{isSv(job) ? "Saved" : "Save"}</span>
             </button>
             <button className="jsp-applybig" onClick={e => { e.stopPropagation(); window.open(job.applyUrl, "_blank", "noopener,noreferrer"); }}>
               Apply Now <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
@@ -736,14 +1034,14 @@ export default function JobSearchPanel({ onClose }) {
         <div className="jsp-dbody">
           <div className="jsp-dmain">
             <div className="jsp-dco">
-              <div className="jsp-dlogo">{job.logo ? <img src={job.logo} alt="" onError={e => e.target.style.display = "none"} /> : <div style={{ width: 34, height: 34, borderRadius: 10, background: (job.color || "#20c997") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: job.color || "#20c997" }}>{(job.company || "?")[0]}</div>}</div>
+              <CompanyLogo job={job} size={56} radius={14} className="jsp-dlogo" />
               <div><p className="jsp-djt">{job.title}</p><p className="jsp-djco">{job.company} · {job.location}</p></div>
             </div>
             <div className="jsp-dbdgs">
               {job.remote && <span className="b-r" style={{ fontSize: 12, padding: "4px 11px" }}>🌐 Remote</span>}
               <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>💼 {job.type}</span>
               <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>
-              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "rgba(32,201,151,.1)", color: "#20c997", border: "1px solid rgba(32,201,151,.2)" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
+              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
             </div>
             {job.description && (
               <>
@@ -772,25 +1070,25 @@ export default function JobSearchPanel({ onClose }) {
           </div>
           <div className="jsp-dside">
             <div className="jsp-aic">
-              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
+              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
               <div className="jsp-rw">
                 <svg width="70" height="70" viewBox="0 0 70 70">
-                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
+                  <circle cx={cx} cy={cy} r={r} fill="none" className="jsp-rtrack" strokeWidth="7" />
                   <circle cx={cx} cy={cy} r={r} fill="none" stroke="url(#jg)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ} transform={`rotate(-90 ${cx} ${cy})`} />
-                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#20c997" /></linearGradient></defs>
+                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#38bdf8" /><stop offset="100%" stopColor="#8b7bff" /></linearGradient></defs>
                 </svg>
                 <div className="jsp-rn"><span className="jsp-rbig">{score}</span><span className="jsp-rpct">%</span></div>
               </div>
               {matched.length > 0 && <div><div className="jsp-ml">Matched</div><div className="jsp-mt">{matched.map(s => <span key={s} className="m-y">✓ {s}</span>)}</div></div>}
               {missing.length > 0 && <div><div className="jsp-ml">Missing</div><div className="jsp-mt">{missing.map(s => <span key={s} className="m-n">✗ {s}</span>)}</div></div>}
-              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "#a78bfa" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
+              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "#38bdf8" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
             </div>
             <div className="jsp-coc">
               <p className="jsp-stit" style={{ fontSize: 12, marginBottom: 8 }}>Company Info</p>
-              {[job.industry && ["Industry", job.industry], job.website && ["Website", job.website], ["Location", job.location]].filter(Boolean).map(([k, v]) => <div key={k} className="jsp-cor"><span className="jsp-cok">{k}</span><span className="jsp-cov" style={k === "Website" ? { color: "#20c997", cursor: "pointer", textDecoration: "underline" } : {}} onClick={(e) => { if (k === "Website") { e.stopPropagation(); window.open(v); } }}>{k === "Website" ? "Link" : v}</span></div>)}
+              {[job.industry && ["Industry", job.industry], job.website && ["Website", job.website], ["Location", job.location]].filter(Boolean).map(([k, v]) => <div key={k} className="jsp-cor"><span className="jsp-cok">{k}</span><span className="jsp-cov" style={k === "Website" ? { color: "var(--ac)", cursor: "pointer", textDecoration: "underline" } : {}} onClick={(e) => { if (k === "Website") { e.stopPropagation(); window.open(v); } }}>{k === "Website" ? "Link" : v}</span></div>)}
               {job.contact && (
                 <>
-                  <div className="jsp-cor"><span className="jsp-cok">HR Email</span><span className="jsp-cov" style={{ color: "#20c997", cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); window.open(`mailto:${job.contact.email}`); }}>{job.contact.email}</span></div>
+                  <div className="jsp-cor"><span className="jsp-cok">HR Email</span><span className="jsp-cov" style={{ color: "var(--ac)", cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); window.open(`mailto:${job.contact.email}`); }}>{job.contact.email}</span></div>
                   <div className="jsp-cor"><span className="jsp-cok">HR Phone</span><span className="jsp-cov">{job.contact.phone}</span></div>
                 </>
               )}
@@ -803,6 +1101,11 @@ export default function JobSearchPanel({ onClose }) {
 
   const RAPID_API_HOST = "jsearch.p.rapidapi.com";
   const RAPID_API_KEY = "b8afe4b388mshe2317a4c7eb24bbp17fb60jsn09f0ea443459";
+
+  const NEAR_CHIPS = ["Delivery Partner","Driver","Sales Executive","Receptionist","Software Engineer","Nurse","Teacher","Electrician"];
+  const nearReady = near.on && near.status === "ready";
+  const pinIcon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>;
+  const nearMsg = { denied: "Location access is blocked. Allow it in your browser's site settings to find jobs near you.", error: "Couldn't get your location. Check that location is on and try again.", unsupported: "This browser can't share your location." }[near.status];
 
   const SAMPLE_CHIPS = ["Software Engineer Bangalore","Delivery Boy Hyderabad","Doctor Mumbai","Data Scientist Remote","Civil Engineer Chennai","Bank PO Delhi","UI Designer Pune","Sales Executive India"];
 
@@ -825,15 +1128,27 @@ export default function JobSearchPanel({ onClose }) {
               <div className="jsp-srchinwrap">
                 <div className="jsp-srchinico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
                 <input className="jsp-srchin" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") search(); }}
-                  placeholder='Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"' autoFocus />
+                  placeholder={nearReady ? "What kind of job? (optional)" : 'Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"'} autoFocus />
               </div>
-              <button className="jsp-srchbtn" onClick={() => search()} disabled={!q.trim() || loading}>
+              <button className="jsp-srchbtn" onClick={() => search()} disabled={(!q.trim() && !nearReady) || loading}>
                 {loading ? <div className="jsp-spin" /> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>}
               </button>
             </div>
+            <div className="jsp-near">
+              <button type="button" className={`jsp-nearbtn ${near.on ? "on" : ""}`} onClick={toggleNear} disabled={near.status === "locating"} aria-pressed={near.on}>
+                {near.status === "locating" ? <div className="jsp-spin" /> : pinIcon}
+                <span>{near.status === "locating" ? "Finding you…" : nearReady ? ((near.area || near.place).split(",")[0] || "Near me") : "Jobs near me"}</span>
+              </button>
+              {nearReady && (
+                <div className="jsp-rads" role="group" aria-label="Search radius">
+                  {RADIUS_OPTIONS.map(km => <button key={km} type="button" className={`jsp-rad ${near.radius === km ? "on" : ""}`} onClick={() => setRadius(km)}>{km} km</button>)}
+                </div>
+              )}
+            </div>
+            {nearMsg && <p className="jsp-nearmsg">{nearMsg}</p>}
             <div className="jsp-chips">
               <span className="jsp-chlbl">Try:</span>
-              {SAMPLE_CHIPS.map(s => <button key={s} type="button" className="jsp-chip" onClick={() => { setQ(s); search(s); }}>{s}</button>)}
+              {(nearReady ? NEAR_CHIPS : SAMPLE_CHIPS).map(s => <button key={s} type="button" className="jsp-chip" onClick={() => { setQ(s); search(s); }}>{s}</button>)}
             </div>
           </div>
 
@@ -841,31 +1156,49 @@ export default function JobSearchPanel({ onClose }) {
             <button className={`jsp-tab ${tab === "search" ? "on" : ""}`} onClick={() => setTab("search")}>Search{searched && <span className="jsp-tb">{jobs.length}</span>}</button>
             <button className={`jsp-tab ${tab === "saved" ? "on" : ""}`} onClick={() => setTab("saved")}>Saved{saved.length > 0 && <span className="jsp-tb">{saved.length}</span>}</button>
             <button className={`jsp-tab ${tab === "history" ? "on" : ""}`} onClick={() => setTab("history")}>History</button>
+            {tab === "search" && searched && !loading && !noMatch && (
+              <button type="button" className={`jsp-fbtn ${showFilters ? "on" : ""}`} onClick={() => setShowFilters(v => !v)}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" /></svg>
+                Filters{(filters.location || filters.remote || filters.experience) && <span className="jsp-fdot" />}
+              </button>
+            )}
           </div>
 
           <div className="jsp-body">
             <div className="jsp-main">
               {tab === "search" && (
-                loading ? <Skels /> :
-                !searched ? <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`} /> :
-                noMatch ? <Empty title="No jobs found" sub={`We couldn't find any real jobs matching your criteria right now.`} /> :
-                <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
+                loading ? (resultNear ? <Radar list={[]} nr={resultNear} scanning /> : <Skels />) :
+                !searched ? <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`}
+                  action={!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Find jobs near me</button>} /> :
+                noMatch ? (resultNear
+                  ? <Empty title={`No jobs within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
+                      action={resultNear.radius < RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1] && <button type="button" className="jsp-cta" onClick={() => setRadius(RADIUS_OPTIONS.find(r => r > resultNear.radius))}>Search within {RADIUS_OPTIONS.find(r => r > resultNear.radius)} km</button>} />
+                  : <Empty title="No jobs found" sub={`We couldn't find any real jobs matching your criteria right now.`} />) :
+                <>
+                  {resultNear && <Radar list={jobs} nr={resultNear} />}
+                  <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
+                </>
               )}
               {tab === "saved" && (saved.length === 0 ? <Empty title="No saved jobs" sub="Bookmark any job to save it here." /> : <div className="jsp-grid">{saved.map(j => <Card key={j.id} job={j} />)}</div>)}
               {tab === "history" && (hist.length === 0 ? <Empty title="No history yet" sub="Your recent searches will appear here." /> : hist.map((h, i) => (
                 <div key={i} className="jsp-hrow" onClick={() => { setQ(h); setTab("search"); search(h); }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                    <span style={{ fontSize: 13, color: "rgba(255,255,255,.6)", fontWeight: 500 }}>{h}</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                    <span>{h}</span>
                   </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
                 </div>
               )))}
             </div>
 
             {tab === "search" && searched && !loading && !noMatch && (
-              <div className="jsp-sb">
-                <div><p className="jsp-sbt">Filters</p><input className="jsp-sbinp" value={filters.location} onChange={e => setFilters(f => ({ ...f, location: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') search(); }} placeholder="Filter by city…" /></div>
+              <>
+              {showFilters && <div className="jsp-scrim" onClick={() => setShowFilters(false)} />}
+              <div className={`jsp-sb ${showFilters ? "open" : ""}`}>
+                <div className="jsp-sbhd"><b>Filters</b>
+                  <button className="jsp-xb" onClick={() => setShowFilters(false)}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+                </div>
+                <div><p className="jsp-sbt">Location</p><input className="jsp-sbinp" value={filters.location} onChange={e => setFilters(f => ({ ...f, location: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') search(); }} placeholder="Filter by city…" /></div>
                 <div><p className="jsp-sbt">Work Type</p>
                   {["Remote", "Hybrid", "On-site"].map(t => (
                     <div key={t} className="jsp-togrow">
@@ -879,8 +1212,9 @@ export default function JobSearchPanel({ onClose }) {
                     <option value="">Any</option><option value="intern">Internship</option><option value="entry">Entry Level</option><option value="mid">Mid-Level</option><option value="senior">Senior</option>
                   </select>
                 </div>
-                <button className="jsp-applyf" onClick={() => search()} style={{ marginTop: 'auto' }}>Apply Filters</button>
+                <button className="jsp-applyf" onClick={() => { setShowFilters(false); search(); }} style={{ marginTop: 'auto' }}>Apply Filters</button>
               </div>
+              </>
             )}
 
             {detail && <Detail job={detail} />}

@@ -1,3 +1,4 @@
+const { fillMissingImages, findArticleImage } = require("../services/articleImages");
 const ApiError = require("../utils/apiError");
 const { config } = require("../config/env");
 const {
@@ -5,6 +6,8 @@ const {
   buildNewsRequest,
   buildNewsAuthFallback,
   normalizeNewsPayload,
+  nextNewsPage,
+  sortNewestFirst,
   providerLabel,
 } = require("../services/newsProviders");
 
@@ -40,6 +43,10 @@ async function latestNews(req, res, next) {
       ? String(req.query.language || "en")
       : "en";
     const limit = /^\d{1,3}$/.test(String(config.newsLimit || "")) ? Number(config.newsLimit) : 0;
+    // Page cursor from the previous response's `nextPage` (opaque for
+    // newsdata, a number for the others).
+    const rawPage = String(req.query.page || "").trim();
+    const page = /^[A-Za-z0-9_-]{1,80}$/.test(rawPage) ? rawPage : "";
 
     const requestParams = {
       apiKey: config.newsDataApiKey,
@@ -47,6 +54,7 @@ async function latestNews(req, res, next) {
       category,
       language,
       limit,
+      page,
     };
     const request = buildNewsRequest(provider, requestParams);
 
@@ -78,7 +86,13 @@ async function latestNews(req, res, next) {
 
     // Always the newsdata-shaped `results` array the frontend panel renders,
     // whichever service answered.
-    return res.json({ results: normalizeNewsPayload(provider, payload) });
+    const results = sortNewestFirst(normalizeNewsPayload(provider, payload));
+    // Articles the feed sent without a picture get the outlet's own preview
+    // image (bounded in time, so the feed is never held up for long).
+    await fillMissingImages(results);
+    // News goes stale in minutes — never let a browser or CDN reuse a copy.
+    res.set("Cache-Control", "no-store, max-age=0");
+    return res.json({ results, nextPage: nextNewsPage(provider, payload, page) });
   } catch (error) {
     return next(error);
   }
@@ -101,4 +115,19 @@ async function footballFixtures(req, res, next) {
   }
 }
 
-module.exports = { latestNews, footballFixtures };
+// One story's preview photo, for cards whose image the feed-wide fill didn't
+// reach in time. Only ever returns an image URL — never the page itself — and
+// findArticleImage refuses non-public hosts.
+async function newsPreviewImage(req, res, next) {
+  try {
+    const url = String(req.query.url || "").trim();
+    if (!/^https?:\/\//i.test(url) || url.length > 2048) throw new ApiError(400, "A valid article URL is required.");
+    const image = await findArticleImage(url);
+    res.set("Cache-Control", "public, max-age=21600");
+    return res.json({ image_url: image });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+module.exports = { latestNews, footballFixtures, newsPreviewImage };
