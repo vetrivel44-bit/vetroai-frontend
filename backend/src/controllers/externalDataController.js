@@ -1,4 +1,4 @@
-const { fillMissingImages } = require("../services/articleImages");
+const { fillMissingImages, findArticleImage } = require("../services/articleImages");
 const ApiError = require("../utils/apiError");
 const { config } = require("../config/env");
 const {
@@ -106,4 +106,19 @@ async function footballFixtures(req, res, next) {
   }
 }
 
-module.exports = { latestNews, footballFixtures };
+// One story's preview photo, for cards whose image the feed-wide fill didn't
+// reach in time. Only ever returns an image URL — never the page itself — and
+// findArticleImage refuses non-public hosts.
+async function newsPreviewImage(req, res, next) {
+  try {
+    const url = String(req.query.url || "").trim();
+    if (!/^https?:\/\//i.test(url) || url.length > 2048) throw new ApiError(400, "A valid article URL is required.");
+    const image = await findArticleImage(url);
+    res.set("Cache-Control", "public, max-age=21600");
+    return res.json({ image_url: image });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+module.exports = { latestNews, footballFixtures, newsPreviewImage };

@@ -75,3 +75,17 @@ test("fillMissingImages fills only missing images and respects the time budget",
   assert.equal(articles[1].image_url, "https://cdn.a.example/2.jpg");
   assert.equal(articles[2].image_url, null);
 });
+
+test("GET /api/news/preview-image rejects missing or non-http URLs", async (t) => {
+  const app = require("../src/app");
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/api/news/preview-image`;
+
+  assert.equal((await fetch(base)).status, 400);
+  assert.equal((await fetch(`${base}?url=${encodeURIComponent("file:///etc/passwd")}`)).status, 400);
+  const local = await fetch(`${base}?url=${encodeURIComponent("http://127.0.0.1:1/")}`);
+  assert.equal(local.status, 200);
+  assert.deepEqual(await local.json(), { image_url: null }, "private hosts are never fetched");
+});

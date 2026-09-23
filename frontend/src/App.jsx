@@ -3170,16 +3170,54 @@ const newsAgo = (dateStr) => {
   return days === 1 ? "Yesterday" : `${days} days ago`;
 };
 
+// Photos for news cards. A feed image can fail for reasons that have nothing
+// to do with the photo: outlets that block hotlinking when a foreign Referer
+// is sent, or an http:// URL on an https page. So each photo is tried
+// directly (without a Referer), then through an image relay that fetches it
+// server-side; and a story with no photo at all asks the backend for the
+// article page's own preview image.
+const newsImageRelay = (url) => `https://images.weserv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//, ""))}&w=1200&output=webp&q=78`;
+const newsPreviewCache = new Map(); // article link -> Promise<string|null>
+function fetchNewsPreviewImage(link) {
+  if (!link) return Promise.resolve(null);
+  if (!newsPreviewCache.has(link)) {
+    newsPreviewCache.set(link, fetch(`${API}/news/preview-image?url=${encodeURIComponent(link)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d?.image_url || null)
+      .catch(() => null));
+  }
+  return newsPreviewCache.get(link);
+}
+
+function useNewsImage(article) {
+  const [found, setFound] = useState(null);
+  // Failures are counted per photo URL, so a new URL starts from its first source.
+  const [failed, setFailed] = useState({ base: null, count: 0 });
+  const base = article.image_url || found;
+  const attempt = failed.base === base ? failed.count : 0;
+
+  useEffect(() => {
+    if (article.image_url || !article.link) return undefined;
+    let alive = true;
+    fetchNewsPreviewImage(article.link).then(url => { if (alive && url) setFound(url); });
+    return () => { alive = false; };
+  }, [article.image_url, article.link]);
+
+  const sources = base ? [base, newsImageRelay(base)] : [];
+  const src = sources[attempt] || null;
+  const onError = () => setFailed(f => ({ base, count: (f.base === base ? f.count : 0) + 1 }));
+  return { src, onError };
+}
+
 // One Discover-style story: a large rounded photo, a serif headline, a short
 // summary that expands in place, and a footer with time, Listen, share and a
 // "more" menu. Shared by the lead story, the feed and the Saved tab.
 function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleListen, onAskAI }) {
   const [copied, setCopied] = useState(false);
-  const [imgFailed, setImgFailed] = useState(false);
+  const { src: imageSrc, onError: onImageError } = useNewsImage(article);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-  const hasImage = Boolean(article.image_url) && !imgFailed;
   const topic = topicForArticle(article);
   const TopicIcon = topic.Icon;
   const source = article.source_name || article.source_id || "";
@@ -3212,8 +3250,8 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
     <article className={`dv-card${featured ? " dv-card-lead" : ""}`}>
       <a href={article.link} target="_blank" rel="noopener noreferrer" className="dv-card-link">
         <div className="dv-media">
-          {hasImage ? (
-            <img src={article.image_url} alt="" loading={featured ? "eager" : "lazy"} onError={() => setImgFailed(true)} />
+          {imageSrc ? (
+            <img key={imageSrc} src={imageSrc} alt="" loading={featured ? "eager" : "lazy"} referrerPolicy="no-referrer" decoding="async" onError={onImageError} />
           ) : (
             <div className="dv-media-topic" style={{ background: topic.bg }} aria-label={`${topic.label} story`}>
               <TopicIcon className="dv-topic-icon" size={featured ? 72 : 52} strokeWidth={1.4} aria-hidden="true" />

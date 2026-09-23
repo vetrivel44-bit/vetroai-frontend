@@ -29,7 +29,18 @@ const callAssistantLimiter = rateLimit({
   handler: (_req, res) => errorResponse(res, "Too many call assistant requests. Please slow down.", 429),
 });
 
+// News card photos. A feed page asks for at most a couple of dozen.
+const previewImageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (_req, res) => errorResponse(res, "Too many image lookups. Please slow down.", 429),
+});
+
 module.exports = {
+  previewImageLimiter,
   authLimiter,
   chatLimiter,
   callAssistantLimiter,
