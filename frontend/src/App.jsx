@@ -3268,15 +3268,19 @@ function useNewsImage(article) {
   const [found, setFound] = useState(null);
   // Failures are counted per photo URL, so a new URL starts from its first source.
   const [failed, setFailed] = useState({ base: null, count: 0 });
-  const base = article.image_url || found;
+  // The feed's own photo failed both directly and through the relay (dead
+  // link, hotlink-blocked) — fall back to the article page's preview image
+  // instead of leaving the card without a picture.
+  const feedPhotoFailed = Boolean(article.image_url) && failed.base === article.image_url && failed.count >= 2;
+  const base = (feedPhotoFailed ? null : article.image_url) || found;
   const attempt = failed.base === base ? failed.count : 0;
 
   useEffect(() => {
-    if (article.image_url || !article.link) return undefined;
+    if ((article.image_url && !feedPhotoFailed) || !article.link) return undefined;
     let alive = true;
-    fetchNewsPreviewImage(article.link).then(url => { if (alive && url) setFound(url); });
+    fetchNewsPreviewImage(article.link).then(url => { if (alive && url && url !== article.image_url) setFound(url); });
     return () => { alive = false; };
-  }, [article.image_url, article.link]);
+  }, [article.image_url, article.link, feedPhotoFailed]);
 
   const sources = base ? [base, newsImageRelay(base)] : [];
   const src = sources[attempt] || null;
