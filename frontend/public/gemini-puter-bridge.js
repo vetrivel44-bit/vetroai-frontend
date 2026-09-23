@@ -60,8 +60,11 @@
     const isGemini = provider.toLowerCase() === "gemini";
     // Puter's Gemini can't search the web, so search turns stay on the backend.
     const wantsWebSearch = body instanceof FormData && String(body.get("webSearch") || "") === "true";
+    // A caller that needs the backend's answer (e.g. continuing a reply the
+    // backend started) asks for it explicitly.
+    const backendOnly = body instanceof FormData && String(body.get("route") || "") === "backend";
 
-    if (!isChatRequest || !isGemini || wantsWebSearch) {
+    if (!isChatRequest || !isGemini || wantsWebSearch || backendOnly) {
       return originalFetch(input, init);
     }
 

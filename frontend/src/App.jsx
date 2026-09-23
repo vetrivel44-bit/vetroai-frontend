@@ -3272,10 +3272,12 @@ function useNewsImage(article) {
   // link, hotlink-blocked) — fall back to the article page's preview image
   // instead of leaving the card without a picture.
   const feedPhotoFailed = Boolean(article.image_url) && failed.base === article.image_url && failed.count >= 2;
-  // `low_res`: the feed photo is only a small search thumbnail — show it
-  // for now, and swap in the article's full-size photo once it's found.
-  const upgraded = article.low_res && found && !(failed.base === found && failed.count >= 2);
-  const base = upgraded ? found : ((feedPhotoFailed ? null : article.image_url) || found);
+  // `low_res`: the feed photo is only a small search thumbnail, blurry when
+  // stretched over a card — never shown. The card keeps its topic art until
+  // the article's full-size photo is found.
+  const base = article.low_res
+    ? found
+    : ((feedPhotoFailed ? null : article.image_url) || found);
   const attempt = failed.base === base ? failed.count : 0;
 
   useEffect(() => {
