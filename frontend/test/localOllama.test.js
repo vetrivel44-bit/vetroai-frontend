@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildMessages, pickModel, isVisionModel, latestSharedImage, setupHelp } from "../src/lib/localOllama.js";
+import { buildMessages, pickModel, isVisionModel, latestSharedImage } from "../src/lib/localOllama.js";
 
 test("vision models are recognised from name or family", () => {
   assert.equal(isVisionModel({ name: "llama3.2-vision:latest", details: { families: ["mllama"] } }), true);
@@ -41,11 +41,4 @@ test("follow-ups find the latest shared image and how many turns back it was", (
   ];
   assert.deepEqual(latestSharedImage(history), { preview: "data:image/png;base64,BBB", turnsAgo: 1 });
   assert.equal(latestSharedImage([{ role: "user", content: "x", files: [{ name: "doc.pdf", preview: null }] }]), null);
-});
-
-test("setup help names this site as the allowed origin", () => {
-  const help = setupHelp("https://vetroai.pages.dev");
-  assert.match(help, /OLLAMA_ORIGINS/);
-  assert.match(help, /setx OLLAMA_ORIGINS "https:\/\/vetroai\.pages\.dev"/);
-  assert.match(help, /ollama pull llama3\.2-vision/);
 });

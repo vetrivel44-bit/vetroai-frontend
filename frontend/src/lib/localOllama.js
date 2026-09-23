@@ -1,12 +1,11 @@
-// "Local (Ollama)" model: the browser talks straight to Ollama running on the
-// visitor's own computer, so chats and images never leave that machine and
-// cost nothing. Uses Ollama's OpenAI-compatible streaming endpoint.
+// Photos are answered by Ollama on the visitor's own computer when it's there:
+// the browser talks to it directly, so the image never leaves that machine and
+// it costs nothing. Uses Ollama's OpenAI-compatible streaming endpoint.
 
 export const LOCAL_OLLAMA_PROVIDER = "Local (Ollama)";
 const DEFAULT_URL = "http://localhost:11434";
 const URL_KEY = "vetroai_ollama_url";
 const MODEL_KEY = "vetroai_ollama_model";
-const READY_KEY = "vetroai_ollama_ready";
 const PREFERRED_MODELS = ["llama3.2-vision", "moondream"];
 const VISION_HINTS = ["vision", "llava", "bakllava", "moondream", "mllama", "minicpm-v", "qwen2.5vl", "qwen2-vl",
   "qwen2.5-vl", "qwen3-vl", "gemma3", "llama4", "granite3.2-vision", "mistral-small3.1", "clip"];
@@ -48,14 +47,6 @@ export function pickModel(models, { needsVision = false, exclude = [] } = {}) {
 
 export function rememberModel(name) {
   storage.set(MODEL_KEY, name);
-  storage.set(READY_KEY, "1");
-}
-
-// Set once this browser has had an answer from its local Ollama. Only then do
-// photos sent on Auto go to Ollama by themselves: probing localhost for every
-// visitor would make browsers ask everyone for local-network access.
-export function ollamaWasReady() {
-  return storage.get(READY_KEY) === "1";
 }
 
 // { online: true, models: [{ name, vision }] } or { online: false }.
@@ -216,42 +207,4 @@ export async function streamChat({ model, messages, signal, onText, maxTokens })
     }
   }
   return text;
-}
-
-// Setup steps shown in the chat when Ollama can't be reached. `origin` is this
-// site's address, which Ollama must be told to accept.
-export function setupHelp(origin) {
-  return [
-    "### Connect VetroAI to Ollama on this computer",
-    "",
-    `**Local (Ollama)** runs the AI on your own computer: it's free, private, and your images never leave your device. It couldn't reach Ollama at \`${ollamaUrl()}\`.`,
-    "",
-    "**1. Install Ollama** from [ollama.com/download](https://ollama.com/download) (Windows, macOS or Linux).",
-    "",
-    "**2. Download a vision model** in a terminal:",
-    "```bash",
-    "ollama pull llama3.2-vision      # about 8 GB, best quality",
-    "ollama pull moondream            # about 1.7 GB, for smaller computers",
-    "```",
-    "",
-    `**3. Allow this site to use it.** Ollama only accepts requests from websites you allow. Set \`OLLAMA_ORIGINS\` to \`${origin}\`, then quit and reopen Ollama:`,
-    "",
-    "- **Windows** (Command Prompt), then quit Ollama from the tray and start it again:",
-    "```bat",
-    `setx OLLAMA_ORIGINS "${origin}"`,
-    "```",
-    "- **macOS**, then quit Ollama from the menu bar and open it again:",
-    "```bash",
-    `launchctl setenv OLLAMA_ORIGINS "${origin}"`,
-    "```",
-    "- **Linux** (systemd): run `sudo systemctl edit ollama`, add the lines below, then `sudo systemctl restart ollama`:",
-    "```ini",
-    "[Service]",
-    `Environment="OLLAMA_ORIGINS=${origin}"`,
-    "```",
-    "",
-    "**4. Send your message again.** If your browser asks to let this site access devices on your local network, choose **Allow**. Chrome, Edge and Firefox work; Safari blocks websites from reaching Ollama.",
-    "",
-    "Without Ollama, pick any other model from the menu. They run on VetroAI's servers.",
-  ].join("\n");
 }

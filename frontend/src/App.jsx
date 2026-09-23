@@ -47,8 +47,8 @@ import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, plu
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import {
-  LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, ollamaWasReady, imageForModel, latestSharedImage,
-  buildMessages as buildOllamaMessages, streamChat as streamOllamaChat, setupHelp as ollamaSetupHelp,
+  LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
+  buildMessages as buildOllamaMessages, streamChat as streamOllamaChat,
 } from "./lib/localOllama";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -709,7 +709,7 @@ const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high",
 const PLUGSKY_PROVIDER = "Plugsky";
 const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
 const GROK_PROVIDER = "Grok 4.6";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes", LOCAL_OLLAMA_PROVIDER];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -2974,7 +2974,6 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     Mistral: ["M", "Efficient reasoning"],
     SambaNova: ["S", "High-speed inference"],
     Agnes: ["A", "VetroAI creative model"],
-    [LOCAL_OLLAMA_PROVIDER]: ["⌂", "On your computer · free & private"],
   };
 
   return (
@@ -5553,10 +5552,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const sportsDetected = isSportsQuery(userQuery);
-    // A chat that will likely be answered on the visitor's computer skips the
-    // location and maps lookups below, which would reach outside services.
-    const maybeLocal = selectedProvider === LOCAL_OLLAMA_PROVIDER || (selectedProvider === "Auto" && ollamaWasReady()
-      && ((Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f?.type?.startsWith?.("image/")) || !!latestSharedImage(hist)));
+    // Photos (and follow-ups about them) are first offered to the visitor's own
+    // computer, so those chats skip the location and maps lookups below, which
+    // would reach outside services.
+    const lastAnswer = [...hist].reverse().find((m) => m.role === "assistant" && m.content);
+    const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f?.type?.startsWith?.("image/"))
+      || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && !!latestSharedImage(hist));
     const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
@@ -5648,31 +5649,24 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
-      // Local (Ollama): the visitor's own computer answers, straight from the
-      // browser. Nothing goes to VetroAI's servers. Picked explicitly, or
-      // automatically on Auto for a photo (and follow-ups about it) once this
-      // browser has used its local Ollama before.
+      // Photos, and follow-up questions about a photo the visitor's computer
+      // already answered, go first to Ollama on the visitor's own computer
+      // (free and private, straight from the browser). If it isn't there, or
+      // the browser isn't allowed to reach it, the usual models answer.
       const chatImage = attachedImages.length ? null : latestSharedImage(hist);
-      const autoLocal = selectedProvider === "Auto" && ollamaWasReady() && (attachedImages.length > 0
-        || (chatImage && hist.some((m) => m.role === "assistant" && m.provider === LOCAL_OLLAMA_PROVIDER)));
-      const explicitLocal = selectedProvider === LOCAL_OLLAMA_PROVIDER;
+      const tryLocal = attachedImages.length > 0 || (chatImage && lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER);
       let localHandled = false;
-      if (explicitLocal || autoLocal) localHandled = await (async () => {
+      if (tryLocal) localHandled = await (async () => {
         const showAnswer = (content, model) => setMessages((previous) => {
           const next = [...previous];
           next[next.length - 1] = { ...next[next.length - 1], content, provider: LOCAL_OLLAMA_PROVIDER, localModel: model };
           return next;
         });
-        const status = await ollamaStatus();
+        // The first request may wait on the browser's "allow local network
+        // access" prompt, so give it time.
+        const status = await ollamaStatus({ timeoutMs: 15000 });
         if (!isActive()) return true;
-        if (!status.online && !explicitLocal) return false;   // Auto: use the usual models instead
-        if (!status.online) {
-          setIsTyping(false);
-          showAnswer(ollamaSetupHelp(window.location.origin), null);
-          setIsLoading(false);
-          setStreamStatus("idle");
-          return true;
-        }
+        if (!status.online) return false;
         const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : chatImage;
         const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
         const ollamaMessages = buildOllamaMessages({
@@ -5691,15 +5685,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const unsupported = [];
         for (;;) {
           model = pickModel(status.models, { needsVision: !!shared, exclude: unsupported });
-          if (!model && !explicitLocal) return false;
-          if (!model) {
-            if (unsupported.length) {
-              throw new Error(`Your version of Ollama can't run ${unsupported.join(" or ")}. Install another vision model, for example: ollama pull moondream`);
-            }
-            throw new Error(shared
-              ? "No vision model is installed in Ollama. Install one with: ollama pull llama3.2-vision (or the smaller moondream)"
-              : "No model is installed in Ollama yet. Install one with: ollama pull llama3.2-vision");
-          }
+          if (!model) return false;
           try {
             const usedModel = model;
             answer = await streamOllamaChat({
@@ -5721,15 +5707,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             break;
           } catch (localErr) {
             if (localErr?.code === "MODEL_UNSUPPORTED") { unsupported.push(model); continue; }
-            // On Auto, a local failure before any text quietly hands over to the usual models.
-            if (!explicitLocal && !answer && localErr?.name !== "AbortError") return false;
-            if (localErr?.code !== "OLLAMA_UNREACHABLE") throw localErr;
-            if (!isActive()) return true;
-            setIsTyping(false);
-            showAnswer(ollamaSetupHelp(window.location.origin), null);
-            setIsLoading(false);
-            setStreamStatus("idle");
-            return true;
+            // A local failure before any text quietly hands over to the usual models.
+            if (!answer && localErr?.name !== "AbortError") return false;
+            throw localErr;
           }
         }
         if (!isActive()) return true;
