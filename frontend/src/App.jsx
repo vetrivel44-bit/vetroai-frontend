@@ -3158,6 +3158,46 @@ function topicForArticle(article) {
 
 // "5 min ago" / "3 hr ago" / "2 days ago", the long form the Discover-style
 // footer uses.
+// ─── Duplicate stories (mirrors dedupeArticles in backend/newsProviders.js) ─
+// Feeds repeat a story under different ids and links — syndicated copies,
+// AMP/tracking-tagged URLs, headlines carrying the outlet's name — and the
+// endless feed pulls several categories that share stories. Same cleaned
+// link, same cleaned headline, or near-identical headline words = same story.
+const NEWS_TRACKING_PARAM = /^(utm_[a-z]+|fbclid|gclid|mc_[a-z]+|ref|ref_src|cmpid|ito|ncid|taid|output[Tt]ype|amp)$/i;
+const NEWS_STOP_WORDS = new Set("the a an and or of to in on for with at by from as is are was were be been it its this that these those after over into than about amid says said new".split(" "));
+const newsLinkKey = (url) => {
+  try {
+    const u = new URL(String(url));
+    for (const key of [...u.searchParams.keys()]) if (NEWS_TRACKING_PARAM.test(key)) u.searchParams.delete(key);
+    const path = u.pathname.replace(/\/amp\/?$/i, "/").replace(/\.amp(\.html?)?$/i, "$1").replace(/\/+$/, "");
+    return `${u.hostname.replace(/^(www|m|amp)\./, "")}${path}${u.search}`.toLowerCase();
+  } catch { return ""; }
+};
+const newsHeadlineKey = (title) => String(title || "").toLowerCase().trim()
+  .replace(/\s+[-|–—:]\s+[^-|–—:]{2,60}$/u, (tail) => (tail.trim().split(/\s+/).length <= 7 ? "" : tail))
+  .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+const newsStem = (w) => (w.length > 4 ? w.replace(/(ies|es|s)$/, (m) => (m === "ies" ? "y" : "")) : w);
+const newsHeadlineWords = (key) => new Set(key.split(" ").filter((w) => w.length > 2 && !NEWS_STOP_WORDS.has(w)).map(newsStem));
+const similarNewsHeadlines = (a, b) => {
+  if (a.size < 4 || b.size < 4) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared += 1;
+  return shared / (a.size + b.size - shared) >= 0.75;
+};
+const emptyNewsSeen = () => ({ keys: new Set(), words: [] });
+const newsIsSeen = (seen, a) => {
+  const id = newsArticleId(a), link = newsLinkKey(a.link), headline = newsHeadlineKey(a.title);
+  if ((id && seen.keys.has(`id:${id}`)) || (link && seen.keys.has(`l:${link}`)) || (headline && seen.keys.has(`h:${headline}`))) return true;
+  const words = newsHeadlineWords(headline);
+  return seen.words.some((w) => similarNewsHeadlines(w, words));
+};
+const newsMarkSeen = (seen, a) => {
+  const id = newsArticleId(a), link = newsLinkKey(a.link), headline = newsHeadlineKey(a.title);
+  if (id) seen.keys.add(`id:${id}`);
+  if (link) seen.keys.add(`l:${link}`);
+  if (headline) { seen.keys.add(`h:${headline}`); seen.words.push(newsHeadlineWords(headline)); }
+};
+
 // Publish time in ms. newsdata sends "YYYY-MM-DD HH:MM:SS" in UTC with no zone.
 const newsTime = (dateStr) => {
   if (!dateStr) return 0;
@@ -3365,7 +3405,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   // render-facing mirror.
   const streamRef = useRef({ cat: "top", query: "", lang: "en", page: null, queue: [] });
   const requestIdRef = useRef(0);
-  const seenRef = useRef(new Set());
+  const seenRef = useRef(emptyNewsSeen());
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedState, setFeedState] = useState("more"); // "more" | "end" | "error"
   // Bumped when a load finishes with nothing new, so the observer re-arms
@@ -3386,9 +3426,8 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   };
   const storyKey = (a) => newsArticleId(a) || a.link || a.title;
   const keepNew = (list) => list.filter((a) => {
-    const key = storyKey(a);
-    if (!key || seenRef.current.has(key)) return false;
-    seenRef.current.add(key);
+    if (!storyKey(a) || newsIsSeen(seenRef.current, a)) return false;
+    newsMarkSeen(seenRef.current, a);
     return true;
   });
 
@@ -3398,7 +3437,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
     setLoadingMore(false);
     setError("");
     setFeedState("more");
-    seenRef.current = new Set();
+    seenRef.current = emptyNewsSeen();
     try {
       const res = await fetch(newsUrl(cat, query, lang), { cache: "no-store" });
       if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -3480,7 +3519,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
         if (!res.ok) return;
         const data = await res.json();
         const newest = articles.reduce((max, a) => Math.max(max, newsTime(a.pubDate)), 0);
-        const unseen = (data.results || []).filter((a) => !seenRef.current.has(storyKey(a)) && newsTime(a.pubDate) > newest);
+        const unseen = (data.results || []).filter((a) => !newsIsSeen(seenRef.current, a) && newsTime(a.pubDate) > newest);
         if (alive) setNewCount(unseen.length);
       } catch { /* offline — try again next time */ }
     };

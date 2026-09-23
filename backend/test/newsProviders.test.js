@@ -326,3 +326,22 @@ test("requests ask for recent news and results are sorted newest first", () => {
   ]);
   assert.deepEqual(sorted.map((a) => a.title), ["new", "mid", "old", "undated"]);
 });
+
+test("dedupeArticles drops repeated stories under different ids, links and headline tails", () => {
+  const { dedupeArticles, linkKey, headlineKey } = require("../src/services/newsProviders");
+  assert.equal(linkKey("https://www.site.com/story/amp/?utm_source=x&id=7"), linkKey("https://site.com/story?id=7"));
+  assert.equal(headlineKey("India beats Australia by 5 wickets - The Hindu"), headlineKey("India beats Australia by 5 wickets | NDTV Sports"));
+
+  const out = dedupeArticles([
+    { article_id: "1", title: "India beats Australia by 5 wickets in thrilling chase - The Hindu", link: "https://thehindu.com/a", image_url: null },
+    { article_id: "2", title: "India beats Australia by 5 wickets in thrilling chase | NDTV", link: "https://ndtv.com/b", image_url: "https://img/p.jpg" },
+    { article_id: "3", title: "Different story entirely about monsoon rains", link: "https://www.thehindu.com/a/?utm_source=feed" },
+    { article_id: "4", title: "India beat Australia by five wickets in thrilling chase", link: "https://espn.com/c" },
+    { article_id: "5", title: "RBI keeps repo rate unchanged at 6.5 percent", link: "https://mint.com/r" },
+    { article_id: "6", title: "Flagged by the provider", link: "https://x.com/d", duplicate: true },
+  ]);
+  // 2: same headline minus the outlet; 3: same link minus tracking/www;
+  // 4: reworded ("beat … five" vs "beats … 5"); 6: flagged by the provider.
+  assert.deepEqual(out.map((a) => a.article_id), ["1", "5"]);
+  assert.equal(out[0].image_url, "https://img/p.jpg", "kept copy borrows the duplicate's picture");
+});
