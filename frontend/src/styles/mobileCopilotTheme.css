@@ -426,9 +426,21 @@
     background: var(--bg) !important;
     color: var(--ink) !important;
   }
-  :root[data-theme="light"] .mobile-model-screen-header,
-  :root[data-theme="light"] .mobile-model-advanced {
+  :root[data-theme="light"] .mobile-model-screen-header {
     border-color: var(--border) !important;
+  }
+  /* "Response settings" (effort & mode): older layers paint it near-black. */
+  :root[data-theme="light"] .mobile-model-advanced {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border-med) !important;
+  }
+  :root[data-theme="light"] .mobile-model-advanced summary,
+  :root[data-theme="light"] .mobile-model-advanced-section {
+    background: transparent !important;
+    border-color: var(--border) !important;
+  }
+  :root[data-theme="light"] .mobile-model-advanced-body {
+    background: var(--bg) !important;
   }
   :root[data-theme="light"] .mobile-model-screen-heading strong,
   :root[data-theme="light"] .mobile-model-row-copy strong,
@@ -510,12 +522,17 @@
     background: #ffffff !important;
     border-color: var(--border-med) !important;
   }
-  /* White-on-dark brand marks: draw them near-black on the light tiles. */
+  /* These brand marks are white glyphs. In the picker the <img> *is* the
+     tile (its background is the tile colour), so a colour filter would flip
+     the tile too — a white tile inverted to solid black, hiding the logo.
+     Give them their dark brand tile instead and leave the glyph white. */
   :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/openai.svg"],
   :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/grok.svg"],
   :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/perplexity.svg"],
   :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/local.svg"] {
-    filter: invert(1) brightness(0.2) !important;
+    filter: none !important;
+    background: #111111 !important;
+    border-color: #111111 !important;
   }
   :root[data-theme="light"] .mobile-model-picker-footer {
     background: rgba(246, 243, 237, 0.96) !important;
