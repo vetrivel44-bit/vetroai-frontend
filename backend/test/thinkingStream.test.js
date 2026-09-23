@@ -149,3 +149,23 @@ test("SSE comments and blank keep-alive lines produce no content", async () => {
 
   assert.equal(joined(res.events, "content"), "real text");
 });
+
+test("pipeStream strips <unk> tokens and abandons a stream that degenerates into them", async () => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const line = (content) => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n`;
+
+  const cleanRes = { writes: [], write(c) { this.writes.push(c); } };
+  const answer = await orchestrator.pipeStream((async function* () {
+    yield line("Hello<unk> world<|end|>");
+  })(), cleanRes, "plugsky");
+  assert.equal(answer, "Hello world");
+
+  const brokenRes = { writes: [], write(c) { this.writes.push(c); } };
+  await assert.rejects(
+    orchestrator.pipeStream((async function* () {
+      yield line("AI and messaging/http");
+      yield line("<unk>".repeat(20));
+    })(), brokenRes, "plugsky"),
+    /corrupted output/,
+  );
+});

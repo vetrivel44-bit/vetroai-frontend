@@ -48,6 +48,67 @@ async function searchDDG(query) {
   }
 }
 
+// ── Keyless fallbacks: Bing and Google News RSS ────────────────────────────
+// DuckDuckGo often refuses requests from cloud hosts (Render included), so
+// when Tavily is down or out of credits a search could come back empty and
+// the answer went out with no live data. These two RSS feeds need no key and
+// answer from datacenter IPs.
+const decodeXml = (text = "") => String(text)
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+  // Entities first: descriptions carry escaped HTML (&lt;b&gt;) whose tags
+  // must be stripped too.
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+  .replace(/&quot;/g, "\"").replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/&amp;/g, "&")
+  .replace(/\s+/g, " ").trim();
+
+function parseRssItems(xml, limit = 8) {
+  const items = [];
+  for (const block of String(xml || "").match(/<item\b[\s\S]*?<\/item>/gi) || []) {
+    const tag = (name) => decodeXml((block.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\/${name}>`, "i")) || [])[1] || "");
+    const url = tag("link");
+    const title = tag("title");
+    if (!/^https?:\/\//i.test(url) || !title) continue;
+    const date = Date.parse(tag("pubDate"));
+    items.push({
+      title,
+      description: tag("description").slice(0, 400),
+      url,
+      published: Number.isNaN(date) ? null : new Date(date).toISOString(),
+      source: tag("source") || null,
+    });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+async function fetchRss(url, label) {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; VetroAI-Search/1.0)", Accept: "application/rss+xml, application/xml, text/xml" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return parseRssItems(await res.text());
+  } catch (err) {
+    logger.warn(`${label} search failed`, { error: err.message });
+    return [];
+  }
+}
+
+const searchBingRss = (query) => fetchRss(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, "Bing RSS");
+const searchGoogleNewsRss = (query) => fetchRss(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`, "Google News RSS");
+
+// Keyless search: DuckDuckGo, then Bing, then Google News — first non-empty wins.
+async function searchKeyless(query) {
+  for (const [name, run] of [["duckduckgo", searchDDG], ["bing", searchBingRss], ["google-news", searchGoogleNewsRss]]) {
+    const results = await run(query);
+    if (results.length) return { provider: name, results };
+  }
+  return { provider: null, results: [] };
+}
+
 // ── Image search (Tavily only — DDG fallback has no reliable image API) ───────
 async function searchImages(query, limit = 4) {
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
@@ -110,9 +171,9 @@ async function searchWeb(query) {
     return { context: snippets.join("\n\n---\n\n"), results: tavilyRes.results || [] };
   }
 
-  // ── Fallback: DuckDuckGo ──────────────────────────────────────────────────
-  logger.info("Tavily unavailable, falling back to DDG...");
-  const results = await searchDDG(query);
+  // ── Fallback: keyless search (DuckDuckGo → Bing → Google News) ───────────
+  logger.info("Tavily unavailable, falling back to keyless search...");
+  const { results } = await searchKeyless(query);
 
   if (results.length === 0) {
     snippets.push(`No live web results found. Answer based on training knowledge and note the info may not be real-time.`);
@@ -142,4 +203,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchImages, searchTavily, searchDDG };
+module.exports = { performSearch, searchWeb, searchImages, searchTavily, searchDDG, searchKeyless, parseRssItems };

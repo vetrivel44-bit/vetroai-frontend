@@ -1116,9 +1116,28 @@ Choose the single best-fitting visualization block(s) from the formats below:
       this.sendVetroEvent(res, "reasoning_end", String(Date.now() - reasoningStartedAt));
     };
 
+    // Some models degrade mid-stream into tokenizer placeholders — `<unk>` or
+    // chat-template markers like `<|end|>` — which then flooded the reply.
+    // They are never meant for the reader, so they're stripped; and a model
+    // that keeps producing them has broken down, so the attempt is abandoned
+    // and the fallback chain takes over (the client clears the partial text).
+    const JUNK_TOKEN = /<unk>|<\|[a-z_]{1,24}\|>/gi;
+    const JUNK_LIMIT = 12;
+    let junkCount = 0;
+    const scrub = (text) => {
+      if (!text) return text;
+      const hits = text.match(JUNK_TOKEN);
+      if (!hits) return text;
+      junkCount += hits.length;
+      if (junkCount >= JUNK_LIMIT) throw new Error("Provider produced corrupted output (<unk> tokens)");
+      return text.replace(JUNK_TOKEN, "");
+    };
+
     const emit = (parts) => {
       if (!parts) return;
       let { content = "", reasoning = "" } = parts;
+      content = scrub(content);
+      reasoning = scrub(reasoning);
 
       if (content) {
         const split = this.splitThinkingTags(content, think);
@@ -1202,7 +1221,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
       // 2. Handle Node.js Readable streams
       else if (stream.on) {
         await new Promise((resolve, reject) => {
-          stream.on("data", (chunk) => emitWithActivity(readChunk(chunk)));
+          stream.on("data", (chunk) => {
+            // A throw inside an event handler would escape the promise.
+            try { emitWithActivity(readChunk(chunk)); } catch (err) { stream.destroy?.(); reject(err); }
+          });
           stream.on("end", resolve);
           stream.on("error", reject);
         });
