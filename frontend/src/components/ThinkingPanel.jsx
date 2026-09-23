@@ -41,6 +41,8 @@ const ThinkingPanel = React.memo(function ThinkingPanel({
       ? `Thought for ${seconds}s`
       : "Thought process";
 
+  // Claude / Copilot style: a quiet text line, not a pill — "Thought for 2s ›".
+  // While the model is still reasoning the label shimmers ("Thinking…").
   return (
     <div className={`vai-tp${isThinking ? " is-active" : ""}${open ? " is-open" : ""}`}>
       <button
@@ -50,30 +52,14 @@ const ThinkingPanel = React.memo(function ThinkingPanel({
         aria-expanded={open}
         aria-label={open ? "Hide thinking process" : "Show thinking process"}
       >
-        <ChevronRight size={13} className="vai-tp-chevron" aria-hidden="true" />
-        <span className="vai-tp-spark" aria-hidden="true">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 3L14.5 9.5L21 12L14.5 14.5L12 21L9.5 14.5L3 12L9.5 9.5L12 3Z"
-              fill="currentColor"
-            />
-          </svg>
-        </span>
-        <span className="vai-tp-label">{label}</span>
-        {isThinking && (
-          <span className="vai-tp-dots" aria-hidden="true">
-            <i /><i /><i />
-          </span>
-        )}
+        <span className="vai-tp-label">{isThinking ? "Thinking…" : label}</span>
+        <ChevronRight size={15} strokeWidth={2} className="vai-tp-chevron" aria-hidden="true" />
       </button>
 
       <div className="vai-tp-body-wrap" hidden={!open}>
         <div className="vai-tp-body" ref={bodyRef}>
           {hasReasoning ? (
-            <p className="vai-tp-text">
-              {reasoning}
-              {isThinking && <span className="vai-tp-caret" aria-hidden="true" />}
-            </p>
+            <p className="vai-tp-text">{reasoning}</p>
           ) : (
             <p className="vai-tp-text vai-tp-placeholder">Working through the request…</p>
           )}
