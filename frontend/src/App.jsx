@@ -47,7 +47,7 @@ import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, plu
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import {
-  LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
+  LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, ollamaWasReady, imageForModel, latestSharedImage,
   buildMessages as buildOllamaMessages, streamChat as streamOllamaChat, setupHelp as ollamaSetupHelp,
 } from "./lib/localOllama";
 
@@ -5553,11 +5553,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const sportsDetected = isSportsQuery(userQuery);
-    const medicalDetected = selectedProvider !== LOCAL_OLLAMA_PROVIDER && (isMedicalQuery(userQuery));
+    // A chat that will likely be answered on the visitor's computer skips the
+    // location and maps lookups below, which would reach outside services.
+    const maybeLocal = selectedProvider === LOCAL_OLLAMA_PROVIDER || (selectedProvider === "Auto" && ollamaWasReady()
+      && ((Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f?.type?.startsWith?.("image/")) || !!latestSharedImage(hist)));
+    const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
-    const nearbyMapsRequest = selectedProvider !== LOCAL_OLLAMA_PROVIDER && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
+    const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
       const locationResult = await getPreciseUserLocation();
       const userLocation = locationResult.location;
@@ -5645,23 +5649,31 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
       // Local (Ollama): the visitor's own computer answers, straight from the
-      // browser. Nothing goes to VetroAI's servers.
-      if (selectedProvider === LOCAL_OLLAMA_PROVIDER) {
+      // browser. Nothing goes to VetroAI's servers. Picked explicitly, or
+      // automatically on Auto for a photo (and follow-ups about it) once this
+      // browser has used its local Ollama before.
+      const chatImage = attachedImages.length ? null : latestSharedImage(hist);
+      const autoLocal = selectedProvider === "Auto" && ollamaWasReady() && (attachedImages.length > 0
+        || (chatImage && hist.some((m) => m.role === "assistant" && m.provider === LOCAL_OLLAMA_PROVIDER)));
+      const explicitLocal = selectedProvider === LOCAL_OLLAMA_PROVIDER;
+      let localHandled = false;
+      if (explicitLocal || autoLocal) localHandled = await (async () => {
         const showAnswer = (content, model) => setMessages((previous) => {
           const next = [...previous];
           next[next.length - 1] = { ...next[next.length - 1], content, provider: LOCAL_OLLAMA_PROVIDER, localModel: model };
           return next;
         });
         const status = await ollamaStatus();
-        if (!isActive()) return;
+        if (!isActive()) return true;
+        if (!status.online && !explicitLocal) return false;   // Auto: use the usual models instead
         if (!status.online) {
           setIsTyping(false);
           showAnswer(ollamaSetupHelp(window.location.origin), null);
           setIsLoading(false);
           setStreamStatus("idle");
-          return;
+          return true;
         }
-        const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : latestSharedImage(hist);
+        const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : chatImage;
         const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
         const ollamaMessages = buildOllamaMessages({
           history: hist.slice(0, -1),
@@ -5679,6 +5691,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const unsupported = [];
         for (;;) {
           model = pickModel(status.models, { needsVision: !!shared, exclude: unsupported });
+          if (!model && !explicitLocal) return false;
           if (!model) {
             if (unsupported.length) {
               throw new Error(`Your version of Ollama can't run ${unsupported.join(" or ")}. Install another vision model, for example: ollama pull moondream`);
@@ -5695,6 +5708,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               signal: ctrl.signal,
               onText: (text) => {
                 if (!isActive()) return;
+                // Label the reply with the local logo, even when Auto routed it here.
+                if (!answer) window.dispatchEvent(new CustomEvent("vetroai:model-used", { detail: { label: LOCAL_OLLAMA_PROVIDER } }));
                 setIsTyping(false);
                 answer = text;
                 showAnswer(text, usedModel);
@@ -5706,18 +5721,21 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             break;
           } catch (localErr) {
             if (localErr?.code === "MODEL_UNSUPPORTED") { unsupported.push(model); continue; }
+            // On Auto, a local failure before any text quietly hands over to the usual models.
+            if (!explicitLocal && !answer && localErr?.name !== "AbortError") return false;
             if (localErr?.code !== "OLLAMA_UNREACHABLE") throw localErr;
-            if (!isActive()) return;
+            if (!isActive()) return true;
             setIsTyping(false);
             showAnswer(ollamaSetupHelp(window.location.origin), null);
             setIsLoading(false);
             setStreamStatus("idle");
-            return;
+            return true;
           }
         }
-        if (!isActive()) return;
+        if (!isActive()) return true;
         if (!answer.trim()) throw new Error(`${model} returned an empty answer. Please try again.`);
         showAnswer(answer, model);
+        window.dispatchEvent(new CustomEvent("vetroai:model-used", { detail: { label: LOCAL_OLLAMA_PROVIDER } }));
         setIsLoading(false);
         setStreamStatus("idle");
         setStreamingContent("");
@@ -5734,8 +5752,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           });
         }
         notifyResponseReady(answer);
-        return;
-      }
+        return true;
+      })();
+      if (localHandled) return;
 
       if (selectedProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0) {
         throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");

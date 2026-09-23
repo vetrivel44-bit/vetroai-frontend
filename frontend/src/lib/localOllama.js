@@ -6,6 +6,7 @@ export const LOCAL_OLLAMA_PROVIDER = "Local (Ollama)";
 const DEFAULT_URL = "http://localhost:11434";
 const URL_KEY = "vetroai_ollama_url";
 const MODEL_KEY = "vetroai_ollama_model";
+const READY_KEY = "vetroai_ollama_ready";
 const PREFERRED_MODELS = ["llama3.2-vision", "moondream"];
 const VISION_HINTS = ["vision", "llava", "bakllava", "moondream", "mllama", "minicpm-v", "qwen2.5vl", "qwen2-vl",
   "qwen2.5-vl", "qwen3-vl", "gemma3", "llama4", "granite3.2-vision", "mistral-small3.1", "clip"];
@@ -47,6 +48,14 @@ export function pickModel(models, { needsVision = false, exclude = [] } = {}) {
 
 export function rememberModel(name) {
   storage.set(MODEL_KEY, name);
+  storage.set(READY_KEY, "1");
+}
+
+// Set once this browser has had an answer from its local Ollama. Only then do
+// photos sent on Auto go to Ollama by themselves: probing localhost for every
+// visitor would make browsers ask everyone for local-network access.
+export function ollamaWasReady() {
+  return storage.get(READY_KEY) === "1";
 }
 
 // { online: true, models: [{ name, vision }] } or { online: false }.
