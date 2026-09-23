@@ -11,8 +11,16 @@
 // and gives up quickly. The whole fill has a time budget so a slow outlet can
 // never hold up the news response.
 
+//
+// Some outlets refuse our fetch (bot protection, JavaScript-only pages). When
+// FIRECRAWL_API_KEY is set, those articles are opened through Firecrawl's
+// scraper instead, which gets past most of that, and its page metadata gives
+// the same og:image. That costs a Firecrawl credit, so it only runs when our
+// own fetch found nothing, and every result (including "no image") is cached.
+
 const dns = require("node:dns").promises;
 const net = require("node:net");
+const { config } = require("../config/env");
 
 const MAX_HTML_BYTES = 350 * 1024;
 const FETCH_TIMEOUT_MS = 3500;
@@ -20,7 +28,12 @@ const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const CACHE_MAX = 800;
 
+const FIRECRAWL_TIMEOUT_MS = 15000;
+
 const cache = new Map(); // url -> { image: string|null, at: number }
+// Lookups still running, so the feed-wide fill and a card's own preview
+// request for the same article share one fetch (and one Firecrawl credit).
+const inflight = new Map();
 
 function cacheGet(url) {
   const hit = cache.get(url);
@@ -115,16 +128,16 @@ async function readLimited(response) {
   return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8");
 }
 
-async function findArticleImage(articleUrl, { fetchImpl = fetch, lookup = dns.lookup } = {}) {
-  if (!articleUrl) return null;
-  const cached = cacheGet(articleUrl);
-  if (cached !== undefined) return cached;
-
+// Our own fetch. `isPublic` says the URL passed the public-host check, so
+// it is fine to hand to Firecrawl when we found no image ourselves.
+async function fetchOwnImage(articleUrl, fetchImpl, lookup) {
   let image = null;
+  let isPublic = false;
   try {
     let current = articleUrl;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       const url = await assertPublicHttpUrl(current, lookup);
+      if (hop === 0) isPublic = true;
       const response = await fetchImpl(url.href, {
         redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -146,8 +159,48 @@ async function findArticleImage(articleUrl, { fetchImpl = fetch, lookup = dns.lo
   } catch {
     image = null;
   }
-  cacheSet(articleUrl, image);
-  return image;
+  return { image, isPublic };
+}
+
+// Opens the article through Firecrawl's scraper and reads the preview image
+// from the page metadata it returns.
+async function firecrawlImage(articleUrl, { fetchImpl, apiKey }) {
+  const response = await fetchImpl("https://api.firecrawl.dev/v2/scrape", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url: articleUrl, formats: ["markdown"], onlyMainContent: true, timeout: FIRECRAWL_TIMEOUT_MS - 3000 }),
+    signal: AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS),
+  });
+  if (!response.ok) return null;
+  const meta = (await response.json().catch(() => null))?.data?.metadata || {};
+  const candidates = [meta.ogImage, meta["og:image"], meta.ogImageSecureUrl, meta.twitterImage, meta["twitter:image"]].flat();
+  for (const value of candidates) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    try {
+      const resolved = new URL(value.trim(), articleUrl);
+      if (resolved.protocol === "https:" || resolved.protocol === "http:") return resolved.href;
+    } catch { /* malformed — try the next one */ }
+  }
+  return null;
+}
+
+async function findArticleImage(articleUrl, { fetchImpl = fetch, lookup = dns.lookup, firecrawlApiKey = config.firecrawlApiKey } = {}) {
+  if (!articleUrl) return null;
+  const cached = cacheGet(articleUrl);
+  if (cached !== undefined) return cached;
+  if (inflight.has(articleUrl)) return inflight.get(articleUrl);
+
+  const lookupPromise = (async () => {
+    const { image, isPublic } = await fetchOwnImage(articleUrl, fetchImpl, lookup);
+    let result = image;
+    if (!result && isPublic && firecrawlApiKey) {
+      result = await firecrawlImage(articleUrl, { fetchImpl, apiKey: firecrawlApiKey }).catch(() => null);
+    }
+    cacheSet(articleUrl, result);
+    return result;
+  })().finally(() => inflight.delete(articleUrl));
+  inflight.set(articleUrl, lookupPromise);
+  return lookupPromise;
 }
 
 // Fills `image_url` on articles that lack one, in place, within `budgetMs`.
