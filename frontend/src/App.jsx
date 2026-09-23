@@ -6106,10 +6106,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally.";
       };
 
-      const answerWithDirectSearch = async () => {
+      // `requireSummary`: only answer when the search itself wrote a summary
+      // (Tavily). Keyless fallbacks return links only, and a bare link list is
+      // a poor answer when a model can still write one from those results.
+      const answerWithDirectSearch = async ({ requireSummary = false } = {}) => {
         try {
           const { sources, summary } = await fetchWebResults();
           if (!isActive()) return;
+          if (requireSummary && !summary) return false;
           let answer = summary;
           if (!answer && sources.length) {
             answer = sources.slice(0, 6).map((s, i) => `${i + 1}. **[${s.title || s.domain}](${s.url})**${s.snippet ? ` — ${s.snippet}` : ""}`).join("\n");
@@ -6202,8 +6206,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // model's — so answer straight from the search (its summary plus the
       // source cards). Only if that finds nothing does a model get the turn.
       if (selectedMode === "web_search" && selectedProvider === "Auto" && fileCount === 0) {
-        if (await answerWithDirectSearch()) return;
+        if (await answerWithDirectSearch({ requireSummary: true })) return;
         if (!isActive()) return;
+        // No search summary: the backend searches (with its own fallbacks) and
+        // a model writes the answer from the results, sources attached.
       }
 
       // Web search with a browser model: browser models can't search, and the
