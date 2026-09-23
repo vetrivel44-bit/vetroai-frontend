@@ -704,6 +704,24 @@ const LANGS = {
 };
 
 const CLAUDE_FABLE_PROVIDER = "Claude Fable 5";
+// Worth asking the backend for ProKerala grounding? A loose check — the
+// backend (astrologyContext.js) makes the final call. Mirrors its terms, and
+// catches a reply with birth details after the assistant asked for them.
+// Mirrors AIOrchestrator.SEARCH_TRIGGERS: questions that need live information.
+const NEEDS_LIVE_INFO_RE = /\b(today|tonight|now|current|currently|live|latest|recent|breaking|news|2024|2025|2026|this (year|month|week|day)|who (is|was|won|leads|runs)|what is the (score|price|rate|status)|stock|crypto|bitcoin|market|weather|election|war|match|game|ipl|cricket|football|just (happened|announced|released|launched)|trending|viral|happening)\b/i;
+
+const ASTROLOGY_HINT_RE = /\b(horoscopes?|astrology|astrological|astrologer|natal chart|birth chart|zodiac(?: sign)?|sun sign|moon sign|rising sign|ascendant|kundli|kundali|kundale?e|jathagam|jathakam|jatakam|rasi|rashi|raasi|nakshatra|nakshatram|natchathiram|lagna|lagnam|dasha|mahadasha|antardasha|panchang|panchangam|navamsa|birth star|star sign)\b/i;
+const mightBeAstrology = (hist, query) => {
+  if (ASTROLOGY_HINT_RE.test(query || "")) return true;
+  const recent = (hist || []).slice(-6);
+  const hasBirthData = /\b(19|20)\d{2}\b|\d{1,2}[:.]\d{2}/.test(query || "");
+  if (!hasBirthData) return false;
+  const earlierAstro = recent.some((m) => m.role === "user" && ASTROLOGY_HINT_RE.test(m.content || ""));
+  const lastAssistant = [...recent].reverse().find((m) => m.role === "assistant");
+  const askedForBirth = /\bbirth\b[\s\S]{0,120}\b(date|time|place|city)\b/i.test(lastAssistant?.content || "");
+  return earlierAstro || askedForBirth;
+};
+
 const PUTER_MODEL_IDS = {
   "GPT-5.6 Sol": "gpt-5.6-sol",
   "GPT-5.6 Terra": "gpt-5.6-terra",
@@ -5845,6 +5863,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
+    // For browser models the app does the searching itself, so it applies the
+    // backend's rule: explicit search asks always search, but the auto-search
+    // setting is only permission — it searches when the question looks like
+    // it needs live information. Otherwise every message ran a web search
+    // first, and a failed search sent the turn to a backend model instead.
+    const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
+    const browserSearch = explicitSearch || (autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
 
     const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
@@ -6049,7 +6074,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // bubble and returns the answer. Shared by the primary browser-model
       // path and the last-resort retry after the backend runs out of
       // providers. Returns null when the turn was superseded mid-stream.
-      const streamWithPuter = async (providerName, extraSystem = "") => {
+      const streamWithPuter = async (providerName, extraSystem = "", prefix = "") => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
         await window.whenPuter?.();
@@ -6089,7 +6114,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           streamed += text;
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: streamed, provider: providerName };
+            next[next.length - 1] = { ...next[next.length - 1], content: prefix + streamed, provider: providerName };
             return next;
           });
           setStreamingContent(streamed);
@@ -6241,6 +6266,36 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       const puterModelId = PUTER_MODEL_IDS[effectivePuterProvider];
 
+      // Astrology for browser models: they can't reach ProKerala, so fetch the
+      // same grounding the backend gives its own models (live kundli / planet
+      // / dasha data, or "ask for birth details") plus the rasi chart, and
+      // hand it to whichever model the user picked.
+      let astro = null;
+      if (puterModelId && fileCount === 0 && mightBeAstrology(hist, userQuery)) {
+        try {
+          setStreamStatus("Consulting ProKerala's Vedic astrology API…");
+          const astroRes = await fetch(`${API}/astrology/context`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: hist.filter((m) => typeof m?.content === "string").slice(-12).map(({ role, content }) => ({ role, content })) }),
+            signal: ctrl.signal,
+          });
+          const astroJson = astroRes.ok ? await astroRes.json() : null;
+          if (astroJson?.astrology) astro = { prompt: astroJson.prompt || "", chartBlock: astroJson.chartBlock || "" };
+        } catch (astroErr) {
+          if (astroErr?.name === "AbortError" || !isActive()) throw astroErr;
+          addDebugLog("Astrology.contextFailed", { reqId, error: astroErr?.message });
+        }
+        if (!isActive()) return;
+        if (astro?.chartBlock) {
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: astro.chartBlock };
+            return next;
+          });
+        }
+      }
+
       // Web Search with "Auto": the user wants the web's answer, not a chat
       // model's — so answer straight from the search (its summary plus the
       // source cards). Only if that finds nothing does a model get the turn.
@@ -6255,7 +6310,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // backend doesn't know them — it used to answer with its own top-weighted
       // model (Plugsky) instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
-      if (puterModelId && shouldWebSearch && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+      if (puterModelId && browserSearch && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         let web = null;
         try {
           web = await fetchWebResults();
@@ -6271,7 +6326,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return next;
           });
           try {
-            const groundedBot = await streamWithPuter(effectivePuterProvider, webContextPrompt(web));
+            const groundedBot = await streamWithPuter(effectivePuterProvider, [webContextPrompt(web), astro?.prompt].filter(Boolean).join("\n\n"), astro?.chartBlock || "");
             if (!isActive() || groundedBot === null) return;
             finishChat(groundedBot);
             return;
@@ -6291,12 +6346,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
       }
 
-      if (puterModelId && !shouldWebSearch && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+      // An automatic search that failed still lets the chosen model answer; an
+      // explicit web search falls through to the backend, which can search.
+      if (puterModelId && !explicitSearch && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         if (fileCount > 0) {
           throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
         }
         try {
-          const puterBot = await streamWithPuter(effectivePuterProvider);
+          const puterBot = await streamWithPuter(effectivePuterProvider, astro?.prompt || "", astro?.chartBlock || "");
           if (!isActive() || puterBot === null) return;
           finishChat(puterBot);
           return;
