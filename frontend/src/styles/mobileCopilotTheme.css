@@ -480,10 +480,7 @@
     border-color: var(--accent) !important;
     color: var(--accent-secondary) !important;
   }
-  :root[data-theme="light"] .mobile-model-row-icon {
-    background: #ffffff !important;
-    border: 1px solid var(--border-med) !important;
-  }
+
   :root[data-theme="light"] .mobile-model-row:hover {
     background: var(--bg-hover) !important;
     border-color: var(--border) !important;
@@ -518,22 +515,8 @@
   }
   :root[data-theme="light"] .mobile-selected-copy strong { color: var(--ink) !important; }
   :root[data-theme="light"] .mobile-selected-copy small { color: var(--ink-3) !important; }
-  :root[data-theme="light"] .mobile-selected-icon {
-    background: #ffffff !important;
-    border-color: var(--border-med) !important;
-  }
-  /* These brand marks are white glyphs. In the picker the <img> *is* the
-     tile (its background is the tile colour), so a colour filter would flip
-     the tile too — a white tile inverted to solid black, hiding the logo.
-     Give them their dark brand tile instead and leave the glyph white. */
-  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/openai.svg"],
-  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/grok.svg"],
-  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/perplexity.svg"],
-  :root[data-theme="light"] .mobile-model-screen img[src$="/model-icons/local.svg"] {
-    filter: none !important;
-    background: #111111 !important;
-    border-color: #111111 !important;
-  }
+
+
   :root[data-theme="light"] .mobile-model-picker-footer {
     background: rgba(246, 243, 237, 0.96) !important;
     border-top: 1px solid var(--border) !important;
@@ -544,4 +527,91 @@
     color: #ffffff !important;
     box-shadow: 0 6px 18px var(--accent-glow) !important;
   }
+}
+
+
+/* ─── Model brand tiles (picker on phone and PC) ─────────────────────────
+   Every model gets the same rounded tile with its logo centred at one size:
+   white in light mode, graphite in dark mode. Brand marks drawn in pure
+   white (OpenAI, Grok, Perplexity, Ollama) are rendered near-black on the
+   light tile. The tile is always a separate element from the <img>, so the
+   glyph filter never recolours the tile. */
+.ws-model-mark[data-brand-tile] {
+  width: 32px; height: 32px; flex: 0 0 32px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(31, 30, 29, 0.12);
+  color: var(--ink);
+}
+.ws-model-mark[data-brand-tile] img { width: 19px !important; height: 19px !important; }
+.ws-model-option.active .ws-model-mark[data-brand-tile] { background: #ffffff; border-color: var(--accent); }
+[data-theme="dark"] .ws-model-mark[data-brand-tile],
+[data-theme="dark"] .ws-model-option.active .ws-model-mark[data-brand-tile] {
+  background: #232323;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+[data-theme="dark"] .ws-model-option.active .ws-model-mark[data-brand-tile] { border-color: var(--accent); }
+
+:root[data-theme="light"] :is(.ws-model-mark, .mobile-model-row-icon) img:is(
+  [src$="/model-icons/openai.svg"], [src$="/model-icons/grok.svg"],
+  [src$="/model-icons/perplexity.svg"], [src$="/model-icons/local.svg"]) {
+  filter: brightness(0) !important;
+}
+
+@media (max-width: 768px) {
+  .mobile-model-row-icon,
+  .mobile-selected-icon .mobile-model-row-icon {
+    width: 48px !important; height: 48px !important;
+    min-width: 48px !important; flex: 0 0 48px !important;
+    display: grid !important; place-items: center !important;
+    padding: 0 !important;
+    border-radius: 14px !important;
+    background: #232323 !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    box-shadow: none !important;
+    filter: none !important;
+  }
+  :root[data-theme="light"] .mobile-model-row-icon,
+  :root[data-theme="light"] .mobile-selected-icon .mobile-model-row-icon {
+    background: #ffffff !important;
+    border: 1px solid rgba(31, 30, 29, 0.12) !important;
+  }
+  .mobile-model-row-icon > img {
+    width: 26px !important; height: 26px !important;
+    flex: none !important;
+    object-fit: contain !important;
+    background: none !important; border: 0 !important; border-radius: 0 !important;
+  }
+  /* The selected card's slot is just a holder — the tile inside draws itself. */
+  .mobile-selected-icon {
+    background: none !important; border: 0 !important; box-shadow: none !important;
+    width: 48px !important; height: 48px !important; min-width: 48px !important;
+    flex: 0 0 48px !important; padding: 0 !important; overflow: visible !important;
+  }
+  .mobile-model-row, .mobile-model-selected-card { gap: 14px !important; }
+}
+
+
+/* ─── Phone start screen: chat box docked at the bottom ─────────────────
+   Like ChatGPT / Claude on mobile: the greeting sits in the open space, the
+   suggestion chips just above the composer, and the composer at the bottom
+   where the thumb is. Desktop keeps its centred layout. */
+@media (max-width: 768px) {
+  .vetro-empty {
+    flex: 1 1 auto !important;
+    align-self: stretch !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    justify-content: flex-end !important;
+    min-height: 100%;
+  }
+  .vetro-empty-greeting {
+    flex: 1 1 auto;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 !important;
+    padding: 24px 0;
+  }
+  .vetro-empty-pills { order: 2; width: 100%; margin: 0 0 10px !important; }
+  .vetro-empty-input { order: 3; }
 }

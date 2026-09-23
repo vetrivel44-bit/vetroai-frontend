@@ -7619,15 +7619,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className={`flex-1 flex flex-col w-full relative ${messages.length === 0 ? 'items-center overflow-y-auto px-4' : 'overflow-hidden'}`}
           style={isIncognito && messages.length > 0 ? { background: 'linear-gradient(180deg, var(--accent-soft) 0%, transparent 120px)' } : {}}>
              {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
-                  <div className="mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
+                <div className="vetro-empty flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
+                  <div className="vetro-empty-greeting mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
                     <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
                   </div>
-                  <div className="w-full">
+                  <div className="vetro-empty-input w-full">
                     {renderInputBox()}
                   </div>
                   {suggestionOptions.length > 0 && (
-                    <div className="claude-suggestion-pills-row">
+                    <div className="vetro-empty-pills claude-suggestion-pills-row">
                       <div className="claude-suggestion-pills" style={{ justifyContent: "center", padding: 0 }}>
                         {!(isYtMode || isDeepSearch || isWebMode) && suggestionOptions.length >= 5
                           ? claudeStylePills.map(({ label, icon: Icon, srcIdx }) => (
