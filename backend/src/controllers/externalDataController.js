@@ -1,3 +1,4 @@
+const { fillMissingImages } = require("../services/articleImages");
 const ApiError = require("../utils/apiError");
 const { config } = require("../config/env");
 const {
@@ -78,7 +79,11 @@ async function latestNews(req, res, next) {
 
     // Always the newsdata-shaped `results` array the frontend panel renders,
     // whichever service answered.
-    return res.json({ results: normalizeNewsPayload(provider, payload) });
+    const results = normalizeNewsPayload(provider, payload);
+    // Articles the feed sent without a picture get the outlet's own preview
+    // image (bounded in time, so the feed is never held up for long).
+    await fillMissingImages(results);
+    return res.json({ results });
   } catch (error) {
     return next(error);
   }
