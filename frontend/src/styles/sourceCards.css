@@ -186,3 +186,12 @@
 .claude-prose ul:not([class]) ul:not([class]) { list-style: circle; }
 .claude-prose ol:not([class]) { list-style: decimal; }
 .claude-prose li::marker { color: var(--ink-3); }
+
+/* ReactMarkdown wraps each fenced block in a <pre>, and our code card renders
+   inside it; drop the outer frame so it doesn't read as a box in a box. */
+.claude-prose pre:has(> .code-wrap) {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
