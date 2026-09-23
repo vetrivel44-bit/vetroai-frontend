@@ -5,6 +5,8 @@
 // bold/italic/code/link runs inside text. The heavy libraries (jsPDF, docx,
 // SheetJS) are only loaded when a download is requested.
 
+import { normalizeMathDelimiters, latexToText } from "./math.js";
+
 const FORMAT_PATTERNS = [
   ["pdf", /\bpdf\b/i],
   ["docx", /\b(word|docx?|ms ?word)\b/i],
@@ -44,7 +46,7 @@ export function fileRequestInstruction(formats = []) {
 // Inline Markdown → [{ text, bold, italic, code, link }]
 export function parseInline(text = "") {
   const runs = [];
-  const pattern = /(\*\*|__)(.+?)\1|(\*|_)(?!\s)(.+?)\3|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\$([^$\n]+)\$/g;
+  const pattern = /(\*\*|__)(.+?)\1|(\*|_)(?!\s)(.+?)\3|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\$\$([^$\n]+)\$\$|\$(?=\S)([^$\n]*?\S)\$(?!\d)/g;
   let last = 0;
   let match;
   const push = (value, style = {}) => { if (value) runs.push({ text: value, ...style }); };
@@ -56,7 +58,10 @@ export function parseInline(text = "") {
       for (const inner of parseInline(match[4])) runs.push({ ...inner, italic: true });
     } else if (match[5] !== undefined) push(match[5], { code: true });
     else if (match[6] !== undefined) push(match[6], { link: match[7] });
-    else if (match[8] !== undefined) push(match[8], { code: true });
+    else if (match[8] !== undefined || match[9] !== undefined) {
+      const latex = (match[8] ?? match[9]).trim();
+      runs.push({ text: latexToText(latex), math: latex });
+    }
     last = pattern.lastIndex;
   }
   push(text.slice(last));
@@ -79,7 +84,7 @@ export function stripChatPreamble(markdown = "") {
 }
 
 export function parseMarkdownBlocks(markdown = "") {
-  const lines = stripChatPreamble(markdown).split("\n");
+  const lines = normalizeMathDelimiters(stripChatPreamble(markdown)).split("\n");
   const blocks = [];
   let paragraph = [];
   const flushParagraph = () => {
@@ -108,7 +113,15 @@ export function parseMarkdownBlocks(markdown = "") {
       const math = [];
       i++;
       while (i < lines.length && lines[i].trim() !== "$$") math.push(lines[i++]);
-      blocks.push({ type: "code", language: "math", text: math.join("\n") });
+      const latex = math.join("\n").trim();
+      blocks.push({ type: "math", latex, text: latexToText(latex) });
+      continue;
+    }
+
+    const displayMath = trimmed.match(/^\$\$(.+)\$\$$/);
+    if (displayMath) {
+      flushParagraph();
+      blocks.push({ type: "math", latex: displayMath[1].trim(), text: latexToText(displayMath[1].trim()) });
       continue;
     }
 
@@ -238,7 +251,11 @@ export function isPdfSafe(text = "") {
 }
 
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const runsHtml = (runs) => runs.map((run) => {
+const renderMath = (katex, latex, displayMode) =>
+  katex.renderToString(latex, { displayMode, throwOnError: false, strict: false, output: "html" });
+
+const runsHtml = (runs, katex) => runs.map((run) => {
+  if (run.math && katex) return renderMath(katex, run.math, false);
   let html = escapeHtml(run.text);
   if (run.code) html = `<code>${html}</code>`;
   if (run.bold) html = `<strong>${html}</strong>`;
@@ -247,21 +264,23 @@ const runsHtml = (runs) => runs.map((run) => {
   return html;
 }).join("");
 
-function blocksToHtml(blocks) {
+function blocksToHtml(blocks, katex) {
+  const runsHtml_ = (runs) => runsHtml(runs, katex);
   return blocks.map((block) => {
-    if (block.type === "heading") return `<h${block.level}>${runsHtml(block.runs)}</h${block.level}>`;
-    if (block.type === "paragraph") return `<p>${runsHtml(block.runs)}</p>`;
-    if (block.type === "quote") return `<blockquote>${runsHtml(block.runs)}</blockquote>`;
+    if (block.type === "heading") return `<h${block.level}>${runsHtml_(block.runs)}</h${block.level}>`;
+    if (block.type === "paragraph") return `<p>${runsHtml_(block.runs)}</p>`;
+    if (block.type === "quote") return `<blockquote>${runsHtml_(block.runs)}</blockquote>`;
     if (block.type === "code") return `<pre>${escapeHtml(block.text)}</pre>`;
+    if (block.type === "math") return `<div class="math-block">${katex ? renderMath(katex, block.latex, true) : escapeHtml(block.text)}</div>`;
     if (block.type === "rule") return "<hr>";
     if (block.type === "table") {
-      const cells = (row, tag) => row.map((cell) => `<${tag}>${runsHtml(parseInline(cell))}</${tag}>`).join("");
+      const cells = (row, tag) => row.map((cell) => `<${tag}>${runsHtml_(parseInline(cell))}</${tag}>`).join("");
       return `<table><thead><tr>${cells(block.header, "th")}</tr></thead><tbody>${block.rows.map((row) => `<tr>${cells(row, "td")}</tr>`).join("")}</tbody></table>`;
     }
     if (block.type === "list") {
       return block.items.map((item) => {
         const marker = item.ordered ? escapeHtml(item.marker.replace(")", ".")) : ["•", "◦", "▪", "•"][item.level];
-        return `<div class="li" style="padding-left:${22 + item.level * 20}px"><span class="mk" style="left:${4 + item.level * 20}px">${marker}</span>${runsHtml(item.runs)}</div>`;
+        return `<div class="li" style="padding-left:${22 + item.level * 20}px"><span class="mk" style="left:${4 + item.level * 20}px">${marker}</span>${runsHtml_(item.runs)}</div>`;
       }).join("");
     }
     return "";
@@ -282,45 +301,101 @@ const IMAGE_PDF_CSS = `
   .vetro-pdf-page table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
   .vetro-pdf-page th, .vetro-pdf-page td { border: 1px solid #c8c8cd; padding: 6px 8px; text-align: left; vertical-align: top; }
   .vetro-pdf-page th { background: #ececf0; } .vetro-pdf-page hr { border: 0; border-top: 1px solid #d2d2d2; }
-  .vetro-pdf-page a { color: #1a56a0; }`;
+  .vetro-pdf-page a { color: #1a56a0; }
+  .vetro-pdf-page h1, .vetro-pdf-page h2, .vetro-pdf-page h3, .vetro-pdf-page h4, .vetro-pdf-page h5, .vetro-pdf-page h6,
+  .vetro-pdf-page strong, .vetro-pdf-page th { font-weight: 700; }
+  .vetro-pdf-page em { font-style: italic; }
+  .vetro-pdf-page .math-block { text-align: center; margin: 6px 0 12px; overflow: hidden; }
+  .vetro-pdf-page .katex { font-size: 1.08em; }
+  .vetro-pdf-page .math-block .katex-display { margin: 0; }`;
 
-// Renders the document as styled HTML and captures it page by page, breaking
-// between blocks so no line is cut in half.
+const A4 = { widthPx: 794, heightPx: 1123, widthPt: 595.28, heightPt: 841.89 };
+const PAGE_PADDING_PX = 56;
+
+// Renders the document as styled HTML (formulas laid out by KaTeX, text in the
+// browser's own fonts) and captures it one A4 page at a time with
+// html-to-image, which lets the browser do the layout — so fractions, roots
+// and scripts come out exactly as on screen. Pages break between blocks.
 async function exportPdfAsImages(markdown, filename) {
-  const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import("jspdf"), import("html2canvas")]);
+  const [{ jsPDF }, htmlToImage, { default: katex }] = await Promise.all([import("jspdf"), import("html-to-image"), import("katex")]);
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:-10000px;top:0;";
-  host.innerHTML = `<style>${IMAGE_PDF_CSS}</style><div class="vetro-pdf-page">${blocksToHtml(parseMarkdownBlocks(markdown))}</div>`;
+  host.innerHTML = `<style>${IMAGE_PDF_CSS}</style><div class="vetro-pdf-page">${blocksToHtml(parseMarkdownBlocks(markdown), katex)}</div>`;
   document.body.appendChild(host);
   try {
-    const pageEl = host.querySelector(".vetro-pdf-page");
-    const pageHeightPx = Math.floor(794 * (842 / 595)) - 112;
-    const breaks = [0];
-    let pageStart = 0;
-    for (const child of pageEl.children) {
-      const top = child.offsetTop - 56;
+    await document.fonts?.ready;
+    const flow = host.querySelector(".vetro-pdf-page");
+    const contentHeight = A4.heightPx - PAGE_PADDING_PX * 2;
+    const groups = [];
+    let pageTop = 0;
+    for (const child of [...flow.children]) {
+      const top = child.offsetTop;
       const bottom = top + child.offsetHeight;
-      if (bottom - pageStart > pageHeightPx && top > pageStart) { breaks.push(top); pageStart = top; }
+      if (!groups.length || (bottom - pageTop > contentHeight && groups[groups.length - 1].length)) {
+        groups.push([]);
+        pageTop = top;
+      }
+      groups[groups.length - 1].push(child);
     }
-    const scale = 2;
-    const canvas = await html2canvas(pageEl, { scale, backgroundColor: "#ffffff", logging: false });
-    const pdf = new jsPDF({ unit: "pt", format: "a4" });
-    const ptPerPx = 595 / 794;
-    breaks.forEach((start, index) => {
-      const end = index + 1 < breaks.length ? breaks[index + 1] : pageEl.offsetHeight - 112;
-      const slice = document.createElement("canvas");
-      slice.width = canvas.width;
-      slice.height = Math.max(1, Math.round((end - start + 112) * scale));
-      const ctx = slice.getContext("2d");
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, slice.width, slice.height);
-      // Top padding + this page's content band (+ bottom padding of white).
-      ctx.drawImage(canvas, 0, 0, canvas.width, 56 * scale, 0, 0, canvas.width, 56 * scale);
-      ctx.drawImage(canvas, 0, (start + 56) * scale, canvas.width, (end - start) * scale, 0, 56 * scale, canvas.width, (end - start) * scale);
-      if (index > 0) pdf.addPage();
-      pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 595, slice.height / scale * ptPerPx);
+    const pages = groups.map((children) => {
+      const page = document.createElement("div");
+      page.className = "vetro-pdf-page";
+      children.forEach((child) => page.appendChild(child));
+      host.appendChild(page);
+      page.style.minHeight = `${A4.heightPx}px`;
+      return page;
     });
+    flow.remove();
+
+    const fontEmbedCSS = await htmlToImage.getFontEmbedCSS(host).catch(() => undefined);
+    let pdf = null;
+    for (const page of pages) {
+      // A single block taller than a page (a long table) gets a taller page
+      // rather than being cut off.
+      const heightPx = Math.max(A4.heightPx, page.offsetHeight);
+      const canvas = await htmlToImage.toCanvas(page, { pixelRatio: 2, backgroundColor: "#ffffff", width: A4.widthPx, height: heightPx, fontEmbedCSS });
+      const heightPt = (heightPx / A4.widthPx) * A4.widthPt;
+      const format = [A4.widthPt, heightPt];
+      if (!pdf) pdf = new jsPDF({ unit: "pt", format });
+      else pdf.addPage(format);
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, A4.widthPt, heightPt);
+    }
     pdf.save(filename);
+  } finally {
+    host.remove();
+  }
+}
+
+const runsHaveMath = (runs = []) => runs.some((run) => run.math);
+export function hasMath(blocks) {
+  return blocks.some((block) =>
+    block.type === "math"
+    || runsHaveMath(block.runs)
+    || (block.items || []).some((item) => runsHaveMath(item.runs))
+    || (block.type === "table" && [block.header, ...block.rows].some((row) => row.some((cell) => runsHaveMath(parseInline(cell))))));
+}
+
+// Renders one formula with KaTeX and captures it as a PNG, sized in CSS px.
+async function mathImage(katex, htmlToImage, latex, displayMode, fontEmbedCSS) {
+  // The off-screen positioning lives on the wrapper; the captured element
+  // itself must not carry it, or html-to-image draws it off-canvas.
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-10000px;top:0;";
+  // nowrap: KaTeX allows line breaks after = and operators, which would wrap
+  // the formula inside its tight capture box and cut the second line off.
+  host.innerHTML = `<div style="display:inline-block;white-space:nowrap;background:#fff;color:#1e1e1e;font-size:15px;padding:2px 3px;">${renderMath(katex, latex, displayMode)}</div>`;
+  const target = host.firstElementChild;
+  const display = host.querySelector(".katex-display");
+  if (display) display.style.margin = "0";
+  document.body.appendChild(host);
+  try {
+    await document.fonts?.ready;
+    const rect = target.getBoundingClientRect();
+    const width = Math.ceil(rect.width) + 2;
+    const height = Math.ceil(rect.height) + 2;
+    const canvas = await htmlToImage.toCanvas(target, { pixelRatio: 3, backgroundColor: "#ffffff", width, height, fontEmbedCSS });
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    return { data: new Uint8Array(await blob.arrayBuffer()), width, height };
   } finally {
     host.remove();
   }
@@ -328,7 +403,11 @@ async function exportPdfAsImages(markdown, filename) {
 
 export async function exportPdf(markdown) {
   const filename = safeFileName(documentTitle(markdown), "pdf");
-  if (!isPdfSafe(toPdfText(stripChatPreamble(markdown)))) return exportPdfAsImages(markdown, filename);
+  // Formulas need KaTeX's layout, and other scripts need the browser's fonts;
+  // both go through the image path.
+  if (hasMath(parseMarkdownBlocks(markdown)) || !isPdfSafe(toPdfText(stripChatPreamble(markdown)))) {
+    return exportPdfAsImages(markdown, filename);
+  }
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ unit: "pt", format: "a4" });
   const page = { width: pdf.internal.pageSize.getWidth(), height: pdf.internal.pageSize.getHeight() };
@@ -481,9 +560,49 @@ export async function exportPdf(markdown) {
 
 export async function exportDocx(markdown) {
   const docx = await import("docx");
-  const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ExternalHyperlink, BorderStyle, ShadingType } = docx;
+  const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingLevel, Table, TableRow, TableCell, WidthType, ExternalHyperlink, BorderStyle, ShadingType } = docx;
+  const blocks = parseMarkdownBlocks(markdown);
+
+  // Word has no LaTeX: each formula is drawn once with KaTeX and inserted as
+  // a crisp image, inline at text size or centred on its own line.
+  const mathImages = new Map();
+  if (hasMath(blocks)) {
+    const [{ default: katex }, htmlToImage] = await Promise.all([import("katex"), import("html-to-image")]);
+    // Embed KaTeX's fonts once and reuse them for every formula.
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:-10000px;top:0;";
+    // Uses every KaTeX font face (sizes for tall delimiters, bold, script…),
+    // since only fonts present in the probe get embedded.
+    probe.innerHTML = renderMath(katex, String.raw`\binom{n}{k}\Bigg(\bigg(\Big(\left(\dfrac{a}{b}\right)\Big)\bigg)\Bigg)\sqrt{x}\int\sum\prod\mathbf{A}\mathit{a}\text{t}\textbf{b}\mathcal{L}\mathbb{R}\mathfrak{g}\mathsf{S}\mathscr{F}\mathtt{x}\boldsymbol{\alpha}`, true);
+    document.body.appendChild(probe);
+    await document.fonts?.ready;
+    const fontEmbedCSS = await htmlToImage.getFontEmbedCSS(probe).catch(() => undefined);
+    probe.remove();
+    const wanted = [];
+    const collect = (runs = []) => runs.forEach((run) => { if (run.math) wanted.push([run.math, false]); });
+    for (const block of blocks) {
+      if (block.type === "math") wanted.push([block.latex, true]);
+      collect(block.runs);
+      (block.items || []).forEach((item) => collect(item.runs));
+      if (block.type === "table") [block.header, ...block.rows].forEach((row) => row.forEach((cell) => collect(parseInline(cell))));
+    }
+    for (const [latex, display] of wanted) {
+      const key = `${display ? "D" : "I"}:${latex}`;
+      if (!mathImages.has(key)) {
+        try { mathImages.set(key, await mathImage(katex, htmlToImage, latex, display, fontEmbedCSS)); } catch { /* falls back to text */ }
+      }
+    }
+  }
+  const mathRun = (latex, display) => {
+    const image = mathImages.get(`${display ? "D" : "I"}:${latex}`);
+    return image ? new ImageRun({ type: "png", data: image.data, transformation: { width: image.width, height: image.height } }) : null;
+  };
 
   const toRuns = (runs, extra = {}) => runs.map((run) => {
+    if (run.math) {
+      const image = mathRun(run.math, false);
+      if (image) return image;
+    }
     const text = new TextRun({
       text: run.text,
       bold: run.bold || extra.bold,
@@ -497,7 +616,7 @@ export async function exportDocx(markdown) {
   const headingLevels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6];
 
   const children = [];
-  for (const block of parseMarkdownBlocks(markdown)) {
+  for (const block of blocks) {
     if (block.type === "heading") {
       children.push(new Paragraph({ heading: block.level === 1 ? HeadingLevel.TITLE : headingLevels[block.level - 1], children: toRuns(block.runs) }));
     } else if (block.type === "paragraph") {
@@ -526,6 +645,13 @@ export async function exportDocx(markdown) {
         }));
       }
       children.push(new Paragraph({ children: [] }));
+    } else if (block.type === "math") {
+      const image = mathRun(block.latex, true);
+      children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 80, after: 160 },
+        children: [image || new TextRun({ text: block.text, italics: true })],
+      }));
     } else if (block.type === "rule") {
       children.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "CCCCCC", space: 1 } }, children: [] }));
     } else if (block.type === "table") {
@@ -545,7 +671,7 @@ export async function exportDocx(markdown) {
     }
   }
 
-  const document = new Document({
+  const wordDocument = new Document({
     creator: "VetroAI",
     title: documentTitle(markdown),
     numbering: {
@@ -562,7 +688,7 @@ export async function exportDocx(markdown) {
     },
     sections: [{ children: children.length ? children : [new Paragraph({ children: [new TextRun(markdown)] })] }],
   });
-  const blob = await Packer.toBlob(document);
+  const blob = await Packer.toBlob(wordDocument);
   saveBlob(blob, safeFileName(documentTitle(markdown), "docx"));
 }
 
@@ -579,6 +705,7 @@ export function spreadsheetTables(markdown = "") {
   for (const block of blocks) {
     if (block.type === "list") block.items.forEach((item) => lines.push([runsText(item.runs)]));
     else if (block.type === "code") block.text.split("\n").forEach((line) => lines.push([line]));
+    else if (block.type === "math") lines.push([block.text]);
     else if (block.runs) lines.push([runsText(block.runs)]);
   }
   return [lines];
