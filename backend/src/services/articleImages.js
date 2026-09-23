@@ -199,7 +199,11 @@ async function findArticleImage(articleUrl, { fetchImpl = fetch, lookup = dns.lo
     const { image, isPublic } = await fetchOwnImage(articleUrl, fetchImpl, lookup);
     let result = image;
     if (!result && isPublic && firecrawlApiKey) {
-      result = await firecrawlImage(articleUrl, { fetchImpl, apiKey: firecrawlApiKey }).catch(() => null);
+      result = await firecrawlImage(articleUrl, { fetchImpl, apiKey: firecrawlApiKey }).catch((err) => {
+        logger.warn("articleImages.firecrawlFailed", { error: err.message });
+        return null;
+      });
+      logger.info("articleImages.firecrawl", { url: articleUrl, found: Boolean(result) });
     }
     cacheSet(articleUrl, result);
     return result;
