@@ -27,7 +27,7 @@ import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userS
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -3088,6 +3088,7 @@ const NEWS_CATEGORIES = ["top", "business", "technology", "sports", "entertainme
 // A pseudo-category, never sent to the API — selecting it switches the feed
 // to the locally-saved list instead of fetching.
 const SAVED_TAB = "saved";
+const NEWS_CATEGORY_LABELS = { top: "Top Stories", technology: "Tech", science: "Science" };
 // Whatever the backend accepts (`/^[a-z]{2}$/`, see externalDataController.js);
 // this is just the subset worth offering as a quick picker.
 const NEWS_LANGUAGES = [
@@ -3154,18 +3155,43 @@ function topicForArticle(article) {
   return byWords || byCategory || NEWS_TOPIC_DEFAULT;
 }
 
-// One card, shared by the featured hero slot, the regular grid and the Saved
-// tab so all three stay visually and behaviorally in sync.
+// "5 min ago" / "3 hr ago" / "2 days ago", the long form the Discover-style
+// footer uses.
+const newsAgo = (dateStr) => {
+  if (!dateStr) return "";
+  const date = new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : dateStr.replace(" ", "T") + "Z");
+  const mins = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (Number.isNaN(mins)) return "";
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+};
+
+// One Discover-style story: a large rounded photo, a serif headline, a short
+// summary that expands in place, and a footer with time, Listen, share and a
+// "more" menu. Shared by the lead story, the feed and the Saved tab.
 function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleListen, onAskAI }) {
   const [copied, setCopied] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const hasImage = Boolean(article.image_url) && !imgFailed;
   const topic = topicForArticle(article);
   const TopicIcon = topic.Icon;
-  const descLimit = featured ? 220 : 120;
-  const desc = article.description
-    ? article.description.slice(0, descLimit) + (article.description.length > descLimit ? "…" : "")
-    : "";
+  const source = article.source_name || article.source_id || "";
+  const desc = (article.description || "").trim();
+  const long = desc.length > (featured ? 150 : 110);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (e) => { if (!menuRef.current?.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuOpen]);
 
   const handleShare = async () => {
     const shareData = { title: article.title, text: desc || article.title, url: article.link };
@@ -3180,74 +3206,87 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
     } catch { /* clipboard unavailable — nothing more we can do */ }
   };
 
-  // The action row is a sibling of the <a>, not nested inside it — a <button>
-  // inside an <a> still bubbles clicks up to the anchor's navigation in some
-  // browsers, which would fire the article link on every action-button tap.
+  // The footer is a sibling of the <a>, not inside it — a <button> inside an
+  // <a> still bubbles clicks up to the link in some browsers.
   return (
-    <div className={`news-card${featured ? " news-card-hero" : ""}`}>
-      <a href={article.link} target="_blank" rel="noopener noreferrer" className="news-card-link">
-        <div className="news-card-img">
+    <article className={`dv-card${featured ? " dv-card-lead" : ""}`}>
+      <a href={article.link} target="_blank" rel="noopener noreferrer" className="dv-card-link">
+        <div className="dv-media">
           {hasImage ? (
-            <img
-              src={article.image_url}
-              alt=""
-              loading="lazy"
-              onError={() => setImgFailed(true)}
-            />
+            <img src={article.image_url} alt="" loading={featured ? "eager" : "lazy"} onError={() => setImgFailed(true)} />
           ) : (
-            <div className="news-card-img-placeholder" style={{ background: topic.bg }} aria-label={`${topic.label} story`}>
-              <TopicIcon className="news-topic-icon" size={featured ? 64 : 40} strokeWidth={1.5} aria-hidden="true" />
-              <span className="news-topic-source">
-                {article.source_icon && <img src={article.source_icon} alt="" onError={e => { e.target.style.display = "none"; }} />}
-                {article.source_name || article.source_id || topic.label}
-              </span>
+            <div className="dv-media-topic" style={{ background: topic.bg }} aria-label={`${topic.label} story`}>
+              <TopicIcon className="dv-topic-icon" size={featured ? 72 : 52} strokeWidth={1.4} aria-hidden="true" />
+              {source && <span className="dv-topic-source">{source}</span>}
             </div>
           )}
         </div>
-        <div className="news-card-body">
-          <div className="news-card-meta">
-            {article.source_icon && (
-              <img src={article.source_icon} alt="" className="news-source-icon" onError={e => { e.target.style.display = "none"; }} />
-            )}
-            <span className="news-source">{article.source_name || article.source_id || "News"}</span>
-            <span className="news-dot">·</span>
-            <span className="news-time">{timeAgo(article.pubDate)}</span>
-          </div>
-          {featured ? <h2 className="news-card-title">{article.title}</h2> : <h3 className="news-card-title">{article.title}</h3>}
-          {desc && <p className="news-card-desc">{desc}</p>}
+        <div className="dv-kicker">
+          {featured ? <span className="dv-trending">Trending now</span> : (
+            <span className="dv-source">
+              {article.source_icon && <img src={article.source_icon} alt="" onError={e => { e.target.style.display = "none"; }} />}
+              {source || topic.label}
+            </span>
+          )}
         </div>
+        {featured ? <h2 className="dv-title">{article.title}</h2> : <h3 className="dv-title">{article.title}</h3>}
       </a>
-      <div className="news-card-actions">
-        <button
-          type="button"
-          className={`news-action-btn${saved ? " active" : ""}`}
-          onClick={() => onToggleSave(article)}
-          title={saved ? "Remove from saved" : "Save for later"}
-          aria-label={saved ? "Remove from saved" : "Save for later"}
-          aria-pressed={saved}
-        >
-          <BookmarkIcon />
-        </button>
-        <button type="button" className="news-action-btn" onClick={handleShare} title="Share" aria-label="Share article">
-          {copied ? <CheckIcon /> : <ShareIcon />}
-        </button>
-        <button
-          type="button"
-          className={`news-action-btn${listening ? " active" : ""}`}
-          onClick={() => onToggleListen(article)}
-          title={listening ? "Stop listening" : "Listen"}
-          aria-label={listening ? "Stop listening" : "Listen to this article"}
-          aria-pressed={listening}
-        >
-          {listening ? <Pause size={14} /> : <Volume2 size={14} />}
-        </button>
-        <button type="button" className="news-action-btn news-action-ai" onClick={() => onAskAI(article)} title="Ask AI about this story" aria-label="Ask AI about this story">
-          <SparkleIcon /><span>Ask AI</span>
-        </button>
+      {desc && (
+        <p className={`dv-desc${expanded ? " open" : ""}`}>
+          {expanded || !long ? desc : desc.slice(0, featured ? 150 : 110).replace(/\s+\S*$/, "") + "…"}
+          {long && (
+            <button type="button" className="dv-more-text" onClick={() => setExpanded(v => !v)}>
+              {expanded ? " See less" : " See more"}
+            </button>
+          )}
+        </p>
+      )}
+      <div className="dv-foot">
+        <span className="dv-time">{newsAgo(article.pubDate)}{featured && source ? ` · ${source}` : ""}</span>
+        <div className="dv-actions">
+          <button
+            type="button"
+            className={`dv-listen${listening ? " on" : ""}`}
+            onClick={() => onToggleListen(article)}
+            aria-pressed={listening}
+            aria-label={listening ? "Stop listening" : "Listen to this article"}
+          >
+            {listening ? <Pause size={17} /> : <HeadphonesIcon />}
+            <span>{listening ? "Stop" : "Listen"}</span>
+          </button>
+          <span className="dv-sep" aria-hidden="true" />
+          <button type="button" className="dv-icon" onClick={handleShare} title="Share" aria-label="Share article">
+            {copied ? <Check size={18} /> : <ShareIcon />}
+          </button>
+          <div className="dv-menu-wrap" ref={menuRef}>
+            <button type="button" className="dv-icon" onClick={() => setMenuOpen(v => !v)} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="More options">
+              <MoreVertical size={19} />
+            </button>
+            {menuOpen && (
+              <div className="dv-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => { onToggleSave(article); setMenuOpen(false); }}>
+                  <BookmarkIcon /> {saved ? "Remove from saved" : "Save for later"}
+                </button>
+                <button type="button" role="menuitem" onClick={() => { onAskAI(article); setMenuOpen(false); }}>
+                  <SparkleIcon /> Ask AI about this
+                </button>
+                <a role="menuitem" href={article.link} target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)}>
+                  <ExternalLink size={15} /> Open original
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
+
+const HeadphonesIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+  </svg>
+);
 
 function NewsPanel({ onClose, userKey, onAskAI }) {
   const [articles, setArticles] = useState([]);
@@ -3257,6 +3296,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   const [language, setLanguage] = useState("en");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   // Saved articles are personal, read-often, write-rarely data, so a plain
   // localStorage list (via the same helper sessions/artifacts use) is enough —
   // no Firestore round-trip needed just to reopen the panel.
@@ -3303,6 +3343,9 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   useEffect(() => () => { if ("speechSynthesis" in window) window.speechSynthesis.cancel(); }, []);
 
   const selectCategory = (cat) => {
+    // Tapping the chip that's already selected refreshes it — the refresh
+    // button is hidden on phones to keep the header uncluttered.
+    if (cat === category && !searchQuery) { fetchNews(cat, "", language); return; }
     setCategory(cat);
     setSearchQuery("");
     setDebouncedQuery(""); // bypass the debounce so the category switch doesn't briefly refetch the old search
@@ -3382,89 +3425,68 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   const rest = showHero ? visibleArticles.slice(1) : visibleArticles;
 
   return (
-    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
-      <div className="news-panel" onClick={e => e.stopPropagation()}>
-        <div className="news-panel-header">
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Newspaper size={20} />
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>News</h2>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select
-              className="news-lang-select"
-              value={language}
-              onChange={e => setLanguage(e.target.value)}
-              title="Language"
-              aria-label="News language"
-            >
-              {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-            </select>
-            {category !== SAVED_TAB && (
+    <div className="overlay dv-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
+      <div className="news-panel dv-panel" onClick={e => e.stopPropagation()}>
+        <div className="dv-top">
+          <div className="dv-bar">
+            <button type="button" className="dv-round" onClick={onClose} aria-label="Close Discover"><ArrowLeft size={20} /></button>
+            <h2 className="dv-heading">Discover</h2>
+            <div className="dv-bar-right">
+              <button type="button" className={`dv-round${searchOpen || searchQuery ? " on" : ""}`} onClick={() => setSearchOpen(v => !v)} aria-label="Search news" aria-expanded={searchOpen}>
+                <Search size={18} />
+              </button>
+              <select className="dv-lang" value={language} onChange={e => setLanguage(e.target.value)} aria-label="News language">
+                {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+              {category !== SAVED_TAB && (
+                <button type="button" className="dv-round dv-refresh" onClick={() => fetchNews(category, debouncedQuery, language)} aria-label="Refresh news" disabled={loading}>
+                  <RotateCcw size={17} />
+                </button>
+              )}
               <button
                 type="button"
-                className="news-icon-btn"
-                onClick={() => fetchNews(category, debouncedQuery, language)}
-                title="Refresh"
-                aria-label="Refresh news"
-                disabled={loading}
+                className={`dv-round${category === SAVED_TAB ? " on" : ""}`}
+                onClick={() => setCategory(category === SAVED_TAB ? "top" : SAVED_TAB)}
+                aria-label={`Saved stories${savedArticles.length ? ` (${savedArticles.length})` : ""}`}
+                title="Saved stories"
               >
-                <RotateCcw size={15} />
+                <BookmarkIcon />
+                {savedArticles.length > 0 && <span className="dv-badge">{savedArticles.length}</span>}
               </button>
-            )}
-            <button className="modal-x" onClick={onClose}><X size={16} /></button>
+            </div>
+          </div>
+
+          {(searchOpen || searchQuery) && (
+            <form className="dv-search" onSubmit={handleSearch}>
+              <Search size={16} aria-hidden="true" />
+              <input type="text" placeholder="Search news…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} autoFocus aria-label="Search news" />
+              {searchQuery && <button type="button" onClick={clearSearch} aria-label="Clear search"><X size={15} /></button>}
+            </form>
+          )}
+
+          <div className="dv-chips" role="tablist" aria-label="News categories">
+            {NEWS_CATEGORIES.map(cat => (
+              <button key={cat} type="button" role="tab" aria-selected={category === cat} className={`dv-chip${category === cat ? " on" : ""}`} onClick={() => selectCategory(cat)}>
+                {NEWS_CATEGORY_LABELS[cat] || cat.charAt(0).toUpperCase() + cat.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
 
-        <form className="news-search-bar" onSubmit={handleSearch}>
-          <Search size={15} style={{ color: "var(--ink-4)", flexShrink: 0 }} />
-          <input
-            type="text"
-            placeholder="Search news…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="news-search-input"
-          />
-          {searchQuery && (
-            <button type="button" onClick={clearSearch} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", display: "flex", padding: 2 }}>
-              <X size={14} />
-            </button>
-          )}
-        </form>
-
-        <div className="news-categories">
-          {NEWS_CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              className={`news-cat-btn${category === cat ? " active" : ""}`}
-              onClick={() => selectCategory(cat)}
-            >
-              {cat.charAt(0).toUpperCase() + cat.slice(1)}
-            </button>
-          ))}
-          <button
-            className={`news-cat-btn news-cat-saved${category === SAVED_TAB ? " active" : ""}`}
-            onClick={() => setCategory(SAVED_TAB)}
-          >
-            <BookmarkIcon /> Saved{savedArticles.length > 0 ? ` (${savedArticles.length})` : ""}
-          </button>
-        </div>
-
-        <div className="news-feed">
+        <div className="dv-feed">
           {category !== SAVED_TAB && !loading && !error && articles.length > 0 && (
-            <button type="button" className="news-briefing-btn" onClick={askForBriefing}>
+            <button type="button" className="dv-briefing" onClick={askForBriefing}>
               <SparkleIcon /> Get an AI briefing on these headlines
             </button>
           )}
           {loading ? (
-            <div className="news-loading">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="news-card-skeleton">
-                  <div className="news-skel-img" />
-                  <div className="news-skel-lines">
-                    <div className="news-skel-line w80" />
-                    <div className="news-skel-line w60" />
-                    <div className="news-skel-line w40" />
-                  </div>
+            <div className="dv-list">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="dv-skel">
+                  <div className="dv-skel-img" />
+                  <div className="dv-skel-line w90" />
+                  <div className="dv-skel-line w70" />
+                  <div className="dv-skel-line w40" />
                 </div>
               ))}
             </div>
@@ -3479,13 +3501,13 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
               <p>
                 {category === SAVED_TAB
                   ? (savedArticles.length === 0
-                      ? "No saved articles yet — tap the bookmark icon on any story to keep it here."
-                      : "No saved articles match your search.")
+                      ? "No saved stories yet — use the ⋮ menu on any story to keep it here."
+                      : "No saved stories match your search.")
                   : "No articles found"}
               </p>
             </div>
           ) : (
-            <>
+            <div className="dv-list">
               {hero && (
                 <NewsCard
                   article={hero}
@@ -3497,20 +3519,18 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
                   onAskAI={askAboutArticle}
                 />
               )}
-              <div className="news-grid">
-                {rest.map((article, i) => (
-                  <NewsCard
-                    key={newsArticleId(article) || i}
-                    article={article}
-                    saved={isSaved(article)}
-                    onToggleSave={toggleSave}
-                    listening={speakingId === newsArticleId(article)}
-                    onToggleListen={toggleListen}
-                    onAskAI={askAboutArticle}
-                  />
-                ))}
-              </div>
-            </>
+              {rest.map((article, i) => (
+                <NewsCard
+                  key={newsArticleId(article) || i}
+                  article={article}
+                  saved={isSaved(article)}
+                  onToggleSave={toggleSave}
+                  listening={speakingId === newsArticleId(article)}
+                  onToggleListen={toggleListen}
+                  onAskAI={askAboutArticle}
+                />
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -7011,6 +7031,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       <div className="auth-form-side">
         <div className="auth-form-card">
           <div className="auth-form-header">
+            {/* Phones hide the hero panel, so the brand shows here instead. */}
+            <div className="auth-form-logo"><VetroLogo width={150} /></div>
             <h2 className="auth-form-title">{authMode === "login" ? "Welcome back 👋" : "Join VetroAI 🚀"}</h2>
             <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Create a free account in seconds."}</p>
           </div>
