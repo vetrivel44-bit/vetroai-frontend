@@ -5648,10 +5648,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         generateFollowUps(answer, userQuery);
       };
 
-      // Web Search mode goes to the dedicated Tavily endpoint (search + its
-      // own synthesized answer) so it never depends on an LLM provider or
-      // Puter credits. If it fails, the backend /chat search below still runs.
-      if (selectedMode === "web_search" && fileCount === 0) {
+      // Fallback for Web Search when the backend's search + AI answer fails:
+      // Tavily's own summary via /web-search. It can't follow formatting
+      // requests ("in points"), so it's only used when no AI answer is possible.
+      const answerWithDirectSearch = async () => {
         try {
           setStreamStatus("Searching the web…");
           const res = await fetch(`${API}/web-search`, {
@@ -5684,13 +5684,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return next;
           });
           finishChat(answer);
-          return;
+          return true;
         } catch (searchErr) {
           if (searchErr?.name === "AbortError" || !isActive()) throw searchErr;
           addDebugLog("WebSearch.directFailed", { reqId, error: searchErr?.message });
-          setStreamStatus("Searching the web…");
+          return false;
         }
-      }
+      };
 
       if (attachedImages.length > 0) {
         // Already learned this session that GPT-5.6 Luna is out of credits —
@@ -5872,6 +5872,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (backendFailure) {
+        if (selectedMode === "web_search" && fileCount === 0) {
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+            return next;
+          });
+          setStreamingContent("");
+          if (await answerWithDirectSearch()) return;
+          if (!isActive()) return;
+        }
+
         // Files only reach a model through the backend, so an attachment turn
         // has nowhere left to go. A plain text turn does: retry it on a browser
         // model that hasn't already been tried this turn.
