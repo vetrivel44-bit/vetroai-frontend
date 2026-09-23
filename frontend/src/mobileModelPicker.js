@@ -22,6 +22,7 @@ const MODEL_ICON_RULES = [
   [/mistral/i, '/model-icons/mistral.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
+  [/local|ollama/i, '/model-icons/local.svg'],
 ];
 const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/favicon.svg';
 const makeModelIcon = (label, extraClass = '') => {

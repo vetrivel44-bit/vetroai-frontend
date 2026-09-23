@@ -46,6 +46,10 @@ const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
+import {
+  LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
+  buildMessages as buildOllamaMessages, streamChat as streamOllamaChat, setupHelp as ollamaSetupHelp,
+} from "./lib/localOllama";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -705,7 +709,7 @@ const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high",
 const PLUGSKY_PROVIDER = "Plugsky";
 const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
 const GROK_PROVIDER = "Grok 4.6";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes", LOCAL_OLLAMA_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -2970,6 +2974,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     Mistral: ["M", "Efficient reasoning"],
     SambaNova: ["S", "High-speed inference"],
     Agnes: ["A", "VetroAI creative model"],
+    [LOCAL_OLLAMA_PROVIDER]: ["⌂", "On your computer · free & private"],
   };
 
   return (
@@ -5548,11 +5553,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const sportsDetected = isSportsQuery(userQuery);
-    const medicalDetected = isMedicalQuery(userQuery);
+    const medicalDetected = selectedProvider !== LOCAL_OLLAMA_PROVIDER && (isMedicalQuery(userQuery));
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
-    const nearbyMapsRequest = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery);
+    const nearbyMapsRequest = selectedProvider !== LOCAL_OLLAMA_PROVIDER && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
       const locationResult = await getPreciseUserLocation();
       const userLocation = locationResult.location;
@@ -5638,6 +5643,99 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const effectivePuterProvider = selectedProvider;
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
+
+      // Local (Ollama): the visitor's own computer answers, straight from the
+      // browser. Nothing goes to VetroAI's servers.
+      if (selectedProvider === LOCAL_OLLAMA_PROVIDER) {
+        const showAnswer = (content, model) => setMessages((previous) => {
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], content, provider: LOCAL_OLLAMA_PROVIDER, localModel: model };
+          return next;
+        });
+        const status = await ollamaStatus();
+        if (!isActive()) return;
+        if (!status.online) {
+          setIsTyping(false);
+          showAnswer(ollamaSetupHelp(window.location.origin), null);
+          setIsLoading(false);
+          setStreamStatus("idle");
+          return;
+        }
+        const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : latestSharedImage(hist);
+        const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
+        const ollamaMessages = buildOllamaMessages({
+          history: hist.slice(0, -1),
+          question: userQuery,
+          imageDataUrl,
+          imageTurnsAgo: shared ? shared.turnsAgo : 0,
+          systemPrompt: finalSystemPrompt,
+        });
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+        let answer = "";
+        let model = null;
+        // A model this Ollama version can't load (newer Ollama releases can't
+        // run llama3.2-vision) falls through to the next installed one.
+        const unsupported = [];
+        for (;;) {
+          model = pickModel(status.models, { needsVision: !!shared, exclude: unsupported });
+          if (!model) {
+            if (unsupported.length) {
+              throw new Error(`Your version of Ollama can't run ${unsupported.join(" or ")}. Install another vision model, for example: ollama pull moondream`);
+            }
+            throw new Error(shared
+              ? "No vision model is installed in Ollama. Install one with: ollama pull llama3.2-vision (or the smaller moondream)"
+              : "No model is installed in Ollama yet. Install one with: ollama pull llama3.2-vision");
+          }
+          try {
+            const usedModel = model;
+            answer = await streamOllamaChat({
+              model: usedModel,
+              messages: ollamaMessages,
+              signal: ctrl.signal,
+              onText: (text) => {
+                if (!isActive()) return;
+                setIsTyping(false);
+                answer = text;
+                showAnswer(text, usedModel);
+                setStreamingContent(text);
+                if (!isScrolling.current) scrollToBottom();
+              },
+            });
+            rememberModel(model);
+            break;
+          } catch (localErr) {
+            if (localErr?.code === "MODEL_UNSUPPORTED") { unsupported.push(model); continue; }
+            if (localErr?.code !== "OLLAMA_UNREACHABLE") throw localErr;
+            if (!isActive()) return;
+            setIsTyping(false);
+            showAnswer(ollamaSetupHelp(window.location.origin), null);
+            setIsLoading(false);
+            setStreamStatus("idle");
+            return;
+          }
+        }
+        if (!isActive()) return;
+        if (!answer.trim()) throw new Error(`${model} returned an empty answer. Please try again.`);
+        showAnswer(answer, model);
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(answer);
+        // Titles and follow-up suggestions are normally written by VetroAI's
+        // server; for a local chat they'd send the conversation there, so the
+        // title comes from the question itself and suggestions are skipped.
+        if (isFirstMsg && currentSessionId && !isIncognito) {
+          const title = (userQuery || "Image question").replace(/\s+/g, " ").trim().slice(0, 60);
+          setSessions((prev) => {
+            const list = prev.map((s) => (s.id === currentSessionId ? { ...s, title } : s));
+            persistList(userKey, "sessions", list);
+            return list;
+          });
+        }
+        notifyResponseReady(answer);
+        return;
+      }
 
       if (selectedProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0) {
         throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");
