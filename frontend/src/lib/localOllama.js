@@ -29,13 +29,38 @@ export function isVisionModel(model) {
 
 const baseName = (name) => String(name || "").split(":")[0];
 
+const isTiny = (name) => baseName(name) === "moondream"; // image captioner with a 2k context
+
+// moondream answers one question about one image and doesn't use chat
+// history, so it gets just the picture and the current question.
+export const isSingleTurnModel = isTiny;
+
+// Models this visitor's Ollama refused to load, so later messages in this
+// visit don't try them again.
+const unsupportedModels = new Set();
+export function rememberUnsupported(name) {
+  unsupportedModels.add(name);
+}
+
 // Which installed model to use: the visitor's last choice if still installed,
 // then llama3.2-vision, then moondream, then any vision model, then anything.
-export function pickModel(models, { needsVision = false, exclude = [] } = {}) {
+// For documents (`forText`), general chat models come first and moondream,
+// which is built for pictures, comes last.
+export function pickModel(models, { needsVision = false, forText = false, exclude = [] } = {}) {
   if (!models.length) return null;
   const saved = storage.get(MODEL_KEY);
-  const usable = (needsVision ? models.filter((m) => m.vision) : models).filter((m) => !exclude.includes(m.name));
+  const usable = (needsVision ? models.filter((m) => m.vision) : models)
+    .filter((m) => !exclude.includes(m.name) && !unsupportedModels.has(m.name));
   if (!usable.length) return null;
+  if (forText && !needsVision) {
+    const ranked = [
+      ...usable.filter((m) => m.name === saved && !isTiny(m.name)),
+      ...usable.filter((m) => !m.vision),
+      ...usable.filter((m) => m.vision && !isTiny(m.name)),
+      ...usable.filter((m) => isTiny(m.name)),
+    ];
+    return ranked[0].name;
+  }
   const savedMatch = usable.find((m) => m.name === saved);
   if (savedMatch) return savedMatch.name;
   for (const wanted of PREFERRED_MODELS) {
@@ -101,6 +126,40 @@ export async function imageForModel(source) {
   } finally {
     if (isFile) URL.revokeObjectURL(bitmapUrl);
   }
+}
+
+// How much document text a model can take in one go. Ollama's default context
+// window is a few thousand tokens and silently drops what doesn't fit, so
+// longer files go to the usual models instead.
+export function documentCharBudget(model) {
+  return isTiny(model) ? 3000 : 12000;
+}
+
+// Reads attached text files (PDFs arrive already converted to text).
+// Returns null if any file isn't readable text.
+export async function readDocuments(files) {
+  const docs = [];
+  for (const file of files) {
+    let text;
+    try {
+      text = await file.text();
+    } catch {
+      return null;
+    }
+    const sample = text.slice(0, 4000);
+    if (/\u0000/.test(sample) || (sample.match(/\uFFFD/g) || []).length > 20) return null; // binary
+    docs.push({ name: file.name || "file", text: text.trim() });
+  }
+  return docs;
+}
+
+export const documentChars = (docs) => docs.reduce((total, doc) => total + doc.text.length, 0);
+
+// The files and the question, as one message for the model.
+export function withDocuments(docs, question) {
+  const files = docs.map((doc) => `--- File: ${doc.name} ---\n${doc.text}\n--- End of ${doc.name} ---`).join("\n\n");
+  return `The user attached ${docs.length === 1 ? "this file" : "these files"}:\n\n${files}\n\n`
+    + `Answer using the file${docs.length === 1 ? "" : "s"} above.\n\nQuestion: ${question || "Summarise this file."}`;
 }
 
 // The newest image the user shared in this chat, and how many of their turns

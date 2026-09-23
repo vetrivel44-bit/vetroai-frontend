@@ -49,7 +49,13 @@ import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
   buildMessages as buildOllamaMessages, streamChat as streamOllamaChat,
+  readDocuments, documentChars, documentCharBudget, withDocuments, rememberUnsupported, isSingleTurnModel,
 } from "./lib/localOllama";
+
+// Text of files the visitor's local model has read, keyed by the user message
+// they came with, so follow-up questions can include them again. Kept in
+// memory only: saved chats never store file contents.
+const localDocMemory = new WeakMap();
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -5556,8 +5562,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
     const lastAnswer = [...hist].reverse().find((m) => m.role === "assistant" && m.content);
-    const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f?.type?.startsWith?.("image/"))
-      || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && !!latestSharedImage(hist));
+    const rememberedDocs = [...hist].reverse().map((m) => localDocMemory.get(m)).find(Boolean) || null;
+    const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
+      || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
@@ -5649,12 +5656,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
-      // Photos, and follow-up questions about a photo the visitor's computer
-      // already answered, go first to Ollama on the visitor's own computer
-      // (free and private, straight from the browser). If it isn't there, or
-      // the browser isn't allowed to reach it, the usual models answer.
-      const chatImage = attachedImages.length ? null : latestSharedImage(hist);
-      const tryLocal = attachedImages.length > 0 || (chatImage && lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER);
+      // Photos and files, and follow-up questions about ones the visitor's
+      // computer already answered, go first to Ollama on the visitor's own
+      // computer (free and private, straight from the browser). If it isn't
+      // there, can't read the file, or the browser isn't allowed to reach it,
+      // the usual models answer.
+      const attachedDocFiles = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
+        .filter((file) => file instanceof Blob && !file.type?.startsWith("image/"));
+      const newDocs = attachedDocFiles.length ? await readDocuments(attachedDocFiles) : null;
+      const answeredLocally = lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER;
+      const chatImage = attachedImages.length || attachedDocFiles.length ? null : latestSharedImage(hist);
+      const chatDocs = newDocs || (attachedDocFiles.length || attachedImages.length || !answeredLocally ? null : rememberedDocs);
+      const tryLocal = (attachedDocFiles.length === 0 || !!newDocs)
+        && (attachedImages.length > 0 || !!newDocs || (answeredLocally && (!!chatImage || !!chatDocs)));
       let localHandled = false;
       if (tryLocal) localHandled = await (async () => {
         const showAnswer = (content, model) => setMessages((previous) => {
@@ -5669,13 +5683,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (!status.online) return false;
         const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : chatImage;
         const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
-        const ollamaMessages = buildOllamaMessages({
-          history: hist.slice(0, -1),
-          question: userQuery,
-          imageDataUrl,
-          imageTurnsAgo: shared ? shared.turnsAgo : 0,
-          systemPrompt: finalSystemPrompt,
-        });
+        const question = chatDocs ? withDocuments(chatDocs, userQuery) : userQuery;
+        const messagesFor = (name) => (isSingleTurnModel(name)
+          ? buildOllamaMessages({ history: [], question, imageDataUrl })
+          : buildOllamaMessages({
+            history: hist.slice(0, -1),
+            question,
+            imageDataUrl,
+            imageTurnsAgo: shared ? shared.turnsAgo : 0,
+            systemPrompt: finalSystemPrompt,
+          }));
         setIsWebSearching(false);
         setStreamStatus("streaming");
         let answer = "";
@@ -5684,13 +5701,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         // run llama3.2-vision) falls through to the next installed one.
         const unsupported = [];
         for (;;) {
-          model = pickModel(status.models, { needsVision: !!shared, exclude: unsupported });
+          model = pickModel(status.models, { needsVision: !!shared, forText: !!chatDocs, exclude: unsupported });
           if (!model) return false;
+          // Too long for this model's context: the usual models read it instead.
+          if (chatDocs && documentChars(chatDocs) > documentCharBudget(model)) return false;
           try {
             const usedModel = model;
             answer = await streamOllamaChat({
               model: usedModel,
-              messages: ollamaMessages,
+              messages: messagesFor(usedModel),
               signal: ctrl.signal,
               onText: (text) => {
                 if (!isActive()) return;
@@ -5704,16 +5723,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               },
             });
             rememberModel(model);
+            if (newDocs) localDocMemory.set(hist[hist.length - 1], newDocs);
             break;
           } catch (localErr) {
-            if (localErr?.code === "MODEL_UNSUPPORTED") { unsupported.push(model); continue; }
+            if (localErr?.code === "MODEL_UNSUPPORTED") { unsupported.push(model); rememberUnsupported(model); continue; }
             // A local failure before any text quietly hands over to the usual models.
             if (!answer && localErr?.name !== "AbortError") return false;
             throw localErr;
           }
         }
         if (!isActive()) return true;
-        if (!answer.trim()) throw new Error(`${model} returned an empty answer. Please try again.`);
+        if (!answer.trim()) return false;   // nothing useful came back: the usual models answer
         showAnswer(answer, model);
         window.dispatchEvent(new CustomEvent("vetroai:model-used", { detail: { label: LOCAL_OLLAMA_PROVIDER } }));
         setIsLoading(false);
@@ -5724,7 +5744,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         // server; for a local chat they'd send the conversation there, so the
         // title comes from the question itself and suggestions are skipped.
         if (isFirstMsg && currentSessionId && !isIncognito) {
-          const title = (userQuery || "Image question").replace(/\s+/g, " ").trim().slice(0, 60);
+          const title = (userQuery || (chatDocs ? `About ${chatDocs[0].name}` : "Image question")).replace(/\s+/g, " ").trim().slice(0, 60);
           setSessions((prev) => {
             const list = prev.map((s) => (s.id === currentSessionId ? { ...s, title } : s));
             persistList(userKey, "sessions", list);
