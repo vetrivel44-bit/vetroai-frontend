@@ -39,7 +39,12 @@ function CodeBlock({ children }) {
   const langClass = Array.isArray(children) ? children[0]?.props?.className : children?.props?.className;
   const lang = /language-([\w+-]+)/.exec(langClass || "")?.[1] || "code";
   const lines = code ? code.split("\n").length : 0;
-  const [open, setOpen] = useState(lines <= 24);
+  // Decided from the current length until the reader toggles it: a block
+  // that is still streaming starts short, and fixing the choice then left
+  // every long website expanded.
+  const [choice, setChoice] = useState(null);
+  const open = choice ?? lines <= 24;
+  const setOpen = (fn) => setChoice(fn(open));
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
@@ -92,6 +97,13 @@ const LIVE_BROWSE_REQUEST = /\b(?:redbus|irctc|makemytrip|goibibo|ixigo|abhibus|
 // sentence starts with "open" — these must not be diverted to the desktop app.
 const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
+// A long reply the model stopped mid-code is continued at most this often.
+const MAX_CONTINUATIONS = 2;
+const CONTINUE_PROMPT = "Your previous message was cut off in the middle of the code. Continue EXACTLY from the last character you wrote — no greeting, no explanation, do not repeat anything already written, and do not open a new code block; just write the rest, then close the code block with ``` and finish.";
+const isCutOffInCode = (text) => ((String(text || "").match(/```/g) || []).length % 2) === 1;
+// Some models restart their continuation with a fresh ```html fence even
+// when told not to; inside an open block that would split the document.
+const stripRepeatedFence = (text) => String(text || "").replace(/^\s*```[\w-]*\s*\n/, "");
 // A single "open an app, download something, click through an installer"
 // task easily runs 30-60+ small steps. This is a runaway backstop, not a
 // realistic budget — the stop button and Ctrl+Shift+X both work at any step.
@@ -153,6 +165,22 @@ function extractHtmlDocument(markdown) {
 // out of the sandboxed iframe via postMessage so the UI can show them and
 // feed them back to the model for a fix pass.
 const PREVIEW_ERROR_CAPTURE = `<script>(function(){
+  // The preview frame is sandboxed without same-origin access, where merely
+  // reading localStorage/sessionStorage throws — so a shop's cart or a saved
+  // theme crashed the page. Give it working in-memory storage instead.
+  function memoryStorage(){ var d = {}; return {
+    getItem: function(k){ k = String(k); return Object.prototype.hasOwnProperty.call(d, k) ? d[k] : null; },
+    setItem: function(k, v){ d[String(k)] = String(v); },
+    removeItem: function(k){ delete d[String(k)]; },
+    clear: function(){ d = {}; },
+    key: function(i){ return Object.keys(d)[i] || null; },
+    get length(){ return Object.keys(d).length; }
+  }; }
+  ["localStorage", "sessionStorage"].forEach(function(name){
+    try { window[name].getItem("x"); } catch (e) {
+      try { Object.defineProperty(window, name, { value: memoryStorage(), configurable: true }); } catch (e2) {}
+    }
+  });
   function report(message){ try { window.parent.postMessage({ source: "vetroai-preview", type: "error", message: String(message) }, "*"); } catch (e) {} }
   window.addEventListener("error", function(e){ report((e.message || "Script error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "")); });
   window.addEventListener("unhandledrejection", function(e){ report("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
@@ -385,12 +413,14 @@ export default function ComputerUI({ onClose }) {
     });
   };
 
-  const readStream = async (response, taskId, assistantId) => {
+  // `prefix` is the text already shown for this reply: a continuation of a
+  // cut-off answer streams onto the end of it.
+  const readStream = async (response, taskId, assistantId, prefix = "") => {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("The server did not return a stream.");
     const decoder = new TextDecoder();
     let buffer = "";
-    let content = "";
+    let content = prefix;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -414,10 +444,10 @@ export default function ComputerUI({ onClose }) {
           } else if (type === "clear") {
             // Backend is retrying with a fallback provider after the previous
             // one failed or stalled — drop whatever partial text it streamed.
-            content = "";
+            content = prefix;
             patchTask(taskId, t => ({
               ...t,
-              messages: t.messages.map(m => m.id === assistantId ? { ...m, content: "" } : m)
+              messages: t.messages.map(m => m.id === assistantId ? { ...m, content: prefix } : m)
             }));
           } else if (type === "status" && data) {
             patchTask(taskId, t => {
@@ -553,36 +583,69 @@ export default function ComputerUI({ onClose }) {
       // drops back to a plain code-chat reply instead of a full HTML redo.
       const hasWebsiteContext = task.messages.some(m => m.exports?.includes("website"));
       const isWebsiteRequest = WEBSITE_REQUEST.test(prompt) || hasWebsiteContext;
-      const body = new FormData();
-      body.append("provider", "gemini");
-      // A full-site build gets routed through Design mode's battle-tested
-      // single-file HTML system prompt instead of the generic task prompt below.
-      body.append("mode", isWebsiteRequest ? "design" : "code_exec");
-      body.append("input", taskPrompt);
-      body.append("messages", JSON.stringify(contextMessages));
-      body.append("webSearch", "true");
-      body.append("safeMode", "true");
-      body.append("systemPrompt", [
-        "You are VetroAI Computer, a careful Cowork-style task agent.",
-        "Work through the user's multi-step task and produce finished, useful deliverables.",
-        "State what you actually did; never pretend to click, send, purchase, log in, edit local files, or access connected apps unless a real tool result proves it.",
-        "For actions unavailable in this browser workspace, provide the exact next action for the user.",
-        "Prefer concise progress, source-aware research, and a final review checklist."
-      ].join(" "));
-      files.forEach(file => body.append("files", file));
+      // A whole single-file website runs well past the backend's default
+      // 2,048-token reply, which cut it off mid-code (no closing fence, so no
+      // preview). Ask for room up front.
+      const maxTokens = isWebsiteRequest ? "16384" : "8192";
+      const sendChat = async (input, messages, first) => {
+        const body = new FormData();
+        body.append("provider", "gemini");
+        // A full-site build gets routed through Design mode's battle-tested
+        // single-file HTML system prompt instead of the generic task prompt below.
+        body.append("mode", isWebsiteRequest ? "design" : "code_exec");
+        body.append("input", input);
+        body.append("messages", JSON.stringify(messages));
+        body.append("maxTokens", maxTokens);
+        body.append("webSearch", first ? "true" : "false");
+        // Continuations go to the backend like the first half did, not to
+        // the in-browser Gemini bridge (public/gemini-puter-bridge.js).
+        if (!first) body.append("route", "backend");
+        body.append("safeMode", "true");
+        body.append("systemPrompt", [
+          "You are VetroAI Computer, a careful Cowork-style task agent.",
+          "Work through the user's multi-step task and produce finished, useful deliverables.",
+          "State what you actually did; never pretend to click, send, purchase, log in, edit local files, or access connected apps unless a real tool result proves it.",
+          "For actions unavailable in this browser workspace, provide the exact next action for the user.",
+          "Prefer concise progress, source-aware research, and a final review checklist."
+        ].join(" "));
+        if (first) files.forEach(file => body.append("files", file));
+        const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
+        if (!response.ok) {
+          let message = `Server error: ${response.status}`;
+          try {
+            const data = await response.json();
+            message = data.message || data.error || message;
+          } catch {}
+          throw new Error(message);
+        }
+        return response;
+      };
 
       patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
-      const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
-      if (!response.ok) {
-        let message = `Server error: ${response.status}`;
-        try {
-          const data = await response.json();
-          message = data.message || data.error || message;
-        } catch {}
-        throw new Error(message);
-      }
+      let reply = await readStream(await sendChat(taskPrompt, contextMessages, true), taskId, assistantId);
 
-      await readStream(response, taskId, assistantId);
+      // Still cut off inside a code block (odd number of fences): ask the
+      // model to carry on from the exact point it stopped, and append that
+      // to the same reply, so the website comes out whole.
+      for (let pass = 0; pass < MAX_CONTINUATIONS && isCutOffInCode(reply); pass++) {
+        patchTask(taskId, t => ({ ...t, steps: t.steps.map(s => s.status === "active" ? { ...s, detail: "Continuing the long response…" } : s) }));
+        let more;
+        try {
+          more = await readStream(
+            await sendChat(CONTINUE_PROMPT, [...contextMessages, { role: "assistant", content: reply }, { role: "user", content: CONTINUE_PROMPT }], false),
+            taskId, assistantId, reply
+          );
+        } catch (error) {
+          if (error.name === "AbortError") throw error;
+          // Keep what was already written rather than failing the task.
+          patchTask(taskId, t => ({ ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: reply } : m) }));
+          break;
+        }
+        const added = stripRepeatedFence(more.slice(reply.length));
+        if (!added.trim()) break;
+        reply = reply + added;
+        patchTask(taskId, t => ({ ...t, messages: t.messages.map(m => m.id === assistantId ? { ...m, content: reply } : m) }));
+      }
       patchTask(taskId, t => ({
         ...t,
         status: "completed",
