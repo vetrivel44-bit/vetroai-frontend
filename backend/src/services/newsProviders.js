@@ -47,7 +47,91 @@ const RECENT_DAYS = 3;
 // "2026-09-20T13:00:00" (UTC, no zone) — the form thenewsapi and newsapi accept.
 const sinceIso = (now = Date.now(), days = RECENT_DAYS) => new Date(now - days * 86400000).toISOString().slice(0, 19);
 
+
+// Firecrawl dates news the way a search results page does: "3 hours ago",
+// "1 day ago", or "Sep 22, 2026". Turned into ISO so the panel can say
+// "3h" and the feed can sort newest first.
+function relativeToIso(value, now = Date.now()) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const rel = /^(\d+)\s*(sec|second|min|minute|hr|hour|day|week|month)s?\s+ago$/i.exec(text);
+  if (rel) {
+    const unit = { sec: 1, second: 1, min: 60, minute: 60, hr: 3600, hour: 3600, day: 86400, week: 604800, month: 2592000 }[rel[2].toLowerCase()];
+    return new Date(now - Number(rel[1]) * unit * 1000).toISOString();
+  }
+  if (/^(just now|now)$/i.test(text)) return new Date(now).toISOString();
+  if (/^yesterday$/i.test(text)) return new Date(now - 86400000).toISOString();
+  const parsed = Date.parse(text);
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
+// Firecrawl has no page cursor, so page N asks for the first N×20 results
+// (Firecrawl's cap is 100) and keeps the newest 20.
+const FIRECRAWL_PAGE_SIZE = 20;
+const FIRECRAWL_MAX_RESULTS = 100;
+const FIRECRAWL_QUERIES = {
+  "": "top news today",
+  business: "business news",
+  technology: "technology news",
+  sports: "sports news",
+  entertainment: "entertainment news",
+  health: "health news",
+  science: "science news",
+  politics: "politics news",
+};
+
 const PROVIDERS = {
+  // firecrawl.dev — keys are prefixed `fc-`. A web search with news as the
+  // source rather than a news feed, so each category is a search query and
+  // the request is a JSON POST.
+  firecrawl: {
+    label: "Firecrawl",
+    categories: {
+      business: "business", technology: "technology", sports: "sports",
+      entertainment: "entertainment", health: "health", science: "science",
+      politics: "politics",
+    },
+    buildRequest({ apiKey, query, category, page }) {
+      const pageNo = Math.max(1, Number(page) || 1);
+      const body = {
+        query: query || FIRECRAWL_QUERIES[category] || FIRECRAWL_QUERIES[""],
+        sources: ["news"],
+        limit: Math.min(pageNo * FIRECRAWL_PAGE_SIZE, FIRECRAWL_MAX_RESULTS),
+        // Past day for the feed; a search may look back a week.
+        tbs: query ? "qdr:w" : "qdr:d",
+      };
+      return {
+        url: "https://api.firecrawl.dev/v2/search",
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      };
+    },
+    nextPage: (payload, page) => {
+      const pageNo = Math.max(1, Number(page) || 1);
+      const count = (payload?.data?.news || []).length;
+      const asked = Math.min(pageNo * FIRECRAWL_PAGE_SIZE, FIRECRAWL_MAX_RESULTS);
+      return count >= asked && asked < FIRECRAWL_MAX_RESULTS ? String(pageNo + 1) : null;
+    },
+    normalize: (payload, page) => {
+      const pageNo = Math.max(1, Number(page) || 1);
+      const items = Array.isArray(payload?.data?.news) ? payload.data.news : [];
+      return items.slice((pageNo - 1) * FIRECRAWL_PAGE_SIZE).map((item) => ({
+        article_id: item.url || null,
+        title: item.title || "",
+        description: item.snippet || item.description || "",
+        link: item.url || "",
+        // Only a real photo URL; Firecrawl sometimes sends a tiny inline
+        // thumbnail, and a missing one is filled from the article's og:image.
+        image_url: /^https?:\/\//i.test(item.imageUrl || "") ? item.imageUrl : null,
+        source_name: item.source || hostOf(item.url),
+        source_id: hostOf(item.url),
+        source_icon: null,
+        pubDate: relativeToIso(item.date),
+      }));
+    },
+  },
+
   // newsdata.io — the original integration. Keys are prefixed `pub_`.
   newsdata: {
     label: "newsdata.io",
@@ -228,6 +312,7 @@ function detectNewsProvider(apiKey, explicit = "") {
   if (named && PROVIDERS[named]) return named;
   const key = String(apiKey || "").trim();
   if (!key) return null;
+  if (key.startsWith("fc-")) return "firecrawl";
   if (key.startsWith("pub_")) return "newsdata";
   if (/^[0-9a-f]{32}$/i.test(key)) return "newsapi";
   // thenewsapi issues 40-character tokens, Currents longer ones. The two are
@@ -262,10 +347,10 @@ function buildNewsAuthFallback(provider, params, request) {
   return definition.authFallback(params, request);
 }
 
-function normalizeNewsPayload(provider, payload) {
+function normalizeNewsPayload(provider, payload, page) {
   const definition = PROVIDERS[provider];
   if (!definition) throw new Error(`Unknown news provider: ${provider}`);
-  return definition.normalize(payload);
+  return definition.normalize(payload, page);
 }
 
 // Newest first. Providers mostly do this already, but not reliably (search
@@ -363,6 +448,7 @@ function providerLabel(provider) {
 module.exports = {
   PROVIDERS,
   toIsoDate,
+  relativeToIso,
   detectNewsProvider,
   resolveCategory,
   buildNewsRequest,

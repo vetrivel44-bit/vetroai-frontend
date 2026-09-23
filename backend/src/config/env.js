@@ -97,6 +97,9 @@ module.exports = {
     // Optional override: currents | newsdata | thenewsapi | newsapi. Left
     // empty, the provider is detected from the key's shape.
     newsProvider:        getEnv("NEWS_PROVIDER",         ""),
+    // Firecrawl (firecrawl.dev) news search. When set, it serves the news feed
+    // instead of the NEWS_API_KEY service.
+    firecrawlApiKey:     getEnv("FIRECRAWL_API_KEY",     ""),
     // Optional per-request article cap. thenewsapi and currents both cap this
     // per plan and reject anything over, so it is only sent when set.
     newsLimit:           getEnv("NEWS_API_LIMIT",        ""),

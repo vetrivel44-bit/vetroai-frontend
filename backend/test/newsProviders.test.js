@@ -345,3 +345,46 @@ test("dedupeArticles drops repeated stories under different ids, links and headl
   assert.deepEqual(out.map((a) => a.article_id), ["1", "5"]);
   assert.equal(out[0].image_url, "https://img/p.jpg", "kept copy borrows the duplicate's picture");
 });
+
+test("Firecrawl: fc- keys are detected and categories become news searches", () => {
+  const { detectNewsProvider, buildNewsRequest } = require("../src/services/newsProviders");
+  assert.equal(detectNewsProvider("fc-abc123"), "firecrawl");
+  const req = buildNewsRequest("firecrawl", { apiKey: "fc-KEY", query: "", category: "technology", language: "en", page: "" });
+  assert.equal(req.method, "POST");
+  assert.equal(req.url, "https://api.firecrawl.dev/v2/search");
+  assert.equal(req.headers.Authorization, "Bearer fc-KEY");
+  assert.deepEqual(JSON.parse(req.body), { query: "technology news", sources: ["news"], limit: 20, tbs: "qdr:d" });
+  const search = JSON.parse(buildNewsRequest("firecrawl", { apiKey: "k", query: "ISRO launch", category: "top", page: "2" }).body);
+  assert.equal(search.query, "ISRO launch");
+  assert.equal(search.limit, 40);
+  assert.equal(search.tbs, "qdr:w");
+});
+
+test("Firecrawl: news results are normalized and paged", () => {
+  const { normalizeNewsPayload, nextNewsPage, relativeToIso } = require("../src/services/newsProviders");
+  const item = (i) => ({ title: `Story ${i}`, url: `https://www.example.com/s${i}`, snippet: `About ${i}`, date: "3 hours ago", imageUrl: i % 2 ? "https://img.example.com/p.jpg" : "data:image/jpeg;base64,AAA", position: i });
+  const page1 = { success: true, data: { news: Array.from({ length: 20 }, (_, i) => item(i)) } };
+  const out = normalizeNewsPayload("firecrawl", page1, "");
+  assert.equal(out.length, 20);
+  assert.equal(out[1].title, "Story 1");
+  assert.equal(out[1].link, "https://www.example.com/s1");
+  assert.equal(out[1].description, "About 1");
+  assert.equal(out[1].image_url, "https://img.example.com/p.jpg");
+  assert.equal(out[0].image_url, null, "inline thumbnails are left for the og:image fill");
+  assert.equal(out[1].source_name, "example.com");
+  assert.ok(Math.abs(Date.parse(out[1].pubDate) - (Date.now() - 3 * 3600000)) < 5000);
+  assert.equal(nextNewsPage("firecrawl", page1, ""), "2");
+
+  // Page 2 asked for 40 and keeps only the second 20.
+  const page2 = { success: true, data: { news: Array.from({ length: 33 }, (_, i) => item(i)) } };
+  const out2 = normalizeNewsPayload("firecrawl", page2, "2");
+  assert.equal(out2.length, 13);
+  assert.equal(out2[0].title, "Story 20");
+  assert.equal(nextNewsPage("firecrawl", page2, "2"), null, "a short page is the last one");
+
+  const now = Date.parse("2026-09-23T12:00:00Z");
+  assert.equal(relativeToIso("2 days ago", now), "2026-09-21T12:00:00.000Z");
+  assert.equal(relativeToIso("45 mins ago", now), "2026-09-23T11:15:00.000Z");
+  assert.equal(relativeToIso("Sep 22, 2026", now).slice(0, 10), "2026-09-22");
+  assert.equal(relativeToIso("", now), null);
+});

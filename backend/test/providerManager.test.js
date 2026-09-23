@@ -69,3 +69,30 @@ test("Auto does not route web searches to Plugsky when another provider is avail
   configureMany(["plugsky"]);
   assert.equal(providerManager.getBestProvider("web_search", "Auto"), "plugsky");
 });
+
+test("a key or billing problem parks the provider longer than a normal failure", () => {
+  const pm = require("../src/services/ProviderManager");
+  const p = pm.providers.sambanova;
+  const realNow = Date.now;
+  try {
+    const t0 = realNow();
+    Date.now = () => t0;
+    pm.suspendProvider("sambanova", "Configuration problem: quota", 10 * 60 * 1000);
+    Date.now = () => t0 + 60 * 1000;
+    pm.checkHealth();
+    assert.equal(p.isSuspended, true, "still parked after a minute");
+    Date.now = () => t0 + 11 * 60 * 1000;
+    pm.checkHealth();
+    assert.equal(p.isSuspended, false, "back after ten minutes");
+
+    Date.now = () => t0;
+    pm.suspendProvider("sambanova", "Rate limit reached");
+    Date.now = () => t0 + 25 * 1000;
+    pm.checkHealth();
+    assert.equal(p.isSuspended, false, "a rate limit keeps the short cooldown");
+  } finally {
+    Date.now = realNow;
+    p.isSuspended = false;
+    p.consecutiveErrors = 0;
+  }
+});

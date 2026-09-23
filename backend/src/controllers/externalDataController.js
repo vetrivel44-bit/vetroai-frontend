@@ -33,8 +33,10 @@ async function fetchJson(url, options = {}) {
 
 async function latestNews(req, res, next) {
   try {
-    if (!config.newsDataApiKey) throw new ApiError(503, "News service is not configured.");
-    const provider = detectNewsProvider(config.newsDataApiKey, config.newsProvider);
+    // FIRECRAWL_API_KEY, when set, takes over the feed from NEWS_API_KEY.
+    const apiKey = config.firecrawlApiKey || config.newsDataApiKey;
+    if (!apiKey) throw new ApiError(503, "News service is not configured.");
+    const provider = config.firecrawlApiKey ? "firecrawl" : detectNewsProvider(apiKey, config.newsProvider);
     if (!provider) throw new ApiError(503, "News service is not configured.");
 
     const query = String(req.query.q || "").trim().slice(0, 100);
@@ -50,7 +52,7 @@ async function latestNews(req, res, next) {
     const page = /^[A-Za-z0-9_-]{1,80}$/.test(rawPage) ? rawPage : "";
 
     const requestParams = {
-      apiKey: config.newsDataApiKey,
+      apiKey,
       query,
       category,
       language,
@@ -62,7 +64,7 @@ async function latestNews(req, res, next) {
     let payload;
     try {
       try {
-        payload = await fetchJson(request.url, { headers: request.headers });
+        payload = await fetchJson(request.url, { method: request.method, headers: request.headers, body: request.body });
       } catch (error) {
         // Some services document more than one way to pass the key (Currents
         // has moved between a bare Authorization header, a Bearer one and an
@@ -87,7 +89,7 @@ async function latestNews(req, res, next) {
 
     // Always the newsdata-shaped `results` array the frontend panel renders,
     // whichever service answered.
-    const results = dedupeArticles(sortNewestFirst(normalizeNewsPayload(provider, payload)));
+    const results = dedupeArticles(sortNewestFirst(normalizeNewsPayload(provider, payload, page)));
     // Articles the feed sent without a picture get the outlet's own preview
     // image (bounded in time, so the feed is never held up for long).
     await fillMissingImages(results);

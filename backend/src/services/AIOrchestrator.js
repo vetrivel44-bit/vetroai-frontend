@@ -22,6 +22,8 @@ const MAX_FALLBACK_ATTEMPTS = 5;
 // >= the vision adapters' own fetch timeouts, or their ceiling is unreachable
 // and the orchestrator aborts first while their request leaks on un-cancelled.
 const ATTEMPT_TIMEOUT_MS = 30000;
+// A provider whose key or billing is broken stays parked this long.
+const CONFIG_PROBLEM_SUSPEND_MS = 10 * 60 * 1000;
 const VISION_ATTEMPT_TIMEOUT_MS = 50000;
 
 class AIOrchestrator {
@@ -808,9 +810,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
         if (isRateLimit) {
           providerManager.suspendProvider(currentProviderName, "Rate limit reached");
         } else if (["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind)) {
-          // Retrying a key or model-name problem just burns the user's time —
-          // park the provider so the fallback chain moves on immediately.
-          providerManager.suspendProvider(currentProviderName, `Configuration problem: ${failure.kind}`);
+          // Retrying a key, billing or model-name problem just burns the
+          // user's time — park the provider for a while (not the usual 20s)
+          // so the fallback chain stops waiting on it every request.
+          providerManager.suspendProvider(currentProviderName, `Configuration problem: ${failure.kind}`, CONFIG_PROBLEM_SUSPEND_MS);
         } else if (isTimeout) {
           logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }

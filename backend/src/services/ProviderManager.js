@@ -185,7 +185,7 @@ class ProviderManager {
 
   async checkHealth() {
     for (const [name, p] of Object.entries(this.providers)) {
-      if (p.isSuspended && Date.now() - p.lastFailure > p.cooldown) {
+      if (p.isSuspended && this.cooledDown(p)) {
         logger.info(`ProviderManager: Re-testing suspended provider ${name}`);
         p.isSuspended = false;
         p.consecutiveErrors = 0;
@@ -208,7 +208,7 @@ class ProviderManager {
       if (this.providers[pref] && this.isConfigured(pref)) {
         // Unsuspend if cooldown has passed
         const p = this.providers[pref];
-        if (p.isSuspended && Date.now() - p.lastFailure > p.cooldown) {
+        if (p.isSuspended && this.cooledDown(p)) {
           p.isSuspended = false;
           p.consecutiveErrors = 0;
         }
@@ -218,7 +218,7 @@ class ProviderManager {
 
     // Auto-expire cooled-down suspensions before picking
     for (const [, p] of Object.entries(this.providers)) {
-      if (p.isSuspended && Date.now() - p.lastFailure > p.cooldown) {
+      if (p.isSuspended && this.cooledDown(p)) {
         p.isSuspended = false;
         p.consecutiveErrors = 0;
       }
@@ -271,7 +271,7 @@ class ProviderManager {
 
     // Auto-expire cooled-down suspensions first
     for (const [, prov] of Object.entries(this.providers)) {
-      if (prov.isSuspended && Date.now() - prov.lastFailure > prov.cooldown) {
+      if (prov.isSuspended && this.cooledDown(prov)) {
         prov.isSuspended = false;
         prov.consecutiveErrors = 0;
       }
@@ -307,16 +307,24 @@ class ProviderManager {
         logger.warn(`ProviderManager: Suspending ${providerName} after ${p.consecutiveErrors} consecutive errors`);
         p.isSuspended = true;
         p.lastFailure = Date.now();
+        p.suspendedUntil = p.lastFailure + p.cooldown;
       }
     }
   }
 
-  suspendProvider(providerName, reason) {
+  // `durationMs` defaults to the provider's short cooldown; a key or billing
+  // problem passes a longer one so every request doesn't wait on it again.
+  suspendProvider(providerName, reason, durationMs) {
     const p = this.providers[providerName];
     if (!p) return;
     logger.warn(`ProviderManager: Suspending ${providerName}. Reason: ${reason}`);
     p.isSuspended = true;
     p.lastFailure = Date.now();
+    p.suspendedUntil = p.lastFailure + (durationMs ?? p.cooldown);
+  }
+
+  cooledDown(p) {
+    return Date.now() >= (p.suspendedUntil ?? p.lastFailure + p.cooldown);
   }
 
   getAdapter(name) {
