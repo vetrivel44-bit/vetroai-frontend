@@ -3272,15 +3272,18 @@ function useNewsImage(article) {
   // link, hotlink-blocked) — fall back to the article page's preview image
   // instead of leaving the card without a picture.
   const feedPhotoFailed = Boolean(article.image_url) && failed.base === article.image_url && failed.count >= 2;
-  const base = (feedPhotoFailed ? null : article.image_url) || found;
+  // `low_res`: the feed photo is only a small search thumbnail — show it
+  // for now, and swap in the article's full-size photo once it's found.
+  const upgraded = article.low_res && found && !(failed.base === found && failed.count >= 2);
+  const base = upgraded ? found : ((feedPhotoFailed ? null : article.image_url) || found);
   const attempt = failed.base === base ? failed.count : 0;
 
   useEffect(() => {
-    if ((article.image_url && !feedPhotoFailed) || !article.link) return undefined;
+    if ((article.image_url && !feedPhotoFailed && !article.low_res) || !article.link) return undefined;
     let alive = true;
     fetchNewsPreviewImage(article.link).then(url => { if (alive && url && url !== article.image_url) setFound(url); });
     return () => { alive = false; };
-  }, [article.image_url, article.link, feedPhotoFailed]);
+  }, [article.image_url, article.link, article.low_res, feedPhotoFailed]);
 
   const sources = base ? [base, newsImageRelay(base)] : [];
   const src = sources[attempt] || null;

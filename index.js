@@ -12,6 +12,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
     port: PORT,
     env: config.nodeEnv,
     groqKey: process.env.GROQ_API_KEY ? "✅ configured" : "⚠️ missing",
+    firecrawlKey: process.env.FIRECRAWL_API_KEY ? "✅ configured" : "⚠️ missing",
     mongodb: "removed (offline mode)",
   });
 });
