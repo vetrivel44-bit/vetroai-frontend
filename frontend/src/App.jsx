@@ -1023,7 +1023,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   return (
     <div ref={containerRef} className="vai-stream-body">
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-        {content}
+        {normalizeMathDelimiters(content)}
       </ReactMarkdown>
     </div>
   );
@@ -1032,7 +1032,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
 // Plain markdown — used where code blocks need no artifact affordances.
 const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
   return (
-    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>{content}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>{normalizeMathDelimiters(content)}</ReactMarkdown>
   );
 });
 
@@ -1049,7 +1049,7 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
   }), []);
   return (
     <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-      {content}
+      {normalizeMathDelimiters(content)}
     </ReactMarkdown>
   );
 });
@@ -1070,10 +1070,19 @@ const MultiAiBody = React.memo(function MultiAiBody({ content, highlight }) {
   return highlight ? <HighlightedMarkdown content={content} /> : <PlainMarkdown content={content} />;
 });
 
-const formatMath = txt => {
-  if (!txt) return "";
-  try { return String(txt).split("\\[").join("$$").split("\\]").join("$$").split("\\(").join("$").split("\\)").join("$"); }
-  catch { return txt; }
+// remark-math only understands $…$ and $$…$$, but models usually write LaTeX
+// as \[…\] / \(…\) — or, once the backslash is lost, a line like
+// "[ z = \frac{a}{b} ]". Rewrite those outside code so KaTeX renders them.
+const CODE_SEGMENT = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g;
+const normalizeMathDelimiters = (text) => {
+  if (!text || !/\\[[(]|\[\s[^\]\n]*\\[a-zA-Z]/.test(text)) return text;
+  return String(text).split(CODE_SEGMENT).map((part, i) => {
+    if (i % 2 === 1) return part;
+    return part
+      .replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`)
+      .replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m.trim()}$`)
+      .replace(/^[ \t]*\[[ \t]+([^\n]*\\[a-zA-Z]+[^\n]*?)[ \t]+\][ \t]*$/gm, (_, m) => `$$\n${m.trim()}\n$$`);
+  }).join("");
 };
 
 // Shown while a lazily-loaded screen's chunk is on the wire. Deliberately quiet:
@@ -2486,7 +2495,8 @@ const SourceFavicon = ({ domain }) => {
   const [attempt, setAttempt] = useState(0);
   const sources = domain ? faviconSources(domain) : [];
   if (attempt >= sources.length) {
-    return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{(domain || "?")[0].toUpperCase()}</span>;
+    const siteName = (domain || "?").split(".").slice(-2)[0] || "?";
+    return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{siteName[0].toUpperCase()}</span>;
   }
   return (
     <img
