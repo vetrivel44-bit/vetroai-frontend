@@ -115,6 +115,7 @@ ${question || "Continue the research from the conversation context."}`;
         const send = (event) => controller.enqueue(encodeEvent(event));
         try {
           if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+          await window.whenPuter?.();
           if (!window.puter?.ai?.chat) {
             throw new Error("Puter.js is unavailable. Refresh the page and try Research again.");
           }

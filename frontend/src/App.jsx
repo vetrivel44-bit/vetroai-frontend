@@ -459,6 +459,7 @@ const fileToDataUrl = (file) => new Promise((resolve, reject) => {
 });
 
 const generateImageViaPuter = async (prompt) => {
+  await window.whenPuter?.();
   if (!window.puter?.ai?.txt2img) {
     throw new Error("GPT Image 2 could not load. Check your connection and refresh the page.");
   }
@@ -4730,6 +4731,7 @@ export default function App() {
   // the same free Puter bridge as regular chat so it costs nothing server-side.
   const runAutoMemoryExtraction = useCallback(async (text) => {
     if (!looksMemorable(text)) return;
+    await window.whenPuter?.();
     if (!window.puter?.ai?.chat) return;
     try {
       const model = window.__VETROAI_GEMINI_MODEL__ || "gemini-3.1-pro-preview";
@@ -5656,6 +5658,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const streamWithPuter = async (providerName) => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
+        await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
         }
@@ -5766,6 +5769,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         } else if (!PUTER_MODEL_IDS[selectedProvider]) {
           // Auto and backend models send images to the backend's vision providers.
         } else {
+        await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
         }
