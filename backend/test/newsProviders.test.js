@@ -369,8 +369,9 @@ test("Firecrawl: news results are normalized and paged", () => {
   assert.equal(out[1].title, "Story 1");
   assert.equal(out[1].link, "https://www.example.com/s1");
   assert.equal(out[1].description, "About 1");
-  assert.equal(out[1].image_url, "https://img.example.com/p.jpg");
-  assert.equal(out[0].image_url, null, "inline thumbnails are left for the og:image fill");
+  assert.equal(out[1].image_url, null, "the full-size og:image is looked up first");
+  assert.equal(out[1].thumbnail_url, "https://img.example.com/p.jpg");
+  assert.equal(out[0].thumbnail_url, null, "inline thumbnails are dropped");
   assert.equal(out[1].source_name, "example.com");
   assert.ok(Math.abs(Date.parse(out[1].pubDate) - (Date.now() - 3 * 3600000)) < 5000);
   assert.equal(nextNewsPage("firecrawl", page1, ""), "2");

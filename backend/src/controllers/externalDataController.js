@@ -93,6 +93,16 @@ async function latestNews(req, res, next) {
     // Articles the feed sent without a picture get the outlet's own preview
     // image (bounded in time, so the feed is never held up for long).
     await fillMissingImages(results);
+    // A story whose full-size photo wasn't found in time shows the search
+    // thumbnail for now; `low_res` tells the card to keep asking for the
+    // article's own photo and swap it in.
+    for (const article of results) {
+      if (!article.image_url && article.thumbnail_url) {
+        article.image_url = article.thumbnail_url;
+        article.low_res = true;
+      }
+      delete article.thumbnail_url;
+    }
     // News goes stale in minutes — never let a browser or CDN reuse a copy.
     res.set("Cache-Control", "no-store, max-age=0");
     return res.json({ results, nextPage: nextNewsPage(provider, payload, page) });

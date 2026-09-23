@@ -121,9 +121,12 @@ const PROVIDERS = {
         title: item.title || "",
         description: item.snippet || item.description || "",
         link: item.url || "",
-        // Only a real photo URL; Firecrawl sometimes sends a tiny inline
-        // thumbnail, and a missing one is filled from the article's og:image.
-        image_url: /^https?:\/\//i.test(item.imageUrl || "") ? item.imageUrl : null,
+        // Firecrawl's picture is the search result's small thumbnail (and
+        // sometimes an inline data: one), blurry when stretched over a card.
+        // It's kept aside; the article's own full-size og:image is looked up
+        // first, and the thumbnail is only a stopgap (see latestNews).
+        image_url: null,
+        thumbnail_url: /^https?:\/\//i.test(item.imageUrl || "") ? item.imageUrl : null,
         source_name: item.source || hostOf(item.url),
         source_id: hostOf(item.url),
         source_icon: null,
