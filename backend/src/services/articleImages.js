@@ -21,6 +21,7 @@
 const dns = require("node:dns").promises;
 const net = require("node:net");
 const { config } = require("../config/env");
+const logger = require("../utils/logger");
 
 const MAX_HTML_BYTES = 350 * 1024;
 const FETCH_TIMEOUT_MS = 3500;
@@ -171,7 +172,11 @@ async function firecrawlImage(articleUrl, { fetchImpl, apiKey }) {
     body: JSON.stringify({ url: articleUrl, formats: ["markdown"], onlyMainContent: true, timeout: FIRECRAWL_TIMEOUT_MS - 3000 }),
     signal: AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS),
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    // 401/402 here mean the key or the Firecrawl credits — worth seeing in the logs.
+    logger.warn("articleImages.firecrawlFailed", { status: response.status });
+    return null;
+  }
   const meta = (await response.json().catch(() => null))?.data?.metadata || {};
   const candidates = [meta.ogImage, meta["og:image"], meta.ogImageSecureUrl, meta.twitterImage, meta["twitter:image"]].flat();
   for (const value of candidates) {
