@@ -19,6 +19,7 @@ const MODEL_ICON_RULES = [
   [/mistral/i, '/model-icons/mistral.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
   [/agnes|vetro/i, '/favicon.svg'],
+  [/local|ollama/i, '/model-icons/local.svg'],
 ];
 
 function modelIconSrc(label = '') {

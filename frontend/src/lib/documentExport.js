@@ -713,9 +713,29 @@ export function spreadsheetTables(markdown = "") {
 
 const numeric = (value) => (/^-?\d+(\.\d+)?$/.test(String(value).replace(/,/g, "")) ? Number(String(value).replace(/,/g, "")) : value);
 
+// SheetJS is ~1 MB, so it's fetched the first time someone exports a
+// spreadsheet rather than with the app.
+const XLSX_URL = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+let xlsxLoading = null;
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  xlsxLoading ||= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = XLSX_URL;
+    script.async = true;
+    script.onload = () => (window.XLSX ? resolve(window.XLSX) : reject(new Error("The spreadsheet library didn't load.")));
+    script.onerror = () => {
+      xlsxLoading = null;
+      script.remove();
+      reject(new Error("The spreadsheet library didn't load. Check your connection and try again."));
+    };
+    document.head.appendChild(script);
+  });
+  return xlsxLoading;
+}
+
 export async function exportXlsx(markdown) {
-  const XLSX = window.XLSX;
-  if (!XLSX) throw new Error("The spreadsheet library didn't load. Refresh the page and try again.");
+  const XLSX = await loadXlsx();
   const workbook = XLSX.utils.book_new();
   spreadsheetTables(markdown).forEach((rows, index) => {
     const sheet = XLSX.utils.aoa_to_sheet(rows.map((row, r) => (r === 0 ? row : row.map(numeric))));

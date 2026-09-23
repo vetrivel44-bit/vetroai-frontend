@@ -46,6 +46,16 @@ const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
+import {
+  LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
+  buildMessages as buildOllamaMessages, streamChat as streamOllamaChat,
+  readDocuments, documentChars, documentCharBudget, withDocuments, rememberUnsupported, isSingleTurnModel,
+} from "./lib/localOllama";
+
+// Text of files the visitor's local model has read, keyed by the user message
+// they came with, so follow-up questions can include them again. Kept in
+// memory only: saved chats never store file contents.
+const localDocMemory = new WeakMap();
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -459,6 +469,7 @@ const fileToDataUrl = (file) => new Promise((resolve, reject) => {
 });
 
 const generateImageViaPuter = async (prompt) => {
+  await window.whenPuter?.();
   if (!window.puter?.ai?.txt2img) {
     throw new Error("GPT Image 2 could not load. Check your connection and refresh the page.");
   }
@@ -4730,6 +4741,7 @@ export default function App() {
   // the same free Puter bridge as regular chat so it costs nothing server-side.
   const runAutoMemoryExtraction = useCallback(async (text) => {
     if (!looksMemorable(text)) return;
+    await window.whenPuter?.();
     if (!window.puter?.ai?.chat) return;
     try {
       const model = window.__VETROAI_GEMINI_MODEL__ || "gemini-3.1-pro-preview";
@@ -5546,11 +5558,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const sportsDetected = isSportsQuery(userQuery);
-    const medicalDetected = isMedicalQuery(userQuery);
+    // Photos (and follow-ups about them) are first offered to the visitor's own
+    // computer, so those chats skip the location and maps lookups below, which
+    // would reach outside services.
+    const lastAnswer = [...hist].reverse().find((m) => m.role === "assistant" && m.content);
+    const rememberedDocs = [...hist].reverse().map((m) => localDocMemory.get(m)).find(Boolean) || null;
+    const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
+      || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
+    const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
 
-    const nearbyMapsRequest = /\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery);
+    const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
       const locationResult = await getPreciseUserLocation();
       const userLocation = locationResult.location;
@@ -5637,6 +5656,106 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
+      // Photos and files, and follow-up questions about ones the visitor's
+      // computer already answered, go first to Ollama on the visitor's own
+      // computer (free and private, straight from the browser). If it isn't
+      // there, can't read the file, or the browser isn't allowed to reach it,
+      // the usual models answer.
+      const attachedDocFiles = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
+        .filter((file) => file instanceof Blob && !file.type?.startsWith("image/"));
+      const newDocs = attachedDocFiles.length ? await readDocuments(attachedDocFiles) : null;
+      const answeredLocally = lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER;
+      const chatImage = attachedImages.length || attachedDocFiles.length ? null : latestSharedImage(hist);
+      const chatDocs = newDocs || (attachedDocFiles.length || attachedImages.length || !answeredLocally ? null : rememberedDocs);
+      const tryLocal = (attachedDocFiles.length === 0 || !!newDocs)
+        && (attachedImages.length > 0 || !!newDocs || (answeredLocally && (!!chatImage || !!chatDocs)));
+      let localHandled = false;
+      if (tryLocal) localHandled = await (async () => {
+        const showAnswer = (content, model) => setMessages((previous) => {
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], content, provider: LOCAL_OLLAMA_PROVIDER, localModel: model };
+          return next;
+        });
+        // The first request may wait on the browser's "allow local network
+        // access" prompt, so give it time.
+        const status = await ollamaStatus({ timeoutMs: 15000 });
+        if (!isActive()) return true;
+        if (!status.online) return false;
+        const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : chatImage;
+        const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
+        const question = chatDocs ? withDocuments(chatDocs, userQuery) : userQuery;
+        const messagesFor = (name) => (isSingleTurnModel(name)
+          ? buildOllamaMessages({ history: [], question, imageDataUrl })
+          : buildOllamaMessages({
+            history: hist.slice(0, -1),
+            question,
+            imageDataUrl,
+            imageTurnsAgo: shared ? shared.turnsAgo : 0,
+            systemPrompt: finalSystemPrompt,
+          }));
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+        let answer = "";
+        let model = null;
+        // A model this Ollama version can't load (newer Ollama releases can't
+        // run llama3.2-vision) falls through to the next installed one.
+        const unsupported = [];
+        for (;;) {
+          model = pickModel(status.models, { needsVision: !!shared, forText: !!chatDocs, exclude: unsupported });
+          if (!model) return false;
+          // Too long for this model's context: the usual models read it instead.
+          if (chatDocs && documentChars(chatDocs) > documentCharBudget(model)) return false;
+          try {
+            const usedModel = model;
+            answer = await streamOllamaChat({
+              model: usedModel,
+              messages: messagesFor(usedModel),
+              signal: ctrl.signal,
+              onText: (text) => {
+                if (!isActive()) return;
+                // Label the reply with the local logo, even when Auto routed it here.
+                if (!answer) window.dispatchEvent(new CustomEvent("vetroai:model-used", { detail: { label: LOCAL_OLLAMA_PROVIDER } }));
+                setIsTyping(false);
+                answer = text;
+                showAnswer(text, usedModel);
+                setStreamingContent(text);
+                if (!isScrolling.current) scrollToBottom();
+              },
+            });
+            rememberModel(model);
+            if (newDocs) localDocMemory.set(hist[hist.length - 1], newDocs);
+            break;
+          } catch (localErr) {
+            if (localErr?.code === "MODEL_UNSUPPORTED") { unsupported.push(model); rememberUnsupported(model); continue; }
+            // A local failure before any text quietly hands over to the usual models.
+            if (!answer && localErr?.name !== "AbortError") return false;
+            throw localErr;
+          }
+        }
+        if (!isActive()) return true;
+        if (!answer.trim()) return false;   // nothing useful came back: the usual models answer
+        showAnswer(answer, model);
+        window.dispatchEvent(new CustomEvent("vetroai:model-used", { detail: { label: LOCAL_OLLAMA_PROVIDER } }));
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(answer);
+        // Titles and follow-up suggestions are normally written by VetroAI's
+        // server; for a local chat they'd send the conversation there, so the
+        // title comes from the question itself and suggestions are skipped.
+        if (isFirstMsg && currentSessionId && !isIncognito) {
+          const title = (userQuery || (chatDocs ? `About ${chatDocs[0].name}` : "Image question")).replace(/\s+/g, " ").trim().slice(0, 60);
+          setSessions((prev) => {
+            const list = prev.map((s) => (s.id === currentSessionId ? { ...s, title } : s));
+            persistList(userKey, "sessions", list);
+            return list;
+          });
+        }
+        notifyResponseReady(answer);
+        return true;
+      })();
+      if (localHandled) return;
+
       if (selectedProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0) {
         throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");
       }
@@ -5656,6 +5775,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const streamWithPuter = async (providerName) => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
+        await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
         }
@@ -5766,6 +5886,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         } else if (!PUTER_MODEL_IDS[selectedProvider]) {
           // Auto and backend models send images to the backend's vision providers.
         } else {
+        await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
         }

@@ -67,6 +67,7 @@
 
     try {
       if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      await window.whenPuter?.();
       if (!window.puter?.ai?.chat) {
         throw new Error("Puter.js is unavailable. Refresh the page and try again.");
       }

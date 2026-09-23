@@ -19,6 +19,7 @@ const normalizeImageResult = async (image) => {
 };
 
 export const editImageViaPuter = async (prompt, inputFiles) => {
+  await window.whenPuter?.();
   if (!window.puter?.ai?.txt2img) throw new Error("GPT Image 2 could not load. Refresh and try again.");
   const images = (inputFiles || []).filter((file) => file instanceof File && file.type.startsWith("image/"));
   if (!images.length) throw new Error("Attach an image to edit.");
