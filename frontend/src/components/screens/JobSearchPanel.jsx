@@ -437,6 +437,95 @@ function generateJobs(query) {
   return results;
 }
 
+// ─── COMPANY LOGOS ───────────────────────────────────────────────────────────
+// Official domains for employers that often appear without a logo in listings.
+const KNOWN_DOMAINS = {
+  "infosys": "infosys.com", "tcs": "tcs.com", "tata consultancy services": "tcs.com", "wipro": "wipro.com",
+  "hcl": "hcltech.com", "hcl technologies": "hcltech.com", "hcltech": "hcltech.com", "accenture": "accenture.com",
+  "ibm": "ibm.com", "capgemini": "capgemini.com", "cognizant": "cognizant.com", "tech mahindra": "techmahindra.com",
+  "google": "google.com", "microsoft": "microsoft.com", "amazon": "amazon.com", "flipkart": "flipkart.com",
+  "razorpay": "razorpay.com", "paytm": "paytm.com", "zoho": "zoho.com", "freshworks": "freshworks.com",
+  "swiggy": "swiggy.com", "zomato": "zomato.com", "ola": "olacabs.com", "cred": "cred.club", "phonepe": "phonepe.com",
+  "byjus": "byjus.com", "meesho": "meesho.com", "makemytrip": "makemytrip.com", "rapido": "rapido.bike",
+  "zepto": "zeptonow.com", "blinkit": "blinkit.com", "bigbasket": "bigbasket.com", "dunzo": "dunzo.com",
+  "uber": "uber.com", "dmart": "dmartindia.com", "reliance": "ril.com", "reliance jio": "jio.com", "jio": "jio.com",
+  "airtel": "airtel.in", "bharti airtel": "airtel.in", "vodafone idea": "myvi.in", "hdfc bank": "hdfcbank.com",
+  "icici bank": "icicibank.com", "axis bank": "axisbank.com", "kotak mahindra bank": "kotak.com", "sbi": "sbi.co.in",
+  "state bank of india": "sbi.co.in", "bajaj finserv": "bajajfinserv.in", "lic": "licindia.in", "deloitte": "deloitte.com",
+  "ey": "ey.com", "kpmg": "kpmg.com", "pwc": "pwc.com", "mphasis": "mphasis.com", "mindtree": "ltimindtree.com",
+  "ltimindtree": "ltimindtree.com", "larsen toubro": "larsentoubro.com", "l&t": "larsentoubro.com",
+  "thoughtworks": "thoughtworks.com", "publicis sapient": "publicissapient.com", "intuit": "intuit.com",
+  "samsung": "samsung.com", "intel": "intel.com", "qualcomm": "qualcomm.com", "nvidia": "nvidia.com", "oracle": "oracle.com",
+  "adobe": "adobe.com", "salesforce": "salesforce.com", "sap": "sap.com", "cisco": "cisco.com", "dell": "dell.com",
+  "apollo hospitals": "apollohospitals.com", "fortis healthcare": "fortishealthcare.com", "manipal hospitals": "manipalhospitals.com",
+  "max healthcare": "maxhealthcare.in", "narayana health": "narayanahealth.org", "taj hotels": "tajhotels.com",
+  "ihcl": "ihcl.com", "oyo": "oyorooms.com", "marriott": "marriott.com", "indigo": "goindigo.in", "air india": "airindia.com",
+  "tata motors": "tatamotors.com", "mahindra": "mahindra.com", "maruti suzuki": "marutisuzuki.com", "hindustan unilever": "hul.co.in",
+  "itc": "itcportal.com", "asian paints": "asianpaints.com", "nestle": "nestle.com", "delhivery": "delhivery.com",
+  "ecom express": "ecomexpress.in", "blue dart": "bluedart.com", "decathlon": "decathlon.in", "lenskart": "lenskart.com",
+  "nykaa": "nykaa.com", "myntra": "myntra.com", "urban company": "urbancompany.com", "policybazaar": "policybazaar.com",
+  "fractal analytics": "fractal.ai", "mu sigma": "mu-sigma.com", "tiger analytics": "tigeranalytics.com",
+};
+// Hosts that serve job listings for many employers, so their domain is never the employer's.
+const JOB_BOARD_RE = /(linkedin|indeed|naukri|glassdoor|foundit|monsterindia|monster|shine|timesjobs|apna|ziprecruiter|simplyhired|careerbuilder|google|workday|greenhouse|lever|smartrecruiters|icims|jobvite|ashbyhq|wellfound|instahyre|cutshort|internshala|freshersworld|hirist|iimjobs|jooble|adzuna|bebee|jobrapido|whatjobs|workable|breezy|bamboohr|successfactors|taleo|oraclecloud|dice|upwork|freelancer|talent\.com|jobs\.|careers360)/i;
+
+const normCompany = name => (name || "").toLowerCase().replace(/[’'.,()]/g, "").replace(/\b(pvt|private|ltd|limited|inc|llp|llc|corp|corporation|co|india|technologies|services|solutions)\b/g, " ").replace(/\s+/g, " ").trim();
+
+function rootDomain(url) {
+  try {
+    const host = new URL(/^https?:\/\//.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, "");
+    const parts = host.split(".");
+    const n = parts.length > 2 && /^(co|com|net|org|gov|ac|edu)$/.test(parts[parts.length - 2]) ? 3 : 2;
+    return parts.slice(-n).join(".");
+  } catch { return null; }
+}
+
+function companyDomain(job) {
+  if (job.website) { const d = rootDomain(job.website); if (d) return d; }
+  const name = normCompany(job.company);
+  const raw = (job.company || "").toLowerCase().trim();
+  if (KNOWN_DOMAINS[raw]) return KNOWN_DOMAINS[raw];
+  if (KNOWN_DOMAINS[name]) return KNOWN_DOMAINS[name];
+  // Only trust the apply link when it is the employer's own site (its name appears in the domain).
+  if (job.applyUrl) {
+    const d = rootDomain(job.applyUrl);
+    const label = d && d.split(".")[0].replace(/-/g, "");
+    const compact = name.replace(/[^a-z0-9]/g, "");
+    if (label && !JOB_BOARD_RE.test(d) && label.length >= 3 && compact.length >= 3 && (compact.startsWith(label) || label.startsWith(compact))) return d;
+  }
+  return null;
+}
+
+function logoSources(job) {
+  const domain = companyDomain(job);
+  return [
+    job.logo,
+    domain && `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+    domain && `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+  ].filter(Boolean);
+}
+
+// Remembered across re-renders so a logo that failed once isn't retried on every render.
+const badLogos = new Set();
+
+function CompanyLogo({ job, size = 42, radius = 10, className = "jsp-logo" }) {
+  const sources = logoSources(job).filter(u => !badLogos.has(u));
+  const [, rerender] = useState(0);
+  const src = sources[0];
+  const fail = () => { badLogos.add(src); rerender(n => n + 1); };
+  const color = job.color || "#8b7bff";
+  return (
+    <div className={className} style={{ width: size, height: size, borderRadius: radius }}>
+      {src
+        ? <img key={src} src={src} alt={`${job.company || "Company"} logo`} loading="lazy" referrerPolicy="no-referrer"
+            onError={fail}
+            // Google returns a 16px globe when it has no icon for a domain; treat that as missing.
+            onLoad={e => { if (src.includes("google.com/s2/favicons") && e.currentTarget.naturalWidth <= 16) fail(); }} />
+        : <div className="jsp-logofb" style={{ background: color + "28", color, fontSize: Math.round(size * 0.36) }}>{((job.company || "").trim()[0] || "?").toUpperCase()}</div>}
+    </div>
+  );
+}
+
 // ─── GEO HELPERS ─────────────────────────────────────────────────────────────
 const RADIUS_OPTIONS = [2, 5, 10, 25, 50];
 const toRad = d => d * Math.PI / 180;
@@ -552,6 +641,7 @@ const S = `
   .jsp-ctop{display:flex;align-items:flex-start;gap:12px;}
   .jsp-logo{border-radius:10px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
   .jsp-logo img{width:78%;height:78%;object-fit:contain;}
+  .jsp-logofb{width:62%;height:62%;border-radius:22%;display:flex;align-items:center;justify-content:center;font-weight:800;}
   .jsp-cinfo{flex:1;min-width:0;}
   .jsp-ctit{font-size:15px;font-weight:700;color:var(--tx);margin:0 0 4px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
   .jsp-cco{font-size:12.5px;color:var(--tx2);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -594,7 +684,7 @@ const S = `
   .jsp-dside::-webkit-scrollbar{display:none;}
   .jsp-dco{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
   .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
-  .jsp-dlogo img{width:40px;height:40px;object-fit:contain;}
+  .jsp-dlogo img{width:72%;height:72%;object-fit:contain;}
   .jsp-djt{font-size:21px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
   .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
   .jsp-dbdgs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px;}
@@ -811,18 +901,11 @@ export default function JobSearchPanel({ onClose }) {
     }
   };
 
-  const Logo = ({ job, sz = 42, rad = 10 }) => (
-    <div className="jsp-logo" style={{ width: sz, height: sz, borderRadius: rad }}>
-      {job.logo
-        ? <img src={job.logo} alt="" onError={e => { e.target.style.display = "none"; }} />
-        : <div style={{ width: 26, height: 26, borderRadius: 7, background: (job.color || "#8b7bff") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: job.color || "#8b7bff" }}>{(job.company || "?")[0]}</div>}
-    </div>
-  );
 
   const Card = ({ job }) => (
     <div className="jsp-card" style={{ "--cc": job.color || "#8b7bff" }} onClick={() => setDetail(job)}>
       <div className="jsp-ctop">
-        <Logo job={job} />
+        <CompanyLogo job={job} />
         <div className="jsp-cinfo">
           <p className="jsp-ctit">{job.title}</p>
           <p className="jsp-cco">{job.company} · {job.location}</p>
@@ -951,7 +1034,7 @@ export default function JobSearchPanel({ onClose }) {
         <div className="jsp-dbody">
           <div className="jsp-dmain">
             <div className="jsp-dco">
-              <div className="jsp-dlogo">{job.logo ? <img src={job.logo} alt="" onError={e => e.target.style.display = "none"} /> : <div style={{ width: 34, height: 34, borderRadius: 10, background: (job.color || "#8b7bff") + "28", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: job.color || "#8b7bff" }}>{(job.company || "?")[0]}</div>}</div>
+              <CompanyLogo job={job} size={56} radius={14} className="jsp-dlogo" />
               <div><p className="jsp-djt">{job.title}</p><p className="jsp-djco">{job.company} · {job.location}</p></div>
             </div>
             <div className="jsp-dbdgs">
