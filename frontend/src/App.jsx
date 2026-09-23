@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { requestedFileFormats, fileRequestInstruction, exportDocument } from "./lib/documentExport";
+import { normalizeMathDelimiters } from "./lib/math";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -1071,20 +1072,6 @@ const MultiAiBody = React.memo(function MultiAiBody({ content, highlight }) {
   return highlight ? <HighlightedMarkdown content={content} /> : <PlainMarkdown content={content} />;
 });
 
-// remark-math only understands $…$ and $$…$$, but models usually write LaTeX
-// as \[…\] / \(…\) — or, once the backslash is lost, a line like
-// "[ z = \frac{a}{b} ]". Rewrite those outside code so KaTeX renders them.
-const CODE_SEGMENT = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g;
-const normalizeMathDelimiters = (text) => {
-  if (!text || !/\\[[(]|\[\s[^\]\n]*\\[a-zA-Z]/.test(text)) return text;
-  return String(text).split(CODE_SEGMENT).map((part, i) => {
-    if (i % 2 === 1) return part;
-    return part
-      .replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`)
-      .replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m.trim()}$`)
-      .replace(/^[ \t]*\[[ \t]+([^\n]*\\[a-zA-Z]+[^\n]*?)[ \t]+\][ \t]*$/gm, (_, m) => `$$\n${m.trim()}\n$$`);
-  }).join("");
-};
 
 // Shown while a lazily-loaded screen's chunk is on the wire. Deliberately quiet:
 // these chunks are small and usually cached, so a spinner would flash more often
