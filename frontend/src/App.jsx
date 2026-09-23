@@ -3222,7 +3222,8 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
   const TopicIcon = topic.Icon;
   const source = article.source_name || article.source_id || "";
   const desc = (article.description || "").trim();
-  const long = desc.length > (featured ? 150 : 110);
+  const cut = 92;
+  const long = desc.length > cut;
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -3259,19 +3260,12 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
             </div>
           )}
         </div>
-        <div className="dv-kicker">
-          {featured ? <span className="dv-trending">Trending now</span> : (
-            <span className="dv-source">
-              {article.source_icon && <img src={article.source_icon} alt="" onError={e => { e.target.style.display = "none"; }} />}
-              {source || topic.label}
-            </span>
-          )}
-        </div>
+        {featured && <div className="dv-kicker"><span className="dv-trending">Trending now</span></div>}
         {featured ? <h2 className="dv-title">{article.title}</h2> : <h3 className="dv-title">{article.title}</h3>}
       </a>
       {desc && (
         <p className={`dv-desc${expanded ? " open" : ""}`}>
-          {expanded || !long ? desc : desc.slice(0, featured ? 150 : 110).replace(/\s+\S*$/, "") + "…"}
+          {expanded || !long ? desc : desc.slice(0, cut).replace(/\s+\S*$/, "") + "…"}
           {long && (
             <button type="button" className="dv-more-text" onClick={() => setExpanded(v => !v)}>
               {expanded ? " See less" : " See more"}
@@ -3280,7 +3274,7 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
         </p>
       )}
       <div className="dv-foot">
-        <span className="dv-time">{newsAgo(article.pubDate)}{featured && source ? ` · ${source}` : ""}</span>
+        <span className="dv-time" title={source || undefined}>{newsAgo(article.pubDate)}</span>
         <div className="dv-actions">
           <button
             type="button"
@@ -3309,7 +3303,7 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
                   <SparkleIcon /> Ask AI about this
                 </button>
                 <a role="menuitem" href={article.link} target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)}>
-                  <ExternalLink size={15} /> Open original
+                  <ExternalLink size={15} /> {source ? `Open on ${source}` : "Open original"}
                 </a>
               </div>
             )}
@@ -3319,6 +3313,12 @@ function NewsCard({ article, featured, saved, onToggleSave, listening, onToggleL
     </article>
   );
 }
+
+const HeartPlusIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M13.5 19.5 12 21l-7.5-7.5A5 5 0 0 1 12 6.5a5 5 0 0 1 7.5 6.5" /><path d="M18 15v6M15 18h6" />
+  </svg>
+);
 
 const HeadphonesIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -3465,22 +3465,18 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   return (
     <div className="overlay dv-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 1000 }}>
       <div className="news-panel dv-panel" onClick={e => e.stopPropagation()}>
+        {/* The header floats over the lead photo, like Discover: translucent
+            pills, no bar behind them. */}
         <div className="dv-top">
           <div className="dv-bar">
-            <button type="button" className="dv-round" onClick={onClose} aria-label="Close Discover"><ArrowLeft size={20} /></button>
-            <h2 className="dv-heading">Discover</h2>
+            <div className="dv-titlepill">
+              <button type="button" className="dv-round" onClick={onClose} aria-label="Close Discover"><ArrowLeft size={20} /></button>
+              <h2 className="dv-heading">{category === SAVED_TAB ? "Saved" : "Discover"}</h2>
+            </div>
             <div className="dv-bar-right">
               <button type="button" className={`dv-round${searchOpen || searchQuery ? " on" : ""}`} onClick={() => setSearchOpen(v => !v)} aria-label="Search news" aria-expanded={searchOpen}>
-                <Search size={18} />
+                <Search size={19} />
               </button>
-              <select className="dv-lang" value={language} onChange={e => setLanguage(e.target.value)} aria-label="News language">
-                {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-              </select>
-              {category !== SAVED_TAB && (
-                <button type="button" className="dv-round dv-refresh" onClick={() => fetchNews(category, debouncedQuery, language)} aria-label="Refresh news" disabled={loading}>
-                  <RotateCcw size={17} />
-                </button>
-              )}
               <button
                 type="button"
                 className={`dv-round${category === SAVED_TAB ? " on" : ""}`}
@@ -3488,7 +3484,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
                 aria-label={`Saved stories${savedArticles.length ? ` (${savedArticles.length})` : ""}`}
                 title="Saved stories"
               >
-                <BookmarkIcon />
+                <HeartPlusIcon />
                 {savedArticles.length > 0 && <span className="dv-badge">{savedArticles.length}</span>}
               </button>
             </div>
@@ -3508,15 +3504,21 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
                 {NEWS_CATEGORY_LABELS[cat] || cat.charAt(0).toUpperCase() + cat.slice(1)}
               </button>
             ))}
+            {category !== SAVED_TAB && articles.length > 0 && (
+              <button type="button" className="dv-chip dv-chip-ai" onClick={askForBriefing}>
+                <SparkleIcon /> AI briefing
+              </button>
+            )}
+            <label className="dv-chip dv-chip-lang">
+              <GlobeIcon />
+              <select value={language} onChange={e => setLanguage(e.target.value)} aria-label="News language">
+                {NEWS_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+            </label>
           </div>
         </div>
 
-        <div className="dv-feed">
-          {category !== SAVED_TAB && !loading && !error && articles.length > 0 && (
-            <button type="button" className="dv-briefing" onClick={askForBriefing}>
-              <SparkleIcon /> Get an AI briefing on these headlines
-            </button>
-          )}
+        <div className={`dv-feed${hero && !loading && !error ? " has-hero" : ""}${searchOpen || searchQuery ? " searching" : ""}`}>
           {loading ? (
             <div className="dv-list">
               {[1, 2, 3].map(i => (
