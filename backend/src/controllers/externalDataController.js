@@ -8,6 +8,7 @@ const {
   normalizeNewsPayload,
   nextNewsPage,
   sortNewestFirst,
+  dedupeArticles,
   providerLabel,
 } = require("../services/newsProviders");
 
@@ -86,7 +87,7 @@ async function latestNews(req, res, next) {
 
     // Always the newsdata-shaped `results` array the frontend panel renders,
     // whichever service answered.
-    const results = sortNewestFirst(normalizeNewsPayload(provider, payload));
+    const results = dedupeArticles(sortNewestFirst(normalizeNewsPayload(provider, payload)));
     // Articles the feed sent without a picture get the outlet's own preview
     // image (bounded in time, so the feed is never held up for long).
     await fillMissingImages(results);

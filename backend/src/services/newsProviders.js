@@ -281,6 +281,74 @@ function sortNewestFirst(articles) {
   return [...articles].sort((a, b) => time(b) - time(a));
 }
 
+// ─── Duplicate stories ───────────────────────────────────────────────────
+// Feeds repeat a story under different ids and links: syndicated copies, AMP
+// and tracking-tagged URLs, and headlines carrying the outlet's name
+// ("… - The Hindu") or lightly reworded. Two articles are the same story when
+// their cleaned link or cleaned headline match, or their headlines share
+// nearly all their meaningful words. Images are not compared — many outlets
+// use one default picture for every article.
+const TRACKING_PARAM = /^(utm_[a-z]+|fbclid|gclid|mc_[a-z]+|ref|ref_src|cmpid|ito|ncid|taid|output[Tt]ype|amp)$/i;
+const STOP_WORDS = new Set("the a an and or of to in on for with at by from as is are was were be been it its this that these those after over into than about amid says said new".split(" "));
+
+function linkKey(url) {
+  try {
+    const u = new URL(String(url));
+    for (const key of [...u.searchParams.keys()]) if (TRACKING_PARAM.test(key)) u.searchParams.delete(key);
+    const path = u.pathname.replace(/\/amp\/?$/i, "/").replace(/\.amp(\.html?)?$/i, "$1").replace(/\/+$/, "");
+    return `${u.hostname.replace(/^(www|m|amp)\./, "")}${path}${u.search}`.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function headlineKey(title) {
+  let text = String(title || "").toLowerCase().trim();
+  // Drop a trailing " - Outlet" / " | Outlet" / " — Outlet" (short tails only).
+  text = text.replace(/\s+[-|–—:]\s+[^-|–—:]{2,60}$/u, (tail) => (tail.trim().split(/\s+/).length <= 7 ? "" : tail));
+  return text.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+// Light stemming so "beats"/"beat" and "wickets"/"wicket" count as the same word.
+const stem = (w) => (w.length > 4 ? w.replace(/(ies|es|s)$/, (m) => (m === "ies" ? "y" : "")) : w);
+
+function headlineWords(key) {
+  return new Set(key.split(" ").filter((w) => w.length > 2 && !STOP_WORDS.has(w)).map(stem));
+}
+
+function similarHeadlines(a, b) {
+  if (a.size < 4 || b.size < 4) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared += 1;
+  return shared / (a.size + b.size - shared) >= 0.75;
+}
+
+// Keeps the first copy of each story (callers sort newest first), borrowing
+// a picture from a later copy when the kept one has none.
+function dedupeArticles(articles) {
+  const kept = [];
+  const byLink = new Map();
+  const byHeadline = new Map();
+  for (const article of articles || []) {
+    if (!article || article.duplicate === true) continue; // newsdata's own flag
+    const link = linkKey(article.link);
+    const headline = headlineKey(article.title);
+    const words = headlineWords(headline);
+    const match = (link && byLink.get(link))
+      || (headline && byHeadline.get(headline))
+      || kept.find((k) => similarHeadlines(k.words, words));
+    if (match) {
+      if (!match.article.image_url && article.image_url) match.article.image_url = article.image_url;
+      continue;
+    }
+    const entry = { article, words };
+    kept.push(entry);
+    if (link) byLink.set(link, entry);
+    if (headline) byHeadline.set(headline, entry);
+  }
+  return kept.map((entry) => entry.article);
+}
+
 // The cursor for the page after this one, or null when the provider has no
 // more. Always a string, since newsdata's is opaque and the others' numeric.
 function nextNewsPage(provider, payload, page) {
@@ -302,5 +370,8 @@ module.exports = {
   normalizeNewsPayload,
   nextNewsPage,
   sortNewestFirst,
+  dedupeArticles,
+  linkKey,
+  headlineKey,
   providerLabel,
 };
