@@ -21,6 +21,7 @@ const creditService = require("../services/creditService");
 const { withGroqModel } = require("../utils/groqModel");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
+const { clientClock } = require("../services/clockService");
 const { verifyAccessToken } = require("../utils/token");
 
 // Best-effort: resolves a Mongo user id from the bearer token if one is present.
@@ -171,6 +172,10 @@ async function chat(req, res) {
   const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
   const activePlugins = normalizePluginIds(req.body?.plugins);
 
+  // The user's own clock (IANA timezone from the browser), so "today" is
+  // their today — see clockService.
+  const clock = clientClock(req.body);
+
   // Web search flag from frontend (autoWebSearch toggle or explicit web mode)
   const webSearch = String(req.body?.webSearch || "false") === "true";
 
@@ -249,6 +254,7 @@ async function chat(req, res) {
       memories,
       systemPrompt,
       webSearch,
+      clock,
       activePlugins,
       effort,
       options: { temperature, maxTokens }

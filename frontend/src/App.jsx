@@ -53,6 +53,7 @@ const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
+import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
   buildMessages as buildOllamaMessages, streamChat as streamOllamaChat,
@@ -5973,6 +5974,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
+    // The user's timezone, so the backend's "today" is the user's today.
+    fd.append("clientTimeZone", userTimeZone());
     // For browser models the app does the searching itself, so it applies the
     // backend's rule: explicit search asks always search, but the auto-search
     // setting is only permission — it searches when the question looks like
@@ -6259,7 +6262,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const res = await fetch(`${API}/web-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userQuery }),
+          body: JSON.stringify({ query: userQuery, timeZone: userTimeZone() }),
           signal: ctrl.signal,
         });
         const json = await res.json().catch(() => ({}));
@@ -6278,7 +6281,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const list = sources.slice(0, 8).map((s, i) =>
           `[${i + 1}] ${s.title || s.domain} — ${s.url}${s.published ? ` (${s.published})` : ""}\n${(s.snippet || "").slice(0, 700)}`
         ).join("\n\n");
-        return `LIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
+        return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally.";
       };
 
@@ -6406,6 +6409,38 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return next;
           });
         }
+      }
+
+      // "What is today's date" / "time in London": answered from the clock —
+      // exact and instant — instead of from web pages written on another
+      // server's clock (which around midnight in India gave yesterday's date).
+      const clockQuestion = fileCount === 0 ? detectClockQuestion(userQuery) : null;
+      if (clockQuestion) {
+        let clockReply = null;
+        if (!clockQuestion.place) {
+          clockReply = clockAnswer(clockQuestion);
+        } else {
+          try {
+            const r = await fetch(`${API}/time?place=${encodeURIComponent(clockQuestion.place)}`, { signal: ctrl.signal });
+            const j = await r.json().catch(() => ({}));
+            if (r.ok && j.success && j.data?.timeZone) clockReply = clockAnswer(clockQuestion, { timeZone: j.data.timeZone, where: j.data.place });
+          } catch (clockErr) {
+            if (clockErr?.name === "AbortError" || !isActive()) throw clockErr;
+            // Unknown place or offline: fall through to the normal answer.
+          }
+        }
+        if (clockReply && isActive()) {
+          setIsTyping(false);
+          setIsWebSearching(false);
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: clockReply, provider: "VetroAI" };
+            return next;
+          });
+          finishChat(clockReply);
+          return;
+        }
+        if (!isActive()) return;
       }
 
       // Web Search with "Auto": the user wants the web's answer, not a chat

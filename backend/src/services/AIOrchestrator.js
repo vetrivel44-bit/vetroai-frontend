@@ -4,6 +4,7 @@ const { VISUALS_PROMPT } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
+const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
@@ -102,12 +103,12 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
   }
 
   async buildSystemPrompt(mode, context = {}) {
-    const { userQuery, webContext, personaPrompt, customInstructions, memories = [] } = context;
-    const now = new Date();
-    const nowISO = now.toISOString().slice(0, 10);
+    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock } = context;
 
     // ── Core system prompt ──
-    let sys = `You are VetroAI, an adaptive AI assistant. Today is ${nowISO}.
+    // The date is the user's, in their own timezone (clockService) — the
+    // server's UTC date is a day off for much of the world around midnight.
+    let sys = `You are VetroAI, an adaptive AI assistant. ${clockLine(clock || {})} When the user asks for the date, day or time, answer with exactly these values — never from web results or training data.
 
 # IDENTITY
 If the user asks who/what you are, your name, what model or AI powers you, who built you, or asks you to introduce yourself:
@@ -650,7 +651,24 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // searched literally and returning unrelated results (movie/song titles, etc.).
     const isExplicitSearchMode = mode === "web_search" || mode === "deep_search" || mode === "research";
     const autoSearchRequested = params.webSearch === true || params.webSearch === "true";
-    const shouldSearch = !isGreeting && !isIdentityQuestion && (
+    // "What is today's date" / "time in London": answered from the clock, not
+    // from web pages written in another timezone on another day — and without
+    // the seconds a search costs.
+    const clockQuestion = detectClockQuestion(userQuery);
+    let clockNote = "";
+    if (clockQuestion?.place) {
+      try {
+        const zone = await timeZoneForPlace(clockQuestion.place);
+        if (zone) {
+          const there = describeClock({ timeZone: zone.timeZone, now: params.clock?.now || new Date() });
+          clockNote = `\n\n[WORLD CLOCK]\nRight now in ${zone.name} (${there.timeZone}, ${there.offset}) it is ${there.time} on ${there.date}. Answer the user's question with exactly this.`;
+        }
+      } catch (err) {
+        logger.warn("AIOrchestrator.worldClockFailed", { reqId, place: clockQuestion.place, error: err.message });
+      }
+    }
+    const answeredByClock = !!clockQuestion && (!clockQuestion.place || !!clockNote);
+    const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && (
       isExplicitSearchMode ||
       (autoSearchRequested && this.needsWebSearch(userQuery))
     );
@@ -697,13 +715,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
           // rather than throwing, so the outer race only guards a hung socket.
           searchRes = await Promise.race([
             performAgenticSearch(userQuery, {
+              clock: params.clock,
               onStatus: (msg) => { if (msg) this.sendVetroEvent(res, "status", msg); },
             }),
             new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 35000)),
           ]);
         } else {
           searchRes = await Promise.race([
-            searchWeb(userQuery),
+            searchWeb(userQuery, { clock: params.clock }),
             new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
           ]);
         }
@@ -730,7 +749,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
 
-    let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
+    let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock });
+    if (clockNote) finalSysPrompt += clockNote;
     if (noRealtimeData) {
       finalSysPrompt += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
     }
