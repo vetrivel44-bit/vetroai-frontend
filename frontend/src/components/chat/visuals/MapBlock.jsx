@@ -2,13 +2,12 @@ import React, { useContext, useEffect, useMemo, useRef } from "react";
 import { MapPin } from "lucide-react";
 import VisualCard, { VisualFallback, VisualPending } from "./VisualCard";
 import { OpenBlockContext, isStillStreaming } from "../../../lib/visualStream";
+import { loadMapTiler, streetStyle } from "../../../lib/maptiler";
+import { useDocumentTheme } from "./useDocumentTheme";
 
 // A ```json map block: [{ "name", "lat", "lng", "notes" }, …] shown on a
-// Leaflet map with free OpenStreetMap tiles (no API key). Leaflet and its
-// CSS load the first time a map appears.
-
-let leafletModule = null;
-const loadLeaflet = () => (leafletModule ||= Promise.all([import("leaflet"), import("leaflet/dist/leaflet.css")]).then(([m]) => m.default || m));
+// MapTiler map — the same provider as the app's other maps. The SDK loads the
+// first time a map appears.
 
 function parsePlaces(code) {
   let data = JSON.parse(code);
@@ -42,6 +41,7 @@ function popupContent(place) {
 
 export default function MapBlock({ code, fallback }) {
   const pending = isStillStreaming(useContext(OpenBlockContext), code);
+  const theme = useDocumentTheme();
   const containerRef = useRef(null);
   const parsed = useMemo(() => {
     if (pending) return null;
@@ -52,32 +52,39 @@ export default function MapBlock({ code, fallback }) {
     if (!parsed?.places || !containerRef.current) return undefined;
     let map = null;
     let alive = true;
-    loadLeaflet().then((L) => {
+    loadMapTiler().then((sdk) => {
       if (!alive || !containerRef.current) return;
-      map = L.map(containerRef.current, { scrollWheelZoom: false, attributionControl: true });
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
-      }).addTo(map);
-      const points = parsed.places.map((place) => {
-        L.circleMarker([place.lat, place.lng], { radius: 8, weight: 2, color: "#FFFFFF", fillColor: "#E0703A", fillOpacity: 1 })
-          .addTo(map)
-          .bindPopup(popupContent(place))
-          .bindTooltip(place.name, { direction: "top", offset: [0, -8] });
-        return [place.lat, place.lng];
+      const points = parsed.places.map((p) => [p.lng, p.lat]);
+      map = new sdk.Map({
+        container: containerRef.current,
+        style: streetStyle(sdk, theme),
+        center: points[0],
+        zoom: 14,
+        navigationControl: true,
+        geolocateControl: false,
+        cooperativeGestures: true, // scrolling the chat doesn't zoom the map
       });
-      if (points.length === 1) map.setView(points[0], 15);
-      else map.fitBounds(points, { padding: [36, 36], maxZoom: 16 });
-    });
+      parsed.places.forEach((place) => {
+        new sdk.Marker({ color: "#E0703A" })
+          .setLngLat([place.lng, place.lat])
+          .setPopup(new sdk.Popup({ offset: 28 }).setDOMContent(popupContent(place)))
+          .addTo(map);
+      });
+      if (points.length > 1) {
+        const lngs = points.map((p) => p[0]);
+        const lats = points.map((p) => p[1]);
+        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 48, maxZoom: 16, duration: 0 });
+      }
+    }).catch(() => {}); // the SDK didn't load — the card still lists the places
     return () => { alive = false; map?.remove(); };
-  }, [parsed]);
+  }, [parsed, theme]);
 
   if (pending) return <VisualPending icon={MapPin} label="Loading map…" />;
   if (parsed?.error) return <VisualFallback what="map" error={parsed.error} fallback={fallback} />;
   const places = parsed?.places || [];
   return (
     <VisualCard icon={MapPin} title={`Map · ${places.length} place${places.length === 1 ? "" : "s"}`} code={code}>
-      <div className="vetro-map-body"><div ref={containerRef} style={{ width: "100%", height: "100%" }} /></div>
+      <div className="vetro-map-body"><div ref={containerRef} className="vetro-map-canvas" /></div>
       <ul className="vetro-map-list">
         {places.map((p, i) => <li key={i}>{p.name}</li>)}
       </ul>
