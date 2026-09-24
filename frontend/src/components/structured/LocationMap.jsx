@@ -5,11 +5,11 @@ import { motion } from 'framer-motion';
 import '@maptiler/sdk/dist/maptiler-sdk.css';
 import '../../styles/StructuredResponse.css';
 import ImageGallery from './ImageGallery';
+import { MAPTILER_API_KEY } from '../../lib/maptiler';
 
 // Cache to store geocoding results and avoid duplicate API calls
 const geocodeCache = new Map();
-// MapTiler is the application's sole map provider.
-const MAPTILER_API_KEY = "X8pVgGsWFhZJyTYpijy1";
+// MapTiler is the application's sole map provider (key shared in lib/maptiler.js).
 mapTilerConfig.apiKey = MAPTILER_API_KEY;
 
 const isValidCoordinate = (point) => {

@@ -1,0 +1,22 @@
+/* Inline visuals (charts, widgets, maps) — same frame as the diagrams. */
+.vetro-visual-body[hidden], .vetro-diagram-code[hidden] { display: none; }
+
+.vetro-chart-body { position: relative; padding: 14px 16px 12px; height: 320px; }
+@media (max-width: 640px) { .vetro-chart-body { height: 260px; padding: 10px; } }
+
+.vetro-widget-frame { display: block; width: 100%; border: 0; background: #fff; min-height: 120px; }
+
+.vetro-map-body { height: 360px; }
+@media (max-width: 640px) { .vetro-map-body { height: 300px; } }
+.vetro-map-canvas { width: 100%; height: 100%; background: #e9e5dc; }
+:root[data-theme="dark"] .vetro-map-canvas { background: #1b1a18; }
+.vetro-map-popup strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.vetro-map-popup span { font-size: 12px; opacity: 0.8; }
+.vetro-map-list { margin: 0; padding: 8px 14px 12px; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--ink-3, #6b6b6b); border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08)); }
+:root[data-theme="dark"] .vetro-map-list { border-color: rgba(255, 255, 255, 0.08); }
+.vetro-map-list li::before { content: "●"; color: #E0703A; margin-right: 5px; font-size: 10px; }
+
+/* MapTiler popups inherit the chat font; dark mode matches the card. */
+.vetro-map-body .maplibregl-popup-content { font-family: inherit; padding: 8px 12px; border-radius: 10px; }
+:root[data-theme="dark"] .vetro-map-body .maplibregl-popup-content { background: #2E2C29; color: #ECE9E4; }
+:root[data-theme="dark"] .vetro-map-body .maplibregl-popup-tip { border-top-color: #2E2C29; border-bottom-color: #2E2C29; }

@@ -25,6 +25,10 @@ import {
   sendPasswordReset,
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
+import FileCard from "./components/chat/FileCard";
+import { VISUALS_PROMPT } from "./lib/visualsPrompt";
+import { renderVisualBlock } from "./lib/visualBlocks";
+import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
@@ -1037,11 +1041,18 @@ const useStreamFadeIn = (containerRef, content, active) => {
 
 // Markdown with the full code-block treatment (artifact button, download, copy).
 const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact, isStreaming }) {
+  // The diagram still being streamed, shared through context so the code
+  // renderer below stays stable (re-creating it every token would remount
+  // every code block and diagram in the reply).
+  const openBlock = useMemo(() => (isStreaming ? openFenceTail(content) : null), [content, isStreaming]);
   const components = useMemo(() => ({
-    code({ inline, className, children }) {
+    code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const langMatch = /language-(\w+)/.exec(className || "");
       if (inline || !langMatch) return <code className={className}>{children}</code>;
+      // Diagrams, charts, widgets and maps are drawn instead of shown as code.
+      const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
+      if (visual) return visual;
       const isArtifactWorthy = onSaveArtifact && codeString.split("\n").length >= 4;
       return (
         <CodeBlock
@@ -1057,9 +1068,11 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   useStreamFadeIn(containerRef, content, isStreaming);
   return (
     <div ref={containerRef} className="vai-stream-body">
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-        {normalizeMathDelimiters(content)}
-      </ReactMarkdown>
+      <OpenBlockContext.Provider value={openBlock}>
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+          {normalizeMathDelimiters(content)}
+        </ReactMarkdown>
+      </OpenBlockContext.Provider>
     </div>
   );
 });
@@ -1075,10 +1088,12 @@ const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
 // button — the per-model cards in a multi-AI answer.
 const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content }) {
   const components = useMemo(() => ({
-    code({ inline, className, children }) {
+    code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const langMatch = /language-(\w+)/.exec(className || "");
       if (inline || !langMatch) return <code className={className}>{children}</code>;
+      const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
+      if (visual) return visual;
       return <CodeBlock match={langMatch} codeString={codeString} />;
     },
   }), []);
@@ -6183,7 +6198,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           .map(({ role, content }) => ({ role, content }));
         const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
         if (puterSystem) {
-          puterMessages.unshift({ role: "system", content: puterSystem });
+          // Same inline-visuals rule the backend adds, so a browser model
+          // answers "draw a flowchart" or "chart this" with a visual, not prose.
+          puterMessages.unshift({ role: "system", content: `${puterSystem}${VISUALS_PROMPT}` });
         }
 
         const puterOptions = {
@@ -6888,7 +6905,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const filesToSend = selFiles.length ? [...selFiles] : null;
     const fileAttachments = selFiles.length ? selFiles.map(f => {
       const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
-      return { name: f.name, preview: preview?.src || null };
+      return { name: f.name, size: f.size, preview: preview?.src || null };
     }) : null;
     const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
     setMessages(hist); setInput("");
@@ -7056,10 +7073,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   </button>
                 </div>
               ) : (
-                <div key={idx} className="file-chip">
-                  📄 {f.name}
-                  <button type="button" onClick={() => removeFile(idx)}>✕</button>
-                </div>
+                <FileCard key={idx} name={f.name} size={f.size} onRemove={() => removeFile(idx)} />
               );
             })}
           </div>
@@ -7983,7 +7997,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                  <div className="user-attached-files">
                                    {m.files.map((f, fi) => f.preview
                                      ? <img key={fi} src={f.preview} alt={f.name} className="user-att-img" />
-                                     : <span key={fi} className="user-att-chip">📄 {f.name}</span>
+                                     : <FileCard key={fi} name={f.name} size={f.size} compact />
                                    )}
                                  </div>
                                )}
