@@ -1,6 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
-  <rect x="0" y="0" width="100" height="100" rx="22" fill="#16414F"/>
-  <rect x="42" y="8" width="16" height="74" rx="8" fill="#F4FBFA" transform="rotate(-24 50 82)"/>
-  <rect x="42" y="8" width="16" height="74" rx="8" fill="#3b8c9f" transform="rotate(24 50 82)"/>
-  <circle cx="50" cy="79" r="6.5" fill="#16414F"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 2 76 96" fill="none">
+  <!-- Transparent background; the dark stroke turns light on dark browser chrome. -->
+  <style>
+    .ink { fill: #1A1A1A; }
+    @media (prefers-color-scheme: dark) { .ink { fill: #F2F2F5; } }
+  </style>
+  <mask id="dot">
+    <rect x="0" y="0" width="100" height="100" fill="#fff"/>
+    <circle cx="50" cy="79" r="6.5" fill="#000"/>
+  </mask>
+  <g mask="url(#dot)">
+    <rect class="ink" x="42" y="8" width="16" height="74" rx="8" transform="rotate(-24 50 82)"/>
+    <rect x="42" y="8" width="16" height="74" rx="8" fill="#146B80" transform="rotate(24 50 82)"/>
+  </g>
 </svg>
