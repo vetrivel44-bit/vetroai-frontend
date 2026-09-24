@@ -139,3 +139,24 @@ test("every move it returns is legal, over a whole self-played game", async () =
   }
   assert.ok(plies > 20, "expected a real game, not an immediate stall");
 });
+
+test("static exchange evaluation counts the whole capture sequence", async () => {
+  const { see } = await import("../src/utils/chessEngine.js");
+  const find = (pos, uci) => pos.legalMoves().find((m) => pos.moveToUci(m) === uci);
+  // Knight takes a pawn that a pawn defends: loses the knight for a pawn.
+  let pos = Position.fromFen("4k3/8/3p4/4p3/8/5N2/8/4K3 w - - 0 1");
+  assert.equal(see(pos, find(pos, "f3e5")), 100 - 320);
+  // Undefended pawn: a clean win.
+  pos = Position.fromFen("4k3/8/8/4p3/8/5N2/8/4K3 w - - 0 1");
+  assert.equal(see(pos, find(pos, "f3e5")), 100);
+  // Rook battery: the second rook backs up the first through the x-ray.
+  pos = Position.fromFen("4k3/4r3/8/4p3/8/8/4R3/4R1K1 w - - 0 1");
+  assert.equal(see(pos, find(pos, "e2e5")), 100);
+});
+
+test("the single-line search finds a winning tactic quickly", () => {
+  // Nd6+ forks the king on e8 and the queen on b7 (the a-pawn keeps it a win).
+  const r = analysePosition("4k3/1q6/8/8/2N5/8/P7/4K3 w - - 0 1", { timeMs: 500, multiPv: 1 });
+  assert.equal(r.bestUci, "c4d6");
+  assert.ok(r.score > 500, `expected a winning score, got ${r.score}`);
+});

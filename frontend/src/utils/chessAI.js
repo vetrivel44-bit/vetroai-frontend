@@ -26,20 +26,21 @@ import {
   typeOf, colorOf, WHITE,
 } from "./chessEngine.js";
 import { buildGameIdentity, bookMove, openingName, getPersona } from "./chessPersonas.js";
+import { grandmasterBookMove, repertoireName } from "./chessOpenings.js";
 import { resolveApiBase } from "../lib/apiBase.js";
 
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 export const CHESS_API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 
 export const CHESS_MODELS = [
-  { id: "agnes", name: "Agnes 2.0", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A" },
-  { id: "chatgpt", name: "ChatGPT", tagline: "Classical technician — structure above all", color: "#10a37f", avatar: "C" },
-  { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#f472b6", avatar: "F" },
-  { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G" },
-  { id: "groq", name: "Groq", tagline: "Relentless initiative — thrives in chaos", color: "#10b981", avatar: "Q" },
-  { id: "mistral", name: "Mistral", tagline: "Prophylactic grinder — stops your plan first", color: "#f97316", avatar: "M" },
-  { id: "sambanova", name: "SambaNova", tagline: "Hypermodern — cedes the centre to break it", color: "#ec4899", avatar: "S" },
-  { id: "openrouter", name: "OpenRouter", tagline: "Adaptive — borrows whichever school fits", color: "#6366f1", avatar: "O" },
+  { id: "agnes", name: "Agnes 2.0", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A", logo: "/model-icons/vetro.svg" },
+  { id: "chatgpt", name: "ChatGPT", tagline: "Classical technician — structure above all", color: "#10a37f", avatar: "C", logo: "/model-icons/openai.svg" },
+  { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#d97757", avatar: "F", logo: "/model-icons/claude.svg" },
+  { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G", logo: "/model-icons/gemini.svg" },
+  { id: "groq", name: "Groq", tagline: "Relentless initiative — thrives in chaos", color: "#f55036", avatar: "Q", logo: "/model-icons/groq.svg" },
+  { id: "mistral", name: "Mistral", tagline: "Prophylactic grinder — stops your plan first", color: "#f97316", avatar: "M", logo: "/model-icons/mistral.svg" },
+  { id: "sambanova", name: "SambaNova", tagline: "Hypermodern — cedes the centre to break it", color: "#ec4899", avatar: "S", logo: "/model-icons/sambanova.svg" },
+  { id: "openrouter", name: "OpenRouter", tagline: "Adaptive — borrows whichever school fits", color: "#6366f1", avatar: "O", logo: "/model-icons/openrouter.svg" },
 ];
 
 // These four run through the dedicated /api/chess/move endpoint (their own
@@ -61,14 +62,23 @@ export const CHESS_DIFFICULTIES = [
   { id: "easy", name: "Easy", desc: "Makes human mistakes" },
   { id: "medium", name: "Medium", desc: "Solid club player" },
   { id: "hard", name: "Hard", desc: "Rarely slips" },
-  { id: "master", name: "Master", desc: "Full engine strength" },
+  { id: "master", name: "Master", desc: "Grandmaster-level play" },
 ];
 const DIFFICULTY = {
   easy: { thinkMs: 400, maxDepth: 3, vetoMargin: 150, pickWindow: 120, softness: 60 },
   medium: null, // the persona's own settings
   hard: { thinkMs: 2500, vetoMargin: 20, pickWindow: 8, softness: 10 },
-  master: { thinkMs: 5000, vetoMargin: 5, pickWindow: 0, softness: 10, neutralStyle: true },
+  // Master is the engine at full strength with the neutral evaluation. The
+  // language model is not consulted for the move: it could only ever make
+  // the choice worse, and the round trip was most of the wait.
+  master: { thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
+  // AI vs AI and Spectator: the strongest setting in the arena — more
+  // thinking time than Master — and both sides get exactly this, whatever
+  // model is named on the badge, so a match is decided over the board and
+  // not by one side being handed a bigger budget or a looser leash.
+  arena: { thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
 };
+export const ARENA_LEVEL = "arena";
 
 // ─── engine thread ──────────────────────────────────────────────────────────
 // Searches run in a Web Worker so a multi-second think never freezes the page.
@@ -402,6 +412,41 @@ function chooseEngineMove(identity, candidates, bestScore, level = null) {
   return viable[0];
 }
 
+// Positions since the last pawn move or capture — the only ones that can
+// repeat — so the search can steer into or away from a threefold draw.
+function repeatablePositions(chess) {
+  const halfmove = Number(chess.fen().split(" ")[4]) || 0;
+  if (!halfmove) return [];
+  return chess.history({ verbose: true }).slice(-halfmove).map((m) => m.before).filter(Boolean);
+}
+
+const PIECE_NAME = { P: "pawn", N: "knight", B: "bishop", R: "rook", Q: "queen", K: "king" };
+
+// A one-line note for moves the engine chose on its own, built from what the
+// search actually found rather than from a language model.
+function describeEngineMove(candidate, depth, score) {
+  const tags = candidate.tags;
+  const parts = [];
+  if (tags.includes("checkmate")) return "Checkmate.";
+  if (Math.abs(score) > MATE_SCORE - 1000) {
+    const moves = Math.ceil((MATE_SCORE - Math.abs(score)) / 2);
+    parts.push(score > 0 ? `Forced mate in ${moves}.` : "Holding on as long as possible.");
+  } else {
+    const capture = tags.find((t) => t.startsWith("captures "));
+    if (capture) parts.push(`Takes the ${PIECE_NAME[capture.slice(9)] || "piece"}${tags.includes("check") ? " with check" : ""}.`);
+    else if (tags.includes("check")) parts.push("Check — keeping the initiative.");
+    else if (tags.includes("castles")) parts.push("Castles and tucks the king away.");
+    else if (tags.includes("promotes")) parts.push("Promotes.");
+    const pawns = score / 100;
+    if (pawns >= 2) parts.push("Converting a winning position.");
+    else if (pawns >= 0.6) parts.push("Pressing the advantage.");
+    else if (pawns > -0.6) parts.push(parts.length ? "" : "Quiet improvement; the balance holds.");
+    else if (pawns > -2) parts.push("Tough position — making it hard to crack.");
+    else parts.push("Defending a difficult position.");
+  }
+  return `${parts.filter(Boolean).join(" ")} (depth ${depth})`;
+}
+
 // Requests a move from an AI model for the given chess.js instance.
 // Never throws for game-flow reasons — always resolves to a legal move.
 export async function requestAIMove({ providerId, chess, color, signal, gameSeed = "default", difficulty = null }) {
@@ -421,7 +466,18 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   // the book would answer it with a first move.
   const plyFromFen = (chess.moveNumber() - 1) * 2 + (chess.turn() === "b" ? 1 : 0);
   const historyIsComplete = history.length === plyFromFen;
-  if (historyIsComplete && history.length < 8) {
+  // Full strength opens like a top-level game: grandmaster mainlines, for as
+  // long as the game stays on one.
+  if (historyIsComplete && level?.engineOnly) {
+    const gm = grandmasterBookMove(history, legalSans, identity.rng);
+    if (gm) {
+      return {
+        move: gm.san,
+        commentary: `${gm.name} — main-line theory.`,
+        providerId, raw: "", source: "book", opening: gm.name,
+      };
+    }
+  } else if (historyIsComplete && history.length < 8) {
     const book = bookMove(history, legalSans, identity.rng, identity.mood.id);
     if (book) {
       return {
@@ -442,7 +498,14 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   const style = level?.neutralStyle ? DEFAULT_STYLE : identity.style;
   const analysis = await runEngine("analyse", {
     fen,
-    options: { timeMs: thinkMs, style, multiPv: 5, ...(level?.maxDepth ? { maxDepth: level.maxDepth } : {}) },
+    options: {
+      timeMs: thinkMs, style,
+      // Full strength needs only the best move, which searches far deeper
+      // than keeping honest scores for five of them.
+      multiPv: level?.engineOnly ? 1 : 5,
+      history: repeatablePositions(chess),
+      ...(level?.maxDepth ? { maxDepth: level.maxDepth } : {}),
+    },
   });
   identity.depth = analysis.depth;
   if (signal?.aborted) {
@@ -465,10 +528,22 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
     };
   }
 
+  // ── Full-strength levels: the engine's move, played straight away ─────────
+  if (level?.engineOnly && engineChoice) {
+    return {
+      move: engineChoice.san,
+      commentary: describeEngineMove(engineChoice, analysis.depth, engineChoice.score),
+      providerId, raw: "", source: "engine",
+      eval: engineChoice.label,
+      score: engineChoice.score,
+      depth: analysis.depth,
+    };
+  }
+
   // ── 3. Ask the model to choose, with the analysis in hand ─────────────────
   const prompt = buildPrompt({
     identity, colorName, chess, pos, candidates, legalSans,
-    opening: openingName(history),
+    opening: repertoireName(history) || openingName(history),
   });
 
   const timeoutCtrl = new AbortController();
@@ -506,6 +581,7 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
       commentary: extractCommentary(text) || "Trusting my own calculation here.",
       providerId, raw: text, source: "engine",
       eval: engineFallback ? engineFallback.label : null,
+      score: engineFallback ? engineFallback.score : null,
     };
   }
 
@@ -535,6 +611,7 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
       commentary: extractCommentary(text) || "Recalculated — that line collapses a few moves deeper.",
       providerId, raw: text, source: "veto",
       eval: engineFallback.label,
+      score: engineFallback.score,
       vetoed: parsed,
     };
   }
@@ -544,6 +621,7 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
     commentary: extractCommentary(text) || "Committed to the move.",
     providerId, raw: text, source: "model",
     eval: chosenScore !== null ? scoreLabel(chosenScore) : null,
+    score: chosenScore,
   };
 }
 
