@@ -73,6 +73,8 @@ export function normalizeJob(j, i = 0) {
     // No date means we don't know it — not "posted just now".
     postedAt: (() => { const t = toTime(j.job_posted_at_datetime_utc, j.job_posted_at_timestamp); return t ? new Date(t).toISOString() : null; })(),
     expiresAt: (() => { const t = toTime(j.job_offer_expiration_datetime_utc, j.job_offer_expiration_timestamp); return t ? new Date(t).toISOString() : null; })(),
+    // Every place the job can be applied to — one is often the employer's own careers site.
+    applyLinks: (j.apply_options || []).map((o) => o && o.apply_link).filter(Boolean),
     applyUrl: j.job_apply_link || `https://www.google.com/search?q=${encodeURIComponent(title + " " + (j.employer_name || ""))}`,
     skills: j.job_required_skills || [],
     color: "#8b7bff",

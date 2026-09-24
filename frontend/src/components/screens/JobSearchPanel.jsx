@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { cachedCompanyLogo, lookupCompanyLogo } from "../../utils/companyLogos";
 import { normalizeJob, closedReason, deadlineLabel, isInternshipQuery, searchParams, POSTED_OPTIONS, MAX_OPEN_DAYS } from "../../utils/jobListings";
 
 // ─── CATEGORY DEFINITIONS ─────────────────────────────────────────────────────
@@ -487,20 +488,25 @@ function companyDomain(job) {
   const raw = (job.company || "").toLowerCase().trim();
   if (KNOWN_DOMAINS[raw]) return KNOWN_DOMAINS[raw];
   if (KNOWN_DOMAINS[name]) return KNOWN_DOMAINS[name];
-  // Only trust the apply link when it is the employer's own site (its name appears in the domain).
-  if (job.applyUrl) {
-    const d = rootDomain(job.applyUrl);
+  // Only trust an apply link when it is the employer's own site (its name
+  // appears in the domain) — every apply option is checked, not just the first.
+  const compact = name.replace(/[^a-z0-9]/g, "");
+  for (const link of [job.applyUrl, ...(job.applyLinks || [])]) {
+    if (!link) continue;
+    const d = rootDomain(link);
     const label = d && d.split(".")[0].replace(/-/g, "");
-    const compact = name.replace(/[^a-z0-9]/g, "");
     if (label && !JOB_BOARD_RE.test(d) && label.length >= 3 && compact.length >= 3 && (compact.startsWith(label) || label.startsWith(compact))) return d;
   }
   return null;
 }
 
-function logoSources(job) {
-  const domain = companyDomain(job);
+// Best first: the logo the listing came with, the company's official logo
+// from Wikidata, then its site's icon.
+function logoSources(job, official) {
+  const domain = companyDomain(job) || (official?.website ? rootDomain(official.website) : null);
   return [
     job.logo,
+    official?.logo,
     domain && `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
     domain && `https://icons.duckduckgo.com/ip3/${domain}.ico`,
   ].filter(Boolean);
@@ -510,7 +516,17 @@ function logoSources(job) {
 const badLogos = new Set();
 
 function CompanyLogo({ job, size = 42, radius = 10, className = "jsp-logo" }) {
-  const sources = logoSources(job).filter(u => !badLogos.has(u));
+  // Official logo/website from Wikidata; undefined until looked up.
+  const [official, setOfficial] = useState(() => cachedCompanyLogo(job.company));
+  // Only needed when the listing has no working logo of its own.
+  const needsLookup = !job.logo || badLogos.has(job.logo);
+  useEffect(() => {
+    if (!needsLookup || official !== undefined) return;
+    let live = true;
+    lookupCompanyLogo(job.company).then(r => { if (live) setOfficial(r); });
+    return () => { live = false; };
+  }, [needsLookup, job.company, official]);
+  const sources = logoSources(job, official).filter(u => !badLogos.has(u));
   const [, rerender] = useState(0);
   const src = sources[0];
   const fail = () => { badLogos.add(src); rerender(n => n + 1); };
