@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { detectClockQuestion, clockAnswer } from "../../utils/clock";
 import { Globe, X, ExternalLink, Sparkles, ArrowLeft, Loader, Search as SearchIcon, TrendingUp, CornerUpLeft, AlertCircle, Layers, ArrowUpRight, ChevronDown } from "lucide-react";
 
 // Crisp modern search SVG icon
@@ -274,30 +273,6 @@ export default function WebSearchView({ onExitWebSearch }) {
     setFollowUpPanels({});
     setSearched(text);
     setQuery(text);
-
-    // Date/time questions come from the device clock (or the backend's world
-    // clock for "time in <place>"), not from a search summary written on a
-    // server in another timezone.
-    const clockQuestion = detectClockQuestion(text);
-    if (clockQuestion) {
-      let reply = null;
-      if (!clockQuestion.place) {
-        reply = clockAnswer(clockQuestion);
-      } else {
-        try {
-          const r = await fetch(`${API}/time?place=${encodeURIComponent(clockQuestion.place)}`);
-          const j = await r.json().catch(() => ({}));
-          if (r.ok && j.success && j.data?.timeZone) reply = clockAnswer(clockQuestion, { timeZone: j.data.timeZone, where: j.data.place });
-        } catch { /* unknown place or offline: search instead */ }
-      }
-      if (reply) {
-        setAnswer(reply.replace(/\*\*/g, "").replace(/_\(/g, "(").replace(/\)_/g, ")"));
-        setResults([]);
-        setProvider("clock");
-        setLoading(false);
-        return;
-      }
-    }
 
     try {
       const res = await fetch(`${API}/web-search`, {
