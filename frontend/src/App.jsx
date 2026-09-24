@@ -29,7 +29,7 @@ import FileCard from "./components/chat/FileCard";
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
-import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
+import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
@@ -53,6 +53,7 @@ const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
+import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
   buildMessages as buildOllamaMessages, streamChat as streamOllamaChat,
@@ -129,7 +130,7 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       } else if (type === "status" && data) {
         onStatus(data);
       } else if (type === "error" && data) {
-        onError(data);
+        onError(data, event.code);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
       } else if (type === "realtime_notice" && data) {
@@ -191,6 +192,25 @@ const extractPdfText = async (file) => {
     text += content.items.map(item => item.str).join(" ") + "\n";
   }
   return text.trim().slice(0, 15000);
+};
+
+// A scanned PDF has no text layer, so its pages are rendered to images the
+// vision model can read instead.
+const renderPdfPages = async (file, maxPages = 4) => {
+  const pdfjsLib = await loadPdfjs();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages = [];
+  for (let i = 1; i <= Math.min(pdf.numPages, maxPages); i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 1.6 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (blob) pages.push(new File([blob], `${file.name.replace(/\.pdf$/i, "")}-page-${i}.jpg`, { type: "image/jpeg" }));
+  }
+  return pages;
 };
 
 // ─── SOURCE CARDS EXTRACTION (Perplexity-style) ───────────────────────────────
@@ -4392,16 +4412,18 @@ export default function App() {
     if (!remote) return; // offline or rules denied — keep the local cache as-is
 
     const localKeyForUser = email || uid;
-    const merge = (remoteList, localList) => {
-      const byId = new Map();
-      for (const item of localList || []) if (item?.id != null) byId.set(String(item.id), item);
-      for (const item of remoteList || []) if (item?.id != null) byId.set(String(item.id), item);
-      return [...byId.values()];
-    };
 
+    // Anything deleted on either side stays deleted: a union of the two lists
+    // alone brought back chats deleted on another device (this device's cache
+    // still had them) and re-uploaded them.
     const applied = {};
     for (const kind of ["sessions", "spaces", "artifacts"]) {
-      applied[kind] = merge(remote[kind], readLocalList(localKeyForUser, kind));
+      const remoteDeleted = (remote.prefs?.[`deleted_${kind}`] || []).map(String);
+      const tombstones = rememberTombstones(localKeyForUser, kind, remoteDeleted);
+      // Deletions made here while offline haven't reached the cloud yet.
+      const notYetRemote = tombstones.filter((id) => !remoteDeleted.includes(id));
+      if (notYetRemote.length) persistDeletion(localKeyForUser, kind, notYetRemote);
+      applied[kind] = mergeLists(remote[kind], readLocalList(localKeyForUser, kind), tombstones);
     }
 
     setSessions(applied.sessions);
@@ -4462,6 +4484,9 @@ export default function App() {
   const [pinnedIds, setPinnedIds]           = useState(() => JSON.parse(localStorage.getItem("vetroai_pins") || "[]"));
   const [isSidebarOpen, setIsSidebarOpen]   = useState(false);
   const [confirmDelete, setConfirmDelete]   = useState(null);
+  // Sidebar "Select" mode for deleting several chats at once.
+  const [selectingChats, setSelectingChats] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState([]);
   // ── Spaces / Projects ─────────────────────────────────────────────────────────
   const [spaces, setSpaces] = useState([]);
   const [currentSpaceId, setCurrentSpaceId] = useState(null);
@@ -4737,11 +4762,20 @@ export default function App() {
     }
   }, [input]);
 
+  // Lock page scroll behind full-screen panels. The small confirm dialog is
+  // left out: toggling the lock for every delete made the page jump (the
+  // scrollbar vanished and came back, and phones reset their scroll). The
+  // scroll position is kept across the lock either way.
   useEffect(() => {
-    const anyModal = isSidebarOpen || showProfile || showSysPrompt || showShare || showBookmarks || showCalc || showScratchpad || showPlayground || showStats || !!confirmDelete;
-    document.body.style.overflow = anyModal ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showCalc, showScratchpad, showPlayground, showStats, confirmDelete]);
+    const anyModal = isSidebarOpen || showProfile || showSysPrompt || showShare || showBookmarks || showCalc || showScratchpad || showPlayground || showStats;
+    if (!anyModal) return undefined;
+    const y = window.scrollY;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+      if (window.scrollY !== y) window.scrollTo(0, y);
+    };
+  }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showCalc, showScratchpad, showPlayground, showStats]);
 
   // ── Auth submit ───────────────────────────────────────────────────────────────
   const handleAuthSubmit = async (e) => {
@@ -5168,7 +5202,11 @@ export default function App() {
     }
   }, [addMemory]);
 
-  const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
+  const deleteSession = (id) => { setConfirmDelete({ ids: [id], message: "Delete this conversation? This cannot be undone." }); };
+  const deleteSessions = (ids) => {
+    if (!ids?.length) return;
+    setConfirmDelete({ ids, message: ids.length === 1 ? "Delete this conversation? This cannot be undone." : `Delete ${ids.length} conversations? This cannot be undone.` });
+  };
 
   const deleteAllSessions = () => { setConfirmDelete({ type: "allSessions", message: "Delete all conversations? This cannot be undone." }); };
 
@@ -5206,24 +5244,27 @@ export default function App() {
     });
   };
 
+  // One path for one chat, a selection, or everything. The list is updated
+  // from the latest state (not the render's copy, which a streaming reply
+  // may have moved on from), and the deleted ids are remembered so no other
+  // device or cached copy can bring them back.
   const confirmDeleteSession = () => {
     if (!confirmDelete) return;
-    if (confirmDelete.type === "allSessions") {
-      setSessions([]);
-      try { persistList(userKey, "sessions", []); } catch (err) { swallowError(err); }
-      setPinnedIds([]);
-      newChat();
-      setConfirmDelete(null);
-      addToast("All conversations deleted", "info");
-      return;
-    }
-    const { id } = confirmDelete;
-    const list = sessions.filter(s => s.id !== id); setSessions(list);
-    try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
-    if (currentSessionId === id) newChat();
-    setPinnedIds(p => p.filter(x => x !== id));
+    const all = confirmDelete.type === "allSessions";
+    const ids = (all ? sessions.map(s => s.id) : confirmDelete.ids || []).map(String);
+    const gone = new Set(ids);
+    setSessions(prev => {
+      const list = all ? [] : prev.filter(s => !gone.has(String(s.id)));
+      try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
+      return list;
+    });
+    try { persistDeletion(userKey, "sessions", ids); } catch (err) { swallowError(err); }
+    if (all || gone.has(String(currentSessionId))) newChat();
+    setPinnedIds(p => (all ? [] : p.filter(x => !gone.has(String(x)))));
+    setSelectedChatIds([]);
+    setSelectingChats(false);
     setConfirmDelete(null);
-    addToast("Conversation deleted", "info");
+    addToast(all ? "All conversations deleted" : ids.length === 1 ? "Conversation deleted" : `${ids.length} conversations deleted`, "info");
   };
 
   const togglePin = (e, id) => {
@@ -5653,23 +5694,32 @@ export default function App() {
 
   const clearFiles = () => { setSelFiles([]); setFilePreviews([]); };
 
-  const handleFileChange = async e => {
-    const files = Array.from(e.target.files); if (!files.length) return;
-    e.target.value = "";
-    const pdfFiles = files.filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"));
-    const otherFiles = files.filter(f => !(f.type === "application/pdf" || f.name.endsWith(".pdf")));
+  // One intake for the file picker, drag-and-drop and paste. Every PDF is
+  // turned into its text here (drag-and-drop and paste used to send the raw
+  // PDF, which no model could read), and a scanned PDF with no text becomes
+  // page images for the vision model.
+  const ingestFiles = async (files) => {
+    const isPdf = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+    const pdfFiles = files.filter(isPdf);
+    const otherFiles = files.filter((f) => !isPdf(f));
     if (pdfFiles.length) {
       setIsPdfLoading(true);
       for (const f of pdfFiles) {
-        addToast(`📄 Parsing ${f.name}…`, "info", 2000);
+        addToast(`📄 Reading ${f.name}…`, "info", 2000);
         try {
           const text = await extractPdfText(f);
-          const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
-          const textFile = new File([textBlob], f.name.replace(".pdf", ".txt"), { type: "text/plain" });
-          addFiles([textFile]);
-          addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
-        } catch (err) {
-          addToast(`⚠️ Could not parse ${f.name}`, "error");
+          if (text.replace(/\s+/g, "").length >= 40) {
+            const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
+            addFiles([new File([textBlob], f.name.replace(/\.pdf$/i, ".txt"), { type: "text/plain" })]);
+            addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
+          } else {
+            const pages = await renderPdfPages(f);
+            if (!pages.length) throw new Error("no pages");
+            addFiles(pages);
+            addToast(`📄 ${f.name} is scanned — attached ${pages.length} page image${pages.length === 1 ? "" : "s"} to read`, "success", 3500);
+          }
+        } catch {
+          addToast(`⚠️ Could not read ${f.name}`, "error");
         }
       }
       setIsPdfLoading(false);
@@ -5680,6 +5730,12 @@ export default function App() {
       const docCount = otherFiles.length - imgCount;
       if (docCount > 0) addToast(`📎 ${docCount} file(s) attached`, "success", 2000);
     }
+  };
+
+  const handleFileChange = async e => {
+    const files = Array.from(e.target.files); if (!files.length) return;
+    e.target.value = "";
+    await ingestFiles(files);
   };
 
   const [isDragOver, setIsDragOver] = useState(false);
@@ -5693,12 +5749,12 @@ export default function App() {
         if (f) files.push(f);
       }
     }
-    if (files.length) { e.preventDefault(); addFiles(files); }
+    if (files.length) { e.preventDefault(); ingestFiles(files); }
   };
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length) addFiles(files);
+    if (files.length) ingestFiles(files);
   };
   const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
   const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); };
@@ -5973,6 +6029,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
+    // The user's timezone, so the backend's "today" is the user's today.
+    fd.append("clientTimeZone", userTimeZone());
     // For browser models the app does the searching itself, so it applies the
     // backend's rule: explicit search asks always search, but the auto-search
     // setting is only permission — it searches when the question looks like
@@ -6184,7 +6242,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // bubble and returns the answer. Shared by the primary browser-model
       // path and the last-resort retry after the backend runs out of
       // providers. Returns null when the turn was superseded mid-stream.
-      const streamWithPuter = async (providerName, extraSystem = "", prefix = "") => {
+      const streamWithPuter = async (providerName, extraSystem = "", prefix = "", docs = null) => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
         await window.whenPuter?.();
@@ -6196,6 +6254,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
           .slice(-50)
           .map(({ role, content }) => ({ role, content }));
+        // Attached documents ride on this turn's question, as for the local model.
+        if (docs?.length) {
+          const lastUser = [...puterMessages].reverse().find((m) => m.role === "user");
+          if (lastUser) lastUser.content = withDocuments(docs, lastUser.content);
+        }
         const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
         if (puterSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
@@ -6259,7 +6322,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const res = await fetch(`${API}/web-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userQuery }),
+          body: JSON.stringify({ query: userQuery, timeZone: userTimeZone() }),
           signal: ctrl.signal,
         });
         const json = await res.json().catch(() => ({}));
@@ -6278,7 +6341,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const list = sources.slice(0, 8).map((s, i) =>
           `[${i + 1}] ${s.title || s.domain} — ${s.url}${s.published ? ` (${s.published})` : ""}\n${(s.snippet || "").slice(0, 700)}`
         ).join("\n\n");
-        return `LIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
+        return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally.";
       };
 
@@ -6312,6 +6375,47 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
       };
 
+      // Reads the attached images with GPT-5.6 Luna in the browser and shows
+      // the answer. Used when a browser model is picked, and when the server
+      // reports it has no image-reading model (NO_VISION). Throws on failure
+      // (a credits error included) for the caller to handle.
+      const analyzeImagesInBrowser = async () => {
+        await window.whenPuter?.();
+        if (!window.puter?.ai?.chat) {
+          throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
+        }
+        setIsTyping(false);
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+        const analyses = [];
+        for (let index = 0; index < attachedImages.length; index++) {
+          if (!isActive()) return;
+          const imageUrl = await fileToDataUrl(attachedImages[index]);
+          const imagePrompt = attachedImages.length > 1
+            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
+            : userQuery || "Analyze this image in detail.";
+          const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
+          const analysis = getPuterResponseText(response);
+          if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
+          analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
+          const combined = analyses.join("\n\n");
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            return next;
+          });
+          setStreamingContent(combined);
+        }
+        const bot = analyses.join("\n\n");
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(bot);
+        if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+        notifyResponseReady(bot);
+        generateFollowUps(bot, userQuery || "Analyze this image");
+      };
+
       if (attachedImages.length > 0) {
         // Already learned this session that GPT-5.6 Luna is out of credits —
         // skip straight to the backend instead of reopening Puter's dialog.
@@ -6320,41 +6424,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         } else if (!PUTER_MODEL_IDS[selectedProvider]) {
           // Auto and backend models send images to the backend's vision providers.
         } else {
-        await window.whenPuter?.();
-        if (!window.puter?.ai?.chat) {
-          throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
-        }
-        setIsTyping(false);
-        setIsWebSearching(false);
-        setStreamStatus("streaming");
         try {
-          const analyses = [];
-          for (let index = 0; index < attachedImages.length; index++) {
-            if (!isActive()) return;
-            const imageUrl = await fileToDataUrl(attachedImages[index]);
-            const imagePrompt = attachedImages.length > 1
-              ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
-              : userQuery || "Analyze this image in detail.";
-            const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
-            const analysis = getPuterResponseText(response);
-            if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
-            analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
-            const combined = analyses.join("\n\n");
-            setMessages((previous) => {
-              const next = [...previous];
-              next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
-              return next;
-            });
-            setStreamingContent(combined);
-          }
-          const bot = analyses.join("\n\n");
-          setIsLoading(false);
-          setStreamStatus("idle");
-          setStreamingContent("");
-          if (voiceRef.current || autoSpeakRef.current) speak(bot);
-          if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
-          notifyResponseReady(bot);
-          generateFollowUps(bot, userQuery || "Analyze this image");
+          await analyzeImagesInBrowser();
           return;
         } catch (puterErr) {
           if (!isActive()) return;
@@ -6406,6 +6477,38 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return next;
           });
         }
+      }
+
+      // "What is today's date" / "time in London": answered from the clock —
+      // exact and instant — instead of from web pages written on another
+      // server's clock (which around midnight in India gave yesterday's date).
+      const clockQuestion = fileCount === 0 ? detectClockQuestion(userQuery) : null;
+      if (clockQuestion) {
+        let clockReply = null;
+        if (!clockQuestion.place) {
+          clockReply = clockAnswer(clockQuestion);
+        } else {
+          try {
+            const r = await fetch(`${API}/time?place=${encodeURIComponent(clockQuestion.place)}`, { signal: ctrl.signal });
+            const j = await r.json().catch(() => ({}));
+            if (r.ok && j.success && j.data?.timeZone) clockReply = clockAnswer(clockQuestion, { timeZone: j.data.timeZone, where: j.data.place });
+          } catch (clockErr) {
+            if (clockErr?.name === "AbortError" || !isActive()) throw clockErr;
+            // Unknown place or offline: fall through to the normal answer.
+          }
+        }
+        if (clockReply && isActive()) {
+          setIsTyping(false);
+          setIsWebSearching(false);
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: clockReply, provider: "VetroAI" };
+            return next;
+          });
+          finishChat(clockReply);
+          return;
+        }
+        if (!isActive()) return;
       }
 
       // Web Search with "Auto": the user wants the web's answer, not a chat
@@ -6461,29 +6564,33 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // An automatic search that failed still lets the chosen model answer; an
       // explicit web search falls through to the backend, which can search.
       if (puterModelId && !explicitSearch && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
-        if (fileCount > 0) {
-          throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
-        }
-        try {
-          const puterBot = await streamWithPuter(effectivePuterProvider, astro?.prompt || "", astro?.chartBlock || "");
-          if (!isActive() || puterBot === null) return;
-          finishChat(puterBot);
-          return;
-        } catch (puterErr) {
-          if (!isActive()) return;
-          if (!isPuterCreditsError(puterErr)) throw puterErr;
-          // Puter is out of credits/usage for this model — don't fail the chat,
-          // fall through to the backend request below (which has its own
-          // provider fallback chain, down to Cohere) instead of surfacing this.
-          puterCreditsExhaustedRef.current.add(effectivePuterProvider);
-          addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message, reason: classifyPuterFailure(puterErr) });
-          addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
-          setMessages((previous) => {
-            const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: "" };
-            return next;
-          });
-          setStreamingContent("");
+        // Browser models read text documents here (they used to refuse every
+        // attachment). A file whose text can't be read goes to the backend.
+        const puterDocs = fileCount > 0 ? newDocs : null;
+        if (fileCount > 0 && (!puterDocs || attachedImages.length)) {
+          addDebugLog("Puter.attachmentToBackend", { reqId, provider: effectivePuterProvider, fileCount });
+        } else {
+          try {
+            const puterBot = await streamWithPuter(effectivePuterProvider, astro?.prompt || "", astro?.chartBlock || "", puterDocs);
+            if (!isActive() || puterBot === null) return;
+            finishChat(puterBot);
+            return;
+          } catch (puterErr) {
+            if (!isActive()) return;
+            if (!isPuterCreditsError(puterErr)) throw puterErr;
+            // Puter is out of credits/usage for this model — don't fail the chat,
+            // fall through to the backend request below (which has its own
+            // provider fallback chain, down to Cohere) instead of surfacing this.
+            puterCreditsExhaustedRef.current.add(effectivePuterProvider);
+            addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message, reason: classifyPuterFailure(puterErr) });
+            addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: "" };
+              return next;
+            });
+            setStreamingContent("");
+          }
         }
       }
 
@@ -6494,6 +6601,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // failure is captured here rather than thrown and retried below.
       let backendFailure = null;
       let streamError = "";
+      let streamErrorCode = "";
       let bot = "";
       // An empty reply or a dropped connection is usually momentary (a provider
       // closing early, the server waking up), so one quiet retry of the same
@@ -6501,6 +6609,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       for (let backendAttempt = 0; backendAttempt < 2; backendAttempt++) {
         backendFailure = null;
         streamError = "";
+        streamErrorCode = "";
         bot = "";
         try {
           const res = await fetch(API + "/chat", {
@@ -6536,8 +6645,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               setStreamStatus(statusMsg);
               addDebugLog("SSE.status", { status: statusMsg });
             },
-            (errorMsg) => {
+            (errorMsg, code) => {
               streamError = errorMsg;
+              if (code) streamErrorCode = code;
             },
             isActive,
             reqId,
@@ -6597,6 +6707,28 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (!isActive()) return;
       }
 
+      // The server has no working image-reading model: read the image here
+      // with the browser's vision model instead of answering without it.
+      if (backendFailure && streamErrorCode === "NO_VISION" && attachedImages.length > 0 && !puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
+        addDebugLog("Backend.noVision", { reqId, images: attachedImages.length });
+        setMessages((previous) => {
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+          return next;
+        });
+        setStreamingContent("");
+        setStreamStatus("Reading the image…");
+        try {
+          await analyzeImagesInBrowser();
+          return;
+        } catch (visionErr) {
+          if (!isActive()) return;
+          if (isPuterCreditsError(visionErr)) puterCreditsExhaustedRef.current.add("GPT-5.6 Luna");
+          addDebugLog("Puter.visionFallbackFailed", { reqId, error: visionErr?.message });
+          throw new Error("Couldn't read the image right now — the image-reading models are unavailable. Please try again in a moment, or describe what's in it.");
+        }
+      }
+
       if (backendFailure) {
         if (selectedMode === "web_search" && fileCount === 0) {
           setMessages((previous) => {
@@ -6615,7 +6747,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const browserRetry = pickBrowserRetryProvider({
           attempted: [...puterAttempted],
           preferCodex: shouldUseCodex(userQuery, selectedMode),
-          hasFiles: fileCount > 0,
+          // Readable documents can go to a browser model now; images or
+          // unreadable files still can't.
+          hasFiles: fileCount > 0 && (!newDocs || attachedImages.length > 0),
           // Only a turn that picked a browser model may fall back to one: Auto and
           // backend models stay off Puter, and a browser model can't search.
           puterAvailable: Boolean(PUTER_MODEL_IDS[selectedProvider]) && selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
@@ -6631,7 +6765,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           });
           setStreamingContent("");
           try {
-            const retryBot = await streamWithPuter(browserRetry);
+            const retryBot = await streamWithPuter(browserRetry, "", "", fileCount > 0 ? newDocs : null);
             if (!isActive() || retryBot === null) return;
             finishChat(retryBot);
             return;
@@ -7318,11 +7452,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   }, []);
 
   const displaySessions = React.useMemo(() => {
-    const mock = [
-      { id: 'm1', title: 'explain all the features of th...' },
-      { id: 'm2', title: 'how to reverse a linked list' },
-      { id: 'm3', title: 'what is the capital of france' },
-    ];
+    // No placeholder chats: the old sample rows ("how to reverse a linked
+    // list" …) appeared once everything was deleted and could not be deleted,
+    // so it looked as if deleting had left chats behind.
     if (sessions && sessions.length > 0) {
       const sorted = [...sessions].sort((a, b) => {
         const ta = parseInt(a.id, 10) || 0, tb = parseInt(b.id, 10) || 0;
@@ -7331,14 +7463,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Pinned chats always stay at the top and are never cut off by the 10-row limit.
       const pinned = sorted.filter(s => pinnedIds.includes(s.id));
       const rest = sorted.filter(s => !pinnedIds.includes(s.id));
-      return [...pinned, ...rest.slice(0, 10)].map(s => ({
+      // Select mode lists every chat, so old ones can be found and removed.
+      return [...pinned, ...(selectingChats ? rest : rest.slice(0, 10))].map(s => ({
         id: s.id,
         title: s.title || 'Untitled',
         pinned: pinnedIds.includes(s.id),
       }));
     }
-    return mock;
-  }, [sessions, recentsSortMode, pinnedIds]);
+    return [];
+  }, [sessions, recentsSortMode, pinnedIds, selectingChats]);
 
   const goToChatsHome = () => {
     setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false);
@@ -7740,9 +7873,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           {displaySessions.length > 0 && (
             <div className="flex items-center justify-between px-3 py-1 mb-0.5 relative">
               <p className="claude-sb-group-label text-[11.5px] font-medium" style={{ color: 'var(--ink-4)' }}>Recents</p>
-              <button onClick={() => setRecentsSortOpen(o => !o)} title="Sort recents" data-popover-trigger className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 22, height: 22, color: "var(--ink-4)" }}>
-                <SlidersHorizontal size={14} />
-              </button>
+              <span className="flex items-center gap-1">
+                <button onClick={() => { setSelectingChats(v => !v); setSelectedChatIds([]); setOpenRecentMenuId(null); }} className={`claude-sb-select-btn${selectingChats ? " on" : ""}`} title={selectingChats ? "Done selecting" : "Select chats to delete"}>
+                  {selectingChats ? "Done" : "Select"}
+                </button>
+                <button onClick={() => setRecentsSortOpen(o => !o)} title="Sort recents" data-popover-trigger className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 22, height: 22, color: "var(--ink-4)" }}>
+                  <SlidersHorizontal size={14} />
+                </button>
+              </span>
               {recentsSortOpen && (
                 <div className="claude-popover" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30 }}>
                   <button onClick={() => { setRecentsSortMode('recent'); setRecentsSortOpen(false); }} className={`claude-popover-item ${recentsSortMode === 'recent' ? 'active' : ''}`}>Most recent</button>
@@ -7751,9 +7889,35 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               )}
             </div>
           )}
+          {selectingChats && displaySessions.length > 0 && (
+            <div className="claude-sb-selectbar">
+              <label className="claude-sb-selectall">
+                <input type="checkbox"
+                  checked={selectedChatIds.length === displaySessions.length}
+                  ref={(el) => { if (el) el.indeterminate = selectedChatIds.length > 0 && selectedChatIds.length < displaySessions.length; }}
+                  onChange={(e) => setSelectedChatIds(e.target.checked ? displaySessions.map(x => x.id) : [])} />
+                <span>{selectedChatIds.length ? `${selectedChatIds.length} selected` : "Select all"}</span>
+              </label>
+              <button className="claude-sb-delete-selected" disabled={!selectedChatIds.length} onClick={() => deleteSessions(selectedChatIds)}>
+                <Trash2 size={13} /> Delete
+              </button>
+            </div>
+          )}
+          {displaySessions.length === 0 && (
+            <p className="claude-sb-empty">No chats yet</p>
+          )}
           {displaySessions.map((session) => {
-            const isMock = String(session.id).startsWith('m');
             const isActive = activeNav === 'chats' && currentSessionId === session.id;
+            if (selectingChats) {
+              const checked = selectedChatIds.includes(session.id);
+              return (
+                <label key={session.id} className={`claude-sb-recent-row claude-sb-select-row${checked ? " checked" : ""}`}>
+                  <input type="checkbox" checked={checked}
+                    onChange={() => setSelectedChatIds(prev => (prev.includes(session.id) ? prev.filter(x => x !== session.id) : [...prev, session.id]))} />
+                  <span className="truncate">{session.pinned && <span aria-hidden="true" style={{ marginRight: 5 }}>📌</span>}{session.title}</span>
+                </label>
+              );
+            }
             const isRenaming = renamingId === session.id;
             return (
               <div key={session.id} className="claude-sb-recent-row group relative">
@@ -7770,11 +7934,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     className="claude-sb-recent-input text-left px-3 py-2 text-[13px] rounded-md w-full"
                   />
                 ) : (
-                  <button onClick={() => { loadSession(session.id); setActiveNav('chats'); }} className={`claude-sb-recent text-left px-3 py-[9px] text-[13px] rounded-md truncate transition-colors w-full ${!isMock ? "pr-8" : ""} ${isActive ? 'active' : ''}`}>
+                  <button onClick={() => { loadSession(session.id); setActiveNav('chats'); }} className={`claude-sb-recent text-left px-3 py-[9px] text-[13px] rounded-md truncate transition-colors w-full pr-8 ${isActive ? 'active' : ''}`}>
                     {session.pinned && <span aria-hidden="true" style={{ marginRight: 5 }}>📌</span>}{session.title}
                   </button>
                 )}
-                {!isMock && !isRenaming && (
+                {!isRenaming && (
                   <button onClick={(e) => { e.stopPropagation(); setOpenRecentMenuId(openRecentMenuId === session.id ? null : session.id); }} title="More" data-popover-trigger className="claude-sb-recent-more opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-md">
                     <MoreHorizontal size={14} />
                   </button>

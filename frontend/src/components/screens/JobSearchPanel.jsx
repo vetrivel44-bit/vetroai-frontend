@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { cachedCompanyLogo, lookupCompanyLogo } from "../../utils/companyLogos";
+import { normalizeJob, closedReason, deadlineLabel, isInternshipQuery, searchParams, POSTED_OPTIONS, MAX_OPEN_DAYS, payPeriodSuffix, missingPayLabel, matchesWorkType } from "../../utils/jobListings";
 
 // ─── CATEGORY DEFINITIONS ─────────────────────────────────────────────────────
 // Each category has: company pool, salary range, city pool, color, skill pool, description template
@@ -486,20 +488,25 @@ function companyDomain(job) {
   const raw = (job.company || "").toLowerCase().trim();
   if (KNOWN_DOMAINS[raw]) return KNOWN_DOMAINS[raw];
   if (KNOWN_DOMAINS[name]) return KNOWN_DOMAINS[name];
-  // Only trust the apply link when it is the employer's own site (its name appears in the domain).
-  if (job.applyUrl) {
-    const d = rootDomain(job.applyUrl);
+  // Only trust an apply link when it is the employer's own site (its name
+  // appears in the domain) — every apply option is checked, not just the first.
+  const compact = name.replace(/[^a-z0-9]/g, "");
+  for (const link of [job.applyUrl, ...(job.applyLinks || [])]) {
+    if (!link) continue;
+    const d = rootDomain(link);
     const label = d && d.split(".")[0].replace(/-/g, "");
-    const compact = name.replace(/[^a-z0-9]/g, "");
     if (label && !JOB_BOARD_RE.test(d) && label.length >= 3 && compact.length >= 3 && (compact.startsWith(label) || label.startsWith(compact))) return d;
   }
   return null;
 }
 
-function logoSources(job) {
-  const domain = companyDomain(job);
+// Best first: the logo the listing came with, the company's official logo
+// from Wikidata, then its site's icon.
+function logoSources(job, official) {
+  const domain = companyDomain(job) || (official?.website ? rootDomain(official.website) : null);
   return [
     job.logo,
+    official?.logo,
     domain && `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
     domain && `https://icons.duckduckgo.com/ip3/${domain}.ico`,
   ].filter(Boolean);
@@ -509,7 +516,17 @@ function logoSources(job) {
 const badLogos = new Set();
 
 function CompanyLogo({ job, size = 42, radius = 10, className = "jsp-logo" }) {
-  const sources = logoSources(job).filter(u => !badLogos.has(u));
+  // Official logo/website from Wikidata; undefined until looked up.
+  const [official, setOfficial] = useState(() => cachedCompanyLogo(job.company));
+  // Only needed when the listing has no working logo of its own.
+  const needsLookup = !job.logo || badLogos.has(job.logo);
+  useEffect(() => {
+    if (!needsLookup || official !== undefined) return;
+    let live = true;
+    lookupCompanyLogo(job.company).then(r => { if (live) setOfficial(r); });
+    return () => { live = false; };
+  }, [needsLookup, job.company, official]);
+  const sources = logoSources(job, official).filter(u => !badLogos.has(u));
   const [, rerender] = useState(0);
   const src = sources[0];
   const fail = () => { badLogos.add(src); rerender(n => n + 1); };
@@ -652,6 +669,13 @@ const S = `
   .b-r{background:var(--skys);color:var(--sky);}
   .b-t{background:var(--sf2);color:var(--tx2);}
   .b-e{background:var(--acs);color:var(--ac);}
+  .b-d,.b-x{padding:3px 9px;border-radius:100px;font-size:11px;font-weight:700;white-space:nowrap;}
+  .b-d{background:var(--oks);color:var(--ok);}
+  .b-x{background:var(--errs);color:var(--err);}
+  .jsp-opennote{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:12.5px;font-weight:600;color:var(--tx2);}
+  .jsp-opennote em{font-style:normal;font-weight:500;color:var(--tx3);}
+  .jsp-opendot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--oks);}
+  .jsp-sbhint{margin:6px 0 0;font-size:11px;line-height:1.45;color:var(--tx3);}
   .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--ln);}
   .jsp-sal{font-size:13.5px;font-weight:700;color:var(--ok);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .jsp-age{font-size:12px;color:var(--tx3);white-space:nowrap;}
 
@@ -767,7 +791,14 @@ export default function JobSearchPanel({ onClose }) {
     return { on: false, status: "idle", lat: null, lng: null, place: "", area: "", radius };
   });
   const [resultNear, setResultNear] = useState(null);
-  const [filters, setFilters] = useState({ location: "", remote: false, experience: "" });
+  // `posted` defaults to the past month so stale listings aren't even fetched.
+  const [filters, setFilters] = useState({ location: "", remote: false, hybrid: false, onsite: false, experience: "", posted: "month" });
+  // Internship mode: every part of the search — chips, near me, filters,
+  // history, wording — works the same, just for internships.
+  const internMode = filters.experience === "intern";
+  const noun = internMode ? { one: "internship", many: "internships", Many: "Internships" } : { one: "job", many: "jobs", Many: "Jobs" };
+  // How many listings were dropped as expired/closed in the last search.
+  const [hiddenClosed, setHiddenClosed] = useState(0);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
 
@@ -780,7 +811,7 @@ export default function JobSearchPanel({ onClose }) {
 
   const applyClientFilters = (jobsList, currentFilters) => {
     return jobsList.filter(j => {
-      if (currentFilters.remote && !j.remote) return false;
+      if (!matchesWorkType(j, currentFilters)) return false;
       if (currentFilters.experience && j.experienceLevel && !j.experienceLevel.toLowerCase().includes(currentFilters.experience.toLowerCase())) return false;
       if (currentFilters.location && j.location && !j.location.toLowerCase().includes(currentFilters.location.toLowerCase())) return false;
       return true;
@@ -837,46 +868,45 @@ export default function JobSearchPanel({ onClose }) {
     const nr = nearOverride || near;
     const useNear = nr.on && nr.status === "ready";
     const role = query.trim();
-    if (!role && !useNear) return;
+    const internToggle = (overrideFilters || filters).experience === "intern";
+    if (!role && !useNear && !internToggle) return;
     setLoading(true); setSearched(true); setDetail(null); setNoMatch(false);
     setResultNear(useNear ? nr : null);
-    if (role) setHist(p => [role, ...p.filter(x => x !== role)].slice(0, 10));
+    // History remembers an internship search as one, so re-running it from
+    // the History tab gives internships again.
+    const histEntry = role && ((overrideFilters || filters).experience === "intern" && !isInternshipQuery(role) ? `${role} internship` : role);
+    if (histEntry) setHist(p => [histEntry, ...p.filter(x => x !== histEntry)].slice(0, 10));
 
     const activeFilters = overrideFilters || filters;
-    const apiQuery = useNear && nr.place ? `${role || "jobs"} in ${nr.place}` : (role || "jobs");
+    const wantInternships = activeFilters.experience === "intern" || isInternshipQuery(role);
+    // An internship search from the toggle alone still needs words for the API.
+    const roleText = role || (wantInternships ? "internship" : "");
+    const apiQuery = useNear && nr.place ? `${roleText || "jobs"} in ${nr.place}` : (roleText || "jobs");
     const radiusParam = useNear ? `&radius=${nr.radius}` : "";
-
-    // Try live API first
-    try {
-      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}`, {
+    const fetchJobs = async (extra) => {
+      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}${extra}`, {
         headers: { "x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST }
       });
       if (!res.ok) throw new Error("api");
       const json = await res.json();
-      const data = Array.isArray(json.data) ? json.data : (json.data && json.data.jobs) ? json.data.jobs : [];
+      return Array.isArray(json.data) ? json.data : (json.data && json.data.jobs) ? json.data.jobs : [];
+    };
+
+    // Try live API first
+    try {
+      let data = await fetchJobs(searchParams({ internships: wantInternships, posted: activeFilters.posted }));
+      // Some internships are listed under other employment types; if the
+      // INTERN filter finds nothing, search without it and keep the ones that
+      // are internships by their title.
+      if (wantInternships && !data.length) data = await fetchJobs(searchParams({ posted: activeFilters.posted }));
       if (data && data.length > 0) {
-        let parsedJobs = data.map((j, i) => ({ 
-          id: j.job_id || String(i), 
-          title: j.job_title, 
-          company: j.employer_name, 
-          location: `${j.job_city || ''} ${j.job_state || ''} ${j.job_country || ''}`.trim() || 'Unknown', 
-          description: j.job_description || "", 
-          remote: !!j.job_is_remote, 
-          type: j.job_employment_type || "Full-time", 
-          experienceLevel: "Mid-Level", 
-          salary: j.job_min_salary ? { min: j.job_min_salary, max: j.job_max_salary || j.job_min_salary, currency: j.job_salary_currency || '$' } : null, 
-          postedAt: j.job_posted_at_datetime_utc || new Date().toISOString(), 
-          applyUrl: j.job_apply_link || `https://www.google.com/search?q=${encodeURIComponent(j.job_title + ' ' + j.employer_name)}`, 
-          skills: j.job_required_skills || [], 
-          color: "#8b7bff", 
-          tags: [],
-          logo: j.employer_logo || null,
-          industry: j.employer_company_type || null,
-          website: j.employer_website || null,
-          lat: typeof j.job_latitude === "number" ? j.job_latitude : null,
-          lng: typeof j.job_longitude === "number" ? j.job_longitude : null
-        }));
-        parsedJobs = applyClientFilters(parsedJobs, activeFilters);
+        let parsedJobs = data.map((j, i) => normalizeJob(j, i));
+        // Only listings that are still open — expired, closed or long-stale ones are dropped.
+        const open = parsedJobs.filter(j => !closedReason(j));
+        setHiddenClosed(parsedJobs.length - open.length);
+        parsedJobs = open;
+        if (wantInternships) parsedJobs = parsedJobs.filter(j => j.experienceLevel === "Internship");
+        parsedJobs = applyClientFilters(parsedJobs, { ...activeFilters, experience: wantInternships ? "" : activeFilters.experience });
         if (useNear) {
           // Jobs with coordinates must fall inside the radius; ones without keep the API's own radius match.
           parsedJobs = parsedJobs
@@ -916,12 +946,13 @@ export default function JobSearchPanel({ onClose }) {
         </button>
       </div>
       <div className="jsp-cmeta">
+        {closedReason(job) ? <span className="b-x">Closed</span> : deadlineLabel(job) && <span className="b-d">{deadlineLabel(job)}</span>}
         {job.remote && <span className="b-r">Remote</span>}
         <span className="b-t">{job.type}</span>
-        <span className="b-e">{job.experienceLevel}</span>
+        {job.experienceLevel !== job.type && <span className="b-e">{job.experienceLevel}</span>}
       </div>
       <div className="jsp-cfoot">
-        <span className="jsp-sal">{job.salary ? formatSalary(job.salary.min, job.salary.max, job.salary.currency) : "Salary TBD"}</span>
+        <span className="jsp-sal">{job.salary ? formatSalary(job.salary.min, job.salary.max, job.salary.currency) + payPeriodSuffix(job.salary.period) : missingPayLabel(job)}</span>
         {job.distance != null
           ? <span className="jsp-dist"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>{fmtKm(job.distance)}</span>
           : <span className="jsp-age">{timeAgo(job.postedAt)}</span>}
@@ -951,7 +982,7 @@ export default function JobSearchPanel({ onClose }) {
     const place = nr.area || nr.place || "your location";
     return (
       <div className="jsp-radar">
-        <svg viewBox="0 0 220 220" role="img" aria-label={`Jobs within ${nr.radius} km`}>
+        <svg viewBox="0 0 220 220" role="img" aria-label={`${noun.Many} within ${nr.radius} km`}>
           <defs>
             <radialGradient id="jsp-sweep" cx="0" cy="1" r="1"><stop offset="0%" style={{ stopColor: "var(--ac)", stopOpacity: .05 }} /><stop offset="100%" style={{ stopColor: "var(--ac)", stopOpacity: .35 }} /></radialGradient>
           </defs>
@@ -981,10 +1012,10 @@ export default function JobSearchPanel({ onClose }) {
         </svg>
         <div className="jsp-rinfo">
           {scanning ? <>
-            <p className="jsp-rtit">Looking for jobs nearby…</p>
+            <p className="jsp-rtit">Looking for {noun.many} nearby…</p>
             <p className="jsp-rsub">Searching within {nr.radius} km of {place}</p>
           </> : <>
-            <p className="jsp-rtit">{list.length} job{list.length === 1 ? "" : "s"} within {nr.radius} km</p>
+            <p className="jsp-rtit">{list.length} {list.length === 1 ? noun.one : noun.many} within {nr.radius} km</p>
             <p className="jsp-rsub">Around {place}{unknown > 0 ? ` · ${unknown} without an exact pin` : ""}</p>
             {pts.length > 0 && <div className="jsp-rnear">
               {pts.slice(0, 3).map(j => (
@@ -1009,7 +1040,8 @@ export default function JobSearchPanel({ onClose }) {
   const Detail = ({ job }) => {
     const user = ["React", "JavaScript", "Python", "SQL", "Communication"];
     const hay = ((job.skills || []).join(" ")).toLowerCase();
-    let score = 50 + Math.floor(Math.random() * 22);
+    // A steady base per listing (was Math.random, so the score changed on every re-render).
+    let score = 50 + [...String(job.id || job.title)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 22;
     const matched = user.filter(s => hay.includes(s.toLowerCase()));
     const missing = (job.skills || []).filter(s => !user.includes(s)).slice(0, 2);
     score = Math.min(score + matched.length * 8, 99);
@@ -1042,8 +1074,12 @@ export default function JobSearchPanel({ onClose }) {
             <div className="jsp-dbdgs">
               {job.remote && <span className="b-r" style={{ fontSize: 12, padding: "4px 11px" }}>🌐 Remote</span>}
               <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>💼 {job.type}</span>
-              <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>
-              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
+              {job.experienceLevel !== job.type && <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>}
+              {closedReason(job)
+                ? <span className="b-x" style={{ fontSize: 12, padding: "4px 11px" }}>This listing has closed</span>
+                : <span className="b-d" style={{ fontSize: 12, padding: "4px 11px" }}>✅ {deadlineLabel(job) || "Accepting applications"}</span>}
+              {job.postedAt && <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>Posted {timeAgo(job.postedAt)}</span>}
+              {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {job.experienceLevel === "Internship" ? "Stipend " : ""}{formatSalary(job.salary.min, job.salary.max, job.salary.currency)}{payPeriodSuffix(job.salary.period)}</span>}
             </div>
             {job.description && (
               <>
@@ -1109,6 +1145,8 @@ export default function JobSearchPanel({ onClose }) {
   const pinIcon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>;
   const nearMsg = { denied: "Location access is blocked. Allow it in your browser's site settings to find jobs near you.", error: "Couldn't get your location. Check that location is on and try again.", unsupported: "This browser can't share your location." }[near.status];
 
+  const INTERN_CHIPS = ["Software Development Internship","Data Science Internship Bangalore","Marketing Internship Remote","UI/UX Design Internship","Finance Internship Mumbai","HR Internship","Content Writing Internship","Mechanical Engineering Internship"];
+  const INTERN_NEAR_CHIPS = ["Software","Marketing","Design","Finance","Sales","HR","Content Writing","Data Analyst"];
   const SAMPLE_CHIPS = ["Software Engineer Bangalore","Delivery Boy Hyderabad","Doctor Mumbai","Data Scientist Remote","Civil Engineer Chennai","Bank PO Delhi","UI Designer Pune","Sales Executive India"];
 
   return (
@@ -1120,7 +1158,7 @@ export default function JobSearchPanel({ onClose }) {
             <div className="jsp-hdl">
               <div className="jsp-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" /></svg></div>
               <h2 className="jsp-hdtit">AI Job Search</h2>
-              <span className="jsp-pill">300+ JOB TYPES</span>
+              <span className="jsp-pill">{internMode ? "INTERNSHIPS" : "300+ JOB TYPES"}</span>
             </div>
             <button className="jsp-xb" onClick={onClose}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
           </div>
@@ -1130,16 +1168,23 @@ export default function JobSearchPanel({ onClose }) {
               <div className="jsp-srchinwrap">
                 <div className="jsp-srchinico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
                 <input className="jsp-srchin" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") search(); }}
-                  placeholder={nearReady ? "What kind of job? (optional)" : 'Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"'} autoFocus />
+                  placeholder={internMode
+                    ? (nearReady ? "What kind of internship? (optional)" : 'Search internships — e.g. "Python Bangalore", "Marketing remote", "Finance Mumbai"')
+                    : (nearReady ? "What kind of job? (optional)" : 'Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"')} autoFocus />
               </div>
-              <button className="jsp-srchbtn" onClick={() => search()} disabled={(!q.trim() && !nearReady) || loading}>
+              <button className="jsp-srchbtn" onClick={() => search()} disabled={(!q.trim() && !nearReady && !internMode) || loading}>
                 {loading ? <div className="jsp-spin" /> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>}
               </button>
             </div>
             <div className="jsp-near">
               <button type="button" className={`jsp-nearbtn ${near.on ? "on" : ""}`} onClick={toggleNear} disabled={near.status === "locating"} aria-pressed={near.on}>
                 {near.status === "locating" ? <div className="jsp-spin" /> : pinIcon}
-                <span>{near.status === "locating" ? "Finding you…" : nearReady ? ((near.area || near.place).split(",")[0] || "Near me") : "Jobs near me"}</span>
+                <span>{near.status === "locating" ? "Finding you…" : nearReady ? ((near.area || near.place).split(",")[0] || "Near me") : `${noun.Many} near me`}</span>
+              </button>
+              <button type="button" className={`jsp-nearbtn ${filters.experience === "intern" ? "on" : ""}`} aria-pressed={filters.experience === "intern"}
+                onClick={() => { const nf = { ...filters, experience: filters.experience === "intern" ? "" : "intern" }; setFilters(nf); setTab("search"); if (q.trim() || nearReady || nf.experience === "intern") search(q, nf); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c3 2 9 2 12 0v-5" /></svg>
+                <span>Internships</span>
               </button>
               {nearReady && (
                 <div className="jsp-rads" role="group" aria-label="Search radius">
@@ -1150,7 +1195,7 @@ export default function JobSearchPanel({ onClose }) {
             {nearMsg && <p className="jsp-nearmsg">{nearMsg}</p>}
             <div className="jsp-chips">
               <span className="jsp-chlbl">Try:</span>
-              {(nearReady ? NEAR_CHIPS : SAMPLE_CHIPS).map(s => <button key={s} type="button" className="jsp-chip" onClick={() => { setQ(s); search(s); }}>{s}</button>)}
+              {(internMode ? (nearReady ? INTERN_NEAR_CHIPS : INTERN_CHIPS) : (nearReady ? NEAR_CHIPS : SAMPLE_CHIPS)).map(s => <button key={s} type="button" className="jsp-chip" onClick={() => { setQ(s); search(s); }}>{s}</button>)}
             </div>
           </div>
 
@@ -1161,7 +1206,7 @@ export default function JobSearchPanel({ onClose }) {
             {tab === "search" && searched && !loading && !noMatch && (
               <button type="button" className={`jsp-fbtn ${showFilters ? "on" : ""}`} onClick={() => setShowFilters(v => !v)}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" /></svg>
-                Filters{(filters.location || filters.remote || filters.experience) && <span className="jsp-fdot" />}
+                Filters{(filters.location || filters.remote || filters.hybrid || filters.onsite || filters.experience || filters.posted !== "month") && <span className="jsp-fdot" />}
               </button>
             )}
           </div>
@@ -1170,18 +1215,32 @@ export default function JobSearchPanel({ onClose }) {
             <div className="jsp-main">
               {tab === "search" && (
                 loading ? (resultNear ? <Radar list={[]} nr={resultNear} scanning /> : <Skels />) :
-                !searched ? <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`}
-                  action={!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Find jobs near me</button>} /> :
+                !searched ? (internMode
+                  ? <Empty title="Find open internships" sub="Software • Data • Design • Marketing • Finance • HR • Engineering • Content • and more — remote, hybrid or near you. Only listings still accepting applications are shown."
+                      action={<div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                        <button type="button" className="jsp-cta" onClick={() => search(q)}>Show open internships</button>
+                        {!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Internships near me</button>}
+                      </div>} />
+                  : <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`}
+                      action={!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Find jobs near me</button>} />) :
                 noMatch ? (resultNear
-                  ? <Empty title={`No jobs within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
+                  ? <Empty title={`No ${noun.many} within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
                       action={resultNear.radius < RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1] && <button type="button" className="jsp-cta" onClick={() => setRadius(RADIUS_OPTIONS.find(r => r > resultNear.radius))}>Search within {RADIUS_OPTIONS.find(r => r > resultNear.radius)} km</button>} />
-                  : <Empty title="No jobs found" sub={`We couldn't find any real jobs matching your criteria right now.`} />) :
+                  : <Empty title={filters.experience === "intern" ? "No open internships found" : "No jobs found"}
+                      sub={hiddenClosed > 0
+                        ? `${hiddenClosed} matching listing${hiddenClosed === 1 ? " has" : "s have"} expired or closed. Try a wider "Posted" range or different keywords.`
+                        : `We couldn't find any open listings matching your search right now.`} />) :
                 <>
                   {resultNear && <Radar list={jobs} nr={resultNear} />}
+                  <p className="jsp-opennote">
+                    <span className="jsp-opendot" />
+                    {jobs.length} open {filters.experience === "intern" || isInternshipQuery(q) ? `internship${jobs.length === 1 ? "" : "s"}` : `listing${jobs.length === 1 ? "" : "s"}`}
+                    {hiddenClosed > 0 && <em> · {hiddenClosed} expired or closed hidden</em>}
+                  </p>
                   <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
                 </>
               )}
-              {tab === "saved" && (saved.length === 0 ? <Empty title="No saved jobs" sub="Bookmark any job to save it here." /> : <div className="jsp-grid">{saved.map(j => <Card key={j.id} job={j} />)}</div>)}
+              {tab === "saved" && (saved.length === 0 ? <Empty title="No saved jobs or internships" sub="Bookmark any listing to save it here." /> : <div className="jsp-grid">{saved.map(j => <Card key={j.id} job={j} />)}</div>)}
               {tab === "history" && (hist.length === 0 ? <Empty title="No history yet" sub="Your recent searches will appear here." /> : hist.map((h, i) => (
                 <div key={i} className="jsp-hrow" onClick={() => { setQ(h); setTab("search"); search(h); }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
@@ -1202,12 +1261,18 @@ export default function JobSearchPanel({ onClose }) {
                 </div>
                 <div><p className="jsp-sbt">Location</p><input className="jsp-sbinp" value={filters.location} onChange={e => setFilters(f => ({ ...f, location: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') search(); }} placeholder="Filter by city…" /></div>
                 <div><p className="jsp-sbt">Work Type</p>
-                  {["Remote", "Hybrid", "On-site"].map(t => (
+                  {[["Remote", "remote"], ["Hybrid", "hybrid"], ["On-site", "onsite"]].map(([t, key]) => (
                     <div key={t} className="jsp-togrow">
                       <span className="jsp-toglbl">{t}</span>
-                      <button className={`jsp-tog ${t === "Remote" && filters.remote ? "on" : "off"}`} onClick={() => { if (t === "Remote") { const nf = { ...filters, remote: !filters.remote }; setFilters(nf); search(q, nf); } }}><div className="jsp-togk" /></button>
+                      <button className={`jsp-tog ${filters[key] ? "on" : "off"}`} aria-pressed={!!filters[key]} onClick={() => { const nf = { ...filters, [key]: !filters[key] }; setFilters(nf); search(q, nf); }}><div className="jsp-togk" /></button>
                     </div>
                   ))}
+                </div>
+                <div><p className="jsp-sbt">Posted</p>
+                  <select className="jsp-sbsel" value={filters.posted} onChange={e => { const nf = { ...filters, posted: e.target.value }; setFilters(nf); search(q, nf); }}>
+                    {POSTED_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                  <p className="jsp-sbhint">Expired listings, and undated ones older than {MAX_OPEN_DAYS} days, are always hidden.</p>
                 </div>
                 <div><p className="jsp-sbt">Experience</p>
                   <select className="jsp-sbsel" value={filters.experience} onChange={e => { const nf = { ...filters, experience: e.target.value }; setFilters(nf); search(q, nf); }}>

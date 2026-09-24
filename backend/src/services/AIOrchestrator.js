@@ -4,6 +4,7 @@ const { VISUALS_PROMPT } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
+const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
@@ -102,12 +103,12 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
   }
 
   async buildSystemPrompt(mode, context = {}) {
-    const { userQuery, webContext, personaPrompt, customInstructions, memories = [] } = context;
-    const now = new Date();
-    const nowISO = now.toISOString().slice(0, 10);
+    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock } = context;
 
     // ── Core system prompt ──
-    let sys = `You are VetroAI, an adaptive AI assistant. Today is ${nowISO}.
+    // The date is the user's, in their own timezone (clockService) — the
+    // server's UTC date is a day off for much of the world around midnight.
+    let sys = `You are VetroAI, an adaptive AI assistant. ${clockLine(clock || {})} When the user asks for the date, day or time, answer with exactly these values — never from web results or training data.
 
 # IDENTITY
 If the user asks who/what you are, your name, what model or AI powers you, who built you, or asks you to introduce yourself:
@@ -572,17 +573,15 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // Only honoured when a provider can actually act on it; see the strip below.
     const needsVision = (isComputerUse || carriesImages) && Boolean(configuredVisionProvider);
 
-    // No vision provider configured, but images arrived anyway. Drop them and
-    // say so, rather than handing a text-only model an invisible attachment and
-    // letting it answer as though it had looked.
+    // No vision provider configured, but images arrived anyway. Answering
+    // with a text-only model just told the user "I can't see your image".
+    // Instead the turn ends with a NO_VISION error, which the web app answers
+    // by reading the image with its in-browser vision model.
     if (carriesImages && !configuredVisionProvider && !isComputerUse) {
       logger.warn("AIOrchestrator.imagesWithoutVisionProvider", { reqId });
-      for (const message of messages) {
-        if (!Array.isArray(message.images) || !message.images.length) continue;
-        const count = message.images.length;
-        delete message.images;
-        message.content = `${message.content || ""}\n\n[${count} IMAGE${count > 1 ? "S were" : " was"} ATTACHED BUT NO IMAGE-CAPABLE MODEL IS AVAILABLE, so you cannot see ${count > 1 ? "them" : "it"}. Tell the user that plainly and answer only what the text supports — never describe or guess at the contents.]`.trim();
-      }
+      this.sendVetroEvent(res, "error", "No image-reading model is configured on the server right now.", { code: "NO_VISION" });
+      res.end();
+      return false;
     }
 
     let currentProviderName = needsVision
@@ -650,7 +649,26 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // searched literally and returning unrelated results (movie/song titles, etc.).
     const isExplicitSearchMode = mode === "web_search" || mode === "deep_search" || mode === "research";
     const autoSearchRequested = params.webSearch === true || params.webSearch === "true";
-    const shouldSearch = !isGreeting && !isIdentityQuestion && (
+    // "What is today's date" / "time in London": answered from the clock, not
+    // from web pages written in another timezone on another day — and without
+    // the seconds a search costs.
+    const clockQuestion = detectClockQuestion(userQuery);
+    let clockNote = "";
+    if (clockQuestion?.place) {
+      try {
+        const zone = await timeZoneForPlace(clockQuestion.place);
+        if (zone) {
+          const there = describeClock({ timeZone: zone.timeZone, now: params.clock?.now || new Date() });
+          clockNote = `\n\n[WORLD CLOCK]\nRight now in ${zone.name} (${there.timeZone}, ${there.offset}) it is ${there.time} on ${there.date}. Answer the user's question with exactly this.`;
+        }
+      } catch (err) {
+        logger.warn("AIOrchestrator.worldClockFailed", { reqId, place: clockQuestion.place, error: err.message });
+      }
+    }
+    const answeredByClock = !!clockQuestion && (!clockQuestion.place || !!clockNote);
+    // A turn about an attached file or image is answered from the attachment;
+    // searching the web for words from the file's text only added noise.
+    const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
       isExplicitSearchMode ||
       (autoSearchRequested && this.needsWebSearch(userQuery))
     );
@@ -697,13 +715,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
           // rather than throwing, so the outer race only guards a hung socket.
           searchRes = await Promise.race([
             performAgenticSearch(userQuery, {
+              clock: params.clock,
               onStatus: (msg) => { if (msg) this.sendVetroEvent(res, "status", msg); },
             }),
             new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 35000)),
           ]);
         } else {
           searchRes = await Promise.race([
-            searchWeb(userQuery),
+            searchWeb(userQuery, { clock: params.clock }),
             new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
           ]);
         }
@@ -730,7 +749,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
 
-    let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt });
+    let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock });
+    if (clockNote) finalSysPrompt += clockNote;
     if (noRealtimeData) {
       finalSysPrompt += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
     }
@@ -832,7 +852,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
           const isLastAttempt = attempts === maxAttempts - 1;
           const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision, isLastAttempt);
           if (!nextProvider) {
-            this.sendVetroEvent(res, "error", "All configured AI providers are currently unavailable. Please try again shortly.");
+            // Every image-capable provider failed: let the client read the
+            // image itself (NO_VISION) rather than giving up on the turn.
+            this.sendVetroEvent(res, "error", needsVision
+              ? "The image-reading models on the server are unavailable right now."
+              : "All configured AI providers are currently unavailable. Please try again shortly.",
+              needsVision && !isComputerUse ? { code: "NO_VISION" } : undefined);
             break;
           }
           let friendlyMsg = `Issue with ${currentProviderName}. Switching to another model…`;
@@ -864,8 +889,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
     return success;
   }
 
-  sendVetroEvent(res, type, data) {
-    res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  sendVetroEvent(res, type, data, extra) {
+    res.write(`data: ${JSON.stringify({ type, data, ...(extra || {}) })}\n\n`);
   }
 
   // Picks the next provider to try after `failedProvider`. Computer-use walks

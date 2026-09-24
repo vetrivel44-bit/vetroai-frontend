@@ -21,6 +21,7 @@ const Groq = require("groq-sdk");
 const { searchWeb } = require("../controllers/searchController");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
+const { describeClock } = require("./clockService");
 
 const DEFAULTS = {
   maxRounds: 3,
@@ -106,10 +107,8 @@ function dedupeResults(existing, incoming) {
  * makes citation possible: without stable numbers the model invents its own
  * references, which look like citations but point nowhere.
  */
-function buildContext({ query, rounds, results }) {
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  });
+function buildContext({ query, rounds, results, clock }) {
+  const today = describeClock(clock || {}).date;
 
   const parts = [
     `**Search Date**: ${today} | **Original question**: "${query}"`,
@@ -197,7 +196,7 @@ async function runQueries(queries, searchFn, onStatus) {
 async function performAgenticSearch(query, options = {}) {
   const opts = { ...DEFAULTS, ...options };
   const { onStatus } = opts;
-  const searchFn = opts.searchFn || searchWeb;
+  const searchFn = opts.searchFn || ((q) => searchWeb(q, { clock: opts.clock }));
   const startedAt = Date.now();
   const timeLeft = () => opts.deadlineMs - (Date.now() - startedAt);
 
@@ -218,7 +217,7 @@ async function performAgenticSearch(query, options = {}) {
     return { context: single.context, results: single.results || [], rounds: 1, queries: [query] };
   }
 
-  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const today = describeClock(opts.clock || {}).date;
 
   // ── Round 1: plan and search ────────────────────────────────────────────────
   let queries = [query];
@@ -284,7 +283,7 @@ async function performAgenticSearch(query, options = {}) {
   });
 
   return {
-    context: buildContext({ query, rounds, results }),
+    context: buildContext({ query, rounds, results, clock: opts.clock }),
     results,
     rounds: rounds.length,
     queries: usedQueries,

@@ -21,6 +21,7 @@ const creditService = require("../services/creditService");
 const { withGroqModel } = require("../utils/groqModel");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
+const { clientClock } = require("../services/clockService");
 const { verifyAccessToken } = require("../utils/token");
 
 // Best-effort: resolves a Mongo user id from the bearer token if one is present.
@@ -94,7 +95,15 @@ function getAttachmentContext(file) {
     throw new ApiError(400, "Unsupported attachment type. Use txt, md, csv, json, pdf, or images.");
   }
   if (file.mimetype.startsWith("image/")) {
-    return null; // Browser clients analyze images directly with Puter GPT-5.6 Luna.
+    return null; // Images travel on the message itself (see `images` below).
+  }
+  // A PDF's raw bytes are not text: decoding them as UTF-8 handed the model
+  // pages of binary noise. The web app converts PDFs to text before sending;
+  // anything still binary here is reported plainly instead.
+  const head = file.buffer.subarray(0, 4096);
+  const isBinary = file.buffer.subarray(0, 5).toString("latin1") === "%PDF-" || head.includes(0);
+  if (isBinary) {
+    return `[The user attached "${file.originalname}", but its text could not be extracted here (it is a binary or scanned file). Say so and ask them to paste the text or attach it as an image.]`;
   }
   const text = file.buffer.toString("utf-8").trim();
   if (!text) return null;
@@ -171,6 +180,10 @@ async function chat(req, res) {
   const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
   const activePlugins = normalizePluginIds(req.body?.plugins);
 
+  // The user's own clock (IANA timezone from the browser), so "today" is
+  // their today — see clockService.
+  const clock = clientClock(req.body);
+
   // Web search flag from frontend (autoWebSearch toggle or explicit web mode)
   const webSearch = String(req.body?.webSearch || "false") === "true";
 
@@ -184,10 +197,16 @@ async function chat(req, res) {
   if (files.length > 0) {
     logger.info("chat.attachments", { count: files.length, images: imageFiles.length, text: textFiles.length });
   }
-  for (const file of textFiles) {
-    const attachmentContext = getAttachmentContext(file);
-    if (attachmentContext) {
-      messages.push({ role: "user", content: attachmentContext });
+  // File text goes into the user's own message, ahead of their question. As a
+  // separate trailing message it became "the latest question" (search and
+  // intent checks ran on the file's text) and left the actual question behind it.
+  const attachmentBlocks = textFiles.map(getAttachmentContext).filter(Boolean);
+  if (attachmentBlocks.length) {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      lastUser.content = `${attachmentBlocks.join("\n\n")}\n\nUser's question about the file${attachmentBlocks.length > 1 ? "s" : ""}: ${lastUser.content || "Summarise it."}`;
+    } else {
+      messages.push({ role: "user", content: attachmentBlocks.join("\n\n") });
     }
   }
 
@@ -249,6 +268,8 @@ async function chat(req, res) {
       memories,
       systemPrompt,
       webSearch,
+      clock,
+      hasAttachments: files.length > 0,
       activePlugins,
       effort,
       options: { temperature, maxTokens }
@@ -410,4 +431,4 @@ async function textToSpeech(req, res) {
   return res.send(buffer);
 }
 
-module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech };
+module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext };

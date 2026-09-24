@@ -26,6 +26,7 @@ import {
   setDoc,
   writeBatch,
   serverTimestamp,
+  arrayUnion,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -162,6 +163,31 @@ export async function savePrefs(uid, prefs) {
       { ...prefs, updatedAt: serverTimestamp() },
       { merge: true }
     );
+  } catch (err) {
+    swallow(err);
+  }
+}
+
+/**
+ * Record ids the user deleted, and delete their documents now. The ids live
+ * in the prefs doc (`deleted_<kind>`) via arrayUnion, so two devices adding
+ * tombstones at once can't overwrite each other's — without them, a device
+ * whose local cache still held a chat deleted elsewhere merged it back in and
+ * re-uploaded it on its next sign-in.
+ */
+export async function recordDeletions(uid, kind, ids) {
+  if (!ready() || !uid || !LIST_KINDS.includes(kind) || !ids?.length) return;
+  const clean = [...new Set(ids.map(String))];
+  try {
+    await setDoc(doc(db, "users", uid, "prefs", "app"), { [`deleted_${kind}`]: arrayUnion(...clean), updatedAt: serverTimestamp() }, { merge: true });
+    for (let i = 0; i < clean.length; i += MAX_BATCH_OPS) {
+      const batch = writeBatch(db);
+      for (const id of clean.slice(i, i + MAX_BATCH_OPS)) batch.delete(doc(db, "users", uid, kind, id));
+      await batch.commit();
+    }
+    // They are gone remotely; the next diff must not try to delete them again.
+    const synced = lastSynced.get(keyOf(uid, kind));
+    if (synced) for (const id of clean) synced.delete(id);
   } catch (err) {
     swallow(err);
   }

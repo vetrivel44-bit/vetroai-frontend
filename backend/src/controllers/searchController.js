@@ -4,18 +4,21 @@ const { successResponse } = require("../utils/response");
 const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
+const { describeClock } = require("../services/clockService");
 const {
   detectFreshness, sortByRecency, GOOGLE_NEWS_WHEN, DDG_TIME, BING_FRESHNESS,
 } = require("../services/searchFreshness");
 
-// Wider windows to fall back to when a strict one comes back nearly empty.
-const WIDER = { day: "week", week: "month", month: "year", year: null };
+// The one wider window to retry with when a strict one comes back nearly
+// empty. Only one retry: each Tavily call takes seconds, and stepping through
+// day → week → month → year one after another made searches very slow.
+const WIDER = { day: "month", week: "year", month: null, year: null };
 
 /**
  * One Tavily search that respects how recent the query needs its results.
  * A time-sensitive query is searched inside its window (and as news when it
- * reads like news); if that finds fewer than three results the window is
- * widened step by step, ending with an unrestricted search.
+ * reads like news); if that finds fewer than three results it is retried
+ * once with a wider window, all within one time budget.
  */
 async function tavilySearch(query, baseOptions, timeoutMs) {
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
@@ -26,6 +29,7 @@ async function tavilySearch(query, baseOptions, timeoutMs) {
 
   let timeRange = freshness.timeRange;
   let last = null;
+  let tried = 0;
   for (;;) {
     const options = { ...baseOptions };
     if (timeRange) {
@@ -34,12 +38,15 @@ async function tavilySearch(query, baseOptions, timeoutMs) {
     }
     const remaining = deadline - Date.now();
     if (remaining <= 500) break;
-    last = await Promise.race([
+    const attempt = await Promise.race([
       client.search(query, options),
       new Promise((_, reject) => setTimeout(() => reject(new Error("Tavily timeout")), remaining)),
-    ]);
-    if (!timeRange || (last?.results?.length || 0) >= 3) break;
+    ]).catch((err) => { if (!last) throw err; return null; });
+    // A narrower attempt that found something beats a failed wider one.
+    if (attempt && ((attempt.results?.length || 0) >= (last?.results?.length || 0) || attempt.answer)) last = attempt;
+    if (!timeRange || tried >= 1 || (last?.results?.length || 0) >= 3) break;
     timeRange = WIDER[timeRange];
+    tried++;
   }
   if (last && freshness.recent && Array.isArray(last.results)) {
     last = { ...last, results: sortByRecency(last.results) };
@@ -190,12 +197,11 @@ function datedLabel(r) {
   return ` (published ${new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })})`;
 }
 
-async function searchWeb(query) {
+async function searchWeb(query, { clock } = {}) {
   if (!query) throw new Error("Query is required");
 
-  const todayStr = new Date().toLocaleDateString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  });
+  // The user's date, not the server's (UTC) — see clockService.
+  const todayStr = describeClock(clock || {}).date;
 
   const snippets = [];
   snippets.push(`**Search Date**: ${todayStr} | **Query**: "${query}"`);

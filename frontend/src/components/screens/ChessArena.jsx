@@ -316,15 +316,20 @@ function CommentaryCard({ commentary }) {
 }
 
 function MoveList({ history }) {
-  const endRef = useRef(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "nearest" }); }, [history.length]);
+  const gridRef = useRef(null);
+  // Keep the latest move in view by scrolling the list itself —
+  // scrollIntoView would also scroll the whole page down to it.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (grid) grid.scrollTop = grid.scrollHeight;
+  }, [history.length]);
   const pairs = [];
   for (let i = 0; i < history.length; i += 2) pairs.push([history[i], history[i + 1]]);
   const last = history.length - 1;
   return (
     <div className="ca-moves">
       <div className="ca-section-title">Moves</div>
-      <div className="ca-moves-grid">
+      <div className="ca-moves-grid" ref={gridRef}>
         {pairs.length === 0 && <p className="ca-moves-empty">No moves yet.</p>}
         {pairs.map((pair, i) => (
           <React.Fragment key={i}>
@@ -333,7 +338,6 @@ function MoveList({ history }) {
             <span className={`ca-move ${i * 2 + 1 === last ? "ca-move-last" : ""}`}>{pair[1] || ""}</span>
           </React.Fragment>
         ))}
-        <span ref={endRef} />
       </div>
     </div>
   );

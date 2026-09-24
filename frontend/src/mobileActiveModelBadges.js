@@ -18,6 +18,9 @@ const MODEL_ICON_RULES = [
   [/gemini|google/i, '/model-icons/gemini.svg'],
   [/mistral/i, '/model-icons/mistral.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
+  [/deepseek/i, '/model-icons/deepseek.svg'],
+  [/^groq$/i, '/model-icons/groq.svg'],
+  [/plugsky/i, 'https://www.google.com/s2/favicons?domain=plugsky.com&sz=64'],
   [/agnes|vetro/i, '/favicon.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
