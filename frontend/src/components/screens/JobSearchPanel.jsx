@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { normalizeJob, closedReason, deadlineLabel, isInternshipQuery, searchParams, POSTED_OPTIONS, MAX_OPEN_DAYS } from "../../utils/jobListings";
 
 // ─── CATEGORY DEFINITIONS ─────────────────────────────────────────────────────
 // Each category has: company pool, salary range, city pool, color, skill pool, description template
@@ -652,6 +653,13 @@ const S = `
   .b-r{background:var(--skys);color:var(--sky);}
   .b-t{background:var(--sf2);color:var(--tx2);}
   .b-e{background:var(--acs);color:var(--ac);}
+  .b-d,.b-x{padding:3px 9px;border-radius:100px;font-size:11px;font-weight:700;white-space:nowrap;}
+  .b-d{background:var(--oks);color:var(--ok);}
+  .b-x{background:var(--errs);color:var(--err);}
+  .jsp-opennote{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:12.5px;font-weight:600;color:var(--tx2);}
+  .jsp-opennote em{font-style:normal;font-weight:500;color:var(--tx3);}
+  .jsp-opendot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--oks);}
+  .jsp-sbhint{margin:6px 0 0;font-size:11px;line-height:1.45;color:var(--tx3);}
   .jsp-cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--ln);}
   .jsp-sal{font-size:13.5px;font-weight:700;color:var(--ok);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .jsp-age{font-size:12px;color:var(--tx3);white-space:nowrap;}
 
@@ -767,7 +775,10 @@ export default function JobSearchPanel({ onClose }) {
     return { on: false, status: "idle", lat: null, lng: null, place: "", area: "", radius };
   });
   const [resultNear, setResultNear] = useState(null);
-  const [filters, setFilters] = useState({ location: "", remote: false, experience: "" });
+  // `posted` defaults to the past month so stale listings aren't even fetched.
+  const [filters, setFilters] = useState({ location: "", remote: false, experience: "", posted: "month" });
+  // How many listings were dropped as expired/closed in the last search.
+  const [hiddenClosed, setHiddenClosed] = useState(0);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
 
@@ -837,46 +848,42 @@ export default function JobSearchPanel({ onClose }) {
     const nr = nearOverride || near;
     const useNear = nr.on && nr.status === "ready";
     const role = query.trim();
-    if (!role && !useNear) return;
+    const internToggle = (overrideFilters || filters).experience === "intern";
+    if (!role && !useNear && !internToggle) return;
     setLoading(true); setSearched(true); setDetail(null); setNoMatch(false);
     setResultNear(useNear ? nr : null);
     if (role) setHist(p => [role, ...p.filter(x => x !== role)].slice(0, 10));
 
     const activeFilters = overrideFilters || filters;
-    const apiQuery = useNear && nr.place ? `${role || "jobs"} in ${nr.place}` : (role || "jobs");
+    const wantInternships = activeFilters.experience === "intern" || isInternshipQuery(role);
+    // An internship search from the toggle alone still needs words for the API.
+    const roleText = role || (wantInternships ? "internship" : "");
+    const apiQuery = useNear && nr.place ? `${roleText || "jobs"} in ${nr.place}` : (roleText || "jobs");
     const radiusParam = useNear ? `&radius=${nr.radius}` : "";
-
-    // Try live API first
-    try {
-      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}`, {
+    const fetchJobs = async (extra) => {
+      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}${extra}`, {
         headers: { "x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST }
       });
       if (!res.ok) throw new Error("api");
       const json = await res.json();
-      const data = Array.isArray(json.data) ? json.data : (json.data && json.data.jobs) ? json.data.jobs : [];
+      return Array.isArray(json.data) ? json.data : (json.data && json.data.jobs) ? json.data.jobs : [];
+    };
+
+    // Try live API first
+    try {
+      let data = await fetchJobs(searchParams({ internships: wantInternships, posted: activeFilters.posted }));
+      // Some internships are listed under other employment types; if the
+      // INTERN filter finds nothing, search without it and keep the ones that
+      // are internships by their title.
+      if (wantInternships && !data.length) data = await fetchJobs(searchParams({ posted: activeFilters.posted }));
       if (data && data.length > 0) {
-        let parsedJobs = data.map((j, i) => ({ 
-          id: j.job_id || String(i), 
-          title: j.job_title, 
-          company: j.employer_name, 
-          location: `${j.job_city || ''} ${j.job_state || ''} ${j.job_country || ''}`.trim() || 'Unknown', 
-          description: j.job_description || "", 
-          remote: !!j.job_is_remote, 
-          type: j.job_employment_type || "Full-time", 
-          experienceLevel: "Mid-Level", 
-          salary: j.job_min_salary ? { min: j.job_min_salary, max: j.job_max_salary || j.job_min_salary, currency: j.job_salary_currency || '$' } : null, 
-          postedAt: j.job_posted_at_datetime_utc || new Date().toISOString(), 
-          applyUrl: j.job_apply_link || `https://www.google.com/search?q=${encodeURIComponent(j.job_title + ' ' + j.employer_name)}`, 
-          skills: j.job_required_skills || [], 
-          color: "#8b7bff", 
-          tags: [],
-          logo: j.employer_logo || null,
-          industry: j.employer_company_type || null,
-          website: j.employer_website || null,
-          lat: typeof j.job_latitude === "number" ? j.job_latitude : null,
-          lng: typeof j.job_longitude === "number" ? j.job_longitude : null
-        }));
-        parsedJobs = applyClientFilters(parsedJobs, activeFilters);
+        let parsedJobs = data.map((j, i) => normalizeJob(j, i));
+        // Only listings that are still open — expired, closed or long-stale ones are dropped.
+        const open = parsedJobs.filter(j => !closedReason(j));
+        setHiddenClosed(parsedJobs.length - open.length);
+        parsedJobs = open;
+        if (wantInternships) parsedJobs = parsedJobs.filter(j => j.experienceLevel === "Internship");
+        parsedJobs = applyClientFilters(parsedJobs, { ...activeFilters, experience: wantInternships ? "" : activeFilters.experience });
         if (useNear) {
           // Jobs with coordinates must fall inside the radius; ones without keep the API's own radius match.
           parsedJobs = parsedJobs
@@ -916,9 +923,10 @@ export default function JobSearchPanel({ onClose }) {
         </button>
       </div>
       <div className="jsp-cmeta">
+        {closedReason(job) ? <span className="b-x">Closed</span> : deadlineLabel(job) && <span className="b-d">{deadlineLabel(job)}</span>}
         {job.remote && <span className="b-r">Remote</span>}
         <span className="b-t">{job.type}</span>
-        <span className="b-e">{job.experienceLevel}</span>
+        {job.experienceLevel !== job.type && <span className="b-e">{job.experienceLevel}</span>}
       </div>
       <div className="jsp-cfoot">
         <span className="jsp-sal">{job.salary ? formatSalary(job.salary.min, job.salary.max, job.salary.currency) : "Salary TBD"}</span>
@@ -1009,7 +1017,8 @@ export default function JobSearchPanel({ onClose }) {
   const Detail = ({ job }) => {
     const user = ["React", "JavaScript", "Python", "SQL", "Communication"];
     const hay = ((job.skills || []).join(" ")).toLowerCase();
-    let score = 50 + Math.floor(Math.random() * 22);
+    // A steady base per listing (was Math.random, so the score changed on every re-render).
+    let score = 50 + [...String(job.id || job.title)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 22;
     const matched = user.filter(s => hay.includes(s.toLowerCase()));
     const missing = (job.skills || []).filter(s => !user.includes(s)).slice(0, 2);
     score = Math.min(score + matched.length * 8, 99);
@@ -1042,7 +1051,11 @@ export default function JobSearchPanel({ onClose }) {
             <div className="jsp-dbdgs">
               {job.remote && <span className="b-r" style={{ fontSize: 12, padding: "4px 11px" }}>🌐 Remote</span>}
               <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>💼 {job.type}</span>
-              <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>
+              {job.experienceLevel !== job.type && <span className="b-e" style={{ fontSize: 12, padding: "4px 11px" }}>⭐ {job.experienceLevel}</span>}
+              {closedReason(job)
+                ? <span className="b-x" style={{ fontSize: 12, padding: "4px 11px" }}>This listing has closed</span>
+                : <span className="b-d" style={{ fontSize: 12, padding: "4px 11px" }}>✅ {deadlineLabel(job) || "Accepting applications"}</span>}
+              {job.postedAt && <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>Posted {timeAgo(job.postedAt)}</span>}
               {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {formatSalary(job.salary.min, job.salary.max, job.salary.currency)}</span>}
             </div>
             {job.description && (
@@ -1141,6 +1154,11 @@ export default function JobSearchPanel({ onClose }) {
                 {near.status === "locating" ? <div className="jsp-spin" /> : pinIcon}
                 <span>{near.status === "locating" ? "Finding you…" : nearReady ? ((near.area || near.place).split(",")[0] || "Near me") : "Jobs near me"}</span>
               </button>
+              <button type="button" className={`jsp-nearbtn ${filters.experience === "intern" ? "on" : ""}`} aria-pressed={filters.experience === "intern"}
+                onClick={() => { const nf = { ...filters, experience: filters.experience === "intern" ? "" : "intern" }; setFilters(nf); setTab("search"); if (q.trim() || nearReady || nf.experience === "intern") search(q, nf); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c3 2 9 2 12 0v-5" /></svg>
+                <span>Internships</span>
+              </button>
               {nearReady && (
                 <div className="jsp-rads" role="group" aria-label="Search radius">
                   {RADIUS_OPTIONS.map(km => <button key={km} type="button" className={`jsp-rad ${near.radius === km ? "on" : ""}`} onClick={() => setRadius(km)}>{km} km</button>)}
@@ -1161,7 +1179,7 @@ export default function JobSearchPanel({ onClose }) {
             {tab === "search" && searched && !loading && !noMatch && (
               <button type="button" className={`jsp-fbtn ${showFilters ? "on" : ""}`} onClick={() => setShowFilters(v => !v)}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" /></svg>
-                Filters{(filters.location || filters.remote || filters.experience) && <span className="jsp-fdot" />}
+                Filters{(filters.location || filters.remote || filters.experience || filters.posted !== "month") && <span className="jsp-fdot" />}
               </button>
             )}
           </div>
@@ -1175,9 +1193,17 @@ export default function JobSearchPanel({ onClose }) {
                 noMatch ? (resultNear
                   ? <Empty title={`No jobs within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
                       action={resultNear.radius < RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1] && <button type="button" className="jsp-cta" onClick={() => setRadius(RADIUS_OPTIONS.find(r => r > resultNear.radius))}>Search within {RADIUS_OPTIONS.find(r => r > resultNear.radius)} km</button>} />
-                  : <Empty title="No jobs found" sub={`We couldn't find any real jobs matching your criteria right now.`} />) :
+                  : <Empty title={filters.experience === "intern" ? "No open internships found" : "No jobs found"}
+                      sub={hiddenClosed > 0
+                        ? `${hiddenClosed} matching listing${hiddenClosed === 1 ? " has" : "s have"} expired or closed. Try a wider "Posted" range or different keywords.`
+                        : `We couldn't find any open listings matching your search right now.`} />) :
                 <>
                   {resultNear && <Radar list={jobs} nr={resultNear} />}
+                  <p className="jsp-opennote">
+                    <span className="jsp-opendot" />
+                    {jobs.length} open {filters.experience === "intern" || isInternshipQuery(q) ? `internship${jobs.length === 1 ? "" : "s"}` : `listing${jobs.length === 1 ? "" : "s"}`}
+                    {hiddenClosed > 0 && <em> · {hiddenClosed} expired or closed hidden</em>}
+                  </p>
                   <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
                 </>
               )}
@@ -1208,6 +1234,12 @@ export default function JobSearchPanel({ onClose }) {
                       <button className={`jsp-tog ${t === "Remote" && filters.remote ? "on" : "off"}`} onClick={() => { if (t === "Remote") { const nf = { ...filters, remote: !filters.remote }; setFilters(nf); search(q, nf); } }}><div className="jsp-togk" /></button>
                     </div>
                   ))}
+                </div>
+                <div><p className="jsp-sbt">Posted</p>
+                  <select className="jsp-sbsel" value={filters.posted} onChange={e => { const nf = { ...filters, posted: e.target.value }; setFilters(nf); search(q, nf); }}>
+                    {POSTED_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                  <p className="jsp-sbhint">Expired listings, and undated ones older than {MAX_OPEN_DAYS} days, are always hidden.</p>
                 </div>
                 <div><p className="jsp-sbt">Experience</p>
                   <select className="jsp-sbsel" value={filters.experience} onChange={e => { const nf = { ...filters, experience: e.target.value }; setFilters(nf); search(q, nf); }}>
