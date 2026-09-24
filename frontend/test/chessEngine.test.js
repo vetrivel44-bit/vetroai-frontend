@@ -83,10 +83,14 @@ test("takes a free rook", () => {
 });
 
 test("does not hang a queen for nothing", () => {
-  // White queen on d1, black queen on d8, open d-file. Qxd8 loses the queen
-  // to the king recapture; the engine must not choose it.
-  const r = analysePosition("3qk3/8/8/8/8/8/8/3QK3 w - - 0 1", { timeMs: 400, multiPv: 6 });
-  assert.notEqual(r.bestUci, "d1d8");
+  // Qxd5 grabs a pawn that the e6 pawn defends: exd5 wins the queen for it.
+  // (The old position here, Qd1 vs Qd8 with bare kings, was no test at all —
+  // Qxd8+ Kxd8 is an even trade into a dead draw, as good as any other move,
+  // so whether the engine chose it depended on how deep it got in time.)
+  const r = analysePosition("4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1", { timeMs: 400, multiPv: 6 });
+  assert.notEqual(r.bestUci, "d1d5");
+  const grab = r.lines.find((l) => l.uci === "d1d5");
+  if (grab) assert.ok(grab.score < r.score - 500, `Qxd5 should score far below the best move (${grab.score} vs ${r.score})`);
 });
 
 test("candidate lines carry distinct, ordered evaluations", () => {
