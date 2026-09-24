@@ -29,7 +29,7 @@ import FileCard from "./components/chat/FileCard";
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
-import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
+import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
@@ -4393,16 +4393,18 @@ export default function App() {
     if (!remote) return; // offline or rules denied — keep the local cache as-is
 
     const localKeyForUser = email || uid;
-    const merge = (remoteList, localList) => {
-      const byId = new Map();
-      for (const item of localList || []) if (item?.id != null) byId.set(String(item.id), item);
-      for (const item of remoteList || []) if (item?.id != null) byId.set(String(item.id), item);
-      return [...byId.values()];
-    };
 
+    // Anything deleted on either side stays deleted: a union of the two lists
+    // alone brought back chats deleted on another device (this device's cache
+    // still had them) and re-uploaded them.
     const applied = {};
     for (const kind of ["sessions", "spaces", "artifacts"]) {
-      applied[kind] = merge(remote[kind], readLocalList(localKeyForUser, kind));
+      const remoteDeleted = (remote.prefs?.[`deleted_${kind}`] || []).map(String);
+      const tombstones = rememberTombstones(localKeyForUser, kind, remoteDeleted);
+      // Deletions made here while offline haven't reached the cloud yet.
+      const notYetRemote = tombstones.filter((id) => !remoteDeleted.includes(id));
+      if (notYetRemote.length) persistDeletion(localKeyForUser, kind, notYetRemote);
+      applied[kind] = mergeLists(remote[kind], readLocalList(localKeyForUser, kind), tombstones);
     }
 
     setSessions(applied.sessions);
@@ -4463,6 +4465,9 @@ export default function App() {
   const [pinnedIds, setPinnedIds]           = useState(() => JSON.parse(localStorage.getItem("vetroai_pins") || "[]"));
   const [isSidebarOpen, setIsSidebarOpen]   = useState(false);
   const [confirmDelete, setConfirmDelete]   = useState(null);
+  // Sidebar "Select" mode for deleting several chats at once.
+  const [selectingChats, setSelectingChats] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState([]);
   // ── Spaces / Projects ─────────────────────────────────────────────────────────
   const [spaces, setSpaces] = useState([]);
   const [currentSpaceId, setCurrentSpaceId] = useState(null);
@@ -4738,11 +4743,20 @@ export default function App() {
     }
   }, [input]);
 
+  // Lock page scroll behind full-screen panels. The small confirm dialog is
+  // left out: toggling the lock for every delete made the page jump (the
+  // scrollbar vanished and came back, and phones reset their scroll). The
+  // scroll position is kept across the lock either way.
   useEffect(() => {
-    const anyModal = isSidebarOpen || showProfile || showSysPrompt || showShare || showBookmarks || showCalc || showScratchpad || showPlayground || showStats || !!confirmDelete;
-    document.body.style.overflow = anyModal ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showCalc, showScratchpad, showPlayground, showStats, confirmDelete]);
+    const anyModal = isSidebarOpen || showProfile || showSysPrompt || showShare || showBookmarks || showCalc || showScratchpad || showPlayground || showStats;
+    if (!anyModal) return undefined;
+    const y = window.scrollY;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+      if (window.scrollY !== y) window.scrollTo(0, y);
+    };
+  }, [isSidebarOpen, showProfile, showSysPrompt, showShare, showBookmarks, showCalc, showScratchpad, showPlayground, showStats]);
 
   // ── Auth submit ───────────────────────────────────────────────────────────────
   const handleAuthSubmit = async (e) => {
@@ -5169,7 +5183,11 @@ export default function App() {
     }
   }, [addMemory]);
 
-  const deleteSession = (id) => { setConfirmDelete({ id, message: "Delete this conversation? This cannot be undone." }); };
+  const deleteSession = (id) => { setConfirmDelete({ ids: [id], message: "Delete this conversation? This cannot be undone." }); };
+  const deleteSessions = (ids) => {
+    if (!ids?.length) return;
+    setConfirmDelete({ ids, message: ids.length === 1 ? "Delete this conversation? This cannot be undone." : `Delete ${ids.length} conversations? This cannot be undone.` });
+  };
 
   const deleteAllSessions = () => { setConfirmDelete({ type: "allSessions", message: "Delete all conversations? This cannot be undone." }); };
 
@@ -5207,24 +5225,27 @@ export default function App() {
     });
   };
 
+  // One path for one chat, a selection, or everything. The list is updated
+  // from the latest state (not the render's copy, which a streaming reply
+  // may have moved on from), and the deleted ids are remembered so no other
+  // device or cached copy can bring them back.
   const confirmDeleteSession = () => {
     if (!confirmDelete) return;
-    if (confirmDelete.type === "allSessions") {
-      setSessions([]);
-      try { persistList(userKey, "sessions", []); } catch (err) { swallowError(err); }
-      setPinnedIds([]);
-      newChat();
-      setConfirmDelete(null);
-      addToast("All conversations deleted", "info");
-      return;
-    }
-    const { id } = confirmDelete;
-    const list = sessions.filter(s => s.id !== id); setSessions(list);
-    try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
-    if (currentSessionId === id) newChat();
-    setPinnedIds(p => p.filter(x => x !== id));
+    const all = confirmDelete.type === "allSessions";
+    const ids = (all ? sessions.map(s => s.id) : confirmDelete.ids || []).map(String);
+    const gone = new Set(ids);
+    setSessions(prev => {
+      const list = all ? [] : prev.filter(s => !gone.has(String(s.id)));
+      try { persistList(userKey, "sessions", list); } catch (err) { swallowError(err); }
+      return list;
+    });
+    try { persistDeletion(userKey, "sessions", ids); } catch (err) { swallowError(err); }
+    if (all || gone.has(String(currentSessionId))) newChat();
+    setPinnedIds(p => (all ? [] : p.filter(x => !gone.has(String(x)))));
+    setSelectedChatIds([]);
+    setSelectingChats(false);
     setConfirmDelete(null);
-    addToast("Conversation deleted", "info");
+    addToast(all ? "All conversations deleted" : ids.length === 1 ? "Conversation deleted" : `${ids.length} conversations deleted`, "info");
   };
 
   const togglePin = (e, id) => {
@@ -7353,11 +7374,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   }, []);
 
   const displaySessions = React.useMemo(() => {
-    const mock = [
-      { id: 'm1', title: 'explain all the features of th...' },
-      { id: 'm2', title: 'how to reverse a linked list' },
-      { id: 'm3', title: 'what is the capital of france' },
-    ];
+    // No placeholder chats: the old sample rows ("how to reverse a linked
+    // list" …) appeared once everything was deleted and could not be deleted,
+    // so it looked as if deleting had left chats behind.
     if (sessions && sessions.length > 0) {
       const sorted = [...sessions].sort((a, b) => {
         const ta = parseInt(a.id, 10) || 0, tb = parseInt(b.id, 10) || 0;
@@ -7366,14 +7385,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Pinned chats always stay at the top and are never cut off by the 10-row limit.
       const pinned = sorted.filter(s => pinnedIds.includes(s.id));
       const rest = sorted.filter(s => !pinnedIds.includes(s.id));
-      return [...pinned, ...rest.slice(0, 10)].map(s => ({
+      // Select mode lists every chat, so old ones can be found and removed.
+      return [...pinned, ...(selectingChats ? rest : rest.slice(0, 10))].map(s => ({
         id: s.id,
         title: s.title || 'Untitled',
         pinned: pinnedIds.includes(s.id),
       }));
     }
-    return mock;
-  }, [sessions, recentsSortMode, pinnedIds]);
+    return [];
+  }, [sessions, recentsSortMode, pinnedIds, selectingChats]);
 
   const goToChatsHome = () => {
     setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false);
@@ -7775,9 +7795,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           {displaySessions.length > 0 && (
             <div className="flex items-center justify-between px-3 py-1 mb-0.5 relative">
               <p className="claude-sb-group-label text-[11.5px] font-medium" style={{ color: 'var(--ink-4)' }}>Recents</p>
-              <button onClick={() => setRecentsSortOpen(o => !o)} title="Sort recents" data-popover-trigger className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 22, height: 22, color: "var(--ink-4)" }}>
-                <SlidersHorizontal size={14} />
-              </button>
+              <span className="flex items-center gap-1">
+                <button onClick={() => { setSelectingChats(v => !v); setSelectedChatIds([]); setOpenRecentMenuId(null); }} className={`claude-sb-select-btn${selectingChats ? " on" : ""}`} title={selectingChats ? "Done selecting" : "Select chats to delete"}>
+                  {selectingChats ? "Done" : "Select"}
+                </button>
+                <button onClick={() => setRecentsSortOpen(o => !o)} title="Sort recents" data-popover-trigger className="claude-sb-icon-btn flex items-center justify-center rounded-md" style={{ width: 22, height: 22, color: "var(--ink-4)" }}>
+                  <SlidersHorizontal size={14} />
+                </button>
+              </span>
               {recentsSortOpen && (
                 <div className="claude-popover" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30 }}>
                   <button onClick={() => { setRecentsSortMode('recent'); setRecentsSortOpen(false); }} className={`claude-popover-item ${recentsSortMode === 'recent' ? 'active' : ''}`}>Most recent</button>
@@ -7786,9 +7811,35 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               )}
             </div>
           )}
+          {selectingChats && displaySessions.length > 0 && (
+            <div className="claude-sb-selectbar">
+              <label className="claude-sb-selectall">
+                <input type="checkbox"
+                  checked={selectedChatIds.length === displaySessions.length}
+                  ref={(el) => { if (el) el.indeterminate = selectedChatIds.length > 0 && selectedChatIds.length < displaySessions.length; }}
+                  onChange={(e) => setSelectedChatIds(e.target.checked ? displaySessions.map(x => x.id) : [])} />
+                <span>{selectedChatIds.length ? `${selectedChatIds.length} selected` : "Select all"}</span>
+              </label>
+              <button className="claude-sb-delete-selected" disabled={!selectedChatIds.length} onClick={() => deleteSessions(selectedChatIds)}>
+                <Trash2 size={13} /> Delete
+              </button>
+            </div>
+          )}
+          {displaySessions.length === 0 && (
+            <p className="claude-sb-empty">No chats yet</p>
+          )}
           {displaySessions.map((session) => {
-            const isMock = String(session.id).startsWith('m');
             const isActive = activeNav === 'chats' && currentSessionId === session.id;
+            if (selectingChats) {
+              const checked = selectedChatIds.includes(session.id);
+              return (
+                <label key={session.id} className={`claude-sb-recent-row claude-sb-select-row${checked ? " checked" : ""}`}>
+                  <input type="checkbox" checked={checked}
+                    onChange={() => setSelectedChatIds(prev => (prev.includes(session.id) ? prev.filter(x => x !== session.id) : [...prev, session.id]))} />
+                  <span className="truncate">{session.pinned && <span aria-hidden="true" style={{ marginRight: 5 }}>📌</span>}{session.title}</span>
+                </label>
+              );
+            }
             const isRenaming = renamingId === session.id;
             return (
               <div key={session.id} className="claude-sb-recent-row group relative">
@@ -7805,11 +7856,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     className="claude-sb-recent-input text-left px-3 py-2 text-[13px] rounded-md w-full"
                   />
                 ) : (
-                  <button onClick={() => { loadSession(session.id); setActiveNav('chats'); }} className={`claude-sb-recent text-left px-3 py-[9px] text-[13px] rounded-md truncate transition-colors w-full ${!isMock ? "pr-8" : ""} ${isActive ? 'active' : ''}`}>
+                  <button onClick={() => { loadSession(session.id); setActiveNav('chats'); }} className={`claude-sb-recent text-left px-3 py-[9px] text-[13px] rounded-md truncate transition-colors w-full pr-8 ${isActive ? 'active' : ''}`}>
                     {session.pinned && <span aria-hidden="true" style={{ marginRight: 5 }}>📌</span>}{session.title}
                   </button>
                 )}
-                {!isMock && !isRenaming && (
+                {!isRenaming && (
                   <button onClick={(e) => { e.stopPropagation(); setOpenRecentMenuId(openRecentMenuId === session.id ? null : session.id); }} title="More" data-popover-trigger className="claude-sb-recent-more opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-md">
                     <MoreHorizontal size={14} />
                   </button>
