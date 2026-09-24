@@ -378,3 +378,13 @@
   .chess-arena .ca-play-body{ flex-direction: column; align-items: center; }
   .chess-arena .ca-side-col{ width: min(560px, 92vw); }
 }
+
+/* Player vs AI now has three setup columns (opponent, side, difficulty). */
+.chess-arena .ca-setup{ max-width: 860px; }
+.chess-arena .ca-setup-pickers{ flex-wrap: wrap; }
+.chess-arena .ca-setup-col{ min-width: 200px; }
+.chess-arena .ca-level-option{ align-items: center; }
+.chess-arena .ca-level-text{ display: flex; flex-direction: column; line-height: 1.2; }
+.chess-arena .ca-level-text small{ font-size: 11px; font-weight: 500; color: var(--ca-muted); }
+.chess-arena .ca-board-loading{ display: flex; align-items: center; justify-content: center; }
+.chess-arena .ca-board-loading .ca-spin{ margin: 0; }

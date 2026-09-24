@@ -1,0 +1,27 @@
+/* Flat arena board: a framed square that fills the board column. */
+.ca-board2d {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0; /* in the flex column, shrinking squashed the height and clipped rank 1 */
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  background: #7a5230;
+  box-shadow:
+    0 0 0 6px #6b4526,
+    0 0 0 7px rgba(0, 0, 0, 0.35),
+    0 18px 40px rgba(0, 0, 0, 0.45);
+  touch-action: none; /* dragging a piece must not scroll the page */
+  user-select: none;
+}
+
+@media (max-width: 640px) {
+  .ca-board2d {
+    border-radius: 8px;
+    box-shadow:
+      0 0 0 4px #6b4526,
+      0 10px 24px rgba(0, 0, 0, 0.4);
+  }
+}

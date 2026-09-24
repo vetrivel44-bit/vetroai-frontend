@@ -22,7 +22,7 @@
 //      play came from.
 
 import {
-  Position, Engine, analysePosition, SIMPLE_VALUE, MATE_SCORE,
+  Position, analysePosition, evaluateMove, SIMPLE_VALUE, MATE_SCORE, DEFAULT_STYLE,
   typeOf, colorOf, WHITE,
 } from "./chessEngine.js";
 import { buildGameIdentity, bookMove, openingName, getPersona } from "./chessPersonas.js";
@@ -50,9 +50,68 @@ export function getModel(id) {
   return CHESS_MODELS.find((m) => m.id === id) || CHESS_MODELS[0];
 }
 
-// A private engine instance so arena analysis never shares a transposition
-// table with anything else that might be running.
-const arenaEngine = new Engine();
+// ─── difficulty (Player vs AI) ──────────────────────────────────────────────
+// How strong the opponent is. `thinkMs` is the engine's search budget;
+// `vetoMargin` (centipawns) is how much worse than the engine's best move the
+// model's pick may be before the engine overrules it; `pickWindow` and
+// `softness` control how willing it is to take a slightly worse candidate.
+// The model-vs-model modes pass no difficulty and keep each persona's own
+// settings, as before.
+export const CHESS_DIFFICULTIES = [
+  { id: "easy", name: "Easy", desc: "Makes human mistakes" },
+  { id: "medium", name: "Medium", desc: "Solid club player" },
+  { id: "hard", name: "Hard", desc: "Rarely slips" },
+  { id: "master", name: "Master", desc: "Full engine strength" },
+];
+const DIFFICULTY = {
+  easy: { thinkMs: 400, maxDepth: 3, vetoMargin: 150, pickWindow: 120, softness: 60 },
+  medium: null, // the persona's own settings
+  hard: { thinkMs: 2500, vetoMargin: 20, pickWindow: 8, softness: 10 },
+  master: { thinkMs: 5000, vetoMargin: 5, pickWindow: 0, softness: 10, neutralStyle: true },
+};
+
+// ─── engine thread ──────────────────────────────────────────────────────────
+// Searches run in a Web Worker so a multi-second think never freezes the page.
+// If a browser can't start the worker, the same functions run here instead.
+let engineWorker = null; // null = not tried yet, false = unavailable
+let nextEngineRequest = 1;
+const pendingEngine = new Map();
+
+function getEngineWorker() {
+  if (engineWorker !== null) return engineWorker;
+  try {
+    engineWorker = new Worker(new URL("./chessEngineWorker.js", import.meta.url), { type: "module" });
+    engineWorker.onmessage = ({ data }) => {
+      const request = pendingEngine.get(data?.id);
+      if (!request) return;
+      pendingEngine.delete(data.id);
+      if (data.error) request.reject(new Error(data.error));
+      else request.resolve(data.result);
+    };
+    engineWorker.onerror = () => {
+      for (const request of pendingEngine.values()) request.reject(new Error("Engine worker failed"));
+      pendingEngine.clear();
+      engineWorker = false;
+    };
+  } catch {
+    engineWorker = false;
+  }
+  return engineWorker;
+}
+
+function runEngineHere(type, { fen, uci, options }) {
+  return type === "analyse" ? analysePosition(fen, options) : evaluateMove(fen, uci, options);
+}
+
+function runEngine(type, args) {
+  const worker = typeof Worker !== "undefined" ? getEngineWorker() : false;
+  if (!worker) return Promise.resolve(runEngineHere(type, args));
+  return new Promise((resolve, reject) => {
+    const id = nextEngineRequest++;
+    pendingEngine.set(id, { resolve, reject });
+    worker.postMessage({ id, type, ...args });
+  }).catch(() => runEngineHere(type, args));
+}
 
 // ─── network ────────────────────────────────────────────────────────────────
 function processSSELine(line, state) {
@@ -322,16 +381,18 @@ WHY: <one punchy sentence in your own voice, max 18 words>`;
 // Among near-equal candidates, a persona with lower discipline is more willing
 // to take the one that suits its taste. This is what stops eight models from
 // playing identical engine moves.
-function chooseEngineMove(identity, candidates, bestScore) {
+function chooseEngineMove(identity, candidates, bestScore, level = null) {
   if (!candidates.length) return null;
   // Deliberately narrow. The real variety between personas comes from their
   // style weights changing which move the search *thinks* is best; this window
   // only breaks ties between moves that are genuinely close, so character
-  // never costs more than a fraction of a pawn.
-  const window = Math.min(30, (1 - identity.discipline) * identity.tolerance);
-  const viable = candidates.filter((c) => bestScore - c.score <= Math.max(8, window));
+  // never costs more than a fraction of a pawn. A difficulty level sets it
+  // outright: wide on Easy, none at all on Master.
+  const window = level ? level.pickWindow : Math.max(8, Math.min(30, (1 - identity.discipline) * identity.tolerance));
+  const viable = candidates.filter((c) => bestScore - c.score <= window);
   if (viable.length <= 1) return candidates[0];
-  const weights = viable.map((c) => Math.exp(-(bestScore - c.score) / 10));
+  const softness = level ? level.softness : 10;
+  const weights = viable.map((c) => Math.exp(-(bestScore - c.score) / softness));
   const total = weights.reduce((a, b) => a + b, 0);
   let roll = identity.rng() * total;
   for (let i = 0; i < viable.length; i++) {
@@ -343,7 +404,8 @@ function chooseEngineMove(identity, candidates, bestScore) {
 
 // Requests a move from an AI model for the given chess.js instance.
 // Never throws for game-flow reasons — always resolves to a legal move.
-export async function requestAIMove({ providerId, chess, color, signal, gameSeed = "default" }) {
+export async function requestAIMove({ providerId, chess, color, signal, gameSeed = "default", difficulty = null }) {
+  const level = DIFFICULTY[difficulty] || null;
   const legalSans = chess.moves();
   if (!legalSans.length) return null;
 
@@ -374,17 +436,25 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   }
 
   // ── 2. Engine analysis with this model's eyes ─────────────────────────────
-  const analysis = arenaEngine.analyse(pos, {
-    timeMs: identity.thinkMs,
-    style: identity.style,
-    multiPv: 5,
+  const thinkMs = level ? level.thinkMs : identity.thinkMs;
+  // Master judges with the neutral, strongest evaluation rather than the
+  // persona's taste.
+  const style = level?.neutralStyle ? DEFAULT_STYLE : identity.style;
+  const analysis = await runEngine("analyse", {
+    fen,
+    options: { timeMs: thinkMs, style, multiPv: 5, ...(level?.maxDepth ? { maxDepth: level.maxDepth } : {}) },
   });
   identity.depth = analysis.depth;
+  if (signal?.aborted) {
+    const abortErr = new Error("aborted");
+    abortErr.name = "AbortError";
+    throw abortErr;
+  }
 
-  const engineLines = analysis.lines.map((l) => ({ uci: pos.moveToUci(l.move), score: l.score }));
+  const engineLines = analysis.lines;
   const bestScore = engineLines.length ? engineLines[0].score : 0;
   const candidates = engineLines.map((l) => annotateCandidate(chess, l.uci, l.score, bestScore));
-  const engineChoice = chooseEngineMove(identity, candidates, bestScore);
+  const engineChoice = chooseEngineMove(identity, candidates, bestScore, level);
 
   // Only one legal reply — no point spending a model call on it.
   if (legalSans.length === 1) {
@@ -449,18 +519,16 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
     const verbose = chess.moves({ verbose: true }).find((m) => m.san === parsed);
     if (verbose) {
       const uci = verbose.from + verbose.to + (verbose.promotion || "");
-      const move = pos.findMoveByUci(uci);
-      if (move && pos.makeMove(move)) {
-        arenaEngine.nodes = 0;
-        arenaEngine.aborted = false;
-        arenaEngine.deadline = Date.now() + Math.max(120, identity.thinkMs / 3);
-        chosenScore = -arenaEngine.search(pos, Math.max(2, analysis.depth - 1), -40000, 40000, identity.style, 1);
-        pos.unmakeMove();
-      }
+      const score = await runEngine("evaluate", {
+        fen, uci,
+        options: { timeMs: Math.max(120, thinkMs / 3), maxDepth: Math.max(2, analysis.depth - 1), style },
+      });
+      if (typeof score === "number") chosenScore = score;
     }
   }
 
-  const veto = chosenScore !== null && bestScore - chosenScore > identity.tolerance + 60;
+  const vetoMargin = level ? level.vetoMargin : identity.tolerance + 60;
+  const veto = chosenScore !== null && bestScore - chosenScore > vetoMargin;
   if (veto && engineFallback) {
     return {
       move: engineFallback.san,
