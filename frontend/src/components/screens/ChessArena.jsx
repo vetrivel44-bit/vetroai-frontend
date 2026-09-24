@@ -198,10 +198,18 @@ function useAIMoveEngine() {
 
 // ─── small shared bits ──────────────────────────────────────────────────────
 function Avatar({ modelId, you = false, size = 36 }) {
+  const [logoFailed, setLogoFailed] = useState(false);
   if (you) {
     return <span className="ca-avatar ca-avatar-you" style={{ width: size, height: size }}><User size={size * 0.5} /></span>;
   }
   const model = getModel(modelId);
+  if (model.logo && !logoFailed) {
+    return (
+      <span className="ca-avatar ca-avatar-logo" style={{ "--mc": model.color, width: size, height: size }}>
+        <img src={model.logo} alt={model.name} style={{ width: size * 0.58, height: size * 0.58 }} onError={() => setLogoFailed(true)} />
+      </span>
+    );
+  }
   return (
     <span className="ca-avatar" style={{ "--mc": model.color, width: size, height: size, fontSize: size * 0.4 }}>
       {model.avatar}

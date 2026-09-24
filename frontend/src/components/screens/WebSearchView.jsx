@@ -60,6 +60,20 @@ const displayDomain = (url) => {
   }
 };
 
+// "3 hours ago" / "2 days ago" / "12 Mar 2024" for a result's publish date.
+function formatPublished(value) {
+  const t = Date.parse(value || "");
+  if (Number.isNaN(t)) return "";
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
 // Converts long unstructured summary paragraphs into structured points/bullet items
 function formatStructuredAnswer(raw = "") {
   if (!raw || typeof raw !== "string") return [];
@@ -610,6 +624,7 @@ export default function WebSearchView({ onExitWebSearch }) {
                           </span>
                         )}
                         <span className="websearch-card-domain">{displayDomain(r.url)}</span>
+                        {formatPublished(r.published) && <span className="websearch-card-date">{formatPublished(r.published)}</span>}
                         <span className="websearch-card-rank">{idx + 1}</span>
                       </div>
                       <div className="websearch-card-title">{r.title}</div>

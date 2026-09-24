@@ -32,14 +32,14 @@ const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 export const CHESS_API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 
 export const CHESS_MODELS = [
-  { id: "agnes", name: "Agnes 2.0", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A" },
-  { id: "chatgpt", name: "ChatGPT", tagline: "Classical technician — structure above all", color: "#10a37f", avatar: "C" },
-  { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#f472b6", avatar: "F" },
-  { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G" },
-  { id: "groq", name: "Groq", tagline: "Relentless initiative — thrives in chaos", color: "#10b981", avatar: "Q" },
-  { id: "mistral", name: "Mistral", tagline: "Prophylactic grinder — stops your plan first", color: "#f97316", avatar: "M" },
-  { id: "sambanova", name: "SambaNova", tagline: "Hypermodern — cedes the centre to break it", color: "#ec4899", avatar: "S" },
-  { id: "openrouter", name: "OpenRouter", tagline: "Adaptive — borrows whichever school fits", color: "#6366f1", avatar: "O" },
+  { id: "agnes", name: "Agnes 2.0", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A", logo: "/model-icons/vetro.svg" },
+  { id: "chatgpt", name: "ChatGPT", tagline: "Classical technician — structure above all", color: "#10a37f", avatar: "C", logo: "/model-icons/openai.svg" },
+  { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#d97757", avatar: "F", logo: "/model-icons/claude.svg" },
+  { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G", logo: "/model-icons/gemini.svg" },
+  { id: "groq", name: "Groq", tagline: "Relentless initiative — thrives in chaos", color: "#f55036", avatar: "Q", logo: "/model-icons/groq.svg" },
+  { id: "mistral", name: "Mistral", tagline: "Prophylactic grinder — stops your plan first", color: "#f97316", avatar: "M", logo: "/model-icons/mistral.svg" },
+  { id: "sambanova", name: "SambaNova", tagline: "Hypermodern — cedes the centre to break it", color: "#ec4899", avatar: "S", logo: "/model-icons/sambanova.svg" },
+  { id: "openrouter", name: "OpenRouter", tagline: "Adaptive — borrows whichever school fits", color: "#6366f1", avatar: "O", logo: "/model-icons/openrouter.svg" },
 ];
 
 // These four run through the dedicated /api/chess/move endpoint (their own

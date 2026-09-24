@@ -4,25 +4,58 @@ const { successResponse } = require("../utils/response");
 const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
+const {
+  detectFreshness, sortByRecency, GOOGLE_NEWS_WHEN, DDG_TIME, BING_FRESHNESS,
+} = require("../services/searchFreshness");
+
+// Wider windows to fall back to when a strict one comes back nearly empty.
+const WIDER = { day: "week", week: "month", month: "year", year: null };
+
+/**
+ * One Tavily search that respects how recent the query needs its results.
+ * A time-sensitive query is searched inside its window (and as news when it
+ * reads like news); if that finds fewer than three results the window is
+ * widened step by step, ending with an unrestricted search.
+ */
+async function tavilySearch(query, baseOptions, timeoutMs) {
+  const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
+  if (!apiKey) return null;
+  const client = tavily({ apiKey });
+  const freshness = detectFreshness(query);
+  const deadline = Date.now() + timeoutMs;
+
+  let timeRange = freshness.timeRange;
+  let last = null;
+  for (;;) {
+    const options = { ...baseOptions };
+    if (timeRange) {
+      options.timeRange = timeRange;
+      if (freshness.topic === "news") options.topic = "news";
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 500) break;
+    last = await Promise.race([
+      client.search(query, options),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Tavily timeout")), remaining)),
+    ]);
+    if (!timeRange || (last?.results?.length || 0) >= 3) break;
+    timeRange = WIDER[timeRange];
+  }
+  if (last && freshness.recent && Array.isArray(last.results)) {
+    last = { ...last, results: sortByRecency(last.results) };
+  }
+  return last;
+}
 
 // ── Primary: Tavily (best real-time AI search) ────────────────────────────────
 async function searchTavily(query) {
-  const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
-  if (!apiKey) return null;
-
   try {
-    const client = tavily({ apiKey });
-    const res = await Promise.race([
-      client.search(query, {
-        searchDepth: "basic",
-        maxResults: 8,
-        includeAnswer: true,
-        includeRawContent: false,
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Tavily timeout")), 8000)),
-    ]);
-
-    return res;
+    return await tavilySearch(query, {
+      searchDepth: "basic",
+      maxResults: 8,
+      includeAnswer: true,
+      includeRawContent: false,
+    }, 9000);
   } catch (err) {
     logger.warn("Tavily search failed", { error: err.message });
     return null;
@@ -30,10 +63,12 @@ async function searchTavily(query) {
 }
 
 // ── Fallback: DuckDuckGo ──────────────────────────────────────────────────────
-async function searchDDG(query) {
+async function searchDDG(query, freshness = detectFreshness(query)) {
   try {
+    const options = { safeSearch: 0 };
+    if (freshness.timeRange) options.time = DDG_TIME[freshness.timeRange];
     const res = await Promise.race([
-      search(query, { safeSearch: 0 }),
+      search(query, options),
       new Promise((_, reject) => setTimeout(() => reject(new Error("DDG timeout")), 7000)),
     ]);
     if (!res?.results?.length) return [];
@@ -97,14 +132,26 @@ async function fetchRss(url, label) {
   }
 }
 
-const searchBingRss = (query) => fetchRss(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, "Bing RSS");
-const searchGoogleNewsRss = (query) => fetchRss(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`, "Google News RSS");
+const searchBingRss = (query, freshness = detectFreshness(query)) => {
+  const filter = BING_FRESHNESS[freshness.timeRange];
+  return fetchRss(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}${filter ? `&filters=${encodeURIComponent(filter)}` : ""}`, "Bing RSS");
+};
+const searchGoogleNewsRss = (query, freshness = detectFreshness(query)) => {
+  const when = GOOGLE_NEWS_WHEN[freshness.timeRange];
+  const q = when ? `${query} when:${when}` : query;
+  return fetchRss(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`, "Google News RSS");
+};
 
-// Keyless search: DuckDuckGo, then Bing, then Google News — first non-empty wins.
+// Keyless search — first non-empty provider wins. Time-sensitive queries go
+// to Google News first: it is dated, sorted, and restricted to the window.
 async function searchKeyless(query) {
-  for (const [name, run] of [["duckduckgo", searchDDG], ["bing", searchBingRss], ["google-news", searchGoogleNewsRss]]) {
-    const results = await run(query);
-    if (results.length) return { provider: name, results };
+  const freshness = detectFreshness(query);
+  const order = freshness.recent
+    ? [["google-news", searchGoogleNewsRss], ["duckduckgo", searchDDG], ["bing", searchBingRss]]
+    : [["duckduckgo", searchDDG], ["bing", searchBingRss], ["google-news", searchGoogleNewsRss]];
+  for (const [name, run] of order) {
+    const results = await run(query, freshness);
+    if (results.length) return { provider: name, results: freshness.recent ? sortByRecency(results) : results };
   }
   return { provider: null, results: [] };
 }
@@ -135,6 +182,14 @@ async function searchImages(query, limit = 4) {
   }
 }
 
+// " (published 23 Sep 2026)" when a result carries a date, so the answering
+// model can tell a fresh report from an old one.
+function datedLabel(r) {
+  const t = Date.parse(r?.published_date || r?.publishedDate || r?.published || "");
+  if (Number.isNaN(t)) return "";
+  return ` (published ${new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })})`;
+}
+
 async function searchWeb(query) {
   if (!query) throw new Error("Query is required");
 
@@ -144,6 +199,9 @@ async function searchWeb(query) {
 
   const snippets = [];
   snippets.push(`**Search Date**: ${todayStr} | **Query**: "${query}"`);
+  if (detectFreshness(query).recent) {
+    snippets.push("This question is time-sensitive: rely on the most recently published sources below and say when information is dated.");
+  }
 
   // ── Try Tavily first ──────────────────────────────────────────────────────
   const tavilyRes = await searchTavily(query);
@@ -156,7 +214,7 @@ async function searchWeb(query) {
 
     if (tavilyRes.results?.length) {
       const orgText = tavilyRes.results.map((r, i) =>
-        `[${i + 1}] **${r.title}**\n${r.snippet || r.content?.slice(0, 300) || "(no snippet)"}\n${r.url}`
+        `[${i + 1}] **${r.title}**${datedLabel(r)}\n${r.snippet || r.content?.slice(0, 300) || "(no snippet)"}\n${r.url}`
       ).join("\n\n");
       snippets.push(`**Web Results for "${query}"**:\n\n${orgText}`);
 
@@ -181,7 +239,7 @@ async function searchWeb(query) {
   }
 
   const orgText = results.map((r, i) =>
-    `[${i + 1}] **${r.title}**\n${r.description || "(no snippet)"}\n${r.url}`
+    `[${i + 1}] **${r.title}**${datedLabel(r)}\n${r.description || "(no snippet)"}\n${r.url}`
   ).join("\n\n");
   snippets.push(`**Web Results for "${query}"**:\n\n${orgText}`);
 
@@ -203,4 +261,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchImages, searchTavily, searchDDG, searchKeyless, parseRssItems };
+module.exports = { performSearch, searchWeb, searchImages, searchTavily, tavilySearch, searchDDG, searchKeyless, parseRssItems };

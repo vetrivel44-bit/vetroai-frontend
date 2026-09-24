@@ -12581,6 +12581,8 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   color: var(--ink-4);
 }
 .websearch-card-domain { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.websearch-card-date { font-size: 11.5px; color: var(--ink-4); }
+.websearch-card-date::before { content: "·"; margin-right: 6px; }
 .websearch-card-rank {
   margin-left: auto; font-size: 11px; font-weight: 700; color: var(--ink-5);
   background: var(--bg-hover); border-radius: 6px; padding: 1px 7px;

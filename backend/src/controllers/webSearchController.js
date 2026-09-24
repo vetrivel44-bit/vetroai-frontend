@@ -3,7 +3,7 @@ const { successResponse } = require("../utils/response");
 const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
-const { searchKeyless } = require("./searchController");
+const { searchKeyless, tavilySearch } = require("./searchController");
 
 function normalizeResults(results) {
   return (results || []).slice(0, 10).map((r) => ({
@@ -29,19 +29,15 @@ async function performStructuredSearch(req, res) {
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
   if (apiKey) {
     try {
-      const client = tavily({ apiKey });
-      const tavilyRes = await Promise.race([
-        client.search(query, {
-          searchDepth: "advanced",   // richer content, better relevance
-          maxResults: 10,
-          includeAnswer: "advanced", // comprehensive, reasonable depth AI synthesis
-          includeRawContent: false,
-          includeImages: false,
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Tavily search timed out")), 12000)
-        ),
-      ]);
+      // Time-sensitive queries are searched inside a recency window and come
+      // back newest first (see tavilySearch).
+      const tavilyRes = await tavilySearch(query, {
+        searchDepth: "advanced",   // richer content, better relevance
+        maxResults: 10,
+        includeAnswer: "advanced", // comprehensive, reasonable depth AI synthesis
+        includeRawContent: false,
+        includeImages: false,
+      }, 14000);
       if (tavilyRes?.results?.length || tavilyRes?.answer) {
         return successResponse(res, "Search successful", {
           provider: "tavily",

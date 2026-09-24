@@ -311,6 +311,11 @@
   font-weight: 800;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
+.chess-arena .ca-avatar-logo{
+  background: linear-gradient(145deg, #1a2233, #0d121c);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc) 55%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.chess-arena .ca-avatar-logo img{ display: block; object-fit: contain; }
 .chess-arena .ca-avatar-you{ background: var(--ca-surface-3); color: var(--ca-text); }
 .chess-arena .ca-side-dot{
   display: inline-block;
