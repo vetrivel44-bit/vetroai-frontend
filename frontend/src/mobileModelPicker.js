@@ -22,6 +22,8 @@ const MODEL_ICON_RULES = [
   [/mistral/i, '/model-icons/mistral.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
+  [/^groq$/i, '/model-icons/groq.svg'],
+  [/plugsky/i, 'https://www.google.com/s2/favicons?domain=plugsky.com&sz=64'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
 const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/model-icons/vetro.svg';

@@ -554,7 +554,7 @@
 
 :root[data-theme="light"] :is(.ws-model-mark, .mobile-model-row-icon) img:is(
   [src$="/model-icons/openai.svg"], [src$="/model-icons/grok.svg"],
-  [src$="/model-icons/perplexity.svg"], [src$="/model-icons/local.svg"]) {
+  [src$="/model-icons/perplexity.svg"], [src$="/model-icons/local.svg"], [src$="/model-icons/groq.svg"]) {
   filter: brightness(0) !important;
 }
 

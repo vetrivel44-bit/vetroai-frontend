@@ -61,6 +61,7 @@
 [data-theme="light"] .provider-response-avatar img[src$="/model-icons/openai.svg"],
 [data-theme="light"] .provider-response-avatar img[src$="/model-icons/grok.svg"],
 [data-theme="light"] .provider-response-avatar img[src$="/model-icons/perplexity.svg"],
-[data-theme="light"] .provider-response-avatar img[src$="/model-icons/local.svg"] {
+[data-theme="light"] .provider-response-avatar img[src$="/model-icons/local.svg"],
+[data-theme="light"] .provider-response-avatar img[src$="/model-icons/groq.svg"] {
   filter: invert(1) brightness(0.2);
 }
