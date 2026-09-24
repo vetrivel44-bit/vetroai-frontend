@@ -91,6 +91,13 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
       throw new ApiError(401, "Invalid or expired Firebase token");
     }
 
+    // An email + password account must have confirmed its address. Without
+    // this, anyone could sign up with an email they don't own and use the
+    // API directly. Google sign-ins arrive already verified.
+    if (payload.firebase?.sign_in_provider === "password" && payload.email_verified !== true) {
+      throw new ApiError(403, "Please verify your email address before using VetroAI.");
+    }
+
     // Map onto the local account when one exists, so billing and cloud sessions
     // resolve to the same user regardless of which token type authenticated the
     // request. Firebase's uid is the identity of record when it does not.

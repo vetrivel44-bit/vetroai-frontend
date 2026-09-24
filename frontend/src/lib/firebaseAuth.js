@@ -10,6 +10,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
+  sendEmailVerification,
   updateProfile,
   signOut,
 } from "firebase/auth";
@@ -97,7 +98,12 @@ export async function signInWithEmail(email, password) {
   return user;
 }
 
-/** Email + password registration. `name` becomes the Firebase displayName. */
+/**
+ * Email + password registration. `name` becomes the Firebase displayName.
+ * A verification link is emailed straight away: the account stays locked out
+ * of the app (see needsEmailVerification) until it is opened, so nobody can
+ * sign up with an address they don't own.
+ */
 export async function signUpWithEmail(email, password, name) {
   requireAuth();
   const { user } = await createUserWithEmailAndPassword(auth, email, password);
@@ -108,10 +114,48 @@ export async function signUpWithEmail(email, password, name) {
     // need this reload to see it.
     await user.reload();
   }
+  // Not fatal: the verify screen offers "Resend email" if this one fails.
+  await sendVerificationEmail(auth.currentUser || user).catch(() => {});
   return auth.currentUser || user;
 }
 
-export const sendPasswordReset = (email) => sendPasswordResetEmail(requireAuth(), email);
+/**
+ * True for an email + password account whose address hasn't been confirmed.
+ * Google sign-ins come verified by Google, so they never need this.
+ */
+export const needsEmailVerification = (user) =>
+  Boolean(user) && !user.emailVerified
+  && (user.providerData || []).some((p) => p?.providerId === "password");
+
+/** Emails the "confirm your address" link; it brings the reader back here. */
+export async function sendVerificationEmail(user = auth?.currentUser) {
+  if (!user) throw new Error("Not signed in.");
+  const url = typeof window !== "undefined" ? window.location.origin : undefined;
+  await sendEmailVerification(user, url ? { url } : undefined);
+}
+
+/**
+ * Re-reads the account after the reader says they clicked the link. Resolves
+ * true once verified; it also refreshes the ID token so the new
+ * `email_verified` claim reaches the backend and Firestore, and
+ * onIdTokenChanged fires to finish signing in.
+ */
+export async function refreshEmailVerification() {
+  const user = auth?.currentUser;
+  if (!user) return false;
+  await user.reload();
+  const current = auth.currentUser;
+  if (!current?.emailVerified) return false;
+  await current.getIdToken(true);
+  return true;
+}
+
+/** Emails a link to set a new password; it brings the reader back here. */
+export const sendPasswordReset = (email) => sendPasswordResetEmail(
+  requireAuth(),
+  email,
+  typeof window !== "undefined" ? { url: window.location.origin } : undefined,
+);
 
 export const signOutUser = () => (auth ? signOut(auth) : Promise.resolve());
 

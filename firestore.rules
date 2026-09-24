@@ -72,10 +72,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // An email + password account must have confirmed its address before it
+    // can store anything. Google sign-ins arrive with email_verified = true.
+    function hasVerifiedEmail() {
+      return request.auth.token.email_verified == true
+        || request.auth.token.firebase.sign_in_provider != 'password';
+    }
+
     // Ownership is positional: the uid is a path segment, so there is no
     // document read needed to authorise a request.
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId && hasVerifiedEmail();
     }
 
     function incoming() {

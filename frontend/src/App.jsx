@@ -21,13 +21,15 @@ import GoogleLoginButton from "./components/auth/GoogleLoginButton";
 import {
   watchIdToken, consumeRedirectResult, signOutUser, toUserInfo,
   signInWithEmail, signUpWithEmail, describeAuthError,
+  needsEmailVerification, sendVerificationEmail, refreshEmailVerification,
+  sendPasswordReset,
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -4272,6 +4274,19 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [showPass, setShowPass]   = useState(false);
+  // Email of a signed-up account still waiting on its verification link, or
+  // null. While set, the auth screen shows "Verify your email" instead of the
+  // form, and the account gets no access to the app.
+  const [pendingVerify, setPendingVerify] = useState(null);
+  const [authNotice, setAuthNotice] = useState("");
+  // Seconds until "resend" is offered again — Firebase rate-limits these
+  // emails, and a cooldown keeps people from hammering the button.
+  const [resendIn, setResendIn] = useState(0);
+  useEffect(() => {
+    if (resendIn <= 0) return undefined;
+    const timer = setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendIn]);
 
   // Google login — Firebase owns the OAuth flow, so all this handler does is
   // surface the welcome toast. The session itself is established by the
@@ -4306,9 +4321,24 @@ export default function App() {
         localStorage.removeItem("vetroai_userinfo");
         setUser(null);
         setUserInfo(null);
+        setPendingVerify(null);
         setAuthReady(true);
         return;
       }
+
+      // An email + password account can't use the app until its address is
+      // confirmed — otherwise anyone could sign up with an address they don't
+      // own. No token is stored, so nothing else in the app sees it.
+      if (needsEmailVerification(firebaseUser)) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("vetroai_userinfo");
+        setUser(null);
+        setUserInfo(null);
+        setPendingVerify(firebaseUser.email || "");
+        setAuthReady(true);
+        return;
+      }
+      setPendingVerify(null);
 
       const info = toUserInfo(firebaseUser);
       let token = null;
@@ -4728,10 +4758,10 @@ export default function App() {
       // is nothing to wire up here beyond the call itself.
       if (authMode === "signup") {
         await signUpWithEmail(email, authPassword, authName.trim());
-        addToast("Account created \u{1F389}", "success", 3000);
+        setResendIn(60);
       } else {
-        await signInWithEmail(email, authPassword);
-        addToast("Welcome back!", "success", 2500);
+        const signedIn = await signInWithEmail(email, authPassword);
+        if (!needsEmailVerification(signedIn)) addToast("Welcome back!", "success", 2500);
       }
       setAuthPassword("");
     } catch (err) {
@@ -4739,6 +4769,62 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
+  };
+
+  // "I've verified" on the verify screen. Once Firebase confirms it, the
+  // token refresh fires onIdTokenChanged, which finishes signing in.
+  const handleCheckVerified = async () => {
+    setAuthError(""); setAuthNotice(""); setAuthLoading(true);
+    try {
+      const verified = await refreshEmailVerification();
+      if (verified) addToast("Email verified \u{1F389}", "success", 3000);
+      else setAuthError("Not verified yet. Open the link in the email we sent, then try again.");
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setAuthError(""); setAuthNotice(""); setAuthLoading(true);
+    try {
+      await sendVerificationEmail();
+      setAuthNotice("New link sent. It can take a minute to arrive.");
+      setResendIn(60);
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // "Forgot password?" — Firebase emails a link to its own page where the
+  // reader sets a new password, then signs in here with it.
+  const handleForgotPassword = async () => {
+    setAuthError(""); setAuthNotice("");
+    const email = authEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError("Enter your email address above, then tap “Forgot password?” again.");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await sendPasswordReset(email);
+      // Same wording whether or not the account exists, so this can't be used
+      // to find out who has an account.
+      setAuthNotice(`If an account exists for ${email}, a password reset link is on its way. Check your spam folder too.`);
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleUseAnotherAccount = async () => {
+    setAuthError(""); setAuthNotice("");
+    try { await signOutUser(); } catch (err) { swallowError(err); }
+    setAuthMode("login");
   };
 
   const notifyResponseReady = useCallback((text) => {
@@ -7409,6 +7495,29 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       {/* Form side */}
       <div className="auth-form-side">
         <div className="auth-form-card">
+          {pendingVerify !== null ? (
+            <div className="auth-verify">
+              <div className="auth-verify-icon" aria-hidden="true"><MailCheck size={28} strokeWidth={1.8} /></div>
+              <h2 className="auth-verify-title">Check your email</h2>
+              <p className="auth-verify-sub">We sent a verification link to</p>
+              <div className="auth-verify-email">{pendingVerify || "your email"}</div>
+              <p className="auth-verify-hint">Open the link in that email to verify your account, then come back here to continue.</p>
+              {authNotice && <div className="auth-notice auth-notice-ok">{authNotice}</div>}
+              {authError && <div className="auth-notice auth-notice-err">{authError}</div>}
+              <button className="auth-submit-btn" type="button" onClick={handleCheckVerified} disabled={authLoading}>
+                {authLoading ? <><div className="auth-spin" />Checking…</> : "I've verified my email"}
+              </button>
+              <p className="auth-verify-resend">
+                Didn't get it? Check your spam folder, or{" "}
+                {resendIn > 0
+                  ? <span className="auth-verify-wait">resend in {resendIn}s</span>
+                  : <button type="button" onClick={handleResendVerification} disabled={authLoading}>resend the link</button>}
+              </p>
+              <button type="button" className="auth-verify-back" onClick={handleUseAnotherAccount} disabled={authLoading}>
+                <ArrowLeft size={15} /> Use a different email
+              </button>
+            </div>
+          ) : (<>
           <div className="auth-form-header">
             {/* Phones hide the hero panel, so the brand shows here instead. */}
             <div className="auth-form-logo"><VetroLogo width={150} /></div>
@@ -7438,6 +7547,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
               <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.75rem" }}>{showPass ? "Hide" : "Show"}</button>
             </div>
+            {authMode === "login" && (
+              <button type="button" className="auth-forgot-link" onClick={handleForgotPassword} disabled={authLoading}>Forgot password?</button>
+            )}
+            {authNotice && <div className="auth-notice auth-notice-ok">{authNotice}</div>}
             {authError && (
               <div style={{ fontSize: "0.82rem", color: authError.includes("created") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("created") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("created") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
             )}
@@ -7448,11 +7561,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
           <p className="auth-switch-text">
             {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
+            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); setAuthNotice(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
               {authMode === "login" ? "Sign up free" : "Sign in"}
             </button>
           </p>
           <p style={{ fontSize: "0.68rem", color: "var(--ink-5)", textAlign: "center", marginTop: 4 }}>By continuing you agree to use VetroAI responsibly.</p>
+          </>)}
         </div>
       </div>
     </div>
