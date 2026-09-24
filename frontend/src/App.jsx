@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Suspense } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { requestedFileFormats, fileRequestInstruction, exportDocument } from "./lib/documentExport";
@@ -5438,11 +5439,23 @@ export default function App() {
   }, [chatSearchOpen, closeVoice, confirmDelete, isSidebarOpen, isVoiceOpen, newChat, showBookmarks, showCalc, showProfile, showShare, showSysPrompt]);
 
   // ── Scroll ────────────────────────────────────────────────────────────────────
+  // Auto-follow of a streaming answer stops the moment the user scrolls up,
+  // and resumes when they're back at the bottom. It used to stop only once
+  // they were more than 120px up — more than one mouse-wheel step — so every
+  // new token snapped the view back and the chat couldn't be scrolled at all
+  // while an answer was coming in.
+  const lastFeedScrollTop = useRef(0);
+  const userScrolledAt = useRef(0);
+  const markUserScroll = useCallback(() => { userScrolledAt.current = Date.now(); }, []);
   const handleScroll = () => {
     if (!feedRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = feedRef.current;
-    const far = scrollHeight - scrollTop - clientHeight > 120;
-    isScrolling.current = far; setShowScrollDn(far);
+    const fromBottom = scrollHeight - scrollTop - clientHeight;
+    const byUser = Date.now() - userScrolledAt.current < 1000;
+    if (byUser && scrollTop < lastFeedScrollTop.current - 1) isScrolling.current = true;
+    else if (fromBottom < 40) isScrolling.current = false;
+    lastFeedScrollTop.current = scrollTop;
+    setShowScrollDn(fromBottom > 120);
   };
   // Reading scrollHeight right after React has written to the DOM forces a
   // synchronous layout, and the streaming paths call this once per token on top
@@ -5457,11 +5470,18 @@ export default function App() {
       const el = feedRef.current;
       if (!el) return;
       el.scrollTop = el.scrollHeight;
+      lastFeedScrollTop.current = el.scrollTop;
       isScrolling.current = false;
       setShowScrollDn(false);
     });
   }, []);
-  useEffect(() => () => { if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current); }, []);
+  // Reset the pending-frame marker too: a cancelled frame left it set, and
+  // scrollToBottom then refused to run ever again (React's dev double-mount
+  // cancels one straight away).
+  useEffect(() => () => {
+    if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = 0;
+  }, []);
   useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom]);
 
   // ── Voice ─────────────────────────────────────────────────────────────────────
@@ -7360,6 +7380,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [recentsSortOpen, setRecentsSortOpen] = useState(false);
   const [recentsSortMode, setRecentsSortMode] = useState('recent');
   const [openRecentMenuId, setOpenRecentMenuId] = useState(null);
+  // Where the open "⋯" menu sits on screen. It floats (position: fixed) next to
+  // its button instead of living inside the Recents list: inside the list it
+  // made the list scroll to fit it, so the chat you clicked jumped away.
+  const [recentMenuPos, setRecentMenuPos] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
@@ -7869,7 +7893,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         </div>
 
         {/* Recents section */}
-        <div className="claude-sb-recents-scroll flex-1 overflow-y-auto px-1 flex flex-col" style={{ marginTop: 12, gap: 2 }}>
+        <div className="claude-sb-recents-scroll flex-1 overflow-y-auto px-1 flex flex-col" style={{ marginTop: 12, gap: 2 }} onScroll={() => { if (openRecentMenuId) setOpenRecentMenuId(null); }}>
           {displaySessions.length > 0 && (
             <div className="flex items-center justify-between px-3 py-1 mb-0.5 relative">
               <p className="claude-sb-group-label text-[11.5px] font-medium" style={{ color: 'var(--ink-4)' }}>Recents</p>
@@ -7939,12 +7963,20 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   </button>
                 )}
                 {!isRenaming && (
-                  <button onClick={(e) => { e.stopPropagation(); setOpenRecentMenuId(openRecentMenuId === session.id ? null : session.id); }} title="More" data-popover-trigger className="claude-sb-recent-more opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-md">
+                  <button onClick={(e) => {
+                    e.stopPropagation();
+                    if (openRecentMenuId === session.id) { setOpenRecentMenuId(null); return; }
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const MENU_H = 120;
+                    const openUp = r.bottom + 4 + MENU_H > window.innerHeight;
+                    setRecentMenuPos({ left: r.right, ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) });
+                    setOpenRecentMenuId(session.id);
+                  }} title="More" data-popover-trigger className={`claude-sb-recent-more ${openRecentMenuId === session.id ? "opacity-100" : "opacity-0"} group-hover:opacity-100 flex items-center justify-center rounded-md`}>
                     <MoreHorizontal size={14} />
                   </button>
                 )}
-                {openRecentMenuId === session.id && (
-                  <div className="claude-popover" style={{ position: "absolute", top: "calc(100% + 2px)", right: 4, zIndex: 30 }}>
+                {openRecentMenuId === session.id && recentMenuPos && createPortal(
+                  <div className="claude-popover" style={{ position: "fixed", left: recentMenuPos.left, top: recentMenuPos.top, bottom: recentMenuPos.bottom, transform: "translateX(-100%)", zIndex: 60 }}>
                     <button onClick={(e) => { togglePin(e, session.id); setOpenRecentMenuId(null); }} className="claude-popover-item">
                       <Star size={13} /> {session.pinned ? 'Unpin' : 'Pin'}
                     </button>
@@ -7954,7 +7986,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     <button onClick={() => { deleteSession(session.id); setOpenRecentMenuId(null); }} className="claude-popover-item danger">
                       <Trash2 size={13} /> Delete
                     </button>
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             );
@@ -8120,7 +8153,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 </div>
              ) : (
                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}>
+                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}
+                   onWheel={markUserScroll} onTouchStart={markUserScroll} onTouchMove={markUserScroll} onPointerDown={markUserScroll} onKeyDown={markUserScroll}>
                    <div style={{ maxWidth: 720, margin: '0 auto', paddingTop: 32 }} className="px-4 sm:px-6">
                    {messages.map((m, i) => (
                      <div key={i} className={`flex w-full mb-6 ${m.role === 'user' ? 'justify-end' : 'justify-start gap-3'}`}>
