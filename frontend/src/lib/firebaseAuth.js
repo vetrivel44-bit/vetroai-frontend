@@ -150,7 +150,12 @@ export async function refreshEmailVerification() {
   return true;
 }
 
-export const sendPasswordReset = (email) => sendPasswordResetEmail(requireAuth(), email);
+/** Emails a link to set a new password; it brings the reader back here. */
+export const sendPasswordReset = (email) => sendPasswordResetEmail(
+  requireAuth(),
+  email,
+  typeof window !== "undefined" ? { url: window.location.origin } : undefined,
+);
 
 export const signOutUser = () => (auth ? signOut(auth) : Promise.resolve());
 

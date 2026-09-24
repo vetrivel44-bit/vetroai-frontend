@@ -4601,6 +4601,8 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .auth-verify-actions{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .auth-verify-actions button{background:none;border:none;padding:6px 2px;color:var(--accent);font-weight:600;font-size:0.84rem;cursor:pointer}
 .auth-verify-actions button:disabled{opacity:0.5;cursor:default}
+.auth-forgot-link{align-self:flex-end;margin-top:-4px;background:none;border:none;padding:2px;color:var(--accent);font-weight:600;font-size:0.8rem;cursor:pointer}
+.auth-forgot-link:disabled{opacity:0.5;cursor:default}
 
 /* Responsive: stack on mobile */
 @media(max-width:768px){

@@ -22,6 +22,7 @@ import {
   watchIdToken, consumeRedirectResult, signOutUser, toUserInfo,
   signInWithEmail, signUpWithEmail, describeAuthError,
   needsEmailVerification, sendVerificationEmail, refreshEmailVerification,
+  sendPasswordReset,
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
@@ -4789,6 +4790,28 @@ export default function App() {
     }
   };
 
+  // "Forgot password?" — Firebase emails a link to its own page where the
+  // reader sets a new password, then signs in here with it.
+  const handleForgotPassword = async () => {
+    setAuthError(""); setAuthNotice("");
+    const email = authEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError("Enter your email address above, then tap “Forgot password?” again.");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await sendPasswordReset(email);
+      // Same wording whether or not the account exists, so this can't be used
+      // to find out who has an account.
+      setAuthNotice(`If an account exists for ${email}, a password reset link is on its way. Check your spam folder too.`);
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleUseAnotherAccount = async () => {
     setAuthError(""); setAuthNotice("");
     try { await signOutUser(); } catch (err) { swallowError(err); }
@@ -7512,6 +7535,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
               <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.75rem" }}>{showPass ? "Hide" : "Show"}</button>
             </div>
+            {authMode === "login" && (
+              <button type="button" className="auth-forgot-link" onClick={handleForgotPassword} disabled={authLoading}>Forgot password?</button>
+            )}
+            {authNotice && <div className="auth-notice auth-notice-ok">{authNotice}</div>}
             {authError && (
               <div style={{ fontSize: "0.82rem", color: authError.includes("created") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("created") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("created") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
             )}
@@ -7522,7 +7549,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
           <p className="auth-switch-text">
             {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
+            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); setAuthNotice(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
               {authMode === "login" ? "Sign up free" : "Sign in"}
             </button>
           </p>
