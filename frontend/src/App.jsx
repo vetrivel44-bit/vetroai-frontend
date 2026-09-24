@@ -25,6 +25,7 @@ import {
   sendPasswordReset,
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
+import FileCard from "./components/chat/FileCard";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
@@ -6888,7 +6889,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const filesToSend = selFiles.length ? [...selFiles] : null;
     const fileAttachments = selFiles.length ? selFiles.map(f => {
       const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
-      return { name: f.name, preview: preview?.src || null };
+      return { name: f.name, size: f.size, preview: preview?.src || null };
     }) : null;
     const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
     setMessages(hist); setInput("");
@@ -7056,10 +7057,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                   </button>
                 </div>
               ) : (
-                <div key={idx} className="file-chip">
-                  📄 {f.name}
-                  <button type="button" onClick={() => removeFile(idx)}>✕</button>
-                </div>
+                <FileCard key={idx} name={f.name} size={f.size} onRemove={() => removeFile(idx)} />
               );
             })}
           </div>
@@ -7983,7 +7981,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                  <div className="user-attached-files">
                                    {m.files.map((f, fi) => f.preview
                                      ? <img key={fi} src={f.preview} alt={f.name} className="user-att-img" />
-                                     : <span key={fi} className="user-att-chip">📄 {f.name}</span>
+                                     : <FileCard key={fi} name={f.name} size={f.size} compact />
                                    )}
                                  </div>
                                )}

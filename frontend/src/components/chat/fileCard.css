@@ -1,0 +1,109 @@
+/* Attachment card: file-type badge + name + "DOCX · 24 KB". */
+.vetro-file-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 220px;
+  max-width: 100%;
+  min-height: 52px;
+  padding: 7px 12px 7px 7px;
+  border-radius: 12px;
+  background: var(--bg-2, #fff);
+  border: 1px solid var(--border-med, rgba(0, 0, 0, 0.1));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  color: var(--ink, #1a1a1a);
+  text-align: left;
+}
+
+.vetro-file-badge {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: #fff;
+  background: var(--file-color);
+}
+.vetro-file-badge svg { opacity: 0.95; }
+.vetro-file-badge-label {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.vetro-file-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vetro-file-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vetro-file-meta {
+  font-size: 11.5px;
+  line-height: 1.2;
+  color: var(--ink-4, #8a8a8a);
+}
+
+/* Remove button sits on the card's corner, like other AI apps. */
+.vetro-file-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink, #1a1a1a);
+  background: var(--bg-2, #fff);
+  border: 1px solid var(--border-med, rgba(0, 0, 0, 0.14));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: color 120ms ease, background 120ms ease;
+}
+.vetro-file-remove:hover { color: #fff; background: var(--danger, #e5484d); border-color: transparent; }
+
+/* On a sent message: a touch smaller, lined up on the right with the bubble. */
+.vetro-file-card.is-compact { width: 200px; min-height: 46px; padding: 6px 11px 6px 6px; }
+.vetro-file-card.is-compact .vetro-file-badge { width: 34px; height: 34px; }
+
+/* Leave room for the corner button when cards wrap onto several rows. */
+.multi-file-previews { gap: 10px; padding-top: 8px; padding-right: 8px; }
+
+/* Dark mode: a lifted warm surface instead of the cool --bg-2. */
+:root[data-theme="dark"] .vetro-file-card,
+:root[data-theme="dark"] .vetro-file-remove { background: #302f2c; border-color: rgba(255, 255, 255, 0.1); color: #ececea; }
+:root[data-theme="dark"] .vetro-file-remove:hover { background: var(--danger, #e5484d); color: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme]) .vetro-file-card,
+  :root:not([data-theme="light"]):not([data-theme]) .vetro-file-remove { background: #302f2c; border-color: rgba(255, 255, 255, 0.1); color: #ececea; }
+}
+
+/* Phones: one swipeable row instead of a growing stack of cards. */
+@media (max-width: 640px) {
+  .multi-file-previews {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .multi-file-previews::-webkit-scrollbar { display: none; }
+  .multi-file-previews > * { flex-shrink: 0; }
+  .multi-file-previews .vetro-file-card { width: 200px; }
+}
