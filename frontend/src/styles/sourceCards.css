@@ -181,10 +181,12 @@
 
 /* Tailwind's preflight strips list markers everywhere, so Markdown lists in
    replies showed neither bullets nor numbers. Restore them for plain
-   (class-less) Markdown lists only; styled components keep their own look. */
-.claude-prose ul:not([class]) { list-style: disc; }
-.claude-prose ul:not([class]) ul:not([class]) { list-style: circle; }
-.claude-prose ol:not([class]) { list-style: decimal; }
+   (class-less) Markdown lists only; styled components keep their own look.
+   The streaming fade-in tags each new block with .vai-fade-in (and leaves
+   class="" once it is removed), so those count as plain lists too. */
+.claude-prose :is(ul:not([class]), ul[class=""], ul.vai-fade-in) { list-style: disc; }
+.claude-prose :is(ul:not([class]), ul[class=""], ul.vai-fade-in) ul:not([class]) { list-style: circle; }
+.claude-prose :is(ol:not([class]), ol[class=""], ol.vai-fade-in) { list-style: decimal; }
 .claude-prose li::marker { color: var(--ink-3); }
 
 /* ReactMarkdown wraps each fenced block in a <pre>, and our code card renders
