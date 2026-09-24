@@ -56,9 +56,18 @@ export const toUserInfo = (user) =>
  * navigates the single existing window there and back, so there's no second
  * window and no cross-window storage to lose.
  */
+// Android phones get the redirect too. There the popup opens in a
+// full-screen tab, but Google still draws its small desktop-popup layout in
+// it, so the account chooser is a tiny card in the middle of the screen. A
+// redirect shows Google's normal full-size mobile sign-in page instead.
+// (Not iOS: Safari's tracking protection can drop the redirect result when
+// the app and the Firebase auth domain are different sites.)
+const prefersRedirect = () =>
+  typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
+
 export async function signInWithGoogle() {
   requireAuth();
-  if (typeof window !== "undefined" && window.vetroDesktop) {
+  if (typeof window !== "undefined" && (window.vetroDesktop || prefersRedirect())) {
     await signInWithRedirect(auth, provider);
     return null; // window navigates away; result arrives via consumeRedirectResult
   }
