@@ -29,7 +29,7 @@ import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userS
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -4279,6 +4279,14 @@ export default function App() {
   // form, and the account gets no access to the app.
   const [pendingVerify, setPendingVerify] = useState(null);
   const [authNotice, setAuthNotice] = useState("");
+  // Seconds until "resend" is offered again — Firebase rate-limits these
+  // emails, and a cooldown keeps people from hammering the button.
+  const [resendIn, setResendIn] = useState(0);
+  useEffect(() => {
+    if (resendIn <= 0) return undefined;
+    const timer = setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendIn]);
 
   // Google login — Firebase owns the OAuth flow, so all this handler does is
   // surface the welcome toast. The session itself is established by the
@@ -4750,7 +4758,7 @@ export default function App() {
       // is nothing to wire up here beyond the call itself.
       if (authMode === "signup") {
         await signUpWithEmail(email, authPassword, authName.trim());
-        setAuthNotice(`We sent a verification link to ${email}.`);
+        setResendIn(60);
       } else {
         const signedIn = await signInWithEmail(email, authPassword);
         if (!needsEmailVerification(signedIn)) addToast("Welcome back!", "success", 2500);
@@ -4782,7 +4790,8 @@ export default function App() {
     setAuthError(""); setAuthNotice(""); setAuthLoading(true);
     try {
       await sendVerificationEmail();
-      setAuthNotice(`A new verification link is on its way to ${pendingVerify}.`);
+      setAuthNotice("New link sent. It can take a minute to arrive.");
+      setResendIn(60);
     } catch (err) {
       setAuthError(describeAuthError(err));
     } finally {
@@ -7488,22 +7497,25 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className="auth-form-card">
           {pendingVerify !== null ? (
             <div className="auth-verify">
-              <div className="auth-form-header">
-                <div className="auth-form-logo"><VetroLogo width={150} /></div>
-                <h2 className="auth-form-title">Verify your email 📧</h2>
-                <p className="auth-form-sub">
-                  We sent a link to <strong>{pendingVerify || "your email"}</strong>. Open it to confirm the address, then come back and tap “I've verified”. Check your spam folder if you don't see it.
-                </p>
-              </div>
+              <div className="auth-verify-icon" aria-hidden="true"><MailCheck size={28} strokeWidth={1.8} /></div>
+              <h2 className="auth-verify-title">Check your email</h2>
+              <p className="auth-verify-sub">We sent a verification link to</p>
+              <div className="auth-verify-email">{pendingVerify || "your email"}</div>
+              <p className="auth-verify-hint">Open the link in that email to verify your account, then come back here to continue.</p>
               {authNotice && <div className="auth-notice auth-notice-ok">{authNotice}</div>}
               {authError && <div className="auth-notice auth-notice-err">{authError}</div>}
               <button className="auth-submit-btn" type="button" onClick={handleCheckVerified} disabled={authLoading}>
-                {authLoading ? <><div className="auth-spin" />Please wait…</> : "I've verified →"}
+                {authLoading ? <><div className="auth-spin" />Checking…</> : "I've verified my email"}
               </button>
-              <div className="auth-verify-actions">
-                <button type="button" onClick={handleResendVerification} disabled={authLoading}>Resend email</button>
-                <button type="button" onClick={handleUseAnotherAccount} disabled={authLoading}>Use a different account</button>
-              </div>
+              <p className="auth-verify-resend">
+                Didn't get it? Check your spam folder, or{" "}
+                {resendIn > 0
+                  ? <span className="auth-verify-wait">resend in {resendIn}s</span>
+                  : <button type="button" onClick={handleResendVerification} disabled={authLoading}>resend the link</button>}
+              </p>
+              <button type="button" className="auth-verify-back" onClick={handleUseAnotherAccount} disabled={authLoading}>
+                <ArrowLeft size={15} /> Use a different email
+              </button>
             </div>
           ) : (<>
           <div className="auth-form-header">
