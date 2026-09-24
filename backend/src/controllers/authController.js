@@ -37,6 +37,12 @@ async function issueTokens(userId) {
 }
 
 async function signup(req, res) {
+  // Sign-up now happens through Firebase, which emails a verification link
+  // and keeps the account locked until it is opened. This older route created
+  // an account for any address with no check at all, so it is closed.
+  if (!config.allowLegacySignup) {
+    throw new ApiError(410, "Sign up in the VetroAI app — new accounts must verify their email address.");
+  }
   const { email, password, name } = req.validated.body;
 
   if (isDbAvailable()) {

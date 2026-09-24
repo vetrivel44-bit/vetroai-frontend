@@ -4593,6 +4593,14 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 .auth-submit-btn:disabled{opacity:0.55;cursor:not-allowed;transform:none}
 .auth-spin{width:18px;height:18px;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:spinEl 0.8s linear infinite}
 .auth-switch-text{font-size:0.84rem;color:var(--ink-3);text-align:center}
+/* "Verify your email" screen shown to a new email + password account. */
+.auth-verify{display:flex;flex-direction:column;gap:12px}
+.auth-notice{font-size:0.82rem;text-align:center;padding:8px 12px;border-radius:10px;border:1px solid transparent}
+.auth-notice-ok{color:#0f8a5f;background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.22)}
+.auth-notice-err{color:#c2553b;background:rgba(231,111,81,0.08);border-color:rgba(231,111,81,0.22)}
+.auth-verify-actions{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.auth-verify-actions button{background:none;border:none;padding:6px 2px;color:var(--accent);font-weight:600;font-size:0.84rem;cursor:pointer}
+.auth-verify-actions button:disabled{opacity:0.5;cursor:default}
 
 /* Responsive: stack on mobile */
 @media(max-width:768px){

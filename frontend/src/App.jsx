@@ -21,6 +21,7 @@ import GoogleLoginButton from "./components/auth/GoogleLoginButton";
 import {
   watchIdToken, consumeRedirectResult, signOutUser, toUserInfo,
   signInWithEmail, signUpWithEmail, describeAuthError,
+  needsEmailVerification, sendVerificationEmail, refreshEmailVerification,
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
@@ -4272,6 +4273,11 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [showPass, setShowPass]   = useState(false);
+  // Email of a signed-up account still waiting on its verification link, or
+  // null. While set, the auth screen shows "Verify your email" instead of the
+  // form, and the account gets no access to the app.
+  const [pendingVerify, setPendingVerify] = useState(null);
+  const [authNotice, setAuthNotice] = useState("");
 
   // Google login — Firebase owns the OAuth flow, so all this handler does is
   // surface the welcome toast. The session itself is established by the
@@ -4306,9 +4312,24 @@ export default function App() {
         localStorage.removeItem("vetroai_userinfo");
         setUser(null);
         setUserInfo(null);
+        setPendingVerify(null);
         setAuthReady(true);
         return;
       }
+
+      // An email + password account can't use the app until its address is
+      // confirmed — otherwise anyone could sign up with an address they don't
+      // own. No token is stored, so nothing else in the app sees it.
+      if (needsEmailVerification(firebaseUser)) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("vetroai_userinfo");
+        setUser(null);
+        setUserInfo(null);
+        setPendingVerify(firebaseUser.email || "");
+        setAuthReady(true);
+        return;
+      }
+      setPendingVerify(null);
 
       const info = toUserInfo(firebaseUser);
       let token = null;
@@ -4728,10 +4749,10 @@ export default function App() {
       // is nothing to wire up here beyond the call itself.
       if (authMode === "signup") {
         await signUpWithEmail(email, authPassword, authName.trim());
-        addToast("Account created \u{1F389}", "success", 3000);
+        setAuthNotice(`We sent a verification link to ${email}.`);
       } else {
-        await signInWithEmail(email, authPassword);
-        addToast("Welcome back!", "success", 2500);
+        const signedIn = await signInWithEmail(email, authPassword);
+        if (!needsEmailVerification(signedIn)) addToast("Welcome back!", "success", 2500);
       }
       setAuthPassword("");
     } catch (err) {
@@ -4739,6 +4760,39 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
+  };
+
+  // "I've verified" on the verify screen. Once Firebase confirms it, the
+  // token refresh fires onIdTokenChanged, which finishes signing in.
+  const handleCheckVerified = async () => {
+    setAuthError(""); setAuthNotice(""); setAuthLoading(true);
+    try {
+      const verified = await refreshEmailVerification();
+      if (verified) addToast("Email verified \u{1F389}", "success", 3000);
+      else setAuthError("Not verified yet. Open the link in the email we sent, then try again.");
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setAuthError(""); setAuthNotice(""); setAuthLoading(true);
+    try {
+      await sendVerificationEmail();
+      setAuthNotice(`A new verification link is on its way to ${pendingVerify}.`);
+    } catch (err) {
+      setAuthError(describeAuthError(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleUseAnotherAccount = async () => {
+    setAuthError(""); setAuthNotice("");
+    try { await signOutUser(); } catch (err) { swallowError(err); }
+    setAuthMode("login");
   };
 
   const notifyResponseReady = useCallback((text) => {
@@ -7409,6 +7463,26 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       {/* Form side */}
       <div className="auth-form-side">
         <div className="auth-form-card">
+          {pendingVerify !== null ? (
+            <div className="auth-verify">
+              <div className="auth-form-header">
+                <div className="auth-form-logo"><VetroLogo width={150} /></div>
+                <h2 className="auth-form-title">Verify your email 📧</h2>
+                <p className="auth-form-sub">
+                  We sent a link to <strong>{pendingVerify || "your email"}</strong>. Open it to confirm the address, then come back and tap “I've verified”. Check your spam folder if you don't see it.
+                </p>
+              </div>
+              {authNotice && <div className="auth-notice auth-notice-ok">{authNotice}</div>}
+              {authError && <div className="auth-notice auth-notice-err">{authError}</div>}
+              <button className="auth-submit-btn" type="button" onClick={handleCheckVerified} disabled={authLoading}>
+                {authLoading ? <><div className="auth-spin" />Please wait…</> : "I've verified →"}
+              </button>
+              <div className="auth-verify-actions">
+                <button type="button" onClick={handleResendVerification} disabled={authLoading}>Resend email</button>
+                <button type="button" onClick={handleUseAnotherAccount} disabled={authLoading}>Use a different account</button>
+              </div>
+            </div>
+          ) : (<>
           <div className="auth-form-header">
             {/* Phones hide the hero panel, so the brand shows here instead. */}
             <div className="auth-form-logo"><VetroLogo width={150} /></div>
@@ -7453,6 +7527,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             </button>
           </p>
           <p style={{ fontSize: "0.68rem", color: "var(--ink-5)", textAlign: "center", marginTop: 4 }}>By continuing you agree to use VetroAI responsibly.</p>
+          </>)}
         </div>
       </div>
     </div>

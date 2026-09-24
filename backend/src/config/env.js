@@ -100,6 +100,9 @@ module.exports = {
     // Firecrawl (firecrawl.dev) news search. When set, it serves the news feed
     // instead of the NEWS_API_KEY service.
     firecrawlApiKey:     getEnv("FIRECRAWL_API_KEY",     ""),
+    // The old /api/auth/signup route creates unverified accounts; it is off
+    // unless this is set to "true" (e.g. for a local test setup).
+    allowLegacySignup:   getEnv("ALLOW_LEGACY_SIGNUP",   "false") === "true",
     // Optional per-request article cap. thenewsapi and currents both cap this
     // per plan and reject anything over, so it is only sent when set.
     newsLimit:           getEnv("NEWS_API_LIMIT",        ""),
