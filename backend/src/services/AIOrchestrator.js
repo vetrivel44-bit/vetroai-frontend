@@ -573,17 +573,15 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // Only honoured when a provider can actually act on it; see the strip below.
     const needsVision = (isComputerUse || carriesImages) && Boolean(configuredVisionProvider);
 
-    // No vision provider configured, but images arrived anyway. Drop them and
-    // say so, rather than handing a text-only model an invisible attachment and
-    // letting it answer as though it had looked.
+    // No vision provider configured, but images arrived anyway. Answering
+    // with a text-only model just told the user "I can't see your image".
+    // Instead the turn ends with a NO_VISION error, which the web app answers
+    // by reading the image with its in-browser vision model.
     if (carriesImages && !configuredVisionProvider && !isComputerUse) {
       logger.warn("AIOrchestrator.imagesWithoutVisionProvider", { reqId });
-      for (const message of messages) {
-        if (!Array.isArray(message.images) || !message.images.length) continue;
-        const count = message.images.length;
-        delete message.images;
-        message.content = `${message.content || ""}\n\n[${count} IMAGE${count > 1 ? "S were" : " was"} ATTACHED BUT NO IMAGE-CAPABLE MODEL IS AVAILABLE, so you cannot see ${count > 1 ? "them" : "it"}. Tell the user that plainly and answer only what the text supports — never describe or guess at the contents.]`.trim();
-      }
+      this.sendVetroEvent(res, "error", "No image-reading model is configured on the server right now.", { code: "NO_VISION" });
+      res.end();
+      return false;
     }
 
     let currentProviderName = needsVision
@@ -668,7 +666,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
     const answeredByClock = !!clockQuestion && (!clockQuestion.place || !!clockNote);
-    const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && (
+    // A turn about an attached file or image is answered from the attachment;
+    // searching the web for words from the file's text only added noise.
+    const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
       isExplicitSearchMode ||
       (autoSearchRequested && this.needsWebSearch(userQuery))
     );
@@ -852,7 +852,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
           const isLastAttempt = attempts === maxAttempts - 1;
           const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision, isLastAttempt);
           if (!nextProvider) {
-            this.sendVetroEvent(res, "error", "All configured AI providers are currently unavailable. Please try again shortly.");
+            // Every image-capable provider failed: let the client read the
+            // image itself (NO_VISION) rather than giving up on the turn.
+            this.sendVetroEvent(res, "error", needsVision
+              ? "The image-reading models on the server are unavailable right now."
+              : "All configured AI providers are currently unavailable. Please try again shortly.",
+              needsVision && !isComputerUse ? { code: "NO_VISION" } : undefined);
             break;
           }
           let friendlyMsg = `Issue with ${currentProviderName}. Switching to another model…`;
@@ -884,8 +889,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
     return success;
   }
 
-  sendVetroEvent(res, type, data) {
-    res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  sendVetroEvent(res, type, data, extra) {
+    res.write(`data: ${JSON.stringify({ type, data, ...(extra || {}) })}\n\n`);
   }
 
   // Picks the next provider to try after `failedProvider`. Computer-use walks

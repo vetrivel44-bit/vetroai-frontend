@@ -130,7 +130,7 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       } else if (type === "status" && data) {
         onStatus(data);
       } else if (type === "error" && data) {
-        onError(data);
+        onError(data, event.code);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
       } else if (type === "realtime_notice" && data) {
@@ -192,6 +192,25 @@ const extractPdfText = async (file) => {
     text += content.items.map(item => item.str).join(" ") + "\n";
   }
   return text.trim().slice(0, 15000);
+};
+
+// A scanned PDF has no text layer, so its pages are rendered to images the
+// vision model can read instead.
+const renderPdfPages = async (file, maxPages = 4) => {
+  const pdfjsLib = await loadPdfjs();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages = [];
+  for (let i = 1; i <= Math.min(pdf.numPages, maxPages); i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 1.6 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (blob) pages.push(new File([blob], `${file.name.replace(/\.pdf$/i, "")}-page-${i}.jpg`, { type: "image/jpeg" }));
+  }
+  return pages;
 };
 
 // ─── SOURCE CARDS EXTRACTION (Perplexity-style) ───────────────────────────────
@@ -5675,23 +5694,32 @@ export default function App() {
 
   const clearFiles = () => { setSelFiles([]); setFilePreviews([]); };
 
-  const handleFileChange = async e => {
-    const files = Array.from(e.target.files); if (!files.length) return;
-    e.target.value = "";
-    const pdfFiles = files.filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"));
-    const otherFiles = files.filter(f => !(f.type === "application/pdf" || f.name.endsWith(".pdf")));
+  // One intake for the file picker, drag-and-drop and paste. Every PDF is
+  // turned into its text here (drag-and-drop and paste used to send the raw
+  // PDF, which no model could read), and a scanned PDF with no text becomes
+  // page images for the vision model.
+  const ingestFiles = async (files) => {
+    const isPdf = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+    const pdfFiles = files.filter(isPdf);
+    const otherFiles = files.filter((f) => !isPdf(f));
     if (pdfFiles.length) {
       setIsPdfLoading(true);
       for (const f of pdfFiles) {
-        addToast(`📄 Parsing ${f.name}…`, "info", 2000);
+        addToast(`📄 Reading ${f.name}…`, "info", 2000);
         try {
           const text = await extractPdfText(f);
-          const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
-          const textFile = new File([textBlob], f.name.replace(".pdf", ".txt"), { type: "text/plain" });
-          addFiles([textFile]);
-          addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
-        } catch (err) {
-          addToast(`⚠️ Could not parse ${f.name}`, "error");
+          if (text.replace(/\s+/g, "").length >= 40) {
+            const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
+            addFiles([new File([textBlob], f.name.replace(/\.pdf$/i, ".txt"), { type: "text/plain" })]);
+            addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
+          } else {
+            const pages = await renderPdfPages(f);
+            if (!pages.length) throw new Error("no pages");
+            addFiles(pages);
+            addToast(`📄 ${f.name} is scanned — attached ${pages.length} page image${pages.length === 1 ? "" : "s"} to read`, "success", 3500);
+          }
+        } catch {
+          addToast(`⚠️ Could not read ${f.name}`, "error");
         }
       }
       setIsPdfLoading(false);
@@ -5702,6 +5730,12 @@ export default function App() {
       const docCount = otherFiles.length - imgCount;
       if (docCount > 0) addToast(`📎 ${docCount} file(s) attached`, "success", 2000);
     }
+  };
+
+  const handleFileChange = async e => {
+    const files = Array.from(e.target.files); if (!files.length) return;
+    e.target.value = "";
+    await ingestFiles(files);
   };
 
   const [isDragOver, setIsDragOver] = useState(false);
@@ -5715,12 +5749,12 @@ export default function App() {
         if (f) files.push(f);
       }
     }
-    if (files.length) { e.preventDefault(); addFiles(files); }
+    if (files.length) { e.preventDefault(); ingestFiles(files); }
   };
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length) addFiles(files);
+    if (files.length) ingestFiles(files);
   };
   const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
   const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); };
@@ -6208,7 +6242,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // bubble and returns the answer. Shared by the primary browser-model
       // path and the last-resort retry after the backend runs out of
       // providers. Returns null when the turn was superseded mid-stream.
-      const streamWithPuter = async (providerName, extraSystem = "", prefix = "") => {
+      const streamWithPuter = async (providerName, extraSystem = "", prefix = "", docs = null) => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
         await window.whenPuter?.();
@@ -6220,6 +6254,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
           .slice(-50)
           .map(({ role, content }) => ({ role, content }));
+        // Attached documents ride on this turn's question, as for the local model.
+        if (docs?.length) {
+          const lastUser = [...puterMessages].reverse().find((m) => m.role === "user");
+          if (lastUser) lastUser.content = withDocuments(docs, lastUser.content);
+        }
         const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
         if (puterSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
@@ -6336,6 +6375,47 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
       };
 
+      // Reads the attached images with GPT-5.6 Luna in the browser and shows
+      // the answer. Used when a browser model is picked, and when the server
+      // reports it has no image-reading model (NO_VISION). Throws on failure
+      // (a credits error included) for the caller to handle.
+      const analyzeImagesInBrowser = async () => {
+        await window.whenPuter?.();
+        if (!window.puter?.ai?.chat) {
+          throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
+        }
+        setIsTyping(false);
+        setIsWebSearching(false);
+        setStreamStatus("streaming");
+        const analyses = [];
+        for (let index = 0; index < attachedImages.length; index++) {
+          if (!isActive()) return;
+          const imageUrl = await fileToDataUrl(attachedImages[index]);
+          const imagePrompt = attachedImages.length > 1
+            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
+            : userQuery || "Analyze this image in detail.";
+          const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
+          const analysis = getPuterResponseText(response);
+          if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
+          analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
+          const combined = analyses.join("\n\n");
+          setMessages((previous) => {
+            const next = [...previous];
+            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            return next;
+          });
+          setStreamingContent(combined);
+        }
+        const bot = analyses.join("\n\n");
+        setIsLoading(false);
+        setStreamStatus("idle");
+        setStreamingContent("");
+        if (voiceRef.current || autoSpeakRef.current) speak(bot);
+        if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+        notifyResponseReady(bot);
+        generateFollowUps(bot, userQuery || "Analyze this image");
+      };
+
       if (attachedImages.length > 0) {
         // Already learned this session that GPT-5.6 Luna is out of credits —
         // skip straight to the backend instead of reopening Puter's dialog.
@@ -6344,41 +6424,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         } else if (!PUTER_MODEL_IDS[selectedProvider]) {
           // Auto and backend models send images to the backend's vision providers.
         } else {
-        await window.whenPuter?.();
-        if (!window.puter?.ai?.chat) {
-          throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
-        }
-        setIsTyping(false);
-        setIsWebSearching(false);
-        setStreamStatus("streaming");
         try {
-          const analyses = [];
-          for (let index = 0; index < attachedImages.length; index++) {
-            if (!isActive()) return;
-            const imageUrl = await fileToDataUrl(attachedImages[index]);
-            const imagePrompt = attachedImages.length > 1
-              ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
-              : userQuery || "Analyze this image in detail.";
-            const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
-            const analysis = getPuterResponseText(response);
-            if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
-            analyses.push(attachedImages.length > 1 ? `### Image ${index + 1}\n\n${analysis}` : analysis);
-            const combined = analyses.join("\n\n");
-            setMessages((previous) => {
-              const next = [...previous];
-              next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
-              return next;
-            });
-            setStreamingContent(combined);
-          }
-          const bot = analyses.join("\n\n");
-          setIsLoading(false);
-          setStreamStatus("idle");
-          setStreamingContent("");
-          if (voiceRef.current || autoSpeakRef.current) speak(bot);
-          if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
-          notifyResponseReady(bot);
-          generateFollowUps(bot, userQuery || "Analyze this image");
+          await analyzeImagesInBrowser();
           return;
         } catch (puterErr) {
           if (!isActive()) return;
@@ -6517,29 +6564,33 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // An automatic search that failed still lets the chosen model answer; an
       // explicit web search falls through to the backend, which can search.
       if (puterModelId && !explicitSearch && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
-        if (fileCount > 0) {
-          throw new Error(`${effectivePuterProvider} file uploads are not available yet. Remove the attachment and send the text again.`);
-        }
-        try {
-          const puterBot = await streamWithPuter(effectivePuterProvider, astro?.prompt || "", astro?.chartBlock || "");
-          if (!isActive() || puterBot === null) return;
-          finishChat(puterBot);
-          return;
-        } catch (puterErr) {
-          if (!isActive()) return;
-          if (!isPuterCreditsError(puterErr)) throw puterErr;
-          // Puter is out of credits/usage for this model — don't fail the chat,
-          // fall through to the backend request below (which has its own
-          // provider fallback chain, down to Cohere) instead of surfacing this.
-          puterCreditsExhaustedRef.current.add(effectivePuterProvider);
-          addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message, reason: classifyPuterFailure(puterErr) });
-          addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
-          setMessages((previous) => {
-            const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: "" };
-            return next;
-          });
-          setStreamingContent("");
+        // Browser models read text documents here (they used to refuse every
+        // attachment). A file whose text can't be read goes to the backend.
+        const puterDocs = fileCount > 0 ? newDocs : null;
+        if (fileCount > 0 && (!puterDocs || attachedImages.length)) {
+          addDebugLog("Puter.attachmentToBackend", { reqId, provider: effectivePuterProvider, fileCount });
+        } else {
+          try {
+            const puterBot = await streamWithPuter(effectivePuterProvider, astro?.prompt || "", astro?.chartBlock || "", puterDocs);
+            if (!isActive() || puterBot === null) return;
+            finishChat(puterBot);
+            return;
+          } catch (puterErr) {
+            if (!isActive()) return;
+            if (!isPuterCreditsError(puterErr)) throw puterErr;
+            // Puter is out of credits/usage for this model — don't fail the chat,
+            // fall through to the backend request below (which has its own
+            // provider fallback chain, down to Cohere) instead of surfacing this.
+            puterCreditsExhaustedRef.current.add(effectivePuterProvider);
+            addDebugLog("Puter.creditsExhausted", { reqId, provider: effectivePuterProvider, error: puterErr?.message, reason: classifyPuterFailure(puterErr) });
+            addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: "" };
+              return next;
+            });
+            setStreamingContent("");
+          }
         }
       }
 
@@ -6550,6 +6601,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // failure is captured here rather than thrown and retried below.
       let backendFailure = null;
       let streamError = "";
+      let streamErrorCode = "";
       let bot = "";
       // An empty reply or a dropped connection is usually momentary (a provider
       // closing early, the server waking up), so one quiet retry of the same
@@ -6557,6 +6609,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       for (let backendAttempt = 0; backendAttempt < 2; backendAttempt++) {
         backendFailure = null;
         streamError = "";
+        streamErrorCode = "";
         bot = "";
         try {
           const res = await fetch(API + "/chat", {
@@ -6592,8 +6645,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               setStreamStatus(statusMsg);
               addDebugLog("SSE.status", { status: statusMsg });
             },
-            (errorMsg) => {
+            (errorMsg, code) => {
               streamError = errorMsg;
+              if (code) streamErrorCode = code;
             },
             isActive,
             reqId,
@@ -6653,6 +6707,28 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (!isActive()) return;
       }
 
+      // The server has no working image-reading model: read the image here
+      // with the browser's vision model instead of answering without it.
+      if (backendFailure && streamErrorCode === "NO_VISION" && attachedImages.length > 0 && !puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
+        addDebugLog("Backend.noVision", { reqId, images: attachedImages.length });
+        setMessages((previous) => {
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
+          return next;
+        });
+        setStreamingContent("");
+        setStreamStatus("Reading the image…");
+        try {
+          await analyzeImagesInBrowser();
+          return;
+        } catch (visionErr) {
+          if (!isActive()) return;
+          if (isPuterCreditsError(visionErr)) puterCreditsExhaustedRef.current.add("GPT-5.6 Luna");
+          addDebugLog("Puter.visionFallbackFailed", { reqId, error: visionErr?.message });
+          throw new Error("Couldn't read the image right now — the image-reading models are unavailable. Please try again in a moment, or describe what's in it.");
+        }
+      }
+
       if (backendFailure) {
         if (selectedMode === "web_search" && fileCount === 0) {
           setMessages((previous) => {
@@ -6671,7 +6747,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const browserRetry = pickBrowserRetryProvider({
           attempted: [...puterAttempted],
           preferCodex: shouldUseCodex(userQuery, selectedMode),
-          hasFiles: fileCount > 0,
+          // Readable documents can go to a browser model now; images or
+          // unreadable files still can't.
+          hasFiles: fileCount > 0 && (!newDocs || attachedImages.length > 0),
           // Only a turn that picked a browser model may fall back to one: Auto and
           // backend models stay off Puter, and a browser model can't search.
           puterAvailable: Boolean(PUTER_MODEL_IDS[selectedProvider]) && selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
@@ -6687,7 +6765,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           });
           setStreamingContent("");
           try {
-            const retryBot = await streamWithPuter(browserRetry);
+            const retryBot = await streamWithPuter(browserRetry, "", "", fileCount > 0 ? newDocs : null);
             if (!isActive() || retryBot === null) return;
             finishChat(retryBot);
             return;
