@@ -26,9 +26,9 @@ import {
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import FileCard from "./components/chat/FileCard";
-import { DIAGRAM_PROMPT } from "./lib/diagramPrompt";
-import MermaidDiagram from "./components/chat/MermaidDiagram";
-import { OpenDiagramContext, openMermaidTail } from "./lib/mermaidStream";
+import { VISUALS_PROMPT } from "./lib/visualsPrompt";
+import { renderVisualBlock } from "./lib/visualBlocks";
+import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
@@ -1044,15 +1044,15 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   // The diagram still being streamed, shared through context so the code
   // renderer below stays stable (re-creating it every token would remount
   // every code block and diagram in the reply).
-  const openDiagram = useMemo(() => (isStreaming ? openMermaidTail(content) : null), [content, isStreaming]);
+  const openBlock = useMemo(() => (isStreaming ? openFenceTail(content) : null), [content, isStreaming]);
   const components = useMemo(() => ({
-    code({ inline, className, children }) {
+    code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const langMatch = /language-(\w+)/.exec(className || "");
       if (inline || !langMatch) return <code className={className}>{children}</code>;
-      if (langMatch[1].toLowerCase() === "mermaid") {
-        return <MermaidDiagram code={codeString} fallback={<CodeBlock match={langMatch} codeString={codeString} />} />;
-      }
+      // Diagrams, charts, widgets and maps are drawn instead of shown as code.
+      const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
+      if (visual) return visual;
       const isArtifactWorthy = onSaveArtifact && codeString.split("\n").length >= 4;
       return (
         <CodeBlock
@@ -1068,11 +1068,11 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   useStreamFadeIn(containerRef, content, isStreaming);
   return (
     <div ref={containerRef} className="vai-stream-body">
-      <OpenDiagramContext.Provider value={openDiagram}>
+      <OpenBlockContext.Provider value={openBlock}>
         <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
           {normalizeMathDelimiters(content)}
         </ReactMarkdown>
-      </OpenDiagramContext.Provider>
+      </OpenBlockContext.Provider>
     </div>
   );
 });
@@ -1088,13 +1088,12 @@ const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
 // button — the per-model cards in a multi-AI answer.
 const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content }) {
   const components = useMemo(() => ({
-    code({ inline, className, children }) {
+    code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const langMatch = /language-(\w+)/.exec(className || "");
       if (inline || !langMatch) return <code className={className}>{children}</code>;
-      if (langMatch[1].toLowerCase() === "mermaid") {
-        return <MermaidDiagram code={codeString} fallback={<CodeBlock match={langMatch} codeString={codeString} />} />;
-      }
+      const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
+      if (visual) return visual;
       return <CodeBlock match={langMatch} codeString={codeString} />;
     },
   }), []);
@@ -6199,9 +6198,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           .map(({ role, content }) => ({ role, content }));
         const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
         if (puterSystem) {
-          // Same Mermaid diagram rule the backend adds, so a browser model
-          // answers "draw a flowchart" with a diagram, not a description.
-          puterMessages.unshift({ role: "system", content: `${puterSystem}${DIAGRAM_PROMPT}` });
+          // Same inline-visuals rule the backend adds, so a browser model
+          // answers "draw a flowchart" or "chart this" with a visual, not prose.
+          puterMessages.unshift({ role: "system", content: `${puterSystem}${VISUALS_PROMPT}` });
         }
 
         const puterOptions = {

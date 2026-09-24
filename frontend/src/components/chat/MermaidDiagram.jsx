@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { Check, Code2, Copy, Download, Network } from "lucide-react";
-import { OpenDiagramContext } from "../../lib/mermaidStream";
+import { OpenBlockContext, isStillStreaming } from "../../lib/visualStream";
 import "./mermaidDiagram.css";
 
 // Renders a ```mermaid code block as a real diagram (flowcharts, UML use
@@ -292,8 +292,7 @@ const diagramName = (code) => {
 export default function MermaidDiagram({ code, fallback = null }) {
   const theme = useDocumentTheme();
   // Still streaming: this block's closing ``` hasn't arrived yet.
-  const openDiagram = useContext(OpenDiagramContext);
-  const pending = openDiagram != null && openDiagram.trim() === String(code).trim();
+  const pending = isStillStreaming(useContext(OpenBlockContext), code);
   const [state, setState] = useState({ status: "idle", svg: "", error: "" });
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);

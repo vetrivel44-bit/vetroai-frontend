@@ -1,6 +1,6 @@
 // Trigger sync 2026-05-15 18:28
 const logger = require("../utils/logger");
-const { DIAGRAM_PROMPT } = require("./diagramPrompt");
+const { VISUALS_PROMPT } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
@@ -537,10 +537,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
 \`\`\``;
     }
 
-    // Diagrams: ```mermaid blocks render as real diagrams in the chat. Not for
-    // design (single HTML block) or computer_use (single JSON action).
+    // Inline visuals: ```mermaid / ```chartjs / ```html widget / ```json map
+    // blocks are drawn in the chat. Not for design (single HTML block) or
+    // computer_use (single JSON action).
     if (mode !== "design" && mode !== "computer_use") {
-      sys += DIAGRAM_PROMPT;
+      sys += VISUALS_PROMPT;
     }
 
     return sys;
