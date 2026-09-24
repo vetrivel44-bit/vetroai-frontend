@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense, laz
 import { Chess } from "chess.js";
 import {
   X, Play, Pause, SkipForward, RotateCcw, Swords, Eye, User, Trophy, Crown,
-  ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale,
+  ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap,
 } from "lucide-react";
 import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, getModel, requestAIMove } from "../../utils/chessAI";
 import { openingName } from "../../utils/chessPersonas";
+import { repertoireName } from "../../utils/chessOpenings";
 import Board2D from "./chess2d/Board2D";
 import "./ChessArena.css";
 
@@ -137,7 +138,7 @@ function useGameView(chess, version) {
       verboseHistory,
       lastMove: verboseHistory.length ? verboseHistory[verboseHistory.length - 1] : null,
       balance: materialBalance(chess),
-      opening: openingName(historySAN),
+      opening: repertoireName(historySAN) || openingName(historySAN),
     };
     // `chess` is a stable, mutated-in-place instance — `version` is what
     // actually signals a new position.
@@ -462,7 +463,7 @@ function AIvAI() {
           <div className="ca-duel-vs">VS</div>
           <ModelPicker label="Black" sideColor="b" value={blackModel} onChange={setBlackModel} />
         </div>
-        <div className="ca-note"><Scale size={15} /> Both sides get identical strength and thinking time — the better play on the board wins.</div>
+        <div className="ca-note"><Scale size={15} /> Both sides play at maximum strength — more thinking time than the Master level, grandmaster opening theory — with identical settings, so the better play on the board wins.</div>
         <div className="ca-setup-actions">
           <button className="ca-btn-primary" disabled={whiteModel === blackModel} onClick={startGame}>
             <Swords size={16} /> Start match
@@ -481,6 +482,7 @@ function AIvAI() {
       bottom={<PlayerStrip modelId={whiteModel} color="w" subtitle="White" active={chess.turn() === "w" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       board={<ArenaBoard view={boardView} chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />}
       panelTop={<>
+        <div className="ca-strength"><Zap size={13} /> Maximum strength · both sides equal</div>
         <StatusLine status={status} turnName={turnName} thinking={thinking} opening={opening} />
         <ResultBanner status={status} whiteId={whiteModel} blackId={blackModel} onRematch={rematch} />
         <CommentaryCard commentary={commentary} />
@@ -582,6 +584,7 @@ function Spectator() {
       board={<ArenaBoard view={boardView} chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />}
       panelTop={<>
         <div className="ca-match-no">Match #{matchNum}</div>
+        <div className="ca-strength"><Zap size={13} /> Maximum strength · both sides equal</div>
         <StatusLine status={status} turnName={turnName} thinking={thinking} opening={opening} />
         <ResultBanner status={status} whiteId={whiteModel} blackId={blackModel} />
         <CommentaryCard commentary={commentary} />
@@ -766,8 +769,8 @@ function PlayerVsAI() {
 function ModeMenu({ onPick }) {
   const cards = [
     { id: "player-vs-ai", title: "Play vs AI", icon: User, desc: "Take on any model yourself — from relaxed to full grandmaster strength.", tag: "4 levels" },
-    { id: "ai-vs-ai", title: "AI vs AI", icon: Swords, desc: "Pick two models and watch an evenly matched game unfold move by move.", tag: "Equal strength" },
-    { id: "spectator", title: "Spectator", icon: Eye, desc: "Random matchups play back to back, with a running leaderboard.", tag: "Non-stop" },
+    { id: "ai-vs-ai", title: "AI vs AI", icon: Swords, desc: "Two models at maximum strength, evenly matched, playing real opening theory.", tag: "Max strength" },
+    { id: "spectator", title: "Spectator", icon: Eye, desc: "Random matchups at maximum strength, back to back, with a running leaderboard.", tag: "Non-stop" },
   ];
   return (
     <div className="ca-menu">

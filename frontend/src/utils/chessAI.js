@@ -26,6 +26,7 @@ import {
   typeOf, colorOf, WHITE,
 } from "./chessEngine.js";
 import { buildGameIdentity, bookMove, openingName, getPersona } from "./chessPersonas.js";
+import { grandmasterBookMove, repertoireName } from "./chessOpenings.js";
 import { resolveApiBase } from "../lib/apiBase.js";
 
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -71,10 +72,11 @@ const DIFFICULTY = {
   // language model is not consulted for the move: it could only ever make
   // the choice worse, and the round trip was most of the wait.
   master: { thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
-  // AI vs AI and Spectator: both sides get exactly this, whatever model is
-  // named on the badge, so a match is decided over the board and not by one
-  // side being handed a bigger budget or a looser leash.
-  arena: { thinkMs: 2500, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
+  // AI vs AI and Spectator: the strongest setting in the arena — more
+  // thinking time than Master — and both sides get exactly this, whatever
+  // model is named on the badge, so a match is decided over the board and
+  // not by one side being handed a bigger budget or a looser leash.
+  arena: { thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
 };
 export const ARENA_LEVEL = "arena";
 
@@ -464,14 +466,23 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   // the book would answer it with a first move.
   const plyFromFen = (chess.moveNumber() - 1) * 2 + (chess.turn() === "b" ? 1 : 0);
   const historyIsComplete = history.length === plyFromFen;
-  if (historyIsComplete && history.length < 8) {
+  // Full strength opens like a top-level game: grandmaster mainlines, for as
+  // long as the game stays on one.
+  if (historyIsComplete && level?.engineOnly) {
+    const gm = grandmasterBookMove(history, legalSans, identity.rng);
+    if (gm) {
+      return {
+        move: gm.san,
+        commentary: `${gm.name} — main-line theory.`,
+        providerId, raw: "", source: "book", opening: gm.name,
+      };
+    }
+  } else if (historyIsComplete && history.length < 8) {
     const book = bookMove(history, legalSans, identity.rng, identity.mood.id);
     if (book) {
       return {
         move: book.san,
-        commentary: level?.engineOnly
-          ? `${book.name} — straight from opening theory.`
-          : `${book.name} — ${identity.mood.label}, so this is my kind of position.`,
+        commentary: `${book.name} — ${identity.mood.label}, so this is my kind of position.`,
         providerId,
         raw: "",
         source: "book",
@@ -532,7 +543,7 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   // ── 3. Ask the model to choose, with the analysis in hand ─────────────────
   const prompt = buildPrompt({
     identity, colorName, chess, pos, candidates, legalSans,
-    opening: openingName(history),
+    opening: repertoireName(history) || openingName(history),
   });
 
   const timeoutCtrl = new AbortController();
