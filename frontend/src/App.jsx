@@ -25,7 +25,6 @@ import {
   sendPasswordReset,
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
-import { startOneTap } from "./lib/googleOneTap";
 import { setSyncUid, persistList, persistPref, readLocalList } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
@@ -4771,21 +4770,6 @@ export default function App() {
       setAuthLoading(false);
     }
   };
-
-  // Google One Tap: while signed out, offer the native "choose an account"
-  // sheet on its own, as other AI apps do. Signing in through it fires the
-  // same onIdTokenChanged flow as the button.
-  useEffect(() => {
-    if (!authReady || user || pendingVerify !== null) return undefined;
-    return startOneTap({
-      onSignedIn: (firebaseUser) => handleGoogleLogin(firebaseUser),
-      // Firebase reports a rejected Google token as "invalid credential",
-      // which describeAuthError words for passwords — wrong for Google.
-      onError: (err) => setAuthError(err?.code === "auth/network-request-failed"
-        ? describeAuthError(err)
-        : "Google sign-in didn't finish. Try again, or tap “Continue with Google”."),
-    });
-  }, [authReady, user, pendingVerify, handleGoogleLogin]);
 
   // "I've verified" on the verify screen. Once Firebase confirms it, the
   // token refresh fires onIdTokenChanged, which finishes signing in.
