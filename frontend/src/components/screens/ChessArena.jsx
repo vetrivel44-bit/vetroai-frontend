@@ -1,12 +1,48 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense, lazy } from "react";
 import { Chess } from "chess.js";
 import {
   X, Play, Pause, SkipForward, RotateCcw, Swords, Eye, User, Trophy, Crown,
-  ChevronLeft, Loader2, Shuffle, Flag, Bot, Sparkles,
+  ChevronLeft, Loader2, Shuffle, Flag, Bot, Sparkles, Box, Grid3x3, Gauge,
 } from "lucide-react";
-import { CHESS_MODELS, getModel, requestAIMove } from "../../utils/chessAI";
-import Board3D from "./chess3d/Board3D";
+import { CHESS_MODELS, CHESS_DIFFICULTIES, getModel, requestAIMove } from "../../utils/chessAI";
+import Board2D from "./chess2d/Board2D";
 import "./ChessArena.css";
+
+// The 3D table is optional now, so three.js only loads if someone picks it.
+const Board3D = lazy(() => import("./chess3d/Board3D"));
+
+const VIEW_KEY = "vetroai_chess_view";
+const DIFFICULTY_KEY = "vetroai_chess_difficulty";
+const readPref = (key, fallback, allowed) => {
+  try { const v = localStorage.getItem(key); return allowed.includes(v) ? v : fallback; } catch { return fallback; }
+};
+const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } };
+
+// Flat board by default; the 3D table stays one tap away.
+function useBoardView() {
+  const [view, setView] = useState(() => readPref(VIEW_KEY, "2d", ["2d", "3d"]));
+  const toggle = useCallback(() => setView((v) => { const next = v === "2d" ? "3d" : "2d"; writePref(VIEW_KEY, next); return next; }), []);
+  return [view, toggle];
+}
+
+function ViewToggle({ view, onToggle }) {
+  return (
+    <button className="ca-btn-icon" onClick={onToggle} title={view === "2d" ? "Switch to the 3D table" : "Switch to the flat board"}>
+      {view === "2d" ? <><Box size={16} /> 3D</> : <><Grid3x3 size={16} /> 2D</>}
+    </button>
+  );
+}
+
+function ArenaBoard({ view, ...props }) {
+  if (view === "3d") {
+    return (
+      <Suspense fallback={<div className="ca-board2d ca-board-loading"><Loader2 size={22} className="ca-spin" /></div>}>
+        <Board3D {...props} />
+      </Suspense>
+    );
+  }
+  return <Board2D {...props} />;
+}
 
 // ─── constants ──────────────────────────────────────────────────────────────
 const PIECE_UNICODE = {
@@ -90,7 +126,7 @@ function useAIMoveEngine() {
     return () => { mountedRef.current = false; abortRef.current?.abort(); };
   }, []);
 
-  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 900, gameSeed = "default") => {
+  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 900, gameSeed = "default", difficulty = null) => {
     if (chess.isGameOver()) return false;
     const moverColor = chess.turn();
     const ctrl = new AbortController();
@@ -98,7 +134,7 @@ function useAIMoveEngine() {
     if (mountedRef.current) setThinking(true);
     try {
       const [res] = await Promise.all([
-        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed }),
+        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed, difficulty }),
         sleep(minDelayMs),
       ]);
       if (ctrl.signal.aborted || !mountedRef.current) return false;
@@ -213,6 +249,7 @@ function AIvAI({ onExit }) {
   const { thinking, commentary, setCommentary, doOneMove, cancel } = useAIMoveEngine();
   const [whiteModel, setWhiteModel] = useState(CHESS_MODELS[0].id);
   const [blackModel, setBlackModel] = useState(CHESS_MODELS[3].id);
+  const [boardView, toggleBoardView] = useBoardView();
   const [started, setStarted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [speedMs, setSpeedMs] = useState(1200);
@@ -294,7 +331,7 @@ function AIvAI({ onExit }) {
       <div className="ca-play-body">
         <div className="ca-board-col">
           <CapturedRow verboseHistory={verboseHistory} side="b" />
-          <Board3D chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
+          <ArenaBoard view={boardView} chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
           <CapturedRow verboseHistory={verboseHistory} side="w" />
           <ResultBanner status={status} whiteId={whiteModel} blackId={blackModel} />
           <CommentaryBubble commentary={commentary} />
@@ -307,6 +344,7 @@ function AIvAI({ onExit }) {
               </button>
             )}
             {!status.over && <button className="ca-btn-icon" onClick={stepOnce} disabled={playing || thinking} title="Step one move"><SkipForward size={16} /></button>}
+            <ViewToggle view={boardView} onToggle={toggleBoardView} />
             <select className="ca-speed-select" value={speedMs} onChange={(e) => setSpeedMs(Number(e.target.value))} disabled={playing}>
               <option value={400}>Fast</option>
               <option value={1200}>Normal</option>
@@ -331,6 +369,7 @@ function Spectator({ onExit }) {
   const { chess, version, makeMove, reset, gameSeed } = useChessGame();
   const { thinking, commentary, setCommentary, doOneMove, cancel } = useAIMoveEngine();
   const [[whiteModel, blackModel], setPair] = useState(randomPair);
+  const [boardView, toggleBoardView] = useBoardView();
   const [playing, setPlaying] = useState(true);
   const [matchNum, setMatchNum] = useState(1);
   const [leaderboard, setLeaderboard] = useState(loadLeaderboard);
@@ -411,7 +450,7 @@ function Spectator({ onExit }) {
       <div className="ca-play-body">
         <div className="ca-board-col">
           <CapturedRow verboseHistory={verboseHistory} side="b" />
-          <Board3D chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
+          <ArenaBoard view={boardView} chess={chess} orientation="w" lastMove={lastMove} inCheck={status.check} />
           <CapturedRow verboseHistory={verboseHistory} side="w" />
           <ResultBanner status={status} whiteId={whiteModel} blackId={blackModel} />
           <CommentaryBubble commentary={commentary} />
@@ -422,6 +461,7 @@ function Spectator({ onExit }) {
               {playing ? <Pause size={16} /> : <Play size={16} />}
             </button>
             <button className="ca-btn-icon" onClick={skipToNext} title="Skip to next matchup"><Shuffle size={16} /> New matchup</button>
+            <ViewToggle view={boardView} onToggle={toggleBoardView} />
             <button className="ca-btn-icon" onClick={onExit} title="Back to modes"><ChevronLeft size={16} /> Modes</button>
           </div>
           <div className="ca-leaderboard">
@@ -446,6 +486,9 @@ function PlayerVsAI({ onExit }) {
   const { chess, version, makeMove, reset, gameSeed } = useChessGame();
   const { thinking, commentary, setCommentary, doOneMove, cancel } = useAIMoveEngine();
   const [aiModel, setAiModel] = useState(CHESS_MODELS[0].id);
+  const [difficulty, setDifficultyState] = useState(() => readPref(DIFFICULTY_KEY, "hard", CHESS_DIFFICULTIES.map((d) => d.id)));
+  const setDifficulty = (id) => { setDifficultyState(id); writePref(DIFFICULTY_KEY, id); };
+  const [boardView, toggleBoardView] = useBoardView();
   const [playerColor, setPlayerColor] = useState("w");
   const [started, setStarted] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -471,9 +514,9 @@ function PlayerVsAI({ onExit }) {
     if (!started || resigned) return;
     if (chess.isGameOver()) return;
     if (chess.turn() !== aiColor) return;
-    doOneMove(chess, aiModel, makeMove, 700, gameSeed);
+    doOneMove(chess, aiModel, makeMove, 700, gameSeed, difficulty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, version, aiColor, aiModel, resigned]);
+  }, [started, version, aiColor, aiModel, resigned, difficulty]);
 
   const handleSquareClick = (square) => {
     if (thinking || status.over) return;
@@ -494,6 +537,18 @@ function PlayerVsAI({ onExit }) {
       return;
     }
     if (piece && piece.color === playerColor) setSelected(square);
+  };
+
+  // Drag-and-drop on the flat board. Returns whether the move was played.
+  const handlePieceDrop = (from, to) => {
+    if (thinking || status.over || chess.turn() !== playerColor) return false;
+    const move = chess.moves({ square: from, verbose: true }).find((m) => m.to === to);
+    if (!move) return false;
+    const moveObj = { from, to };
+    if (move.promotion) moveObj.promotion = "q";
+    const played = makeMove(moveObj);
+    setSelected(null);
+    return Boolean(played);
   };
 
   const startGame = () => { setStarted(true); setResigned(false); };
@@ -520,6 +575,15 @@ function PlayerVsAI({ onExit }) {
             <button className={`ca-model-option ${playerColor === "b" ? "active" : ""}`} onClick={() => setPlayerColor("b")}><User size={14} /> Black</button>
             <button className={`ca-model-option ${playerColor === "random" ? "active" : ""}`} onClick={() => setPlayerColor(Math.random() < 0.5 ? "w" : "b")}><Shuffle size={14} /> Random</button>
           </div>
+          <div className="ca-setup-col">
+            <span className="ca-setup-label">Difficulty</span>
+            {CHESS_DIFFICULTIES.map((d) => (
+              <button key={d.id} className={`ca-model-option ca-level-option ${difficulty === d.id ? "active" : ""}`} onClick={() => setDifficulty(d.id)}>
+                <Gauge size={14} />
+                <span className="ca-level-text"><span>{d.name}</span><small>{d.desc}</small></span>
+              </button>
+            ))}
+          </div>
         </div>
         <button className="ca-btn-primary" onClick={startGame}><Swords size={16} /> Start Game</button>
       </div>
@@ -530,7 +594,7 @@ function PlayerVsAI({ onExit }) {
     <div className="ca-play">
       <div className="ca-play-header">
         <ModelBadge modelId={aiModel} turnActive={chess.turn() === aiColor && !status.over} thinking={thinking} />
-        <span className="ca-vs">You are {playerColor === "w" ? "White" : "Black"}</span>
+        <span className="ca-vs">You are {playerColor === "w" ? "White" : "Black"} · {CHESS_DIFFICULTIES.find((d) => d.id === difficulty)?.name}</span>
         <div className={`ca-model-badge ca-mb-md ${chess.turn() === playerColor && !status.over ? "ca-mb-active" : ""}`} style={{ "--mc": "#9ca3af" }}>
           <span className="ca-mb-avatar"><User size={16} /></span>
           <span className="ca-mb-info"><span className="ca-mb-name">You</span></span>
@@ -539,14 +603,17 @@ function PlayerVsAI({ onExit }) {
       <div className="ca-play-body">
         <div className="ca-board-col">
           <CapturedRow verboseHistory={verboseHistory} side={aiColor} />
-          <Board3D
+          <ArenaBoard
+            view={boardView}
             chess={chess}
             orientation={playerColor}
             lastMove={lastMove}
             selected={selected}
             legalTargets={legalTargets}
             onSquareClick={handleSquareClick}
-            interactive={!status.over}
+            onMove={handlePieceDrop}
+            draggableColor={playerColor}
+            interactive={!status.over && !thinking && chess.turn() === playerColor}
             inCheck={status.check}
           />
           <CapturedRow verboseHistory={verboseHistory} side={playerColor} />
@@ -561,6 +628,7 @@ function PlayerVsAI({ onExit }) {
             ) : (
               <button className="ca-btn-icon" onClick={resetAll} title="Reset"><RotateCcw size={16} /></button>
             )}
+            <ViewToggle view={boardView} onToggle={toggleBoardView} />
             <button className="ca-btn-icon" onClick={onExit} title="Back to modes"><ChevronLeft size={16} /> Modes</button>
           </div>
           <MoveList history={historySAN} />
