@@ -58,6 +58,16 @@ export function experienceFor(j) {
   return "Mid-Level";
 }
 
+const CURRENCY_SYMBOLS = { USD: "$", INR: "₹", EUR: "€", GBP: "£", JPY: "¥", AUD: "A$", CAD: "C$", SGD: "S$", AED: "AED " };
+const currencySymbol = (code) => (code ? CURRENCY_SYMBOLS[String(code).toUpperCase()] || (String(code).length === 3 ? `${code} ` : code) : "$");
+
+const PERIOD_SUFFIX = { HOUR: "/hr", DAY: "/day", WEEK: "/wk", MONTH: "/mo", YEAR: "/yr" };
+/** "/mo" etc. for a pay period, or "". */
+export const payPeriodSuffix = (period) => PERIOD_SUFFIX[String(period || "").toUpperCase()] || "";
+
+/** What to call the pay line when there is none: interns get a stipend. */
+export const missingPayLabel = (job) => (job.experienceLevel === "Internship" || job.type === "Internship" ? "Stipend TBD" : "Salary TBD");
+
 export function normalizeJob(j, i = 0) {
   const title = j.job_title || "Untitled role";
   return {
@@ -69,7 +79,7 @@ export function normalizeJob(j, i = 0) {
     remote: !!j.job_is_remote,
     type: typeLabel(j.job_employment_type, title),
     experienceLevel: experienceFor(j),
-    salary: j.job_min_salary ? { min: j.job_min_salary, max: j.job_max_salary || j.job_min_salary, currency: j.job_salary_currency || "$" } : null,
+    salary: j.job_min_salary ? { min: j.job_min_salary, max: j.job_max_salary || j.job_min_salary, currency: currencySymbol(j.job_salary_currency), period: j.job_salary_period || null } : null,
     // No date means we don't know it — not "posted just now".
     postedAt: (() => { const t = toTime(j.job_posted_at_datetime_utc, j.job_posted_at_timestamp); return t ? new Date(t).toISOString() : null; })(),
     expiresAt: (() => { const t = toTime(j.job_offer_expiration_datetime_utc, j.job_offer_expiration_timestamp); return t ? new Date(t).toISOString() : null; })(),
@@ -100,6 +110,20 @@ export function closedReason(job, now = Date.now()) {
 }
 
 export const isOpen = (job, now = Date.now()) => closedReason(job, now) === null;
+
+/**
+ * Work-arrangement filters. Any switched on widens the match (Remote OR
+ * Hybrid …); none switched on means everything. Hybrid is read from the
+ * listing's text, since the API only flags fully remote roles.
+ */
+export function matchesWorkType(job, { remote = false, hybrid = false, onsite = false } = {}) {
+  if (!remote && !hybrid && !onsite) return true;
+  const isHybrid = /\bhybrid\b/i.test(`${job.title || ""} ${job.description || ""}`);
+  if (remote && job.remote) return true;
+  if (hybrid && isHybrid) return true;
+  if (onsite && !job.remote && !isHybrid) return true;
+  return false;
+}
 
 /** "Closes today" / "Closes in 5 days" / "Apply by 12 Oct", or null. */
 export function deadlineLabel(job, now = Date.now()) {
