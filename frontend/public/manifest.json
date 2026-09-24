@@ -4,7 +4,7 @@
   "description": "Your AI chatbot with web search, YouTube analysis, image generation and more",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0b0c",
+  "background_color": "#FFFFFF",
   "theme_color": "#0b0b0c",
   "orientation": "portrait-primary",
   "icons": [
