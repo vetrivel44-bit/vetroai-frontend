@@ -18,3 +18,69 @@
     scrollbar-width: none;
   }
 }
+
+/* ── Scrollbars, app-wide ─────────────────────────────────────────────────
+   Every scrollable area gets the same slim, rounded, low-contrast bar with
+   no arrow buttons, instead of the browser's thick default. The colour is a
+   translucent grey so it reads on both the dark and light themes.
+   Chromium and Safari are styled through the -webkit- pseudo-elements;
+   setting the standard scrollbar-width/-color there would switch Chromium
+   back to its native bar (arrows included), so those are only given to
+   browsers without the pseudo-elements (Firefox). */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 150, 0.38);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 140, 150, 0.6);
+  background-clip: padding-box;
+}
+@supports not selector(::-webkit-scrollbar) {
+  /* scrollbar-color is inherited, so a panel can tint its own subtree. */
+  :root {
+    scrollbar-color: rgba(140, 140, 150, 0.38) transparent;
+  }
+  * {
+    scrollbar-width: thin;
+  }
+}
+
+/* Panels that set the standard properties for Firefox's sake. In Chromium
+   those same properties switch the bar back to the native one (with arrow
+   buttons on Windows/Linux) and the rounded style above is ignored, so they
+   are reset here for browsers that have the -webkit- pseudo-elements. Bars
+   hidden with scrollbar-width: none are deliberately not in this list. */
+@supports selector(::-webkit-scrollbar) {
+  .feed,
+  .claude-feed-scroll,
+  .code-block > div,
+  .code-wrap pre,
+  .code-wrap > div:not(.code-header),
+  .upgrade-modal,
+  .claude-sb-recents-scroll,
+  .time-options,
+  .artifacts-panel pre,
+  .design-canvas-stage,
+  .design-canvas-chat-msgs,
+  .ws-popup-scroll,
+  .dv-feed,
+  .vai-tp-body,
+  .jsp-dmain,
+  .jsp-dside {
+    scrollbar-width: auto !important;
+    scrollbar-color: auto !important;
+  }
+}
