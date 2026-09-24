@@ -10,8 +10,8 @@ import "./board2d.css";
 // whether the move was played). Tapping a piece and then a square goes
 // through `onSquareClick`, exactly as before.
 
-const LIGHT = "#F0D9B5";
-const DARK = "#B58863";
+const LIGHT = "#E8EDF3";
+const DARK = "#7D93AE";
 
 const overlay = (color) => ({ backgroundImage: `linear-gradient(${color}, ${color})` });
 
@@ -43,10 +43,10 @@ export default function Board2D({
     const styles = {};
     const add = (square, style) => { styles[square] = { ...(styles[square] || {}), ...style }; };
     if (lastMove) {
-      add(lastMove.from, overlay("rgba(246, 214, 72, 0.5)"));
-      add(lastMove.to, overlay("rgba(246, 214, 72, 0.5)"));
+      add(lastMove.from, overlay("rgba(255, 214, 90, 0.55)"));
+      add(lastMove.to, overlay("rgba(255, 214, 90, 0.55)"));
     }
-    if (selected) add(selected, overlay("rgba(20, 110, 60, 0.45)"));
+    if (selected) add(selected, overlay("rgba(109, 141, 255, 0.5)"));
     for (const square of legalTargets) {
       const capture = Boolean(chess.get(square));
       add(square, {
@@ -74,7 +74,7 @@ export default function Board2D({
     lightSquareNotationStyle: { color: DARK, fontWeight: 700 },
     darkSquareNotationStyle: { color: LIGHT, fontWeight: 700 },
     squareStyles,
-    dropSquareStyle: { boxShadow: "inset 0 0 0 4px rgba(20, 110, 60, 0.6)" },
+    dropSquareStyle: { boxShadow: "inset 0 0 0 4px rgba(109, 141, 255, 0.75)" },
     animationDurationInMs: 220,
     allowDragging: Boolean(interactive && onMove),
     allowDrawingArrows: false,
