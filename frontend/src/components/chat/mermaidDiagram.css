@@ -1,0 +1,97 @@
+/* Rendered Mermaid diagram in a chat reply. */
+.vetro-diagram {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin: 14px 0;
+  border: 1px solid var(--border-med, rgba(0, 0, 0, 0.1));
+  border-radius: 14px;
+  background: var(--bg-2, #fff);
+  overflow: hidden;
+}
+:root[data-theme="dark"] .vetro-diagram { background: #262422; border-color: rgba(255, 255, 255, 0.1); }
+
+.vetro-diagram-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  font-size: 12.5px;
+}
+:root[data-theme="dark"] .vetro-diagram-head { border-color: rgba(255, 255, 255, 0.08); }
+
+.vetro-diagram-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink-3, #6b6b6b); }
+.vetro-diagram-actions { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.vetro-diagram-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--ink-3, #6b6b6b);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.vetro-diagram-actions button:hover:not(:disabled) { background: color-mix(in srgb, var(--ink, #000) 7%, transparent); color: var(--ink, #1a1a1a); }
+.vetro-diagram-actions button:disabled { opacity: 0.45; cursor: default; }
+
+/* Wide diagrams scroll sideways instead of shrinking to unreadable text. */
+.vetro-diagram-svg {
+  padding: 18px 16px;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+}
+.vetro-diagram-svg svg { max-width: 100%; height: auto; }
+@media (max-width: 640px) {
+  .vetro-diagram-svg { justify-content: flex-start; padding: 14px 10px; }
+  .vetro-diagram-svg svg { max-width: none; min-width: 0; }
+}
+
+.vetro-diagram-code {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: transparent;
+  color: var(--ink-2, #333);
+}
+
+.vetro-diagram-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  font-size: 13px;
+  color: var(--ink-4, #8a8a8a);
+  animation: vetro-diagram-pulse 1.4s ease-in-out infinite;
+}
+@keyframes vetro-diagram-pulse { 50% { opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) { .vetro-diagram-pending { animation: none; } }
+
+.vetro-diagram-fallback { margin: 14px 0; }
+.vetro-diagram-error {
+  font-size: 12.5px;
+  color: var(--ink-3, #6b6b6b);
+  margin-bottom: 6px;
+}
+
+/* Phones: icon-only header buttons so the bar stays on one line. */
+@media (max-width: 640px) {
+  .vetro-diagram-head { padding: 6px 6px 6px 12px; }
+  .vetro-diagram-title { font-size: 12.5px; }
+  .vetro-diagram-btn-label { display: none; }
+  .vetro-diagram-actions button { padding: 7px; }
+}
+
+/* Use case diagrams: rounded system boundary with a bold title, and the
+   «include» / «extend» stereotype as a small second line in the box. */
+.vetro-diagram-svg .cluster rect { rx: 14px; ry: 14px; }
+.vetro-diagram-svg .cluster-label, .vetro-diagram-svg .cluster-label * { font-weight: 700; }
+.vetro-diagram-svg .nodeLabel { font-weight: 500; }
+.vetro-diagram-svg .nodeLabel small { display: block; font-size: 0.78em; font-weight: 400; opacity: 0.85; line-height: 1.2; }

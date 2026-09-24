@@ -1,5 +1,6 @@
 // Trigger sync 2026-05-15 18:28
 const logger = require("../utils/logger");
+const { DIAGRAM_PROMPT } = require("./diagramPrompt");
 const providerManager = require("./ProviderManager");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
@@ -534,6 +535,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
   "content": "server {\\n  listen 80;\\n  server_name localhost;\\n}"
 }
 \`\`\``;
+    }
+
+    // Diagrams: ```mermaid blocks render as real diagrams in the chat. Not for
+    // design (single HTML block) or computer_use (single JSON action).
+    if (mode !== "design" && mode !== "computer_use") {
+      sys += DIAGRAM_PROMPT;
     }
 
     return sys;
