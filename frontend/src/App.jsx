@@ -29,6 +29,8 @@ import { isFirebaseConfigured } from "./firebase";
 import FileCard from "./components/chat/FileCard";
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
+import { ReplyContext, findChoices } from "./lib/choices";
+import ChoicePanel from "./components/chat/visuals/ChoicePanel";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
@@ -4494,6 +4496,8 @@ export default function App() {
   const [editingSpace, setEditingSpace] = useState(null);
   // ── Chat ──────────────────────────────────────────────────────────────────────
   const [messages, setMessages]             = useState([]);
+  // The reply whose docked ```choices panel the user closed to type instead.
+  const [closedChoiceFor, setClosedChoiceFor] = useState(null);
   // Lets callbacks with stable identity (e.g. generateFollowUps) read the
   // current conversation without being re-created on every message.
   const messagesRef = useRef(messages);
@@ -7204,9 +7208,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
   };
 
+  // A clarifying ```choices question in the newest reply docks its options
+  // above the input box until it is answered or closed.
+  const renderChoicePanel = () => {
+    const last = messages[messages.length - 1];
+    if (isLoading || last?.role !== "assistant" || closedChoiceFor === last.content) return null;
+    const data = findChoices(last.content);
+    return data && <ChoicePanel key={last.content} data={data} onSend={(text) => sendMessage(null, text)} onClose={() => setClosedChoiceFor(last.content)} />;
+  };
+
   const renderInputBox = () => {
     return (
       <>
+        {renderChoicePanel()}
         {lockModelPerChat && messages.length > 0 && (
           <div className="claude-banner">
             <span>This chat is locked to <strong>{currentMode.name}</strong>.</span>
@@ -8339,12 +8353,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                : !m.content && isLoading && !m.isThinking && !m.reasoning
                                ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
-                                   <AssistantBody
-                                     content={m.content}
-                                     autoOpen={i === messages.length - 1 && !isLoading}
-                                     onSaveArtifact={saveArtifact}
-                                     isStreaming={isLoading && i === messages.length - 1}
-                                   />
+                                   <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
+                                     <AssistantBody
+                                       content={m.content}
+                                       autoOpen={i === messages.length - 1 && !isLoading}
+                                       onSaveArtifact={saveArtifact}
+                                       isStreaming={isLoading && i === messages.length - 1}
+                                     />
+                                   </ReplyContext.Provider>
                                  </ErrorBoundary>
                              }
                            </div>

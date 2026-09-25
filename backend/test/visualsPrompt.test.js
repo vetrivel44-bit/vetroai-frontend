@@ -7,7 +7,7 @@ const { VISUALS_PROMPT } = require("../src/services/visualsPrompt");
 test("normal chat asks for inline visuals", async () => {
   const sys = await orchestrator.buildSystemPrompt("normal", { userQuery: "draw a flowchart" });
   assert.ok(sys.includes("### INLINE VISUALS"));
-  for (const tag of ["```mermaid", "```chartjs", "```html widget", "```json map", "```quiz", "erDiagram"]) assert.ok(sys.includes(tag), tag);
+  for (const tag of ["```mermaid", "```chartjs", "```html widget", "```json map", "```quiz", "```choices", "erDiagram"]) assert.ok(sys.includes(tag), tag);
   assert.ok(sys.includes("Never mix multiple visual types in one code block."));
 });
 
