@@ -1,13 +1,15 @@
 import React, { useContext, useMemo, useState } from "react";
 import { HelpCircle, RotateCcw, Trophy } from "lucide-react";
-import VisualCard, { VisualFallback, VisualPending } from "./VisualCard";
+import { VisualFallback, VisualPending } from "./VisualCard";
 import { OpenBlockContext, isStillStreaming } from "../../../lib/visualStream";
+import "./visuals.css";
 import { LETTERS, parseQuiz, scoreQuiz, verdict } from "../../../lib/quiz";
 
 // A ```quiz block: a KBC-style multiple-choice test, one question at a time.
 // Pick an option, lock it in, see if it was right, move on. The last screen
 // shows the score and walks through every mistake in simple words with an
-// example.
+// example. It sits in the chat reply as a plain card — no Code/Copy toolbar,
+// since the source would give the answers away.
 
 function Results({ quiz, picks, onRetry }) {
   const { score, total, percent, mistakes } = scoreQuiz(quiz, picks);
@@ -78,7 +80,8 @@ export default function QuizBlock({ code, fallback }) {
   };
 
   return (
-    <VisualCard icon={HelpCircle} title={quiz.title} code={code} bodyClassName="vetro-quiz">
+    <div className="vetro-quiz not-prose">
+      <div className="vetro-quiz-title"><HelpCircle size={18} /> {quiz.title}</div>
       {done ? <Results quiz={quiz} picks={picks} onRetry={retry} /> : (
         <>
           <div className="vetro-quiz-progress">
@@ -114,6 +117,6 @@ export default function QuizBlock({ code, fallback }) {
           </div>
         </>
       )}
-    </VisualCard>
+    </div>
   );
 }
