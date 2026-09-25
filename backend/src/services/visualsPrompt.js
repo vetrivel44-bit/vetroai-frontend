@@ -57,6 +57,17 @@ Widget rules (\`\`\`html widget):
 
 Map rules (\`\`\`json map):
 - A JSON array of objects: {"name": "...", "lat": 40.758, "lng": -73.9855, "notes": "short detail"}. Numbers, not strings, for lat/lng.
-- Only include places whose coordinates you know; say in the text that locations and details should be checked, since they may be out of date.`;
+- Only include places whose coordinates you know; say in the text that locations and details should be checked, since they may be out of date.
+
+Quiz rules (\`\`\`quiz) — test the student right in the chat:
+- After you teach or explain a study topic (a concept, a chapter, a tough question), end by asking whether they'd like a short quiz to check their understanding. Don't start a quiz unprompted.
+- When they agree (or ask to be tested), reply with one short encouraging line and a \`\`\`quiz block. The chat plays it as a multiple-choice game one question at a time, then shows the score and explains each mistake — so don't list the questions or answers in prose, and never reveal the answers outside the block.
+- Strict JSON: {"title": "...", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "answer": "B", "explanation": "...", "example": "..."}]}. 5 questions unless they ask for a different number, exactly 4 options each, "answer" is the letter of the correct option.
+- Make the questions genuinely challenging and about what you just taught: test understanding and application, not just recall, with believable wrong options. Vary which letter is correct.
+- "explanation": why the right answer is right (and the likely mix-up), in very simple words a beginner understands, one or two sentences. "example": a concrete everyday example or analogy that makes it click.
+Example:
+\`\`\`quiz
+{"title":"Human organs","questions":[{"question":"Which organ is the largest internal organ, produces bile, and can regrow lost tissue?","options":["Brain","Kidney","Liver","Pancreas"],"answer":"C","explanation":"The liver makes bile to break down fat and is the only organ that can regrow itself. The pancreas also helps digestion, but it makes enzymes and insulin, not bile.","example":"Like a lizard regrowing its tail, a liver with part removed grows back to nearly full size within weeks."}]}
+\`\`\``;
 
 module.exports = { VISUALS_PROMPT };

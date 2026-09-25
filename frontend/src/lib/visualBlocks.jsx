@@ -3,6 +3,7 @@ import MermaidDiagram from "../components/chat/MermaidDiagram";
 import ChartBlock from "../components/chat/visuals/ChartBlock";
 import WidgetBlock from "../components/chat/visuals/WidgetBlock";
 import MapBlock from "../components/chat/visuals/MapBlock";
+import QuizBlock from "../components/chat/visuals/QuizBlock";
 
 // Which fenced code blocks are drawn as visuals instead of shown as code.
 // Only these exact tags — ordinary code the user asked for (a Python script,
@@ -11,6 +12,7 @@ import MapBlock from "../components/chat/visuals/MapBlock";
 //   ```chartjs        Chart.js config JSON
 //   ```html widget    a self-contained interactive widget / mockup
 //   ```json map       [{ name, lat, lng, notes }]
+//   ```quiz           multiple-choice test (see lib/quiz.js)
 export function renderVisualBlock({ lang, meta, code, fallback }) {
   const language = String(lang || "").toLowerCase();
   const tags = String(meta || "").toLowerCase().split(/\s+/);
@@ -18,5 +20,6 @@ export function renderVisualBlock({ lang, meta, code, fallback }) {
   if (language === "chartjs") return <ChartBlock code={code} fallback={fallback} />;
   if (language === "html" && tags.includes("widget")) return <WidgetBlock code={code} fallback={fallback} />;
   if (language === "json" && tags.includes("map")) return <MapBlock code={code} fallback={fallback} />;
+  if (language === "quiz") return <QuizBlock code={code} fallback={fallback} />;
   return null;
 }
