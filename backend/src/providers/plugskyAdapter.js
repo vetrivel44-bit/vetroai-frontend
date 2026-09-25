@@ -25,6 +25,24 @@ function planCapModel(detail) {
   return /cap:\s*([a-z0-9][a-z0-9._-]*)/i.exec(detail)?.[1] || null;
 }
 
+// Plugsky's upstream is often briefly saturated and answers 429 "Upstream
+// rate limit reached. Please retry in a few seconds." Giving up on the first
+// one sent almost every turn to another model, so a short-lived 429 is retried
+// here after a pause (Retry-After when sent, capped). A daily/quota/plan limit
+// won't clear in seconds and is left to the orchestrator's fallback.
+let rateLimitDelaysMs = [1500, 3000];
+const MAX_RETRY_AFTER_MS = 6000;
+
+function isTransientRateLimit(status, detail) {
+  return status === 429 && !/per day|daily|quota|plan|billing|credit/i.test(detail);
+}
+
+function retryDelay(res, fallbackMs) {
+  const seconds = Number(res.headers?.get?.("retry-after"));
+  const ms = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : fallbackMs;
+  return Math.min(ms, MAX_RETRY_AFTER_MS);
+}
+
 // The model Plugsky last accepted after a refusal, reused so later requests
 // don't pay for the same rejection first.
 let acceptedModel = null;
@@ -70,6 +88,14 @@ async function generateStream(messages, options = {}) {
           else detail = await res.text();
         }
       }
+      for (const fallbackMs of rateLimitDelaysMs) {
+        if (res.ok || !isTransientRateLimit(res.status, detail)) break;
+        const waitMs = retryDelay(res, fallbackMs);
+        logger.warn("plugskyAdapter.rateLimited", { model: modelName, retryInMs: waitMs });
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        res = await request(modelName);
+        if (!res.ok) detail = await res.text();
+      }
       if (!res.ok) {
         throw new Error(`Plugsky service error: ${res.status} ${detail.slice(0, 300)}`);
       }
@@ -86,4 +112,6 @@ module.exports = {
   generateStream,
   DEFAULT_MODEL,
   resetAcceptedModel: () => { acceptedModel = null; },
+  // Tests shorten the pauses between rate-limit retries.
+  setRateLimitDelays: (delays) => { rateLimitDelaysMs = delays; },
 };

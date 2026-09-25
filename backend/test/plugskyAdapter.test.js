@@ -14,7 +14,7 @@ function withFetch(responses, fn) {
     global.fetch = async (url, init) => {
       calls.push({ url, body: JSON.parse(init.body) });
       const next = responses.shift();
-      return new Response(next.body, { status: next.status });
+      return new Response(next.body, { status: next.status, headers: next.headers });
     };
     try {
       await fn(calls);
@@ -61,4 +61,45 @@ test("a plan-restricted model switches to the model the plan allows, and remembe
   await plugsky.generateStream([{ role: "user", content: "hi" }]);
   await plugsky.generateStream([{ role: "user", content: "again" }]);
   assert.deepEqual(calls.map((c) => c.body.model), ["plugsky-pro", "plugsky-lite", "plugsky-lite"]);
+}));
+
+const UPSTREAM_429 = '{"error":{"message":"Upstream rate limit reached. Please retry in a few seconds.","type":"rate_limit_error","code":"429","param":null}}';
+
+test("a short-lived upstream 429 is retried after a pause instead of failing over", withFetch([
+  { status: 429, body: UPSTREAM_429 },
+  { status: 429, body: UPSTREAM_429, headers: { "retry-after": "0" } },
+  { status: 200, body: "data: [DONE]\n\n" },
+], async (calls) => {
+  config.plugskyModel = "";
+  plugsky.setRateLimitDelays([1, 1]);
+  try {
+    const stream = await plugsky.generateStream([{ role: "user", content: "hi" }]);
+    assert.ok(stream);
+    assert.equal(calls.length, 3);
+  } finally {
+    plugsky.setRateLimitDelays([1500, 3000]);
+  }
+}));
+
+test("a 429 that outlasts the retries still reaches the orchestrator as a rate limit", withFetch([
+  { status: 429, body: UPSTREAM_429 },
+  { status: 429, body: UPSTREAM_429 },
+  { status: 429, body: UPSTREAM_429 },
+], async (calls) => {
+  config.plugskyModel = "";
+  plugsky.setRateLimitDelays([1, 1]);
+  try {
+    await assert.rejects(plugsky.generateStream([{ role: "user", content: "hi" }]), /Plugsky service error: 429/);
+    assert.equal(calls.length, 3);
+  } finally {
+    plugsky.setRateLimitDelays([1500, 3000]);
+  }
+}));
+
+test("a daily limit is not retried — waiting seconds won't clear it", withFetch([
+  { status: 429, body: '{"error":{"message":"Daily request limit reached for your plan."}}' },
+], async (calls) => {
+  config.plugskyModel = "";
+  await assert.rejects(plugsky.generateStream([{ role: "user", content: "hi" }]), /429/);
+  assert.equal(calls.length, 1);
 }));

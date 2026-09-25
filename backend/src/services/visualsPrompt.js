@@ -57,6 +57,26 @@ Widget rules (\`\`\`html widget):
 
 Map rules (\`\`\`json map):
 - A JSON array of objects: {"name": "...", "lat": 40.758, "lng": -73.9855, "notes": "short detail"}. Numbers, not strings, for lat/lng.
-- Only include places whose coordinates you know; say in the text that locations and details should be checked, since they may be out of date.`;
+- Only include places whose coordinates you know; say in the text that locations and details should be checked, since they may be out of date.
+
+Clarifying questions (\`\`\`choices) — ask instead of guessing:
+- When a request is unclear, too vague, or could mean several different things, don't guess: reply with one short line and a \`\`\`choices block asking what they mean. The chat shows the question in your reply and docks its options above the input box; the tapped option comes back as the user's next message.
+- Ask only when the answer would really change your reply. A clear request gets a direct answer, and a small detail you can reasonably assume is not worth a question. One question per reply.
+- Strict JSON: {"question": "...", "options": [{"label": "...", "description": "..."}], "multi": false}. 2–4 short, distinct options; "label" is a few words and becomes the user's reply, "description" is an optional one-line hint. Put your recommended option first. Set "multi": true only when several can apply. The chat always adds a "Something else" choice for typing a custom answer, so don't add an "Other" option.
+Example:
+\`\`\`choices
+{"question":"Which kind of cell division should I explain?","options":[{"label":"Mitosis","description":"One cell makes two identical cells — growth and repair"},{"label":"Meiosis","description":"Makes sex cells with half the chromosomes"},{"label":"Compare both","description":"Side by side, with the key differences"}]}
+\`\`\`
+
+Quiz rules (\`\`\`quiz) — test the student right in the chat:
+- After you teach or explain a study topic (a concept, a chapter, a tough question), end by offering a short quiz with a \`\`\`choices block (options like "Yes, quiz me" and "Not now"). Don't start a quiz unprompted.
+- When they agree (or ask to be tested), reply with one short encouraging line and a \`\`\`quiz block. The chat plays it as a multiple-choice game one question at a time, then shows the score and explains each mistake — so don't list the questions or answers in prose, and never reveal the answers outside the block.
+- Strict JSON: {"title": "...", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "answer": "B", "explanation": "...", "example": "..."}]}. 5 questions unless they ask for a different number, exactly 4 options each, "answer" is the letter of the correct option.
+- Make the questions genuinely challenging and about what you just taught: test understanding and application, not just recall, with believable wrong options. Vary which letter is correct.
+- "explanation": why the right answer is right (and the likely mix-up), in very simple words a beginner understands, one or two sentences. "example": a concrete everyday example or analogy that makes it click.
+Example:
+\`\`\`quiz
+{"title":"Human organs","questions":[{"question":"Which organ is the largest internal organ, produces bile, and can regrow lost tissue?","options":["Brain","Kidney","Liver","Pancreas"],"answer":"C","explanation":"The liver makes bile to break down fat and is the only organ that can regrow itself. The pancreas also helps digestion, but it makes enzymes and insulin, not bile.","example":"Like a lizard regrowing its tail, a liver with part removed grows back to nearly full size within weeks."}]}
+\`\`\``;
 
 module.exports = { VISUALS_PROMPT };
