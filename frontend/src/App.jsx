@@ -30,12 +30,18 @@ import FileCard from "./components/chat/FileCard";
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
 import { ReplyContext, findChoices } from "./lib/choices";
+import { CONNECTORS_BY_ID, TOOLS as CONNECTOR_TOOLS, activeConnectorIds, connectedIds, scopesFor } from "./connectors/catalog";
+import { buildConnectorPrompt } from "./connectors/prompt";
+import { MAX_CONNECTOR_STEPS, callLabel, connectorResultMessage, cutAfterCall, extractConnectorCall, isConnectorResult, lastUserQuestion, stepsSinceQuestion } from "./connectors/runtime";
+import { runGoogleTool } from "./connectors/google";
+import { connectGoogle, forgetGoogleToken, googleTokenFor, revokeGoogle } from "./connectors/googleAuth";
+import { loadConnectorState, saveConnectorState } from "./connectors/state";
 import ChoicePanel from "./components/chat/visuals/ChoicePanel";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Cable, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -51,6 +57,7 @@ const GlobalSearch = React.lazy(() => import("./components/screens/GlobalSearch"
 const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"));
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
+const ConnectorsHub = React.lazy(() => import("./components/screens/ConnectorsHub"));
 const ComputerUI = React.lazy(() => import("./components/screens/ComputerUI"));
 const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
@@ -4502,6 +4509,24 @@ export default function App() {
   // current conversation without being re-created on every message.
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Connected apps (Gmail, Drive, Calendar) for this account on this device.
+  // The ref is what running tool calls read, so a reconnect mid-chat is seen
+  // straight away rather than on the next render.
+  const [connectorState, setConnectorState] = useState({});
+  const connectorStateRef = useRef(connectorState);
+  useEffect(() => {
+    const saved = loadConnectorState(userKey);
+    connectorStateRef.current = saved;
+    setConnectorState(saved);
+  }, [userKey]);
+  const updateConnectorState = (updater) => {
+    const next = typeof updater === "function" ? updater(connectorStateRef.current) : updater;
+    connectorStateRef.current = next;
+    setConnectorState(next);
+    saveConnectorState(userKey, next);
+  };
+  // The latest triggerAI, for a reply that continues after a connector step.
+  const triggerAIRef = useRef(null);
   const [isIncognito, setIsIncognito]       = useState(false);
   const [showJobs, setShowJobs]             = useState(false);
   const [input, setInput]                   = useState("");
@@ -4919,6 +4944,8 @@ export default function App() {
     // otherwise the last few seconds of the conversation never leave the tab.
     try { await flushPending(); } catch (err) { swallowError(err); }
     try { await signOutUser(); } catch (err) { swallowError(err); }
+    // Connected apps' Google access belongs to the account that just left.
+    forgetGoogleToken();
 
     // watchIdToken clears user/userInfo and the stored token; this covers the
     // view state it does not own, plus the case where sign-out itself failed.
@@ -5049,7 +5076,7 @@ export default function App() {
       requestIdRef.current += 1;
       abortRef.current?.abort();
       setIsLoading(false); setIsTyping(false);
-      setMessages((s.messages || []).map(m => (m.isThinking ? { ...m, isThinking: false } : m)));
+      setMessages((s.messages || []).map(m => (m.isThinking || m.connectorPending ? { ...m, isThinking: false, connectorPending: false } : m)));
       setCurrentSessionId(id); stopSpeak(); setIsSidebarOpen(false);
       isScrolling.current = false;
       // These are keyed by message index, so they belong to the chat being left —
@@ -5304,7 +5331,7 @@ export default function App() {
       // nothing specific to ask about and fell back to generic shapes.
       const recent = messagesRef.current
         .slice(-6)
-        .filter((m) => m?.content && (m.role === "user" || m.role === "assistant"))
+        .filter((m) => m?.content && !isConnectorResult(m) && (m.role === "user" || m.role === "assistant"))
         .map((m) => ({ role: m.role, content: String(m.content).slice(0, 1200) }));
 
       const res  = await fetch(API + "/follow-ups", {
@@ -5985,23 +6012,38 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
     setFollowUps([]); setIsContinuing(false);
 
+    // A reply continuing after a connector step: the last message is a tool's
+    // result, not something the user typed. Everything keyed off the user's
+    // words goes by their actual question, and the lookups that would run on
+    // the tool's result (web search, maps, sports, clock…) are skipped.
+    const connectorStep = isConnectorResult(hist[hist.length - 1]);
+    // Connected apps the model may use this turn.
+    const activeConnectors = ["multi_ai", "design", "computer_use"].includes(selectedMode) ? [] : activeConnectorIds(connectorStateRef.current);
+    // While a reply streams, nothing after a finished tool call is shown: the
+    // model would only be guessing at the result.
+    const visibleReply = (text) => (activeConnectors.length ? cutAfterCall(text) : text);
+
     // Show web searching indicator if web search will be triggered
-    const willWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
+    const willWebSearch = !connectorStep && (autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research");
     if (willWebSearch) setIsWebSearching(true);
 
-    const userQuery = hist[hist.length - 1]?.content || "";
+    const requestInput = hist[hist.length - 1]?.content || "";
+    const userQuery = connectorStep ? lastUserQuestion(hist) : requestInput;
     const requestPlugins = pluginsForPrompt(pluginState, userQuery);
-    const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
+    const isFirstMsg = hist.filter(m => m.role === "user" && !isConnectorResult(m)).length === 1;
 
     const fd = new FormData();
-    fd.append("input", userQuery);
+    fd.append("input", requestInput);
     // Was slice(-12) — only 6 exchanges of context, so anything said earlier
     // in a longer conversation silently dropped off and the model looked like
     // it forgot. 50 matches the backend's own window (chatController.js).
     fd.append("messages", JSON.stringify(hist.slice(-50).map(m => {
-      if (!m.files) return m;
-      const { files, ...rest } = m;
-      return { ...rest, files: files.map(f => ({ name: f.name })) };
+      const out = { ...m };
+      // A connector step's progress stays in the browser; its result message carries what the model needs.
+      delete out.connector;
+      delete out.connectorPending;
+      if (out.files) out.files = out.files.map(f => ({ name: f.name }));
+      return out;
     })));
     fd.append("mode", selectedMode);
     fd.append(
@@ -6018,6 +6060,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(isMemoryEnabled() ? toPromptList(memories) : []));
     fd.append("plugins", JSON.stringify(requestPlugins));
+    fd.append("connectors", JSON.stringify(activeConnectors));
+    if (connectorStep) fd.append("connectorStep", "true");
 
     let finalSystemPrompt = systemPromptRef.current || "";
     finalSystemPrompt = `${finalSystemPrompt}\n\n[REASONING EFFORT: ${selectedEffort.toUpperCase()}]\n${EFFORT_INSTRUCTIONS[selectedEffort] || EFFORT_INSTRUCTIONS.balanced}`.trim();
@@ -6042,7 +6086,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    const sportsDetected = isSportsQuery(userQuery);
+    const sportsDetected = !connectorStep && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -6050,8 +6094,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const rememberedDocs = [...hist].reverse().map((m) => localDocMemory.get(m)).find(Boolean) || null;
     const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
-    const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
-    const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
+    const medicalDetected = !maybeLocal && !connectorStep && isMedicalQuery(userQuery);
+    const shouldWebSearch = !connectorStep && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -6060,10 +6104,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // setting is only permission — it searches when the question looks like
     // it needs live information. Otherwise every message ran a web search
     // first, and a failed search sent the turn to a backend model instead.
-    const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
-    const browserSearch = explicitSearch || (autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
+    const explicitSearch = !connectorStep && (requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const browserSearch = explicitSearch || (!connectorStep && autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
 
-    const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
+    const nearbyMapsRequest = !maybeLocal && !connectorStep && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
       const locationResult = await getPreciseUserLocation();
       const userLocation = locationResult.location;
@@ -6161,7 +6205,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const answeredLocally = lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER;
       const chatImage = attachedImages.length || attachedDocFiles.length ? null : latestSharedImage(hist);
       const chatDocs = newDocs || (attachedDocFiles.length || attachedImages.length || !answeredLocally ? null : rememberedDocs);
-      const tryLocal = (attachedDocFiles.length === 0 || !!newDocs)
+      const tryLocal = !connectorStep && (attachedDocFiles.length === 0 || !!newDocs)
         && (attachedImages.length > 0 || !!newDocs || (answeredLocally && (!!chatImage || !!chatDocs)));
       let localHandled = false;
       if (tryLocal) localHandled = await (async () => {
@@ -6283,11 +6327,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           const lastUser = [...puterMessages].reverse().find((m) => m.role === "user");
           if (lastUser) lastUser.content = withDocuments(docs, lastUser.content);
         }
+        // Connected apps' tools, as the backend describes them, plus the user's clock for dates.
+        const connectorSystem = activeConnectors.length ? `${buildConnectorPrompt(activeConnectors).trim()}\n${clockPromptLine()}` : "";
         const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
-        if (puterSystem) {
+        if (puterSystem || connectorSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
           // answers "draw a flowchart" or "chart this" with a visual, not prose.
-          puterMessages.unshift({ role: "system", content: `${puterSystem}${VISUALS_PROMPT}` });
+          puterMessages.unshift({ role: "system", content: `${[puterSystem, connectorSystem].filter(Boolean).join("\n\n")}${VISUALS_PROMPT}` });
         }
 
         const puterOptions = {
@@ -6313,7 +6359,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           streamed += text;
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: prefix + streamed, provider: providerName };
+            next[next.length - 1] = { ...next[next.length - 1], content: visibleReply(prefix + streamed), provider: providerName };
             return next;
           });
           setStreamingContent(streamed);
@@ -6326,7 +6372,37 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       // Settles the UI once a text answer has fully arrived, whichever path
       // produced it.
+      // A reply that ends in a connector tool call: show the step and run it
+      // (or wait for approval); the reply carries on once the result is in.
+      const startConnectorCall = (answer) => {
+        if (!activeConnectors.length) return false;
+        const found = extractConnectorCall(answer);
+        if (!found) return false;
+        const index = hist.length;
+        const step = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, call: found.call, status: "pending" };
+        const overLimit = stepsSinceQuestion(hist) >= MAX_CONNECTOR_STEPS;
+        if (overLimit) {
+          step.status = "error";
+          step.error = { code: "too_many_steps", message: `Stopped after ${MAX_CONNECTOR_STEPS} steps. Try asking something more specific.` };
+        }
+        setMessages((previous) => {
+          if (previous[index]?.role !== "assistant") return previous;
+          const next = [...previous];
+          next[index] = { ...previous[index], content: found.text, connector: step };
+          return next;
+        });
+        setStreamingContent("");
+        if (overLimit) {
+          setIsLoading(false);
+          setStreamStatus("idle");
+          return true;
+        }
+        runConnectorStep(index, step);
+        return true;
+      };
+
       const finishChat = (answer) => {
+        if (startConnectorCall(answer)) return;
         setIsLoading(false);
         setStreamStatus("idle");
         setStreamingContent("");
@@ -6478,7 +6554,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // / dasha data, or "ask for birth details") plus the rasi chart, and
       // hand it to whichever model the user picked.
       let astro = null;
-      if (puterModelId && fileCount === 0 && mightBeAstrology(hist, userQuery)) {
+      if (puterModelId && fileCount === 0 && !connectorStep && mightBeAstrology(hist, userQuery)) {
         try {
           setStreamStatus("Consulting ProKerala's Vedic astrology API…");
           const astroRes = await fetch(`${API}/astrology/context`, {
@@ -6506,7 +6582,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // "What is today's date" / "time in London": answered from the clock —
       // exact and instant — instead of from web pages written on another
       // server's clock (which around midnight in India gave yesterday's date).
-      const clockQuestion = fileCount === 0 ? detectClockQuestion(userQuery) : null;
+      const clockQuestion = fileCount === 0 && !connectorStep ? detectClockQuestion(userQuery) : null;
       if (clockQuestion) {
         let clockReply = null;
         if (!clockQuestion.place) {
@@ -6538,7 +6614,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Web Search with "Auto": the user wants the web's answer, not a chat
       // model's — so answer straight from the search (its summary plus the
       // source cards). Only if that finds nothing does a model get the turn.
-      if (selectedMode === "web_search" && selectedProvider === "Auto" && fileCount === 0) {
+      if (selectedMode === "web_search" && selectedProvider === "Auto" && fileCount === 0 && !connectorStep) {
         if (await answerWithDirectSearch({ requireSummary: true })) return;
         if (!isActive()) return;
         // No search summary: the backend searches (with its own fallbacks) and
@@ -6659,7 +6735,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             (acc) => {
               if (!isActive()) return;
               setMessages(prev => {
-                const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
+                const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: visibleReply(acc) }; return u;
               });
               setStreamingContent(acc);
               if (!isScrolling.current) scrollToBottom();
@@ -6754,7 +6830,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (backendFailure) {
-        if (selectedMode === "web_search" && fileCount === 0) {
+        if (selectedMode === "web_search" && fileCount === 0 && !connectorStep) {
           setMessages((previous) => {
             const next = [...previous];
             next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
@@ -6801,6 +6877,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         throw backendFailure;
       }
+
+      if (startConnectorCall(bot)) return;
 
       setIsLoading(false);
       setStreamStatus("idle");
@@ -6880,6 +6958,174 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       });
     }
   };
+  triggerAIRef.current = triggerAI;
+
+  // ── Connectors: running the model's tool calls ─────────────────────────────
+  // A step's progress lives on its assistant message (`connector`). When it
+  // ends, its result joins the conversation as a hidden message flagged
+  // `connectorPending`, and this effect hands the conversation back to the
+  // model so the same reply carries on.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!isConnectorResult(last) || !last.connectorPending) return;
+    triggerAIRef.current?.([...messages.slice(0, -1), { ...last, connectorPending: false }]);
+  }, [messages]);
+
+  const updateConnectorStep = (index, stepId, patch) => setMessages((previous) => {
+    if (previous[index]?.connector?.id !== stepId) return previous;
+    const next = [...previous];
+    next[index] = { ...previous[index], connector: { ...previous[index].connector, ...patch } };
+    return next;
+  });
+
+  // The reply's last update (which adds the step) may still be on its way into
+  // state when a step starts; wait for it so decisions below see the real chat.
+  const stepCommitted = async (index, stepId) => {
+    for (let i = 0; i < 60 && messagesRef.current[index]?.connector?.id !== stepId; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    return messagesRef.current[index]?.connector?.id === stepId;
+  };
+
+  // Records how a step ended and, while its reply is still the newest message,
+  // hands the result to the model (see the effect above).
+  const finishConnectorStep = (index, step, outcome, status) => {
+    const current = messagesRef.current;
+    const carryOn = index === current.length - 1 && current[index]?.connector?.id === step.id;
+    const lastAllowed = stepsSinceQuestion(current.slice(0, index + 1)) + 1 >= MAX_CONNECTOR_STEPS;
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const result = {
+      ...connectorResultMessage(step.call, outcome, ts, lastAllowed ? "That was the last tool call allowed for this question: answer now with what you have." : ""),
+      connectorPending: true,
+    };
+    setMessages((previous) => {
+      if (previous[index]?.connector?.id !== step.id) return previous;
+      const next = [...previous];
+      next[index] = {
+        ...previous[index],
+        connector: {
+          ...previous[index].connector,
+          status,
+          summary: outcome.summary,
+          items: outcome.items,
+          error: outcome.error ? { code: outcome.error.code || "failed", message: outcome.error.message } : undefined,
+        },
+      };
+      return carryOn && index === previous.length - 1 ? [...next, result] : next;
+    });
+    if (!carryOn) {
+      setIsLoading(false);
+      setStreamStatus("idle");
+    }
+  };
+
+  // Runs one step: checks the app is connected, waits for approval on an
+  // "asks first" tool, asks for a reconnect when Google access has run out,
+  // then calls Google from this browser with the user's own access.
+  const runConnectorStep = async (index, step, { approved = false } = {}) => {
+    if (!(await stepCommitted(index, step.id))) return;
+    const { call } = step;
+    const spec = CONNECTOR_TOOLS[call.tool];
+    const fail = (code, message) => finishConnectorStep(index, step, { error: { code, message } }, "error");
+    const pause = (status, error) => {
+      updateConnectorStep(index, step.id, { status, approved, error });
+      setIsLoading(false);
+      setStreamStatus("idle");
+      if (!isScrolling.current) scrollToBottom();
+    };
+    if (call.invalid || !call.tool) return fail("bad_call", 'That tool call wasn\'t valid. Write it exactly as {"tool": "…", "args": {…}} in a ```connector block.');
+    if (!spec) return fail("unknown_tool", `There is no tool called "${call.tool}".`);
+    const app = CONNECTORS_BY_ID[spec.connector];
+    const saved = connectorStateRef.current[spec.connector];
+    if (!saved?.connected) return fail("not_connected", `${app.name} isn't connected. The user can connect it from Connectors in the sidebar.`);
+    if (saved.enabled === false) return fail("not_connected", `${app.name} is switched off for chats. The user can switch it on in Connectors.`);
+    if (spec.write && !approved) return pause("approval");
+    const token = googleTokenFor(spec.scopes);
+    if (!token) return pause("reconnect", { code: "reauth", message: `Your Google access for ${app.name} has expired.` });
+
+    updateConnectorStep(index, step.id, { status: "running", approved, error: undefined });
+    setIsLoading(true);
+    setStreamStatus(`${callLabel(call, "running")}…`);
+    const runId = requestIdRef.current;
+    try {
+      const out = await runGoogleTool(call.tool, call.args, {
+        token: token.token,
+        fetch: (...args) => fetch(...args),
+        readPdf: extractPdfText,
+        timeZone: userTimeZone(),
+        account: token.email,
+      });
+      // Stopped, or the user moved on while Google was answering.
+      if (requestIdRef.current !== runId) return updateConnectorStep(index, step.id, { status: "cancelled" });
+      finishConnectorStep(index, step, out, "done");
+    } catch (err) {
+      if (requestIdRef.current !== runId) return updateConnectorStep(index, step.id, { status: "cancelled" });
+      if (err?.code === "reauth" || err?.code === "scope") {
+        if (err.code === "reauth") forgetGoogleToken();
+        return pause("reconnect", { code: err.code, message: err.message });
+      }
+      finishConnectorStep(index, step, { error: { code: err?.code || "failed", message: err?.message || `${app.name} didn't respond.` } }, "error");
+    }
+  };
+
+  // Opens Google's popup for these apps (keeping any already connected) and
+  // records them as connected. Must run from a click.
+  const connectConnectors = async (ids) => {
+    const wanted = [...new Set([...connectedIds(connectorStateRef.current), ...ids])];
+    const record = await connectGoogle(scopesFor(wanted));
+    const now = new Date().toISOString();
+    updateConnectorState((previous) => {
+      const next = { ...previous };
+      for (const id of wanted) {
+        next[id] = {
+          ...previous[id],
+          connected: true,
+          enabled: ids.includes(id) ? true : previous[id]?.enabled !== false,
+          account: record.email,
+          connectedAt: previous[id]?.connectedAt || now,
+        };
+      }
+      return next;
+    });
+    const missing = ids.filter((id) => !CONNECTORS_BY_ID[id].scopes.every((scope) => record.scopes.includes(scope)));
+    if (missing.length) {
+      addToast(`Google didn't allow everything ${missing.map((id) => CONNECTORS_BY_ID[id].name).join(" and ")} needs. Connect again and tick every box.`, "error", 7000);
+    }
+    return record;
+  };
+
+  const disconnectConnector = (id) => {
+    updateConnectorState((previous) => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+    // The last Google app gone: end VetroAI's Google access altogether.
+    if (!connectedIds(connectorStateRef.current).length) revokeGoogle();
+  };
+
+  const toggleConnector = (id) => updateConnectorState((previous) => ({
+    ...previous,
+    [id]: { ...previous[id], enabled: previous[id]?.enabled === false },
+  }));
+
+  // What the step card's buttons do, for the reply at `index`.
+  const connectorActionsFor = (index, step) => ({
+    approve: (allow) => (allow
+      ? runConnectorStep(index, step, { approved: true })
+      : finishConnectorStep(index, step, { declined: true }, "declined")),
+    reconnect: async () => {
+      try {
+        await connectConnectors([CONNECTOR_TOOLS[step.call.tool].connector]);
+      } catch (err) {
+        if (err?.code !== "cancelled") addToast(err?.message || "Couldn't reconnect.", "error", 6000);
+        return;
+      }
+      await runConnectorStep(index, step, { approved: step.approved });
+    },
+    skip: () => finishConnectorStep(index, step, { error: { code: "skipped", message: "The user skipped this step, so it didn't run." } }, "skipped"),
+    retry: () => runConnectorStep(index, step, { approved: step.approved }),
+  });
 
   const submitVoice = useCallback(txt => {
     // keepWanted: the mic should come back on once the reply has been spoken.
@@ -7104,7 +7350,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   const handleRegen = idx => {
     if (idx === 0) return;
-    const hist = messages.slice(0, idx);
+    // A reply that carried on after connector steps is retried from the question.
+    let start = idx;
+    while (start > 1 && (isConnectorResult(messages[start - 1]) || (messages[start - 1]?.role === "assistant" && messages[start - 1]?.connector))) start--;
+    const hist = messages.slice(0, start);
     setMessages(hist); triggerAI(hist);
     addToast("🔄 Regenerating response…", "info", 2000);
   };
@@ -7384,6 +7633,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [isAgenticMode, setIsAgenticMode] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
+  const [showConnectors, setShowConnectors] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
   const [showChess, setShowChess] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
@@ -7774,6 +8024,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           />
         </Suspense>
       )}
+      {showConnectors && (
+        <Suspense fallback={<ScreenLoader />}>
+          <ConnectorsHub
+            state={connectorState}
+            onConnect={connectConnectors}
+            onDisconnect={disconnectConnector}
+            onToggle={toggleConnector}
+            onTry={(prompt) => { setShowConnectors(false); if (activeNav === "connectors") setActiveNav("chats"); setInput(prompt); setTimeout(() => textareaRef.current?.focus(), 0); }}
+            onClose={() => { setShowConnectors(false); if (activeNav === "connectors") setActiveNav("chats"); }}
+          />
+        </Suspense>
+      )}
 {showProfile && (
         <ProfileModal
           onClose={() => setShowProfile(false)}
@@ -7883,6 +8145,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           <button onClick={() => { setActiveNav('plugins'); setShowPlugins(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'plugins' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Puzzle size={17} /> Plugins</span>
             {enabledPlugins.length > 0 && <span className="plugin-toolbar-count">{enabledPlugins.length}</span>}
+          </button>
+          <button onClick={() => { setActiveNav('connectors'); setShowConnectors(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'connectors' ? 'active' : ''}`}>
+            <span className="flex items-center gap-3"><Cable size={17} /> Connectors</span>
+            {connectedIds(connectorState).length > 0 && <span className="plugin-toolbar-count">{connectedIds(connectorState).length}</span>}
           </button>
         </div>
 
@@ -8170,12 +8436,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                  <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}
                    onWheel={markUserScroll} onTouchStart={markUserScroll} onTouchMove={markUserScroll} onPointerDown={markUserScroll} onKeyDown={markUserScroll}>
                    <div style={{ maxWidth: 720, margin: '0 auto', paddingTop: 32 }} className="px-4 sm:px-6">
-                   {messages.map((m, i) => (
-                     <div key={i} className={`flex w-full mb-6 ${m.role === 'user' ? 'justify-end' : 'justify-start gap-3'}`}>
+                   {messages.map((m, i) => isConnectorResult(m) ? null : (
+                     // A connector step's result is hidden; the reply that carries on after it
+                     // reads as part of the same answer (no second avatar).
+                     <div key={i} className={`flex w-full mb-6 ${m.role === 'user' ? 'justify-end' : 'justify-start gap-3'}${m.role !== 'user' && isConnectorResult(messages[i - 1]) ? ' vai-continued' : ''}`}>
 
                        {/* ── AI avatar ── */}
                        {m.role !== 'user' && (
-                         <div className="flex-shrink-0 mt-1">
+                         <div className="flex-shrink-0 mt-1" style={isConnectorResult(messages[i - 1]) ? { visibility: 'hidden' } : undefined}>
                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                              <VetroSparkWhite size={22} />
                            </div>
@@ -8353,7 +8621,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                : !m.content && isLoading && !m.isThinking && !m.reasoning
                                ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
-                                   <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
+                                   <ReplyContext.Provider value={{
+                                     canReply: i === messages.length - 1 && !isLoading,
+                                     reply: messages[i + 1]?.role === "user" && !isConnectorResult(messages[i + 1]) ? messages[i + 1].content : "",
+                                     connector: m.connector,
+                                     isLatest: i === messages.length - 1,
+                                     loading: isLoading,
+                                     onConnector: m.connector ? connectorActionsFor(i, m.connector) : null,
+                                   }}>
                                      <AssistantBody
                                        content={m.content}
                                        autoOpen={i === messages.length - 1 && !isLoading}
@@ -8370,10 +8645,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <span>{m.realtimeNotice}</span>
                              </div>
                            )}
-                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
-                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(lastUserQuestion(messages.slice(0, i))).length > 0 && !isConnectorResult(messages[i + 1]) && (
+                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(lastUserQuestion(messages.slice(0, i)))} />
                            )}
-                           {m.content && !isLoading && (
+                           {/* The actions sit under the last part of a reply that used connectors,
+                               once no step is still running or waiting for the user. */}
+                           {m.content && !isLoading && !isConnectorResult(messages[i + 1]) && !["pending", "running", "approval", "reconnect"].includes(m.connector?.status) && (
                              <div className="msg-action-row">
                                <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
                                  <CopyIcon /><span>{copiedAiIdx === i ? 'Copied!' : 'Copy'}</span>

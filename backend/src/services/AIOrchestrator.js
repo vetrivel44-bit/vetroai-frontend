@@ -8,6 +8,7 @@ const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = requ
 const { buildAstrologyContext } = require("./astrologyContext");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
+const { buildConnectorPrompt } = require("../config/connectors");
 
 // Adapters that read a message's `images` field, so they can be handed a
 // screenshot (see geminiAdapter.js / cohereAdapter.js). Order is preference:
@@ -552,6 +553,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const { messages, mode, provider: preferredProvider, memories } = params;
     let { options } = params;
     const userQuery = messages[messages.length - 1]?.content || "";
+    // The turn continues after a connector tool ran in the browser: the last
+    // message is that tool's result, not something the user typed, so none of
+    // the lookups keyed off the user's words (search, images, astrology, the
+    // clock) apply to it.
+    const connectorStep = params.connectorStep === true;
 
     // Every screen-control step is a full network round trip, and the reply is
     // just one small JSON object — capping generation length is one of the
@@ -652,7 +658,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // "What is today's date" / "time in London": answered from the clock, not
     // from web pages written in another timezone on another day — and without
     // the seconds a search costs.
-    const clockQuestion = detectClockQuestion(userQuery);
+    const clockQuestion = connectorStep ? null : detectClockQuestion(userQuery);
     let clockNote = "";
     if (clockQuestion?.place) {
       try {
@@ -668,7 +674,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const answeredByClock = !!clockQuestion && (!clockQuestion.place || !!clockNote);
     // A turn about an attached file or image is answered from the attachment;
     // searching the web for words from the file's text only added noise.
-    const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
+    const shouldSearch = !connectorStep && !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
       isExplicitSearchMode ||
       (autoSearchRequested && this.needsWebSearch(userQuery))
     );
@@ -676,7 +682,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
     // Astrology: ProKerala data (and the rasi chart) for every model — the
     // same builder backs /api/astrology/context for browser models.
-    const astrology = await buildAstrologyContext(messages, userQuery, { reqId });
+    const astrology = connectorStep
+      ? { status: "none", prompt: "", chartBlock: "" }
+      : await buildAstrologyContext(messages, userQuery, { reqId });
     if (astrology.status !== "none") {
       this.sendVetroEvent(res, "status", "Consulting ProKerala's Vedic astrology API...");
       if (astrology.chartBlock) this.sendVetroEvent(res, "content", astrology.chartBlock);
@@ -685,7 +693,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
     const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
-    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
+    const shouldFetchImages = galleryEligibleMode && !connectorStep && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(userQuery, 4).catch(() => [])
       : Promise.resolve([]);
@@ -755,6 +763,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
       finalSysPrompt += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
     }
     finalSysPrompt += buildPluginPrompt(params.activePlugins);
+    // Gmail / Drive / Calendar tools the user connected; the browser runs them.
+    if (mode !== "design" && mode !== "computer_use") {
+      finalSysPrompt += buildConnectorPrompt(params.activeConnectors);
+    }
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one; native reasoning models stream their own regardless.
     const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12 && mode !== "computer_use";

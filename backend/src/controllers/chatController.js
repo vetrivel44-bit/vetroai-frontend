@@ -4,6 +4,7 @@ const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
 const { normalizePluginIds } = require("../config/plugins");
+const { normalizeConnectorIds } = require("../config/connectors");
 
 // ── Groq client ───────────────────────────────────────────────────────────────
 if (!config.groqApiKey) {
@@ -179,6 +180,10 @@ async function chat(req, res) {
   // Custom system prompt from the frontend
   const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
   const activePlugins = normalizePluginIds(req.body?.plugins);
+  // Apps the user connected (the browser runs their tools), and whether this
+  // request continues a reply after one of those tools ran.
+  const activeConnectors = normalizeConnectorIds(req.body?.connectors);
+  const connectorStep = String(req.body?.connectorStep || "false") === "true";
 
   // The user's own clock (IANA timezone from the browser), so "today" is
   // their today — see clockService.
@@ -271,6 +276,8 @@ async function chat(req, res) {
       clock,
       hasAttachments: files.length > 0,
       activePlugins,
+      activeConnectors,
+      connectorStep,
       effort,
       options: { temperature, maxTokens }
     }, res) === true;
