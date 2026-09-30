@@ -19,6 +19,7 @@ const mistralAvailable = Boolean(config.mistralApiKey);
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
 const { withGroqModel } = require("../utils/groqModel");
+const mistralAdapter = require("../providers/mistralAdapter");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
 const { clientClock } = require("../services/clockService");
@@ -129,28 +130,10 @@ async function withRetry(operation, retries = 2, delay = 1000) {
 
 const AIOrchestrator = require("../services/AIOrchestrator");
 
+// Goes through the adapter so titles and follow-ups get the same rate-limit
+// retries and model fallbacks as chat replies.
 async function callMistralChat({ messages, temperature = 0.4, maxTokens = 120 }) {
-  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.mistralApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.mistralModel || "mistral-small-latest",
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new ApiError(response.status, `Mistral service error: ${detail.slice(0, 200)}`);
-  }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  return mistralAdapter.complete(messages, { temperature, maxTokens });
 }
 
 // ── MAIN CHAT HANDLER ─────────────────────────────────────────────────────────
@@ -297,7 +280,6 @@ async function generateTitle(req, res) {
 
   if (!groq && mistralAvailable) {
     const completion = await callMistralChat({
-      model: config.mistralModel,
       messages: [
         { role: "system", content: "Generate a 4-6 word summary title for this chat. Never use simple greetings like 'hi' or 'hello' as a title. Include a relevant emoji at the start. Return plain text only." },
         { role: "user", content: firstMessage.slice(0, 400) },
