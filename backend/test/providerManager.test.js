@@ -5,7 +5,7 @@ const { config } = require("../src/config/env");
 const providerManager = require("../src/services/ProviderManager");
 
 const providerKeys = {
-  plugsky: "plugskyApiKey",
+  vercel: "vercelApiKey",
   chatgpt: "chatgptApiKey",
   fable: "fableRapidApiKey",
   groq: "groqApiKey",
@@ -50,24 +50,24 @@ function configureMany(names) {
 }
 
 test("picker model names map to their backend family instead of being ignored", () => {
-  configureMany(["plugsky", "chatgpt", "fable", "gemini", "groq"]);
+  configureMany(["vercel", "chatgpt", "fable", "gemini", "groq"]);
   assert.equal(providerManager.getBestProvider("web_search", "GPT-5.6 Sol"), "chatgpt");
   assert.equal(providerManager.getBestProvider("normal", "GPT-5.3 Codex"), "chatgpt");
   assert.equal(providerManager.getBestProvider("web_search", "Claude Sonnet 5"), "fable");
   assert.equal(providerManager.getBestProvider("web_search", "Gemini 3.1 Pro"), "gemini");
   assert.equal(providerManager.getBestProvider("normal", "Groq"), "groq");
-  assert.equal(providerManager.getBestProvider("normal", "Plugsky"), "plugsky");
+  assert.equal(providerManager.getBestProvider("normal", "Vercel"), "vercel");
 });
 
-test("Auto does not route web searches to Plugsky when another provider is available", () => {
-  configureMany(["plugsky", "chatgpt", "gemini"]);
-  assert.notEqual(providerManager.getBestProvider("web_search", "Auto"), "plugsky");
-  assert.notEqual(providerManager.getBestProvider("research", "Auto"), "plugsky");
+test("Auto does not route web searches to the Vercel gateway when another provider is available", () => {
+  configureMany(["vercel", "chatgpt", "gemini"]);
+  assert.notEqual(providerManager.getBestProvider("web_search", "Auto"), "vercel");
+  assert.notEqual(providerManager.getBestProvider("research", "Auto"), "vercel");
   // Normal chat keeps its existing preference.
-  assert.equal(providerManager.getBestProvider("normal", "Auto"), "plugsky");
-  // Plugsky alone still answers rather than nothing.
-  configureMany(["plugsky"]);
-  assert.equal(providerManager.getBestProvider("web_search", "Auto"), "plugsky");
+  assert.equal(providerManager.getBestProvider("normal", "Auto"), "vercel");
+  // The gateway alone still answers rather than nothing.
+  configureMany(["vercel"]);
+  assert.equal(providerManager.getBestProvider("web_search", "Auto"), "vercel");
 });
 
 test("a key or billing problem parks the provider longer than a normal failure", () => {

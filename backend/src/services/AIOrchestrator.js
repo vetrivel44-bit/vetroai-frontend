@@ -1017,7 +1017,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
   providerLabel(name) {
     const labels = {
-      chatgpt: "ChatGPT", fable: "Claude Fable 5", plugsky: "Plugsky", groq: "Groq",
+      chatgpt: "ChatGPT", fable: "Claude Fable 5", vercel: "Vercel AI", groq: "Groq",
       mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini", cohere: "Cohere",
     };
     return labels[name] || name || "The AI model";
@@ -1090,7 +1090,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     return state.inside ? { content: "", reasoning: rest } : { content: rest, reasoning: "" };
   }
 
-  // Reasoning field names used by OpenAI-compatible providers (Plugsky, Groq
+  // Reasoning field names used by OpenAI-compatible providers (Vercel AI Gateway, Groq
   // reasoning models, DeepSeek-R1 style deployments).
   reasoningFromDelta(delta) {
     if (!delta || typeof delta !== "object") return "";
@@ -1366,7 +1366,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     }
 
     // If using SSE provider, ignore comments or heartbeats that carry no data frame
-    if (["groq", "mistral", "sambanova", "agnes", "plugsky"].includes(provider)) {
+    if (["groq", "mistral", "sambanova", "agnes", "vercel"].includes(provider)) {
       return empty;
     }
 

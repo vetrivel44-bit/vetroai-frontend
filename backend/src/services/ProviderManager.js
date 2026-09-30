@@ -7,13 +7,13 @@ const sambanovaAdapter = require("../providers/sambanovaAdapter");
 const agnesAdapter = require("../providers/agnesAdapter");
 const chatgptAdapter = require("../providers/chatgptAdapter");
 const fableAdapter = require("../providers/fableAdapter");
-const plugskyAdapter = require("../providers/plugskyAdapter");
+const vercelAdapter = require("../providers/vercelAdapter");
 const cohereAdapter = require("../providers/cohereAdapter");
 
 // The picker's model names (most of which run in the browser) mapped to the
 // backend provider of the same family. Without this, an unknown name such as
 // "GPT-5.6 Sol" was ignored and the request went to whichever provider had the
-// highest weight — so every browser-model web search was answered by Plugsky.
+// highest weight — so every browser-model web search was answered by the top-weighted gateway.
 const PROVIDER_ALIASES = [
   [/^gpt[-\s]|openai|codex|chatgpt/i, "chatgpt"],
   [/claude|fable/i, "fable"],
@@ -22,7 +22,7 @@ const PROVIDER_ALIASES = [
   [/mistral/i, "mistral"],
   [/sambanova/i, "sambanova"],
   [/agnes/i, "agnes"],
-  [/plugsky/i, "plugsky"],
+  [/vercel/i, "vercel"],
   [/cohere/i, "cohere"],
 ];
 
@@ -34,7 +34,7 @@ function resolveProviderName(label) {
   return alias ? alias[1] : lower;
 }
 
-// Modes that answer from live search results. Plugsky's long visible-thinking
+// Modes that answer from live search results. The Vercel gateway's default reasoning model thinks at length; that
 // style is a poor fit there, so Auto prefers models that answer directly.
 const SEARCH_MODES = new Set(["web_search", "research", "deep_search"]);
 
@@ -51,7 +51,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
+        fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
       },
       fable: {
         adapter: fableAdapter,
@@ -63,10 +63,10 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
+        fallbacks: ["vercel", "chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
       },
-      plugsky: {
-        adapter: plugskyAdapter,
+      vercel: {
+        adapter: vercelAdapter,
         weight: 105,
         score: 105,
         latency: 0,
@@ -87,7 +87,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "chatgpt", "agnes", "mistral", "sambanova", "gemini", "cohere"],
+        fallbacks: ["vercel", "chatgpt", "agnes", "mistral", "sambanova", "gemini", "cohere"],
       },
       mistral: {
         adapter: mistralAdapter,
@@ -99,7 +99,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "groq", "sambanova", "agnes", "gemini", "cohere"],
+        fallbacks: ["vercel", "groq", "sambanova", "agnes", "gemini", "cohere"],
       },
       agnes: {
         adapter: agnesAdapter,
@@ -111,7 +111,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "mistral", "groq", "sambanova", "gemini", "cohere"],
+        fallbacks: ["vercel", "mistral", "groq", "sambanova", "gemini", "cohere"],
       },
       sambanova: {
         adapter: sambanovaAdapter,
@@ -123,7 +123,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "groq", "mistral", "agnes", "gemini", "cohere"],
+        fallbacks: ["vercel", "groq", "mistral", "agnes", "gemini", "cohere"],
       },
       gemini: {
         adapter: geminiAdapter,
@@ -135,7 +135,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "groq", "mistral", "agnes", "sambanova", "cohere"],
+        fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "cohere"],
       },
       cohere: {
         adapter: cohereAdapter,
@@ -150,7 +150,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["plugsky", "groq", "mistral", "agnes", "sambanova", "gemini"],
+        fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "gemini"],
       },
     };
 
@@ -163,7 +163,7 @@ class ProviderManager {
 
   isConfigured(providerName) {
     const configured = {
-      plugsky: Boolean(config.plugskyApiKey),
+      vercel: Boolean(config.vercelApiKey),
       chatgpt: Boolean(config.chatgptApiKey),
       fable: Boolean(config.fableRapidApiKey),
       groq: Boolean(config.groqApiKey),
@@ -256,8 +256,8 @@ class ProviderManager {
         if (b === "mistral") scoreB += 50;
       }
       if (SEARCH_MODES.has(mode)) {
-        if (a === "plugsky") scoreA -= 60;
-        if (b === "plugsky") scoreB -= 60;
+        if (a === "vercel") scoreA -= 60;
+        if (b === "vercel") scoreB -= 60;
       }
 
       return scoreB - scoreA;
@@ -266,7 +266,7 @@ class ProviderManager {
 
   getFallbackProvider(failedProvider, excludedProviders = []) {
     const p = this.providers[failedProvider];
-    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["plugsky", "gemini", "sambanova", "mistral", "groq", "agnes", "cohere"];
+    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["vercel", "gemini", "sambanova", "mistral", "groq", "agnes", "cohere"];
     const excluded = new Set([failedProvider, ...excludedProviders]);
 
     // Auto-expire cooled-down suspensions first
