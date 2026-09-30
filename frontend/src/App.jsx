@@ -761,10 +761,10 @@ const PUTER_MODEL_IDS = {
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-const PLUGSKY_PROVIDER = "Plugsky";
+const VERCEL_PROVIDER = "Vercel AI";
 const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
 const GROK_PROVIDER = "Grok 4.6";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, PLUGSKY_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VERCEL_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", "SambaNova", "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3032,7 +3032,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
-    [PLUGSKY_PROVIDER]: ["P", "Visible thinking · Plugsky"],
+    [VERCEL_PROVIDER]: ["▲", "Vercel AI Gateway · many models"],
     [DEEPSEEK_PROVIDER]: ["D", "Open reasoning · strong at code"],
     [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
     Groq: ["Q", "Fast responses"],
@@ -6007,7 +6007,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append(
       "provider",
       selectedProvider === CLAUDE_FABLE_PROVIDER ? "fable"
-        : selectedProvider === PLUGSKY_PROVIDER ? "plugsky"
+        : selectedProvider === VERCEL_PROVIDER ? "vercel"
         : selectedProvider
     );
     const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
@@ -6547,7 +6547,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
       // Web search with a browser model: browser models can't search, and the
       // backend doesn't know them — it used to answer with its own top-weighted
-      // model (Plugsky) instead of the one the user picked. So search here via
+      // model instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
       if (puterModelId && browserSearch && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         let web = null;

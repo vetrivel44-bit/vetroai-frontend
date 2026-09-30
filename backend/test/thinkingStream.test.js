@@ -29,7 +29,7 @@ test("native reasoning deltas stream separately from the answer", async () => {
     dataLine({ reasoning_content: "Check the " }),
     dataLine({ reasoning_content: "units first." }),
     dataLine({ content: "42 km" }),
-  ]), res, "plugsky");
+  ]), res, "vercel");
 
   assert.equal(joined(res.events, "reasoning"), "Check the units first.");
   assert.equal(joined(res.events, "content"), "42 km");
@@ -44,7 +44,7 @@ test("an inline <think> block is stripped from the answer even when its tags spl
     dataLine({ content: "nk>step one" }),
     dataLine({ content: " step two</th" }),
     dataLine({ content: "ink>Answer: yes" }),
-  ]), res, "plugsky");
+  ]), res, "vercel");
 
   assert.equal(joined(res.events, "reasoning"), "step one step two");
   assert.equal(joined(res.events, "content"), "Answer: yes");
@@ -52,7 +52,7 @@ test("an inline <think> block is stripped from the answer even when its tags spl
 
 test("an unterminated <think> block never leaks into the answer", async () => {
   const res = makeRes();
-  await orchestrator.pipeStream(sseLines([dataLine({ content: "<think>never closed" })]), res, "plugsky");
+  await orchestrator.pipeStream(sseLines([dataLine({ content: "<think>never closed" })]), res, "vercel");
 
   assert.equal(joined(res.events, "reasoning"), "never closed");
   assert.equal(joined(res.events, "content"), "");
@@ -97,7 +97,7 @@ test("frames written as data:{...} with no space are not dropped", async () => {
     compactDataLine({ content: "Hello " }),
     compactDataLine({ content: "world" }),
     "data:[DONE]\n",
-  ]), res, "plugsky");
+  ]), res, "vercel");
 
   assert.equal(joined(res.events, "content"), "Hello world");
 });
@@ -107,7 +107,7 @@ test("compact frames carry reasoning deltas too", async () => {
   await orchestrator.pipeStream(sseLines([
     compactDataLine({ reasoning_content: "weighing options" }),
     compactDataLine({ content: "Answer" }),
-  ]), res, "plugsky");
+  ]), res, "vercel");
 
   assert.equal(joined(res.events, "reasoning"), "weighing options");
   assert.equal(joined(res.events, "content"), "Answer");
@@ -134,7 +134,7 @@ test("a multi-byte character split across chunks is not lost", async () => {
   await orchestrator.pipeStream(sseLines([
     payload.subarray(0, cut),
     payload.subarray(cut),
-  ]), res, "plugsky");
+  ]), res, "vercel");
 
   assert.equal(joined(res.events, "content"), "café ☕");
 });
@@ -145,7 +145,7 @@ test("SSE comments and blank keep-alive lines produce no content", async () => {
     ": ping\n",
     "\n",
     dataLine({ content: "real text" }),
-  ]), res, "plugsky");
+  ]), res, "vercel");
 
   assert.equal(joined(res.events, "content"), "real text");
 });
@@ -157,7 +157,7 @@ test("pipeStream strips <unk> tokens and abandons a stream that degenerates into
   const cleanRes = { writes: [], write(c) { this.writes.push(c); } };
   const answer = await orchestrator.pipeStream((async function* () {
     yield line("Hello<unk> world<|end|>");
-  })(), cleanRes, "plugsky");
+  })(), cleanRes, "vercel");
   assert.equal(answer, "Hello world");
 
   const brokenRes = { writes: [], write(c) { this.writes.push(c); } };
@@ -165,7 +165,7 @@ test("pipeStream strips <unk> tokens and abandons a stream that degenerates into
     orchestrator.pipeStream((async function* () {
       yield line("AI and messaging/http");
       yield line("<unk>".repeat(20));
-    })(), brokenRes, "plugsky"),
+    })(), brokenRes, "vercel"),
     /corrupted output/,
   );
 });

@@ -3,7 +3,7 @@ const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
 
 // Cohere's OpenAI-compatible endpoint — same request/response shape as the
-// other REST adapters (sambanova, plugsky), so AIOrchestrator's SSE parsing
+// other REST adapters (sambanova, vercel), so AIOrchestrator's SSE parsing
 // needs no special-casing for this provider.
 const COHERE_ENDPOINT = "https://api.cohere.ai/compatibility/v1/chat/completions";
 

@@ -20,7 +20,7 @@ const MODEL_ICON_RULES = [
   [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/^groq$/i, '/model-icons/groq.svg'],
-  [/plugsky/i, 'https://www.google.com/s2/favicons?domain=plugsky.com&sz=64'],
+  [/vercel/i, '/model-icons/vercel.svg'],
   [/agnes|vetro/i, '/favicon.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];

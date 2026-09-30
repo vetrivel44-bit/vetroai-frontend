@@ -51,13 +51,13 @@ module.exports = {
     cohereVisionModel:   getEnv("COHERE_VISION_MODEL",   "command-a-vision-07-2025"),
     agnesApiKey:         getEnv("AGNES_API_KEY",         ""),
     agnesModel:          getEnv("AGNES_MODEL",           "agnes-2.0-flash"),
-    // Plugsky — OpenAI-compatible gateway. Streams native reasoning ("thinking")
-    // tokens when the selected model exposes them.
-    plugskyApiKey:       getEnv("PLUGSKY_API_KEY",       ""),
-    plugskyBaseUrl:      getEnv("PLUGSKY_BASE_URL",      "https://api.plugsky.com/v1"),
-    plugskyModel:        getEnv("PLUGSKY_MODEL",         "plugsky-pro"),
-    plugskyTemperature:  Number(getEnv("PLUGSKY_TEMPERATURE", "0.7")),
-    plugskyMaxTokens:    Number(getEnv("PLUGSKY_MAX_TOKENS",  "8192")),
+    // Vercel AI Gateway — OpenAI-compatible, one key for many providers' models.
+    // AI_GATEWAY_API_KEY is Vercel's own name for it.
+    vercelApiKey:        getEnv("AI_GATEWAY_API_KEY", "") || getEnv("VERCEL_AI_GATEWAY_API_KEY", ""),
+    vercelBaseUrl:       getEnv("VERCEL_AI_BASE_URL",    "https://ai-gateway.vercel.sh/v1"),
+    vercelModel:         getEnv("VERCEL_AI_MODEL",       "openai/gpt-oss-120b"),
+    vercelTemperature:   Number(getEnv("VERCEL_AI_TEMPERATURE", "0.7")),
+    vercelMaxTokens:     Number(getEnv("VERCEL_AI_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.
     thinkingEnabled:     getEnv("THINKING_ENABLED", "true") !== "false",
     // Chess Arena — dedicated keys/models, isolated from the chat providers above.
