@@ -42,6 +42,9 @@ module.exports = {
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
     geminiModel:         getEnv("GEMINI_MODEL",          "gemini-3.6-flash"),
     sambanovaApiKey:     getEnv("SAMBANOVA_API_KEY",     ""),
+    sambanovaModel:      getEnv("SAMBANOVA_MODEL",       "Meta-Llama-3.3-70B-Instruct"),
+    // Tried when the main model is slow to start, busy, or rejected.
+    sambanovaBackupModel: getEnv("SAMBANOVA_BACKUP_MODEL", "gpt-oss-120b"),
     // Cohere — universal last-resort fallback (see ProviderManager fallbacks).
     // Uses Cohere's OpenAI-compatible endpoint so it streams standard SSE chunks.
     cohereApiKey:        getEnv("COHERE_API_KEY",        ""),
