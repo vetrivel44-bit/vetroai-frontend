@@ -11,6 +11,7 @@ const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 const API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PROD_API);
 const HOUR_MS = 60 * 60 * 1000;
 const RECENT_KEY = "vetroai_deals_recent_v1";
+const LOWS_ONLY_KEY = "vetroai_deals_lows_only_v1";
 const REGION_KEY = "vetroai_deals_region_v1";
 
 const REGIONS = [
@@ -110,10 +111,33 @@ function StoreBadge({ item }) {
   );
 }
 
-function ProductImage({ item }) {
-  const [failed, setFailed] = useState(false);
-  if (item.image && !failed) {
-    return <img src={item.image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+// Product photo, shown the way shops show it: square, white, centred, zoom on
+// hover. A store CDN that refuses hotlinking is retried through the backend's
+// image proxy before falling back to a store-coloured placeholder.
+function ProductImage({ item, eager = false }) {
+  // Keyed by URL so a new photo starts its load/retry state afresh.
+  return <ProductPhoto key={item.image || "none"} item={item} eager={eager} />;
+}
+
+function ProductPhoto({ item, eager }) {
+  const [attempt, setAttempt] = useState(0); // 0 direct, 1 proxied, 2 failed
+  const [loaded, setLoaded] = useState(false);
+  if (item.image && attempt < 2) {
+    const src = attempt === 0 ? item.image : `${API}/deals/image?u=${encodeURIComponent(item.image)}`;
+    return (
+      <div className={`dh-photo${loaded ? " is-loaded" : ""}`}>
+        {!loaded && <span className="dh-photo-skel dh-shimmer" />}
+        <img
+          src={src}
+          alt={item.title}
+          loading={eager ? "eager" : "lazy"}
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onLoad={() => setLoaded(true)}
+          onError={() => { setLoaded(false); setAttempt((a) => a + 1); }}
+        />
+      </div>
+    );
   }
   return (
     <div className="dh-img-fallback" style={{ "--store": item.storeColor || "var(--dh-accent)" }}>
@@ -123,29 +147,46 @@ function ProductImage({ item }) {
   );
 }
 
+const monthsLabel = (days) => `${Math.round(days / 30)} months`;
+// Start of the period a "lowest in N months" verdict covers.
+const windowStart = (h) => {
+  const start = Date.now() - Math.min(h.coveredDays, h.windowDays) * 24 * 60 * 60 * 1000;
+  return new Date(start).toISOString();
+};
+
 function HistoryLine({ item, region }) {
   const h = item.history;
   if (!h) return <div className="dh-hist dh-hist-new"><History size={12} /> Tracking starts now</div>;
-  if (h.isLowest) {
+  if (h.isWindowLow) {
     return (
-      <div className="dh-hist dh-hist-low">
-        <TrendingDown size={12} /> Lowest price ever{h.checks > 1 ? ` · ${h.checks} checks` : ""}
+      <div className="dh-hist dh-hist-low" title={`Lowest price since ${shortDate(h.trackedSince)} (${h.coveredDays} days of history)`}>
+        <TrendingDown size={12} /> Lowest price since {shortDate(windowStart(h))}
+      </div>
+    );
+  }
+  if (!h.enoughHistory) {
+    return (
+      <div className="dh-hist dh-hist-new" title={`Needs ${h.minCoverageDays} days of price history`}>
+        <History size={12} /> {h.coveredDays} of {h.minCoverageDays} days tracked
       </div>
     );
   }
   return (
     <div className="dh-hist">
-      <History size={12} /> Lowest {formatPrice(h.lowestPrice, region)} on {shortDate(h.lowestAt)}
+      <History size={12} /> Was {formatPrice(h.windowLowPrice, region)} on {shortDate(h.windowLowAt)}
     </div>
   );
 }
 
-function ProductCard({ item, region, cheapest }) {
+function ProductCard({ item, region, cheapest, eager }) {
   return (
     <a className={`dh-card${cheapest ? " is-cheapest" : ""}`} href={item.url} target="_blank" rel="noopener noreferrer nofollow">
       {cheapest && <span className="dh-ribbon"><Trophy size={12} /> Cheapest</span>}
       {item.discountPct ? <span className="dh-off">-{item.discountPct}%</span> : null}
-      <div className="dh-card-img"><ProductImage item={item} /></div>
+      <div className="dh-card-img">
+        <ProductImage item={item} eager={eager} />
+        {item.history?.isWindowLow && <span className="dh-low-tag"><TrendingDown size={11} /> {Math.round(Math.min(item.history.coveredDays, item.history.windowDays) / 30)}-month low</span>}
+      </div>
       <div className="dh-card-body">
         <StoreBadge item={item} />
         <h3 className="dh-card-title" title={item.title}>{item.title}</h3>
@@ -193,9 +234,9 @@ function Spotlight({ data, best }) {
   const qh = data.history;
   return (
     <section className="dh-spotlight">
-      <div className="dh-spot-img"><ProductImage item={best} /></div>
+      <div className="dh-spot-img"><ProductImage item={best} eager /></div>
       <div className="dh-spot-main">
-        <div className="dh-spot-kicker"><Sparkles size={14} /> Best price right now</div>
+        <div className="dh-spot-kicker"><Sparkles size={14} /> {best.history?.isWindowLow ? `Lowest price in ${monthsLabel(Math.min(best.history.coveredDays, best.history.windowDays))}` : "Best price right now"}</div>
         <h2 className="dh-spot-title">{best.title}</h2>
         <div className="dh-spot-meta">
           <StoreBadge item={best} />
@@ -221,6 +262,11 @@ function Spotlight({ data, best }) {
         {h ? (
           <>
             <div className="dh-hist-stat">
+              <span>{h.windowDays}-day low</span>
+              <strong className={h.isWindowLow ? "is-good" : ""}>{formatPrice(h.windowLowPrice, region)}</strong>
+              <em>{shortDate(h.windowLowAt)}</em>
+            </div>
+            <div className="dh-hist-stat">
               <span>All-time low</span>
               <strong className={h.isLowest ? "is-good" : ""}>{formatPrice(h.lowestPrice, region)}</strong>
               <em>{shortDate(h.lowestAt)}</em>
@@ -232,11 +278,14 @@ function Spotlight({ data, best }) {
               </div>
             )}
             <Sparkline points={h.points} width={200} height={54} />
-            <p className={`dh-verdict${h.isLowest ? " is-good" : ""}`}>
-              {h.isLowest
-                ? (h.checks > 1 ? "Today's price is the lowest we've recorded — a good time to buy." : "First check for this product — tracking hourly from now.")
-                : `${formatPrice(h.aboveLowestBy, region)} above its lowest recorded price.`}
+            <p className={`dh-verdict${h.isWindowLow ? " is-good" : ""}`}>
+              {h.isWindowLow
+                ? `Lowest price in ${h.coveredDays >= h.windowDays ? `${h.windowDays} days` : `${h.coveredDays} days`} — a good time to buy.`
+                : !h.enoughHistory
+                  ? `${h.coveredDays} days of history so far — a 3–4 month verdict needs ${h.minCoverageDays}.`
+                  : `${formatPrice(h.aboveWindowLowBy, region)} above its ${h.windowDays}-day low.`}
             </p>
+            <p className="dh-hist-src">History: {h.source === "keepa" ? "Keepa (Amazon price tracker)" : "VetroAI hourly checks"} · since {shortDate(h.trackedSince)}</p>
           </>
         ) : (
           <p className="dh-muted">Tracking starts with this check — prices are re-checked every hour.</p>
@@ -308,6 +357,8 @@ export default function DealsHub({ onClose }) {
   const [error, setError] = useState("");
   const [storeFilter, setStoreFilter] = useState("all");
   const [sort, setSort] = useState("price");
+  // Default: only offers whose price is the lowest in their 3–4 month history.
+  const [lowsOnly, setLowsOnly] = useState(() => readStorage(LOWS_ONLY_KEY, true));
   const [recent, setRecent] = useState(() => readStorage(RECENT_KEY, []));
   const [now, setNow] = useState(Date.now());
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
@@ -339,6 +390,7 @@ export default function DealsHub({ onClose }) {
 
   useEffect(() => { load(query, region); }, [query, region, load]);
   useEffect(() => { writeStorage(REGION_KEY, region); }, [region]);
+  useEffect(() => { writeStorage(LOWS_ONLY_KEY, lowsOnly); }, [lowsOnly]);
 
   // Prices are re-checked hourly on the server; the open screen pulls the
   // fresh numbers on the same cadence, and the clock keeps "updated X ago" live.
@@ -374,16 +426,19 @@ export default function DealsHub({ onClose }) {
     writeStorage(RECENT_KEY, next);
   };
 
+  const isDeal = useCallback((i) => !lowsOnly || Boolean(i.history?.isWindowLow), [lowsOnly]);
+  const pool = useMemo(() => (data?.items || []).filter(isDeal), [data, isDeal]);
+  const lowsCount = useMemo(() => (data?.items || []).filter((i) => i.history?.isWindowLow).length, [data]);
+  const maxCoverage = useMemo(() => Math.max(0, ...(data?.items || []).map((i) => i.history?.coveredDays || 0)), [data]);
+
   const stores = useMemo(() => {
-    if (!data?.items) return [];
     const m = new Map();
-    for (const it of data.items) m.set(it.storeId, { id: it.storeId, name: it.store, color: it.storeColor, count: (m.get(it.storeId)?.count || 0) + 1 });
+    for (const it of pool) m.set(it.storeId, { id: it.storeId, name: it.store, color: it.storeColor, count: (m.get(it.storeId)?.count || 0) + 1 });
     return [...m.values()];
-  }, [data]);
+  }, [pool]);
 
   const visible = useMemo(() => {
-    if (!data?.items) return [];
-    const list = data.items.filter((i) => storeFilter === "all" || i.storeId === storeFilter);
+    const list = pool.filter((i) => storeFilter === "all" || i.storeId === storeFilter);
     const by = {
       price: (a, b) => a.price - b.price,
       discount: (a, b) => (b.discountPct || 0) - (a.discountPct || 0) || a.price - b.price,
@@ -391,9 +446,9 @@ export default function DealsHub({ onClose }) {
       history: (a, b) => (a.history?.aboveLowestBy ?? Infinity) - (b.history?.aboveLowestBy ?? Infinity) || a.price - b.price,
     }[sort];
     return [...list].sort(by);
-  }, [data, storeFilter, sort]);
+  }, [pool, storeFilter, sort]);
 
-  const cheapestId = data?.items?.[0]?.id;
+  const cheapestId = pool[0]?.id;
   const fetchedAt = query ? data?.fetchedAt : featured?.sections?.find((s) => s.fetchedAt)?.fetchedAt;
   const nextIn = lastLoadedAt ? lastLoadedAt + HOUR_MS - now : HOUR_MS;
 
@@ -463,10 +518,18 @@ export default function DealsHub({ onClose }) {
               <button type="button" className="dh-recent-clear" onClick={() => { setRecent([]); writeStorage(RECENT_KEY, []); }}>Clear</button>
             </div>
           )}
+          <div className="dh-mode" role="group" aria-label="Which offers to show">
+            <button type="button" className={lowsOnly ? "on" : ""} onClick={() => { setLowsOnly(true); setStoreFilter("all"); }}>
+              <TrendingDown size={14} /> 3–4 month lows only{data?.items?.length ? ` (${lowsCount})` : ""}
+            </button>
+            <button type="button" className={!lowsOnly ? "on" : ""} onClick={() => { setLowsOnly(false); setStoreFilter("all"); }}>
+              <ShoppingBag size={14} /> All current offers
+            </button>
+          </div>
           <div className="dh-trust">
             <span><ShieldCheck size={14} /> Direct store links — no sign-up</span>
             <span><RefreshCw size={14} /> Re-checked every hour</span>
-            <span><History size={14} /> Lowest-ever price tracking</span>
+            <span><History size={14} /> Only prices at a 3–4 month low</span>
           </div>
         </section>
 
@@ -480,13 +543,13 @@ export default function DealsHub({ onClose }) {
         {query ? (
           <>
             {loading && !data && <SkeletonGrid />}
-            {data && data.items.length > 0 && (
+            {data && pool.length > 0 && (
               <>
-                <Spotlight data={data} best={data.items[0]} />
-                <PriceSpread data={data} />
+                <Spotlight data={{ ...data, items: pool }} best={pool[0]} />
+                <PriceSpread data={{ ...data, items: pool }} />
                 <div className="dh-toolbar">
                   <div className="dh-results-count">
-                    <strong>{visible.length}</strong> offers for “{data.query}”
+                    <strong>{visible.length}</strong> {lowsOnly ? "3–4 month lows" : "offers"} for “{data.query}”
                     {data.stale && <span className="dh-stale"> · showing last good prices</span>}
                   </div>
                   <div className="dh-filters">
@@ -505,9 +568,23 @@ export default function DealsHub({ onClose }) {
                   </div>
                 </div>
                 <div className="dh-grid">
-                  {visible.map((item) => <ProductCard key={item.id} item={item} region={data.region} cheapest={item.id === cheapestId} />)}
+                  {visible.map((item, i) => <ProductCard key={item.id} item={item} region={data.region} cheapest={item.id === cheapestId} eager={i < 8} />)}
                 </div>
               </>
+            )}
+            {data && data.items.length > 0 && pool.length === 0 && !loading && (
+              <div className="dh-empty dh-empty-lows">
+                <History size={40} strokeWidth={1.4} />
+                <h3>No offer for “{data.query}” is at its 3–4 month low right now</h3>
+                <p>
+                  {maxCoverage < 90
+                    ? `VetroAI has ${maxCoverage} day${maxCoverage === 1 ? "" : "s"} of price history for these products so far; a product qualifies once 90 days of history show today's price is the lowest. Prices are re-checked every hour.`
+                    : "Every offer found has been cheaper at some point in the last 4 months. Prices are re-checked every hour — this list updates the moment one drops to its low."}
+                </p>
+                <button type="button" className="dh-btn-ghost" onClick={() => setLowsOnly(false)}>
+                  Show all {data.items.length} current offers
+                </button>
+              </div>
             )}
             {data && data.items.length === 0 && !loading && (
               <div className="dh-empty">
@@ -526,24 +603,35 @@ export default function DealsHub({ onClose }) {
             {featured?.sections?.map((section) => {
               const cat = CATEGORIES.find((c) => c.query === section.query);
               const Icon = cat?.icon || Tag;
-              if (!section.items.length) return null;
+              const items = section.items.filter(isDeal).slice(0, 10);
+              if (!items.length) return null;
               return (
                 <section key={section.query} className="dh-row">
                   <div className="dh-row-head">
-                    <h2><Icon size={18} /> Cheapest {cat?.label || section.query} today</h2>
+                    <h2><Icon size={18} /> {lowsOnly ? `${cat?.label || section.query} at a 3–4 month low` : `Cheapest ${cat?.label || section.query} today`}</h2>
                     <button type="button" onClick={() => runSearch(section.query)}>Compare all <ArrowUpRight size={14} /></button>
                   </div>
                   <div className="dh-rail">
-                    {section.items.map((item, i) => <ProductCard key={item.id} item={item} region={featured.region} cheapest={i === 0} />)}
+                    {items.map((item, i) => <ProductCard key={item.id} item={item} region={featured.region} cheapest={i === 0} eager={i < 4} />)}
                   </div>
                 </section>
               );
             })}
-            {featured && !featured.sections?.some((s) => s.items.length) && !loading && (
+            {featured && !featured.sections?.some((s) => s.items.some(isDeal)) && !loading && (
               <div className="dh-empty">
                 <Sparkles size={40} strokeWidth={1.4} />
-                <h3>Search any product to compare prices</h3>
-                <p>Pick a category above or type a product name to see the cheapest offers right now.</p>
+                {lowsOnly && featured.sections?.some((s) => s.items.length) ? (
+                  <>
+                    <h3>No 3–4 month lows in these categories right now</h3>
+                    <p>Products appear here once their price history shows today's price is the lowest in at least 3 months. Prices are re-checked every hour.</p>
+                    <button type="button" className="dh-btn-ghost" onClick={() => setLowsOnly(false)}>Show all current offers</button>
+                  </>
+                ) : (
+                  <>
+                    <h3>Search any product to compare prices</h3>
+                    <p>Pick a category above or type a product name to see the cheapest offers right now.</p>
+                  </>
+                )}
               </div>
             )}
           </>
@@ -551,7 +639,7 @@ export default function DealsHub({ onClose }) {
 
         <footer className="dh-footer">
           Prices and availability are checked live and re-checked every hour; the store's checkout price is final.
-          Lowest-ever prices are from VetroAI's own hourly checks.
+          “3–4 month low” means today's price is the lowest in at least 90 days of price history (Amazon history from Keepa, other stores from VetroAI's hourly checks).
         </footer>
       </main>
     </div>

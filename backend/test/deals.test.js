@@ -90,6 +90,7 @@ test("price history keeps the lowest price ever seen across hourly checks", asyn
       const price = prices[call++];
       return Response.json({ shopping_results: [{ title: "Noise ColorFit Pro 5", source: "Amazon.in", link: "https://www.amazon.in/dp/N5", extracted_price: price }] });
     }
+    if (String(url).startsWith("https://www.amazon.in/")) return new Response("", { status: 503 });
     return realFetch(url, opts);
   };
   t.after(() => { global.fetch = realFetch; config.serpApiKey = saved.serp; config.tavilyApiKey = saved.tavily; deals._cache.clear(); deals._tracked.clear(); history._memory.clear(); });
@@ -115,4 +116,110 @@ test("price history keeps the lowest price ever seen across hourly checks", asyn
   const cached = await deals.findDeals("noise smartwatch", "in");
   assert.equal(cached.cached, true);
   assert.equal(cached.items[0].history.lowestPrice, 1299);
+});
+
+const extras = require("../src/services/productExtras");
+const { summarize } = require("../src/services/priceHistoryService");
+const DAY = 24 * 60 * 60 * 1000;
+
+test("summarize flags a 3–4 month low only with at least 90 days of history", () => {
+  const now = Date.UTC(2026, 9, 7);
+  const ext = (pairs) => ({ source: "keepa", points: pairs.map(([daysAgo, p]) => ({ p, t: now - daysAgo * DAY })) });
+
+  // 150 days of history, today's 900 beats everything in the last 120 days.
+  let h = summarize(null, 900, ext([[150, 850], [100, 1000], [40, 950], [1, 900]]), now);
+  assert.equal(h.coveredDays, 150);
+  assert.equal(h.isWindowLow, true);
+  assert.equal(h.windowLowPrice, 900);
+  assert.equal(h.lowestPrice, 850);        // all-time low sits outside the window
+  assert.equal(h.source, "keepa");
+
+  // A cheaper price inside the window → not a deal.
+  h = summarize(null, 900, ext([[150, 1000], [60, 880], [1, 900]]), now);
+  assert.equal(h.isWindowLow, false);
+  assert.equal(h.aboveWindowLowBy, 20);
+
+  // Lowest seen, but only 30 days of data → not enough history.
+  h = summarize(null, 900, ext([[30, 1000], [1, 900]]), now);
+  assert.equal(h.enoughHistory, false);
+  assert.equal(h.isWindowLow, false);
+  assert.equal(h.isLowest, true);
+});
+
+test("Keepa series, ASINs and image helpers", () => {
+  // Keepa minutes 7000000 → ms; -1 means no offer; prices in paise.
+  const pts = extras.keepaSeries([7000000, 129900, 7000060, -1, 7000120, 119900]);
+  assert.deepEqual(pts.map((p) => p.p), [1299, 1199]);
+  assert.equal(pts[0].t, (7000000 + 21564000) * 60000);
+  assert.equal(extras.asinFromUrl("https://www.amazon.in/Noise-Watch/dp/B0CXYZ1234/ref=sr_1_1?x=1"), "B0CXYZ1234");
+  assert.equal(extras.asinFromUrl("https://www.flipkart.com/x/p/itm1"), null);
+  assert.equal(
+    extras.upgradeImageUrl("https://m.media-amazon.com/images/I/71abcDEF+gL._AC_UY218_.jpg"),
+    "https://m.media-amazon.com/images/I/71abcDEF+gL._AC_SL1000_.jpg",
+  );
+  assert.equal(
+    extras.upgradeImageUrl("https://rukminim2.flixcart.com/image/312/312/xif0q/mobile/a.jpeg?q=70"),
+    "https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/a.jpeg?q=70",
+  );
+  assert.equal(
+    extras.pickMetaImage('<meta property="og:image" content="https://rukminim2.flixcart.com/image/416/416/a.jpeg">', "https://www.flipkart.com/p"),
+    "https://rukminim2.flixcart.com/image/416/416/a.jpeg",
+  );
+  assert.equal(extras.isAllowedImageUrl("https://m.media-amazon.com/images/I/a.jpg"), true);
+  assert.equal(extras.isAllowedImageUrl("https://evil.example/a.jpg"), false);
+  assert.equal(extras.isAllowedImageUrl("http://m.media-amazon.com/a.jpg"), false);
+  assert.equal(extras.isAllowedImageUrl("https://169.254.169.254/latest"), false);
+});
+
+test("Amazon offers get Keepa history and photo; other offers get the page's og:image", async (t) => {
+  const history = require("../src/services/priceHistoryService");
+  const saved = { serp: config.serpApiKey, tavily: config.tavilyApiKey, keepa: config.keepaApiKey };
+  config.serpApiKey = "test-key";
+  config.tavilyApiKey = "";
+  config.keepaApiKey = "keepa-key";
+  deals._cache.clear();
+  history._memory.clear();
+  extras._keepaCache.clear();
+  extras._imageCache.clear();
+  const realFetch = global.fetch;
+  const kt = (msAgo) => Math.round((Date.now() - msAgo) / 60000) - 21564000;
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.startsWith("https://serpapi.com/")) {
+      return Response.json({ shopping_results: [
+        { title: "boAt Airdopes 141", source: "Amazon.in", link: "https://www.amazon.in/dp/B09N3ZNHTY", extracted_price: 999, thumbnail: "https://encrypted-tbn0.gstatic.com/a" },
+        { title: "boAt Airdopes 141", source: "Flipkart", link: "https://www.flipkart.com/boat/p/itm1", extracted_price: 1099, thumbnail: "https://encrypted-tbn0.gstatic.com/b" },
+      ] });
+    }
+    if (u.startsWith("https://api.keepa.com/product")) {
+      assert.match(u, /domain=10/);
+      assert.match(u, /asin=B09N3ZNHTY/);
+      return Response.json({ products: [{
+        asin: "B09N3ZNHTY",
+        imagesCSV: "61KNJav3S9L.jpg,71x.jpg",
+        csv: [[kt(140 * DAY), 149900, kt(70 * DAY), 129900, kt(2 * DAY), 99900], [kt(100 * DAY), 119900]],
+      }] });
+    }
+    if (u === "https://www.flipkart.com/boat/p/itm1") {
+      return new Response('<html><meta property="og:image" content="https://rukminim2.flixcart.com/image/312/312/boat.jpeg"></html>', { headers: { "content-type": "text/html" } });
+    }
+    return new Response("", { status: 503 });
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    Object.assign(config, { serpApiKey: saved.serp, tavilyApiKey: saved.tavily, keepaApiKey: saved.keepa });
+    deals._cache.clear(); deals._tracked.clear(); history._memory.clear(); extras._keepaCache.clear(); extras._imageCache.clear();
+  });
+
+  const res = await deals.findDeals("airdopes 141", "in", { force: true });
+  const amazon = res.items.find((i) => i.store === "Amazon");
+  const flipkart = res.items.find((i) => i.store === "Flipkart");
+  assert.equal(amazon.image, "https://m.media-amazon.com/images/I/61KNJav3S9L.jpg");
+  assert.equal(amazon.history.source, "keepa");
+  assert.ok(amazon.history.coveredDays >= 139);
+  assert.equal(amazon.history.isWindowLow, true);
+  assert.equal(amazon.externalHistory, undefined);
+  assert.equal(flipkart.image, "https://rukminim2.flixcart.com/image/832/832/boat.jpeg");
+  assert.equal(flipkart.history.enoughHistory, false); // tracking just began
+  assert.equal(flipkart.history.isWindowLow, false);
 });

@@ -94,6 +94,9 @@ module.exports = {
     // (price, image, rating, merchant link). Without it, deals fall back to
     // web search over the store domains with prices read from snippets.
     serpApiKey:          getEnv("SERPAPI_API_KEY",        ""),
+    // Keepa (keepa.com) — years of Amazon price history, so the Deals screen
+    // can tell a 3–4 month low immediately instead of after months of tracking.
+    keepaApiKey:         getEnv("KEEPA_API_KEY",          ""),
     // NEWSDATA_API_KEY is the original name and still works; NEWS_API_KEY is
     // the provider-neutral one, since the feed now speaks to whichever
     // service the key belongs to.

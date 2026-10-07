@@ -3,6 +3,7 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { searchDDG, searchBingRss } = require("../controllers/searchController");
 const { recordPrices, attachHistory } = require("./priceHistoryService");
+const { enrichOffers } = require("./productExtras");
 
 // ── Deals: cheapest current prices across shopping sites ─────────────────────
 // Two sources, best first:
@@ -258,6 +259,8 @@ async function findDeals(rawQuery, regionCode, { force = false, track = true } =
     provider = web.provider;
     items = web.items;
   }
+  // Long-range price history (Keepa) and full-size product photos.
+  items = await enrichOffers(items.slice(0, 40), region, (url) => Boolean(storeForUrl(url, region)));
 
   const value = {
     query,
@@ -299,7 +302,7 @@ async function featuredDeals(regionCode) {
   const region = regionFor(regionCode);
   const sections = await Promise.all(FEATURED[region].map(async (query) => {
     const res = await findDeals(query, region, { track: false }).catch(() => null);
-    return { query, items: res?.items?.slice(0, 8) || [], fetchedAt: res?.fetchedAt || null };
+    return { query, items: res?.items?.slice(0, 20) || [], fetchedAt: res?.fetchedAt || null };
   }));
   return {
     region,
