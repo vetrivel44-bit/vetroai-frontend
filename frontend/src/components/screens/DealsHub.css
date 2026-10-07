@@ -345,3 +345,12 @@ a.dh-card:hover .dh-card-cta { background: var(--dh-ink); color: var(--dh-surfac
 @media (prefers-reduced-motion: reduce) {
   .deals-hub *, .deals-hub *::before, .deals-hub *::after { animation: none !important; transition: none !important; }
 }
+
+/* Approximate prices (read from search snippets, not a live store listing). */
+.dh-price.is-approx { color: var(--dh-muted); font-weight: 700; }
+.dh-approx { font-size: 11.5px; font-weight: 600; color: #b45309; background: rgba(245, 158, 11, 0.12); padding: 4px 8px; border-radius: 8px; width: fit-content; max-width: 100%; }
+.dh-approx-note { margin-top: 18px; padding: 14px 18px; border-radius: 16px; font-size: 13.5px; line-height: 1.5; color: #92400e; background: rgba(245, 158, 11, 0.10); border: 1px solid rgba(245, 158, 11, 0.30); }
+@media (prefers-color-scheme: dark) {
+  .dh-approx { color: #fbbf24; }
+  .dh-approx-note { color: #fcd34d; }
+}

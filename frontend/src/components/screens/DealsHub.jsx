@@ -155,6 +155,12 @@ function ProductPhoto({ item, sources, eager }) {
   );
 }
 
+// A price read from the store's live listing (an API), as opposed to one read
+// out of a search snippet, which may be stale or a different number.
+const isVerified = (item) => item.verified !== false;
+// Real store prices first (cheapest first), approximate ones after them.
+const byTrust = (a, b) => (isVerified(b) - isVerified(a)) || a.price - b.price;
+
 const monthsLabel = (days) => `${Math.round(days / 30)} months`;
 // Start of the period a "lowest in N months" verdict covers.
 const windowStart = (h) => {
@@ -199,9 +205,14 @@ function ProductCard({ item, region, cheapest, eager }) {
         <StoreBadge item={item} />
         <h3 className="dh-card-title" title={item.title}>{item.title}</h3>
         <div className="dh-price-row">
-          <span className="dh-price">{formatPrice(item.price, region)}</span>
-          {item.originalPrice ? <span className="dh-mrp">{formatPrice(item.originalPrice, region)}</span> : null}
+          <span className={`dh-price${isVerified(item) ? "" : " is-approx"}`}>{isVerified(item) ? "" : "≈ "}{formatPrice(item.price, region)}</span>
+          {item.originalPrice && isVerified(item) ? <span className="dh-mrp">{formatPrice(item.originalPrice, region)}</span> : null}
         </div>
+        {!isVerified(item) && (
+          <div className="dh-approx" title="This price was read from search results, not the store's live listing. The store's price may differ.">
+            Approx. price · confirm on {item.store}
+          </div>
+        )}
         {item.rating ? (
           <div className="dh-rating">
             <Star size={12} fill="currentColor" /> {item.rating.toFixed(1)}
@@ -435,7 +446,7 @@ export default function DealsHub({ onClose }) {
   };
 
   const isDeal = useCallback((i) => !lowsOnly || Boolean(i.history?.isWindowLow), [lowsOnly]);
-  const pool = useMemo(() => (data?.items || []).filter(isDeal), [data, isDeal]);
+  const pool = useMemo(() => (data?.items || []).filter(isDeal).sort(byTrust), [data, isDeal]);
   const lowsCount = useMemo(() => (data?.items || []).filter((i) => i.history?.isWindowLow).length, [data]);
   const maxCoverage = useMemo(() => Math.max(0, ...(data?.items || []).map((i) => i.history?.coveredDays || 0)), [data]);
 
@@ -448,7 +459,7 @@ export default function DealsHub({ onClose }) {
   const visible = useMemo(() => {
     const list = pool.filter((i) => storeFilter === "all" || i.storeId === storeFilter);
     const by = {
-      price: (a, b) => a.price - b.price,
+      price: byTrust,
       discount: (a, b) => (b.discountPct || 0) - (a.discountPct || 0) || a.price - b.price,
       rating: (a, b) => (b.rating || 0) - (a.rating || 0) || a.price - b.price,
       history: (a, b) => (a.history?.aboveLowestBy ?? Infinity) - (b.history?.aboveLowestBy ?? Infinity) || a.price - b.price,
@@ -456,7 +467,8 @@ export default function DealsHub({ onClose }) {
     return [...list].sort(by);
   }, [pool, storeFilter, sort]);
 
-  const cheapestId = pool[0]?.id;
+  // Only a real store price can be called the cheapest.
+  const cheapestId = pool.find(isVerified)?.id;
   const fetchedAt = query ? data?.fetchedAt : featured?.sections?.find((s) => s.fetchedAt)?.fetchedAt;
   const nextIn = lastLoadedAt ? lastLoadedAt + HOUR_MS - now : HOUR_MS;
 
@@ -553,8 +565,14 @@ export default function DealsHub({ onClose }) {
             {loading && !data && <SkeletonGrid />}
             {data && pool.length > 0 && (
               <>
-                <Spotlight data={{ ...data, items: pool }} best={pool[0]} />
-                <PriceSpread data={{ ...data, items: pool }} />
+                {isVerified(pool[0]) ? (
+                  <Spotlight data={{ ...data, items: pool.filter(isVerified) }} best={pool[0]} />
+                ) : (
+                  <div className="dh-approx-note">
+                    These prices were read from search results, not the stores' live listings, so they are shown as approximate. Open a product to see its current price.
+                  </div>
+                )}
+                <PriceSpread data={{ ...data, items: pool.filter(isVerified) }} />
                 <div className="dh-toolbar">
                   <div className="dh-results-count">
                     <strong>{visible.length}</strong> {lowsOnly ? "3–4 month lows" : "offers"} for “{data.query}”
@@ -611,7 +629,7 @@ export default function DealsHub({ onClose }) {
             {featured?.sections?.map((section) => {
               const cat = CATEGORIES.find((c) => c.query === section.query);
               const Icon = cat?.icon || Tag;
-              const items = section.items.filter(isDeal).slice(0, 10);
+              const items = section.items.filter(isDeal).sort(byTrust).slice(0, 10);
               if (!items.length) return null;
               return (
                 <section key={section.query} className="dh-row">
@@ -620,7 +638,7 @@ export default function DealsHub({ onClose }) {
                     <button type="button" onClick={() => runSearch(section.query)}>Compare all <ArrowUpRight size={14} /></button>
                   </div>
                   <div className="dh-rail">
-                    {items.map((item, i) => <ProductCard key={item.id} item={item} region={featured.region} cheapest={i === 0} eager={i < 4} />)}
+                    {items.map((item, i) => <ProductCard key={item.id} item={item} region={featured.region} cheapest={i === 0 && isVerified(item)} eager={i < 4} />)}
                   </div>
                 </section>
               );
