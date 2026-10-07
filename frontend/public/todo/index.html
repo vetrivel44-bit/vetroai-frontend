@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>To-Do List</title>
-  <meta name="description" content="A to-do list saved to your Puter account, with Claude Opus 5.5 on hand for questions.">
+  <title>VetroAI To-Do</title>
+  <meta name="description" content="A to-do list saved to your own Puter account, with Claude Opus 5.5 to break tasks into steps and answer questions.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="https://js.puter.com/v2/"></script>
   <style>
     :root {
@@ -57,7 +58,7 @@
     main {
       max-width: 640px;
       margin: 0 auto;
-      padding: 32px 16px 64px;
+      padding: 24px 16px 64px;
       /* A flex column rather than a grid: a grid column grew to its widest
          child and scrolled sideways on a phone, and it ignores the empty
          status line's negative margin below. */
@@ -72,6 +73,9 @@
       gap: 12px;
       flex-wrap: wrap;
     }
+    .title { display: flex; flex-direction: column; gap: 2px; }
+    .back { color: var(--ink-3); font-size: 14px; text-decoration: none; }
+    .back:hover { color: var(--accent); }
     h1 { margin: 0; font-size: 28px; line-height: 1.2; letter-spacing: -.01em; }
     h2 { margin: 0 0 12px; font-size: 17px; }
     .account { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 14px; }
@@ -89,7 +93,7 @@
       background: var(--card);
       border-radius: 10px;
       padding: 8px 14px;
-      transition: background .15s, border-color .15s;
+      transition: background .15s, border-color .15s, color .15s;
     }
     .btn:hover:not(:disabled) { border-color: var(--ink-3); }
     .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -100,7 +104,7 @@
 
     /* Sign-in */
     .welcome { text-align: center; padding: 40px 20px; }
-    .welcome p { color: var(--ink-2); margin: 0 auto 20px; max-width: 420px; }
+    .welcome p { color: var(--ink-2); margin: 0 auto 20px; max-width: 440px; }
 
     /* Add form */
     .add { display: flex; gap: 8px; }
@@ -143,6 +147,8 @@
       padding: 10px 2px;
       border-bottom: 1px solid var(--line);
     }
+    .todo.step { padding-left: 32px; }
+    .todo.step .text { font-size: 15px; }
     .todo input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin: 0; }
     .todo .text {
       flex: 1;
@@ -151,6 +157,18 @@
       cursor: text;
     }
     .todo.done .text { color: var(--ink-3); text-decoration: line-through; }
+    .badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      vertical-align: 1px;
+    }
     .todo .edit {
       flex: 1;
       min-width: 0;
@@ -160,6 +178,7 @@
       padding: 4px 8px;
     }
     .todo .actions { display: flex; gap: 2px; flex: none; }
+    .btn-steps { color: var(--accent); }
     .empty { color: var(--ink-3); text-align: center; padding: 24px 0 8px; margin: 0; }
 
     /* Ask Claude */
@@ -182,7 +201,7 @@
     }
     .answer p { margin: 0 0 10px; }
     .answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; }
-    .answer h3, .answer h4 { margin: 14px 0 6px; font-size: 16px; }
+    .answer h3 { margin: 14px 0 6px; font-size: 16px; }
     .answer code { background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 14px; }
     .answer pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; }
     .answer pre code { border: 0; padding: 0; }
@@ -196,17 +215,23 @@
     .status.ok { color: var(--ok); }
 
     @media (max-width: 480px) {
-      main { padding-top: 20px; }
+      main { padding-top: 16px; }
       h1 { font-size: 24px; }
       .card { padding: 16px; }
+      .todo { gap: 8px; }
+      .todo.step { padding-left: 20px; }
       .todo .actions .btn-label { display: none; }
+      .todo .actions .btn-small { padding: 4px 7px; }
     }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <h1>To-Do List</h1>
+      <div class="title">
+        <a class="back" href="/">← VetroAI</a>
+        <h1>To-Do</h1>
+      </div>
       <div class="account" id="account" hidden>
         <span id="username"></span>
         <button class="btn btn-small" id="sign-out" type="button">Sign out</button>
@@ -216,8 +241,8 @@
     <p class="status" id="status" role="status" aria-live="polite"></p>
 
     <section class="card welcome" id="welcome" hidden>
-      <h2>Your tasks, saved to your Puter account</h2>
-      <p>Sign in with a free Puter account to keep your list. It's private to you and follows you to any device.</p>
+      <h2>Your tasks, saved to your own Puter account</h2>
+      <p>Sign in with a free Puter account to keep your list. Only you can see it, and it follows you to any device. Claude can break big tasks into small steps for you.</p>
       <button class="btn btn-primary" id="sign-in" type="button">Sign in with Puter</button>
     </section>
 
@@ -246,20 +271,32 @@
       <form id="ask-form">
         <textarea id="prompt" aria-label="Question for Claude">Explain quantum computing in simple terms</textarea>
         <div class="row">
-          <span class="model">anthropic/claude-opus-5-5</span>
+          <span class="model" id="model-name"></span>
           <button class="btn btn-primary" id="ask-button" type="submit">Ask</button>
         </div>
       </form>
       <div class="answer" id="answer" aria-live="polite" hidden></div>
     </section>
-
   </main>
 
-  <script>
-    // Each task is its own key in the user's Puter key-value store, so adding,
-    // ticking or deleting one task never rewrites the others.
-    const KEY_PREFIX = "todo:";
-    const CLAUDE_MODEL = "anthropic/claude-opus-5-5";
+  <script type="module">
+    import {
+      CLAUDE_MODEL, KEY_PREFIX, MAX_TASK_LENGTH,
+      errorMessage, ordersBetween, stepSlot, visibleTodos, stepsOf,
+      stepsPrompt, parseSteps, renderMarkdown,
+    } from "./todo-core.js";
+
+    // ── Whose account ───────────────────────────────────────────────────────
+    // Puter.js keeps one sign-in token per website, and VetroAI's chat can put
+    // a shared app-wide token there (VITE_PUTER_AUTH_TOKEN). Tasks saved under
+    // it would land in one account that every visitor uses. So this page only
+    // trusts the token from its own "Sign in with Puter" step, keeps a copy,
+    // and switches Puter back to it whenever something else has replaced it.
+    const OWN_TOKEN_KEY = "vetroai.todo.puterToken";
+    const readOwnToken = () => { try { return localStorage.getItem(OWN_TOKEN_KEY); } catch { return null; } };
+    const writeOwnToken = (token) => {
+      try { token ? localStorage.setItem(OWN_TOKEN_KEY, token) : localStorage.removeItem(OWN_TOKEN_KEY); } catch { /* private mode */ }
+    };
 
     const $ = (id) => document.getElementById(id);
     const els = {
@@ -269,10 +306,13 @@
       remaining: $("remaining"), clearDone: $("clear-done"), status: $("status"),
       askForm: $("ask-form"), prompt: $("prompt"), askButton: $("ask-button"), answer: $("answer"),
     };
+    $("model-name").textContent = CLAUDE_MODEL;
+    els.newTodo.maxLength = MAX_TASK_LENGTH;
 
     let todos = [];
     let filter = "all";
     let editingId = null;
+    const breakingDown = new Set();
 
     // ── Status line ─────────────────────────────────────────────────────────
     let statusTimer = null;
@@ -280,22 +320,17 @@
       clearTimeout(statusTimer);
       els.status.textContent = message;
       els.status.className = `status ${kind}`.trim();
-      if (message && kind !== "error") statusTimer = setTimeout(() => setStatus(""), 2500);
-    }
-
-    // Puter rejects with plain objects as often as with Errors.
-    function errorMessage(err) {
-      return err?.message || err?.error?.message || (typeof err?.error === "string" ? err.error : "") || String(err || "Unknown error");
+      if (message && kind !== "error") statusTimer = setTimeout(() => setStatus(""), 3000);
     }
 
     // ── Storage (puter.kv) ──────────────────────────────────────────────────
     async function loadTodos() {
       const pairs = await puter.kv.list(`${KEY_PREFIX}*`, true);
-      todos = pairs
-        .map((pair) => pair.value)
-        .filter((todo) => todo && typeof todo.text === "string")
-        .sort((a, b) => a.createdAt - b.createdAt);
+      todos = pairs.map((pair) => pair.value).filter((todo) => todo && typeof todo.text === "string");
     }
+
+    const saveTodo = (todo) => puter.kv.set(KEY_PREFIX + todo.id, todo);
+    const removeTodo = (id) => puter.kv.del(KEY_PREFIX + id);
 
     // Updates the screen first, then saves. If the save fails, the list is
     // reloaded so the screen never shows something that wasn't stored.
@@ -314,15 +349,17 @@
       }
     }
 
-    function newId() {
-      return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+    function makeTodo(text, extra = {}) {
+      const now = Date.now();
+      return { id: newId(), text, done: false, createdAt: now, updatedAt: now, order: now, ...extra };
     }
 
     async function addTodo(text) {
-      const now = Date.now();
-      const todo = { id: newId(), text, done: false, createdAt: now, updatedAt: now };
+      const todo = makeTodo(text);
       todos.push(todo);
-      const saved = await persist(() => puter.kv.set(KEY_PREFIX + todo.id, todo), "Couldn't save the task");
+      const saved = await persist(() => saveTodo(todo), "Couldn't save the task");
       // Hand the text back so it can be retried rather than typed again.
       if (!saved && !els.newTodo.value) els.newTodo.value = text;
     }
@@ -331,24 +368,87 @@
       const todo = todos.find((t) => t.id === id);
       if (!todo) return;
       Object.assign(todo, changes, { updatedAt: Date.now() });
-      return persist(() => puter.kv.set(KEY_PREFIX + id, todo), "Couldn't update the task");
+      return persist(() => saveTodo(todo), "Couldn't update the task");
     }
 
+    // A task's steps go with it.
     function deleteTodo(id) {
-      todos = todos.filter((t) => t.id !== id);
-      return persist(() => puter.kv.del(KEY_PREFIX + id), "Couldn't delete the task");
+      const ids = [id, ...stepsOf(todos, id).map((t) => t.id)];
+      todos = todos.filter((t) => !ids.includes(t.id));
+      return persist(() => Promise.all(ids.map(removeTodo)), "Couldn't delete the task");
     }
 
     function clearDone() {
       const done = todos.filter((t) => t.done);
       if (!done.length) return;
-      todos = todos.filter((t) => !t.done);
-      return persist(() => Promise.all(done.map((t) => puter.kv.del(KEY_PREFIX + t.id))), "Couldn't clear done tasks");
+      // Steps of a finished task are cleared with it, finished or not.
+      const ids = new Set(done.map((t) => t.id));
+      for (const t of todos) if (ids.has(t.parentId)) ids.add(t.id);
+      todos = todos.filter((t) => !ids.has(t.id));
+      return persist(() => Promise.all([...ids].map(removeTodo)), "Couldn't clear done tasks");
+    }
+
+    // ── Claude ──────────────────────────────────────────────────────────────
+    // Streams a reply and hands back each new piece. Streaming chunks have the
+    // same shape for every model, unlike a full response.
+    async function streamClaude(prompt, onText) {
+      const response = await puter.ai.chat(prompt, { model: CLAUDE_MODEL, stream: true });
+      let text = "";
+      for await (const part of response) {
+        if (part?.type === "error") throw new Error(part.error?.message || "Claude returned an error.");
+        if (typeof part?.text !== "string" || !part.text) continue;
+        text += part.text;
+        onText?.(text);
+      }
+      return text;
+    }
+
+    async function breakIntoSteps(id) {
+      const parent = todos.find((t) => t.id === id);
+      if (!parent || breakingDown.has(id)) return;
+      breakingDown.add(id);
+      render();
+      try {
+        const steps = parseSteps(await streamClaude(stepsPrompt(parent.text)));
+        if (!steps.length) throw new Error("Claude didn't suggest any steps. Try rewording the task.");
+        if (!todos.some((t) => t.id === id)) return; // deleted while Claude was thinking
+        const { after, before } = stepSlot(todos, parent);
+        const orders = ordersBetween(after, before, steps.length);
+        const created = steps.map((text, i) => makeTodo(text, { parentId: id, order: orders[i] }));
+        todos.push(...created);
+        breakingDown.delete(id);
+        if (await persist(() => Promise.all(created.map(saveTodo)), "Couldn't save the steps")) {
+          setStatus(`Added ${created.length} steps.`, "ok");
+        }
+      } catch (err) {
+        setStatus(`Couldn't break that down: ${errorMessage(err)}`, "error");
+      } finally {
+        breakingDown.delete(id);
+        render();
+      }
+    }
+
+    async function askClaude(question) {
+      els.askButton.disabled = true;
+      els.askButton.textContent = "Thinking…";
+      els.answer.hidden = false;
+      els.answer.classList.remove("error");
+      els.answer.textContent = "…";
+      try {
+        const text = await streamClaude(question, (soFar) => { els.answer.innerHTML = renderMarkdown(soFar); });
+        if (!text.trim()) throw new Error("Claude returned an empty answer. Please try again.");
+      } catch (err) {
+        els.answer.classList.add("error");
+        els.answer.textContent = `Couldn't get an answer: ${errorMessage(err)}`;
+      } finally {
+        els.askButton.disabled = false;
+        els.askButton.textContent = "Ask";
+      }
     }
 
     // ── Rendering ───────────────────────────────────────────────────────────
     function render() {
-      const visible = todos.filter((t) => filter === "all" || (filter === "done" ? t.done : !t.done));
+      const visible = visibleTodos(todos, filter);
       const left = todos.filter((t) => !t.done).length;
 
       els.list.replaceChildren(...visible.map(renderTodo));
@@ -368,8 +468,9 @@
     }
 
     function renderTodo(todo) {
+      const isStep = Boolean(todo.parentId && todos.some((t) => t.id === todo.parentId));
       const li = document.createElement("li");
-      li.className = `todo${todo.done ? " done" : ""}`;
+      li.className = `todo${todo.done ? " done" : ""}${isStep ? " step" : ""}`;
 
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
@@ -388,25 +489,46 @@
       text.textContent = todo.text;
       text.title = "Double-click to edit";
       text.addEventListener("dblclick", () => startEditing(todo.id));
+      const steps = stepsOf(todos, todo.id);
+      if (steps.length) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = `${steps.filter((s) => s.done).length}/${steps.length}`;
+        badge.title = "Steps done";
+        text.append(badge);
+      }
       li.append(text);
 
       const actions = document.createElement("div");
       actions.className = "actions";
+      if (!isStep && !todo.done) {
+        const busy = breakingDown.has(todo.id);
+        const stepsButton = actionButton(busy ? "…" : "✦", busy ? "Thinking…" : "Steps", `Break "${todo.text}" into steps with Claude`, () => breakIntoSteps(todo.id));
+        stepsButton.classList.add("btn-steps");
+        stepsButton.disabled = busy;
+        actions.append(stepsButton);
+      }
       actions.append(
-        actionButton("Edit", `Edit "${todo.text}"`, () => startEditing(todo.id)),
-        actionButton("Delete", `Delete "${todo.text}"`, () => deleteTodo(todo.id)),
+        actionButton("✎", "Edit", `Edit "${todo.text}"`, () => startEditing(todo.id)),
+        actionButton("✕", "Delete", `Delete "${todo.text}"${steps.length ? " and its steps" : ""}`, () => deleteTodo(todo.id)),
       );
       li.append(actions);
       return li;
     }
 
-    function actionButton(label, ariaLabel, onClick) {
+    function actionButton(icon, label, ariaLabel, onClick) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "btn btn-small btn-quiet";
       button.setAttribute("aria-label", ariaLabel);
-      button.innerHTML = `<span aria-hidden="true">${label === "Edit" ? "✎" : "✕"}</span> <span class="btn-label"></span>`;
-      button.querySelector(".btn-label").textContent = label;
+      button.title = ariaLabel;
+      const iconSpan = document.createElement("span");
+      iconSpan.setAttribute("aria-hidden", "true");
+      iconSpan.textContent = icon;
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "btn-label";
+      labelSpan.textContent = ` ${label}`;
+      button.append(iconSpan, labelSpan);
       button.addEventListener("click", onClick);
       return button;
     }
@@ -415,7 +537,7 @@
       const input = document.createElement("input");
       input.className = "edit";
       input.value = todo.text;
-      input.maxLength = 500;
+      input.maxLength = MAX_TASK_LENGTH;
       input.setAttribute("aria-label", "Edit task");
       let finished = false;
       const finish = (save) => {
@@ -441,73 +563,6 @@
       render();
     }
 
-    // ── Ask Claude ──────────────────────────────────────────────────────────
-    // Renders Claude's Markdown safely: everything is escaped first, then a
-    // few common forms (headings, lists, bold, italics, code) are turned back on.
-    function renderMarkdown(markdown) {
-      const escape = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-      const inline = (s) => escape(s)
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-        .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s.,;:!?)]|$)/g, "$1<em>$2</em>");
-
-      const html = [];
-      let list = null;
-      let code = null;
-      const closeList = () => { if (list) { html.push(`</${list}>`); list = null; } };
-
-      for (const line of markdown.split("\n")) {
-        if (line.trim().startsWith("```")) {
-          if (code === null) { closeList(); code = []; }
-          else { html.push(`<pre><code>${escape(code.join("\n"))}</code></pre>`); code = null; }
-          continue;
-        }
-        if (code !== null) { code.push(line); continue; }
-
-        const heading = line.match(/^#{1,6}\s+(.*)/);
-        const bullet = line.match(/^\s*[-*•]\s+(.*)/);
-        const numbered = line.match(/^\s*\d+[.)]\s+(.*)/);
-        if (bullet || numbered) {
-          const type = bullet ? "ul" : "ol";
-          if (list !== type) { closeList(); html.push(`<${type}>`); list = type; }
-          html.push(`<li>${inline((bullet || numbered)[1])}</li>`);
-        } else {
-          closeList();
-          if (heading) html.push(`<h3>${inline(heading[1])}</h3>`);
-          else if (line.trim()) html.push(`<p>${inline(line)}</p>`);
-        }
-      }
-      closeList();
-      if (code !== null) html.push(`<pre><code>${escape(code.join("\n"))}</code></pre>`);
-      return html.join("");
-    }
-
-    async function askClaude(question) {
-      els.askButton.disabled = true;
-      els.askButton.textContent = "Thinking…";
-      els.answer.hidden = false;
-      els.answer.classList.remove("error");
-      els.answer.textContent = "…";
-
-      try {
-        const response = await puter.ai.chat(question, { model: CLAUDE_MODEL, stream: true });
-        let text = "";
-        for await (const part of response) {
-          if (part?.type === "error") throw new Error(part.error?.message || "Claude returned an error.");
-          if (typeof part?.text !== "string" || !part.text) continue;
-          text += part.text;
-          els.answer.innerHTML = renderMarkdown(text);
-        }
-        if (!text.trim()) throw new Error("Claude returned an empty answer. Please try again.");
-      } catch (err) {
-        els.answer.classList.add("error");
-        els.answer.textContent = `Couldn't get an answer: ${errorMessage(err)}`;
-      } finally {
-        els.askButton.disabled = false;
-        els.askButton.textContent = "Ask";
-      }
-    }
-
     // ── Sign-in and start-up ────────────────────────────────────────────────
     function showSignedOut() {
       todos = [];
@@ -522,6 +577,11 @@
       els.account.hidden = true;
     }
 
+    function forgetSignIn() {
+      writeOwnToken(null);
+      puter.auth.signOut();
+    }
+
     async function showSignedIn() {
       els.welcome.hidden = true;
       els.account.hidden = false;
@@ -532,9 +592,9 @@
         els.username.textContent = user?.username ? `Signed in as ${user.username}` : "";
         setStatus("");
       } catch (err) {
-        // A stored session Puter no longer accepts: sign in afresh.
+        // A saved session Puter no longer accepts: sign in afresh.
         if (err?.status === 401) {
-          puter.auth.signOut();
+          forgetSignIn();
           showSignedOut();
           setStatus("Your Puter session has expired. Please sign in again.", "error");
           return;
@@ -548,11 +608,16 @@
     }
 
     els.signIn.addEventListener("click", async () => {
-      // Opens Puter's sign-in popup, so it has to run from this click.
+      // Opens Puter's sign-in popup, so it has to run from this click. It
+      // always asks Puter for the visitor's own account; it never reuses a
+      // token that was already on the site.
       els.signIn.disabled = true;
       try {
         const result = await puter.auth.signIn();
         if (result && result.success === false) throw new Error(result.error || result.msg || "Sign-in was cancelled.");
+        const token = result?.token || puter.authToken;
+        if (!token) throw new Error("Puter didn't return a sign-in.");
+        writeOwnToken(token);
         await showSignedIn();
       } catch (err) {
         setStatus(`Sign-in didn't finish: ${errorMessage(err)}`, "error");
@@ -562,7 +627,7 @@
     });
 
     els.signOut.addEventListener("click", () => {
-      puter.auth.signOut();
+      forgetSignIn();
       showSignedOut();
       setStatus("Signed out.", "ok");
     });
@@ -593,10 +658,14 @@
 
     if (!window.puter) {
       setStatus("Puter.js didn't load. Check your connection and refresh the page.", "error");
-    } else if (puter.auth.isSignedIn()) {
-      showSignedIn();
     } else {
-      showSignedOut();
+      const own = readOwnToken();
+      if (own) {
+        if (puter.authToken !== own) puter.setAuthToken(own);
+        showSignedIn();
+      } else {
+        showSignedOut();
+      }
     }
   </script>
 </body>
