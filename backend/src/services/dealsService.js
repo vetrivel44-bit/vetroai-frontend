@@ -260,7 +260,7 @@ async function findDeals(rawQuery, regionCode, { force = false, track = true } =
     items = web.items;
   }
   // Long-range price history (Keepa) and full-size product photos.
-  items = await enrichOffers(items.slice(0, 40), region, (url) => Boolean(storeForUrl(url, region)));
+  items = await enrichOffers(items.slice(0, 40), region, (url) => storeForUrl(url, region));
 
   const value = {
     query,

@@ -223,3 +223,46 @@ test("Amazon offers get Keepa history and photo; other offers get the page's og:
   assert.equal(flipkart.history.enoughHistory, false); // tracking just began
   assert.equal(flipkart.history.isWindowLow, false);
 });
+
+test("resolvePhotos finds the store's original photo before falling back to a thumbnail", async (t) => {
+  extras._imageCache.clear();
+  const realFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (url) => {
+    const u = String(url);
+    seen.push(u);
+    // Amazon by-ASIN photo: real JPEG for one ASIN, 1×1 placeholder for another.
+    if (u.includes("/images/P/B0GOODPHOT.01.L.jpg")) return new Response(new Uint8Array(5000), { headers: { "content-type": "image/jpeg" } });
+    if (u.includes("/images/P/")) return new Response(new Uint8Array(43), { headers: { "content-type": "image/gif" } });
+    if (u.startsWith("https://www.amazon.in/")) return new Response("blocked", { status: 503 });
+    if (u.startsWith("https://www.croma.com/")) return new Response("<html>bot wall</html>", { headers: { "content-type": "text/html" } });
+    if (u.startsWith("https://www.bing.com/images/search")) {
+      assert.match(decodeURIComponent(u), /site:croma\.com/);
+      return new Response('<a class="iusc" m="{&quot;murl&quot;:&quot;https://evil.example/x.jpg&quot;}"></a>'
+        + '<a class="iusc" m="{&quot;murl&quot;:&quot;https://media-ik.croma.com/prod/https://media.croma.com/image/upload/v1/Croma%20Assets/phone.png&quot;}"></a>', { headers: { "content-type": "text/html" } });
+    }
+    return new Response("", { status: 404 });
+  };
+  t.after(() => { global.fetch = realFetch; extras._imageCache.clear(); });
+
+  const amazonStore = { id: "amazon", domain: "amazon.in" };
+  const cromaStore = { id: "croma", domain: "croma.com" };
+  const thumb = "https://encrypted-tbn0.gstatic.com/shopping?q=tbn:abc";
+
+  // Amazon: original photo by ASIN beats the Google thumbnail.
+  let photos = await extras.resolvePhotos({ storeId: "amazon", title: "Echo Dot", url: "https://www.amazon.in/dp/B0GOODPHOT", image: thumb }, amazonStore, true);
+  assert.equal(photos[0], "https://images-na.ssl-images-amazon.com/images/P/B0GOODPHOT.01.L.jpg");
+  assert.equal(photos[photos.length - 1], thumb);
+
+  // Croma: page has no og:image → Bing finds the photo on Croma's own CDN;
+  // the off-store hit is ignored.
+  photos = await extras.resolvePhotos({ storeId: "croma", title: "Samsung Galaxy S24", url: "https://www.croma.com/samsung/p/1", image: null }, cromaStore, true);
+  assert.equal(photos.length, 1);
+  assert.match(photos[0], /^https:\/\/media-ik\.croma\.com\//);
+
+  // A store-CDN photo already present is kept and nothing else is fetched.
+  const before = seen.length;
+  photos = await extras.resolvePhotos({ storeId: "amazon", title: "x", url: "https://www.amazon.in/dp/B0NOPHOTO1", image: "https://m.media-amazon.com/images/I/71a._AC_UY218_.jpg" }, amazonStore, true);
+  assert.deepEqual(photos, ["https://m.media-amazon.com/images/I/71a._AC_SL1000_.jpg"]);
+  assert.equal(seen.length, before);
+});

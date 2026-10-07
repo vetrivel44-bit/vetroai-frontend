@@ -112,29 +112,37 @@ function StoreBadge({ item }) {
 }
 
 // Product photo, shown the way shops show it: square, white, centred, zoom on
-// hover. A store CDN that refuses hotlinking is retried through the backend's
-// image proxy before falling back to a store-coloured placeholder.
-function ProductImage({ item, eager = false }) {
-  // Keyed by URL so a new photo starts its load/retry state afresh.
-  return <ProductPhoto key={item.image || "none"} item={item} eager={eager} />;
+// hover. The backend sends the store's original photos best first; each is
+// tried directly, then through the backend's image proxy (for CDNs that refuse
+// hotlinking), and only when every one fails does a placeholder show.
+function photoSources(item) {
+  const urls = [...new Set([item.image, ...(item.images || [])].filter(Boolean))];
+  return urls.flatMap((u) => [u, `${API}/deals/image?u=${encodeURIComponent(u)}`]);
 }
 
-function ProductPhoto({ item, eager }) {
-  const [attempt, setAttempt] = useState(0); // 0 direct, 1 proxied, 2 failed
+function ProductImage({ item, eager = false }) {
+  const sources = photoSources(item);
+  // Keyed by the photo list so new photos start their load/retry state afresh.
+  return <ProductPhoto key={sources.join("|") || "none"} item={item} sources={sources} eager={eager} />;
+}
+
+function ProductPhoto({ item, sources, eager }) {
+  const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  if (item.image && attempt < 2) {
-    const src = attempt === 0 ? item.image : `${API}/deals/image?u=${encodeURIComponent(item.image)}`;
+  const next = () => { setLoaded(false); setAttempt((a) => a + 1); };
+  if (attempt < sources.length) {
     return (
       <div className={`dh-photo${loaded ? " is-loaded" : ""}`}>
         {!loaded && <span className="dh-photo-skel dh-shimmer" />}
         <img
-          src={src}
+          src={sources[attempt]}
           alt={item.title}
           loading={eager ? "eager" : "lazy"}
           decoding="async"
           referrerPolicy="no-referrer"
-          onLoad={() => setLoaded(true)}
-          onError={() => { setLoaded(false); setAttempt((a) => a + 1); }}
+          // A 1×1 "no image" pixel counts as a failure, not a photo.
+          onLoad={(e) => { if (e.currentTarget.naturalWidth < 40) next(); else setLoaded(true); }}
+          onError={next}
         />
       </div>
     );
