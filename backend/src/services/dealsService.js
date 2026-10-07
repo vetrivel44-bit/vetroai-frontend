@@ -5,6 +5,7 @@ const { searchDDG, searchBingRss } = require("../controllers/searchController");
 const { recordPrices, attachHistory } = require("./priceHistoryService");
 const { enrichOffers, asinFromUrl } = require("./productExtras");
 const canopy = require("./canopyService");
+const productSearch = require("./productSearchService");
 
 // ── Deals: cheapest current prices across shopping sites ─────────────────────
 // Two sources, best first:
@@ -252,11 +253,20 @@ async function findDeals(rawQuery, regionCode, { force = false, track = true } =
   // Amazon straight from Canopy, in parallel with the multi-store search.
   const amazonStore = REGIONS[region].stores.find((st) => st.id === "amazon");
   const canopyPending = canopy.searchAmazon(query, region, amazonStore);
+  // RapidAPI Real-Time Product Search first: every store, original photos.
   try {
-    const serp = await searchSerpApi(query, region);
-    if (serp?.length) { provider = "google-shopping"; items = serp; }
+    const found = await productSearch.searchProducts(query, region, (name, url) => storeForUrl(url, region) || storeForName(name, region));
+    if (found?.length) { provider = "product-search"; items = finalize(found, region); }
   } catch (err) {
-    logger.warn("deals.serpapi.error", { query, message: err.message });
+    logger.warn("deals.product_search.error", { query, message: err.message });
+  }
+  if (!items.length) {
+    try {
+      const serp = await searchSerpApi(query, region);
+      if (serp?.length) { provider = "google-shopping"; items = serp; }
+    } catch (err) {
+      logger.warn("deals.serpapi.error", { query, message: err.message });
+    }
   }
   if (!items.length) {
     const web = await searchWeb(query, region);
@@ -312,6 +322,7 @@ async function respond(value, at) {
 // Featured categories for a region, each answered from the hourly cache.
 async function featuredDeals(regionCode) {
   const region = regionFor(regionCode);
+  featuredUsed.set(region, Date.now());
   const sections = await Promise.all(FEATURED[region].map(async (query) => {
     const res = await findDeals(query, region, { track: false }).catch(() => null);
     return { query, items: res?.items?.slice(0, 20) || [], fetchedAt: res?.fetchedAt || null };
@@ -327,6 +338,11 @@ async function featuredDeals(regionCode) {
 
 // Re-runs every featured and recently used search, one at a time so a
 // refresh never bursts the search providers.
+// Regions whose featured rails someone opened recently. Featured searches for
+// a region nobody is viewing are not refreshed, which keeps paid search APIs
+// (RapidAPI, SerpApi, Canopy) from spending calls on an idle region every hour.
+const featuredUsed = new Map(); // region -> last time its featured rails were requested
+
 async function refreshAll() {
   const now = Date.now();
   for (const [key, t] of tracked) {
@@ -334,6 +350,7 @@ async function refreshAll() {
   }
   const jobs = [];
   for (const region of Object.keys(REGIONS)) {
+    if (now - (featuredUsed.get(region) || 0) > TRACK_FOR_MS) continue;
     for (const query of FEATURED[region]) jobs.push({ region, query });
   }
   for (const t of tracked.values()) {
@@ -361,6 +378,7 @@ function startDealsRefresher() {
 }
 
 module.exports = {
+  _featuredUsed: featuredUsed,
   findDeals, featuredDeals, refreshAll, startDealsRefresher,
   extractPrices, storeForUrl, cleanTitle, REGIONS, REFRESH_INTERVAL_MS, _cache: cache, _tracked: tracked,
 };
