@@ -756,22 +756,26 @@ Choose the single best-fitting visualization block(s) from the formats below:
     }
     finalSysPrompt += buildPluginPrompt(params.activePlugins);
     // Only ask for an explicit <think> block when the turn is substantial enough
-    // to warrant one; native reasoning models stream their own regardless.
+    // to warrant one. Models that reason natively stream their own and skip it
+    // (see messagesFor) — asking them as well made them deliberate twice.
     const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12 && mode !== "computer_use";
-    if (wantsThinking) {
-      finalSysPrompt += this.buildThinkingPrompt(params.effort);
-    }
-    if (astrology.prompt) finalSysPrompt += astrology.prompt;
+    const thinkingPrompt = wantsThinking ? this.buildThinkingPrompt(params.effort) : "";
+    const astrologyPrompt = astrology.prompt || "";
+    // The adapters that honour it map this to the model's own reasoning depth.
+    options = { ...options, effort: params.effort };
 
     console.log(`[ORCHESTRATOR DEBUG] User Query: "${userQuery}"`);
     console.log(`[ORCHESTRATOR DEBUG] Frontend custom systemPrompt: "${params.systemPrompt || ''}"`);
     console.log(`[ORCHESTRATOR DEBUG] Generated System Prompt (first 600 chars):\n${finalSysPrompt.slice(0, 600)}\n...`);
-    let fullMessages = [{ role: "system", content: finalSysPrompt }, ...messages.slice(-10)];
     // Prevent empty assistant messages (Mistral error)
-    fullMessages = fullMessages.filter(m => {
+    const history = messages.slice(-10).filter(m => {
       if (m.role === "assistant" && !m.content && (!m.tool_calls || m.tool_calls.length === 0)) return false;
       return true;
     });
+    const messagesFor = (providerName) => {
+      const thinking = providerManager.getAdapter(providerName)?.reasonsNatively?.() ? "" : thinkingPrompt;
+      return [{ role: "system", content: finalSysPrompt + thinking + astrologyPrompt }, ...history];
+    };
 
     while (attempts < maxAttempts && !success) {
       attempts++;
@@ -795,7 +799,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         // screenshot and takes longer than a text turn, so racing it against
         // the text budget would abort every slow vision call here while the
         // adapter's own request kept running.
-        const streamPromise = adapter.generateStream(fullMessages, options);
+        const streamPromise = adapter.generateStream(messagesFor(currentProviderName), options);
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Stream generation timeout")), attemptTimeout)
@@ -872,12 +876,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
 
           this.sendVetroEvent(res, "clear", "");
           this.sendVetroEvent(res, "status", friendlyMsg);
+          // No pause before the next hop: it always goes to a provider not yet
+          // tried this turn, so there's nothing to back off from. The old
+          // 2s/4s/6s waits added up to 18s of idle time on a bad day. Adapters
+          // that retry their own short rate limits still pause inside.
           currentProviderName = nextProvider;
-          
-          // Exponential backoff, capped so a long fallback chain (now that it
-          // can run all the way out to Cohere) doesn't stall the response.
-          const backoffTime = Math.min(Math.pow(2, attempts) * 1000, 6000);
-          await new Promise(resolve => setTimeout(resolve, backoffTime));
         } else {
           this.sendVetroEvent(res, "error", this.describeFinalFailure(lastFailure, attemptedProviders));
         }
@@ -1354,10 +1357,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
         try {
           const json = JSON.parse(payload);
           const delta = json.choices?.[0]?.delta;
-          const text = delta?.content || "";
-          content += text;
+          // Not logged: a synchronous log line per token slowed every stream.
+          content += delta?.content || "";
           reasoning += this.reasoningFromDelta(delta);
-          if (text) logger.info(`normalizeChunk [${provider}]`, { text });
         } catch {
           // Partial JSON or garbage
         }
