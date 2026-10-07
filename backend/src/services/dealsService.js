@@ -122,6 +122,75 @@ function cleanTitle(title, store) {
   return t.slice(0, 160) || String(title || "").slice(0, 160);
 }
 
+// ── Keeping offers honest ────────────────────────────────────────────────────
+// Search APIs return near-misses next to the product: a ₹199 case for
+// "iphone 15", a different model, a refurbished or knock-off listing priced
+// far below every store. Those were showing up as the "cheapest price".
+
+const STOPWORDS = new Set(["the", "and", "for", "with", "of", "in", "on", "buy", "best", "price", "prices", "cheap", "cheapest", "online", "new", "latest", "deal", "deals"]);
+// Phrases that only ever describe an accessory or a non-working item.
+const ACCESSORY_PHRASES = ["tempered glass", "screen protector", "screen guard", "back cover", "case for", "cover for", "compatible with", "dummy", "box only", "for parts", "replacement for"];
+// Words that mark an accessory when they come before the product's name
+// ("Spigen case for iPhone 15") but not after it ("Airdopes 141 … charging case").
+const ACCESSORY_WORDS = ["case", "cover", "protector", "guard", "skin", "charger", "cable", "adapter", "strap", "pouch", "sleeve", "holder", "stand", "mount", "sticker", "decal"];
+
+const norm = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const stem = (w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w);
+
+function queryTokens(query) {
+  const words = norm(query).split(" ").filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+  return { models: words.filter((w) => /\d/.test(w)), words: words.filter((w) => !/\d/.test(w)).map(stem) };
+}
+
+// Does an offer's title describe the searched product?
+function isRelevant(title, query) {
+  const t = norm(title);
+  const squashed = t.replace(/ /g, "");
+  const titleWords = new Set(t.split(" ").map(stem));
+  const { models, words } = queryTokens(query);
+  // Model numbers ("15", "141", "s24", "wh1000xm5") must all appear.
+  for (const m of models) {
+    const standalone = new RegExp(`(^|[^a-z0-9])${m}([^0-9]|$)`).test(t);
+    // "wh1000xm5" may be written "WH-1000XM5"; a bare number ("15") must stand
+    // alone so it never matches "150".
+    const joined = /[a-z]/.test(m) && squashed.includes(m);
+    if (!standalone && !joined) return false;
+  }
+  // With several words, at least half must appear ("wireless earbuds").
+  if (words.length >= 2) {
+    const hits = words.filter((w) => titleWords.has(w) || squashed.includes(w)).length;
+    if (hits / words.length < 0.5) return false;
+  }
+  // Accessories only when the search asks for one.
+  const q = norm(query);
+  if (ACCESSORY_PHRASES.some((a) => !q.includes(a) && ` ${t} `.includes(` ${a} `))) return false;
+  const anchor = [...models, ...words].map((w) => t.search(new RegExp(`(^| )${w}`))).filter((i) => i >= 0);
+  const productAt = anchor.length ? Math.min(...anchor) : -1;
+  if (productAt > 0) {
+    const before = t.slice(0, productAt).split(" ").map(stem);
+    if (ACCESSORY_WORDS.some((a) => !q.includes(a) && before.includes(a))) return false;
+  }
+  return true;
+}
+
+function median(values) {
+  const v = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
+// Drops off-topic offers, and — for a specific model, where every store
+// should be in the same range — prices implausibly far below the rest.
+function cleanOffers(items, query) {
+  const relevant = items.filter((i) => isRelevant(i.title, query));
+  if (!queryTokens(query).models.length) return relevant;
+  const trusted = relevant.filter((i) => i.verified !== false).map((i) => i.price);
+  const basis = trusted.length >= 3 ? trusted : relevant.map((i) => i.price);
+  if (basis.length < 3) return relevant;
+  const floor = median(basis) * 0.4;
+  return relevant.filter((i) => i.price >= floor);
+}
+
 function finalize(items, region) {
   const seen = new Set();
   const out = [];
@@ -133,7 +202,7 @@ function finalize(items, region) {
     const discountPct = item.originalPrice && item.originalPrice > item.price
       ? Math.round((1 - item.price / item.originalPrice) * 100)
       : null;
-    out.push({ ...item, currency: REGIONS[region].currency, discountPct });
+    out.push({ ...item, currency: REGIONS[region].currency, discountPct, verified: item.verified !== false });
   }
   out.sort((a, b) => a.price - b.price);
   return out.map((item, i) => ({ ...item, id: `${item.storeId}-${i}` }));
@@ -194,6 +263,10 @@ function webResultsToItems(results, region) {
       rating: null,
       reviews: null,
       delivery: null,
+      // Read out of a search snippet, not the store's live listing: it can be
+      // stale or another number on the page. Shown as approximate, never
+      // recorded in price history or offered as a deal.
+      verified: false,
     });
   }
   return items;
@@ -281,6 +354,7 @@ async function findDeals(rawQuery, regionCode, { force = false, track = true } =
     items = finalize([...canopyItems.slice(0, 20), ...others], region);
     provider = provider && others.length ? `${provider}+canopy` : "canopy";
   }
+  items = cleanOffers(items, query);
   // Long-range price history (Keepa) and full-size product photos.
   items = await enrichOffers(items.slice(0, 40), region, (url) => storeForUrl(url, region));
 
@@ -380,5 +454,5 @@ function startDealsRefresher() {
 module.exports = {
   _featuredUsed: featuredUsed,
   findDeals, featuredDeals, refreshAll, startDealsRefresher,
-  extractPrices, storeForUrl, cleanTitle, REGIONS, REFRESH_INTERVAL_MS, _cache: cache, _tracked: tracked,
+  extractPrices, storeForUrl, cleanTitle, isRelevant, cleanOffers, REGIONS, REFRESH_INTERVAL_MS, _cache: cache, _tracked: tracked,
 };

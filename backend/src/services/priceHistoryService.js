@@ -68,7 +68,9 @@ async function recordDb(rows, at) {
 }
 
 // Records the offers from one fresh price check, plus the search's cheapest.
-async function recordPrices(query, region, items, at = Date.now()) {
+async function recordPrices(query, region, allItems, at = Date.now()) {
+  // Approximate (snippet-read) prices would poison the history.
+  const items = allItems.filter((i) => i.verified !== false);
   const rows = items.map((item) => ({
     key: productKey(region, item),
     meta: { kind: "product", region, title: item.title, store: item.store },
@@ -156,9 +158,11 @@ async function attachHistory(query, region, items) {
   const entries = await loadEntries(keys);
   const withHistory = items.map((item) => {
     const { externalHistory, ...rest } = item;
+    if (item.verified === false) return { ...rest, history: null };
     return { ...rest, history: summarize(entries.get(productKey(region, item)), item.price, externalHistory) };
   });
-  const cheapestNow = items.length ? Math.min(...items.map((i) => i.price)) : null;
+  const verified = items.filter((i) => i.verified !== false);
+  const cheapestNow = verified.length ? Math.min(...verified.map((i) => i.price)) : null;
   const q = entries.get(queryKey(region, query));
   return { items: withHistory, history: cheapestNow != null ? summarize(q, cheapestNow) : null };
 }

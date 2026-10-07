@@ -410,3 +410,50 @@ test("the hourly refresh skips featured searches for regions nobody opened", asy
   assert.ok(countries.length > 0);
   assert.ok(countries.every((c) => c === "in"), "only India's featured rails were refreshed");
 });
+
+test("cleanOffers drops accessories, other models and implausibly low prices", () => {
+  const offer = (title, price, verified = true) => ({ title, price, verified });
+  const kept = deals.cleanOffers([
+    offer("Apple iPhone 15 (128 GB) - Black", 69900),
+    offer("Apple iPhone 15 (Black, 128 GB)", 65999),
+    offer("Apple iPhone 15 128GB", 67490),
+    offer("Spigen Ultra Hybrid Case for iPhone 15", 1299),          // accessory
+    offer("Tempered glass compatible with iPhone 15", 199),         // accessory
+    offer("Apple iPhone 14 (128 GB)", 58999),                       // other model
+    offer("Apple iPhone 15 128GB (imported, no warranty)", 9999),   // far below every store
+  ], "iphone 15").map((o) => o.price);
+  assert.deepEqual(kept, [69900, 65999, 67490]);
+
+  // Category searches keep their full price range (cheap phones are real).
+  const phones = deals.cleanOffers([offer("Redmi A3 (3GB RAM)", 6999), offer("Samsung Galaxy S24", 64999), offer("iQOO Z9", 19999)], "smartphones");
+  assert.equal(phones.length, 3);
+});
+
+test("approximate (snippet-read) prices are labelled and kept out of price history", async (t) => {
+  const history = require("../src/services/priceHistoryService");
+  const saved = { ps: config.productSearchRapidApiKey, serp: config.serpApiKey, tavily: config.tavilyApiKey, canopy: config.canopyApiKey };
+  Object.assign(config, { productSearchRapidApiKey: "", serpApiKey: "", tavilyApiKey: "", canopyApiKey: "" });
+  deals._cache.clear(); history._memory.clear(); extras._imageCache.clear();
+  const realFetch = global.fetch;
+  // Keyless path: DuckDuckGo fails, Bing RSS answers with a priced snippet.
+  global.fetch = async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://www.bing.com/search?format=rss") && u.includes("amazon.in")) {
+      return new Response(`<rss><channel><item><title>Apple iPhone 15 (128 GB) - Black : Amazon.in</title><link>https://www.amazon.in/dp/B0CHX1W1XY</link><description>Apple iPhone 15 ₹69,900 M.R.P: ₹79,900</description></item></channel></rss>`, { headers: { "content-type": "application/rss+xml" } });
+    }
+    return new Response("", { status: 503 });
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    Object.assign(config, { productSearchRapidApiKey: saved.ps, serpApiKey: saved.serp, tavilyApiKey: saved.tavily, canopyApiKey: saved.canopy });
+    deals._cache.clear(); deals._tracked.clear(); history._memory.clear(); extras._imageCache.clear();
+  });
+
+  const res = await deals.findDeals("iphone 15", "in", { force: true });
+  assert.ok(res.items.length >= 1);
+  const item = res.items[0];
+  assert.equal(item.verified, false);
+  assert.equal(item.price, 69900);
+  assert.equal(item.history, null);
+  assert.equal(history._memory.size, 0, "nothing recorded from an approximate price");
+});
