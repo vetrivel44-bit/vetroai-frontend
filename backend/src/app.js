@@ -63,7 +63,14 @@ app.get("/health", (_req, res) => {
   return successResponse(res, "Service is healthy", {
     backend: "online",
     uptime: process.uptime(),
-    providers: require("./services/ProviderManager").getStats()
+    providers: require("./services/ProviderManager").getStats(),
+    // Which outside services are set up (never their keys), so a deploy can be
+    // checked from a browser: is astrology on ProKerala, what does DeepSearch use?
+    integrations: {
+      prokerala: require("./services/prokeralaService").isConfigured() ? "configured" : "not configured",
+      webSearch: config.tavilyApiKey ? "tavily" : "keyless fallback (DuckDuckGo, Bing, Google News)",
+      researchModel: config.groqApiKey ? `groq (${config.researchModel})` : config.mistralApiKey ? "mistral" : "none (DeepSearch runs without planning)",
+    },
   });
 });
 

@@ -1,0 +1,141 @@
+/* DeepSearch's empty state: what it does, how, and questions to try. */
+.vai-dsi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /* Full width, and allowed to shrink: on phones the greeting area is a row
+     flexbox, which would otherwise size this to its widest line. */
+  width: 100%;
+  min-width: 0;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 8px;
+  text-align: center;
+}
+.vai-dsi-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent, #5b5fe3) 30%, transparent);
+  border-radius: 99px;
+  color: var(--accent, #5b5fe3);
+  background: var(--accent-soft, rgba(91, 95, 227, .08));
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+.vai-dsi-title {
+  margin: 6px 0 0;
+  color: var(--ink, inherit);
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: clamp(28px, 5vw, 40px);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -.01em;
+}
+.vai-dsi-sub {
+  margin: 0;
+  max-width: 520px;
+  color: var(--ink-3, #6c6c77);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.vai-dsi-flow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.vai-dsi-flow li {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .22));
+  border-radius: 99px;
+  color: var(--ink-2, inherit);
+  background: var(--bg-elevated, transparent);
+  font-size: 12.5px;
+  animation: vaiDsiIn .4s ease-out both;
+  animation-delay: calc(var(--i) * 60ms);
+}
+.vai-dsi-flow li svg { color: var(--accent, #5b5fe3); }
+
+.vai-dsi-examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 720px;
+  margin: 18px auto 0;
+}
+.vai-dsi-example {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 92px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .22));
+  border-radius: 14px;
+  background: var(--bg-elevated, transparent);
+  color: var(--ink, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.vai-dsi-example:hover,
+.vai-dsi-example:focus-visible {
+  border-color: color-mix(in srgb, var(--accent, #5b5fe3) 45%, transparent);
+  box-shadow: 0 10px 28px -18px var(--accent, #5b5fe3);
+  transform: translateY(-1px);
+  outline: none;
+}
+.vai-dsi-example:active { transform: translateY(0) scale(.99); }
+.vai-dsi-example-text { font-size: 14px; line-height: 1.45; }
+.vai-dsi-example-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-3, #6c6c77);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color .18s ease;
+}
+.vai-dsi-example:hover .vai-dsi-example-go,
+.vai-dsi-example:focus-visible .vai-dsi-example-go { color: var(--accent, #5b5fe3); }
+
+@keyframes vaiDsiIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 640px) {
+  .vai-dsi { gap: 8px; }
+  .vai-dsi-title { font-size: clamp(24px, 7vw, 30px); }
+  .vai-dsi-sub { font-size: 14px; }
+  /* One swipeable row instead of three wrapped ones. */
+  .vai-dsi-flow {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 0 2px 2px;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+    mask-image: linear-gradient(90deg, #000 85%, transparent);
+  }
+  .vai-dsi-flow::-webkit-scrollbar { display: none; }
+  .vai-dsi-flow li { flex-shrink: 0; font-size: 12px; padding: 4px 9px; }
+  .vai-dsi-examples { grid-template-columns: 1fr; gap: 8px; margin-top: 14px; }
+  .vai-dsi-example { min-height: 0; gap: 6px; padding: 12px 14px; }
+  .vai-dsi-example:nth-child(n + 4) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vai-dsi-flow li { animation: none; }
+  .vai-dsi-example, .vai-dsi-example:hover { transition: none; transform: none; }
+}
