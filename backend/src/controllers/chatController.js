@@ -241,6 +241,10 @@ async function chat(req, res) {
 
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
+  // The reader closing the stream before it ends (stop button, closed tab)
+  // cancels a DeepSearch still researching, so it stops spending searches.
+  const cancel = new AbortController();
+  res.on("close", () => { if (!res.writableEnded) cancel.abort(); });
 
   let answered = false;
   try {
@@ -255,6 +259,7 @@ async function chat(req, res) {
       hasAttachments: files.length > 0,
       activePlugins,
       effort,
+      signal: cancel.signal,
       options: { temperature, maxTokens }
     }, res) === true;
   } catch (err) {

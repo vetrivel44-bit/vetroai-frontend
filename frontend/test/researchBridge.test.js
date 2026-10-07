@@ -84,8 +84,10 @@ test("when the research ends in an error before any report, Sonar Pro answers on
     frame({ type: "error", data: "All configured AI providers are currently unavailable." }),
   ]));
   const events = await eventsOf(await fetch("http://api.test/api/chat", { method: "POST", body: chatForm("deep_search") }));
-  assert.deepEqual(events.map((e) => e.type), ["research", "clear", "status", "status", "content"]);
-  assert.match(events[2].data, /Sonar Pro instead/);
+  assert.deepEqual(events.map((e) => e.type), ["research", "clear", "research_reset", "sources", "status", "status", "sources", "content"]);
+  assert.deepEqual(events[3].data, [], "the backend's sources are cleared");
+  assert.match(events[4].data, /Sonar Pro instead/);
+  assert.deepEqual(events[6].data, [{ title: "perplexity.test", url: "https://perplexity.test/source", domain: "perplexity.test", published: null }]);
   assert.match(events.at(-1).data, /Sonar's researched answer\.\n\n## Sources\n1\. https:\/\/perplexity\.test\/source/);
   assert.ok(!events.some((e) => e.type === "error"), "the backend's error is replaced by the answer");
   assert.equal(calls.sonar.length, 1);

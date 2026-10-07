@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { fetchPageText, htmlToText, keyTerms, splitPassages, bestPassages } = require("../src/services/pageReader");
+const http = require("node:http");
+const zlib = require("node:zlib");
+const { fetchPageText, guardedFetch, publicOnlyLookup, htmlToText, keyTerms, splitPassages, bestPassages } = require("../src/services/pageReader");
 
 const ARTICLE_HTML = `<!doctype html><html><head><title>T</title><style>.x{color:red}</style><script>var tracking = 1;</script></head>
 <body>
@@ -32,6 +34,22 @@ test("page HTML becomes readable text, without scripts, menus, sidebars or foote
 test("a page without an <article> keeps its whole body", () => {
   const text = htmlToText("<html><body><div><p>First paragraph here.</p><p>Second &quot;quoted&quot; one.</p></div></body></html>");
   assert.equal(text, "First paragraph here.\nSecond \"quoted\" one.");
+});
+
+test("hostile HTML (unclosed comments, menus and tags) is read in linear time", () => {
+  const size = 1_500_000;
+  for (const unit of ["<!--", "<nav>", "<", "<li", "<article>", "<script>x", "</p", "&#x"]) {
+    const html = `<body><p>Start.</p>${unit.repeat(Math.ceil(size / unit.length))}`;
+    const started = process.hrtime.bigint();
+    htmlToText(html);
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.ok(ms < 2000, `${JSON.stringify(unit)} took ${Math.round(ms)}ms`);
+  }
+});
+
+test("an unterminated comment hides the rest of the page, as in a browser", () => {
+  assert.equal(htmlToText("<body><p>Kept text.</p><!-- <p>hidden</p>"), "Kept text.");
+  assert.equal(htmlToText("<body><nav>menu</nav><p>Body <nav>stays when the nav never closes"), "Body stays when the nav never closes");
 });
 
 test("key terms drop filler words and keep numbers", () => {
@@ -116,4 +134,88 @@ test("errors, non-text files and near-empty pages give nothing", async () => {
     assert.equal(await fetchPageText("https://news.example/x", { lookup: publicDns, fetchImpl: async () => response }), null);
   }
   assert.equal(await fetchPageText("https://news.example/x", { lookup: publicDns, fetchImpl: async () => { throw new Error("timeout"); } }), null);
+});
+
+// ── The socket-level guard (DNS rebinding) ──────────────────────────────────
+const fakeResolve = (answers) => (host, opts, cb) => cb(null, answers);
+
+test("the socket lookup refuses a name with any non-public answer", async () => {
+  const lookupWith = (answers, opts = {}) => new Promise((resolve) => {
+    publicOnlyLookup({ resolve: fakeResolve(answers) })("site.example", opts, (err, address, family) => resolve({ err, address, family }));
+  });
+  assert.equal((await lookupWith([{ address: "127.0.0.1", family: 4 }])).err.code, "ENONPUBLIC");
+  assert.equal((await lookupWith([{ address: "::ffff:7f00:1", family: 6 }])).err.code, "ENONPUBLIC");
+  assert.equal((await lookupWith([{ address: "93.184.216.34", family: 4 }, { address: "10.0.0.1", family: 4 }])).err.code, "ENONPUBLIC");
+  assert.equal((await lookupWith([])).err.code, "ENONPUBLIC");
+  assert.deepEqual(await lookupWith([{ address: "93.184.216.34", family: 4 }]), { err: null, address: "93.184.216.34", family: 4 });
+  const all = await lookupWith([{ address: "93.184.216.34", family: 4 }], { all: true });
+  assert.deepEqual(all.address, [{ address: "93.184.216.34", family: 4 }]);
+});
+
+function localServer(handler) {
+  return new Promise((resolve) => {
+    const server = http.createServer(handler);
+    server.listen(0, "127.0.0.1", () => resolve(server));
+  });
+}
+
+test("a name that resolves to a private address at connect time is never connected to", async () => {
+  let hits = 0;
+  const server = await localServer((req, res) => { hits += 1; res.end("internal"); });
+  try {
+    const { port } = server.address();
+    // The default guard: "localhost" answers 127.0.0.1 when the socket connects.
+    await assert.rejects(guardedFetch(`http://localhost:${port}/admin`), (err) => err.code === "ENONPUBLIC");
+    // An IP address is never looked up, so it is checked before connecting.
+    for (const host of ["127.0.0.1", "[::ffff:7f00:1]", "[::1]"]) {
+      await assert.rejects(guardedFetch(`http://${host}:${port}/admin`), (err) => err.code === "ENONPUBLIC", host);
+    }
+    // fetchPageText's up-front check passes (a rebinding name answers "public"
+    // first), but the connection itself is still refused.
+    const text = await fetchPageText(`http://rebind.example:${port}/admin`, {
+      lookup: async () => [{ address: "93.184.216.34" }],
+      fetchImpl: (href, init) => guardedFetch(href, init, { resolve: fakeResolve([{ address: "127.0.0.1", family: 4 }]) }),
+    });
+    assert.equal(text, null);
+    assert.equal(hits, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test("guardedFetch answers a standard Response with the body decompressed", async () => {
+  const page = `<html><body><article><p>${"Compressed article text about solar tariffs. ".repeat(30)}</p></article></body></html>`;
+  const server = await localServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip", "set-cookie": "a=b" });
+    res.end(zlib.gzipSync(page));
+  });
+  try {
+    const { port } = server.address();
+    // Allowed here only because the test server is on loopback.
+    const response = await guardedFetch(`http://127.0.0.1:${port}/`, {}, { isAllowed: () => true });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("set-cookie"), null);
+    assert.equal(await response.text(), page);
+
+    const text = await fetchPageText(`http://allowed.example:${port}/`, {
+      lookup: async () => [{ address: "93.184.216.34" }],
+      fetchImpl: (href, init) => guardedFetch(href.replace("allowed.example", "127.0.0.1"), init, { isAllowed: () => true }),
+    });
+    assert.match(text, /Compressed article text about solar tariffs\./);
+  } finally {
+    server.close();
+  }
+});
+
+test("a cancelled research stops reading pages", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let fetched = 0;
+  const text = await fetchPageText("https://news.example/x", {
+    lookup: publicDns,
+    signal: controller.signal,
+    fetchImpl: async () => { fetched += 1; return htmlResponse(ARTICLE_HTML); },
+  });
+  assert.equal(text, null);
+  assert.equal(fetched, 0);
 });

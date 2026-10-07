@@ -297,6 +297,13 @@
     const writeOwnToken = (token) => {
       try { token ? localStorage.setItem(OWN_TOKEN_KEY, token) : localStorage.removeItem(OWN_TOKEN_KEY); } catch { /* private mode */ }
     };
+    // When a session lapses, Puter signs the visitor in again by itself (its
+    // own popup) and carries on with a new token. The copy follows it, or the
+    // next visit would bring back the dead one. Only called once this page has
+    // installed its own token, after which nothing else changes it here.
+    const keepOwnToken = () => {
+      if (puter.authToken && puter.authToken !== readOwnToken()) writeOwnToken(puter.authToken);
+    };
 
     const $ = (id) => document.getElementById(id);
     const els = {
@@ -312,6 +319,8 @@
     let todos = [];
     let filter = "all";
     let editingId = null;
+    // What was typed into the open editor, carried across re-renders.
+    let editDraft = null;
     const breakingDown = new Set();
 
     // ── Status line ─────────────────────────────────────────────────────────
@@ -340,6 +349,7 @@
       render();
       try {
         await action();
+        keepOwnToken();
         return true;
       } catch (err) {
         setStatus(`${failureMessage}: ${errorMessage(err)}`, "error");
@@ -400,6 +410,7 @@
         text += part.text;
         onText?.(text);
       }
+      keepOwnToken();
       return text;
     }
 
@@ -448,6 +459,15 @@
 
     // ── Rendering ───────────────────────────────────────────────────────────
     function render() {
+      // Claude's steps arriving or a failed save reloading the list rebuilds
+      // it; a task being edited keeps what was typed and where the cursor was.
+      const live = els.list.querySelector("input.edit");
+      editDraft = editingId && live?.dataset.id === editingId
+        ? { value: live.value, start: live.selectionStart, end: live.selectionEnd }
+        : null;
+      // Its replacement carries on the edit, so the blur this one fires as
+      // it is removed isn't the user leaving it.
+      if (editDraft) live.dataset.carried = "true";
       const visible = visibleTodos(todos, filter);
       const left = todos.filter((t) => !t.done).length;
 
@@ -536,12 +556,16 @@
     function renderEditor(todo) {
       const input = document.createElement("input");
       input.className = "edit";
-      input.value = todo.text;
+      input.dataset.id = todo.id;
+      const draft = editDraft;
+      input.value = draft ? draft.value : todo.text;
       input.maxLength = MAX_TASK_LENGTH;
       input.setAttribute("aria-label", "Edit task");
+      // Set now as well as on focus: another re-render can come first.
+      if (draft) input.setSelectionRange(draft.start ?? draft.value.length, draft.end ?? draft.value.length);
       let finished = false;
       const finish = (save) => {
-        if (finished) return;
+        if (finished || input.dataset.carried) return;
         finished = true;
         editingId = null;
         const text = input.value.trim();
@@ -554,7 +578,11 @@
         if (event.key === "Escape") finish(false);
       });
       input.addEventListener("blur", () => finish(true));
-      requestAnimationFrame(() => { input.focus(); input.select(); });
+      requestAnimationFrame(() => {
+        input.focus();
+        if (draft) input.setSelectionRange(draft.start ?? input.value.length, draft.end ?? input.value.length);
+        else input.select();
+      });
       return input;
     }
 
@@ -582,18 +610,26 @@
       puter.auth.signOut();
     }
 
-    async function showSignedIn() {
+    async function showSignedIn(retried = false) {
       els.welcome.hidden = true;
       els.account.hidden = false;
       els.username.textContent = "";
       setStatus("Loading your tasks…");
+      const tokenUsed = puter.authToken;
       try {
         const [user] = await Promise.all([puter.auth.getUser(), loadTodos()]);
+        keepOwnToken();
         els.username.textContent = user?.username ? `Signed in as ${user.username}` : "";
         setStatus("");
       } catch (err) {
-        // A saved session Puter no longer accepts: sign in afresh.
         if (err?.status === 401) {
+          // Puter may have signed the visitor in again while answering: the
+          // new token is theirs, so keep it and load once more with it.
+          if (!retried && puter.authToken && puter.authToken !== tokenUsed) {
+            writeOwnToken(puter.authToken);
+            return showSignedIn(true);
+          }
+          // A saved session Puter no longer accepts: sign in afresh.
           forgetSignIn();
           showSignedOut();
           setStatus("Your Puter session has expired. Please sign in again.", "error");

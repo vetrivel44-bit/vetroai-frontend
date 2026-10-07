@@ -31,8 +31,14 @@ async function research(req, res) {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
+  // The request body has been read by now, so req's "close" has already
+  // fired; the response's "close" before it ends is the reader leaving. Then
+  // the research stops instead of spending searches nobody will read.
   let closed = false;
-  req.on("close", () => { closed = true; });
+  const cancel = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) { closed = true; cancel.abort(); }
+  });
   const send = (type, data) => { if (!closed) res.write(`data: ${JSON.stringify({ type, data })}\n\n`); };
   const heartbeat = setInterval(() => { if (!closed) res.write(": ping\n\n"); }, 12000);
 
@@ -42,6 +48,7 @@ async function research(req, res) {
         clock: clientClock(req.body),
         history: AIOrchestrator.recentHistory([...messages, { role: "user", content: query }]),
         deadlineMs: AIOrchestrator.RESEARCH_DEADLINE_MS,
+        signal: cancel.signal,
         onStatus: (msg) => send("status", msg),
         onProgress: (snapshot) => send("research", snapshot),
       }),
@@ -50,6 +57,7 @@ async function research(req, res) {
     );
     send("sources", AIOrchestrator.normalizeSources(result.results, 40));
     send("research_result", { context: result.context, instructions: AIOrchestrator.RESEARCH_REPORT_PROMPT });
+    if (closed) logger.info("research.endpoint.cancelled", { sources: result.results.length });
   } catch (err) {
     logger.error("research.endpoint.failed", { error: err.message });
     send("error", `Research failed: ${err.message}`);

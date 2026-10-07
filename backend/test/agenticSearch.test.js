@@ -47,6 +47,16 @@ test("a plan is capped, and an unusable plan falls back to researching the quest
   assert.deepEqual(parseResearchPlan("{broken", "the question").angles, [{ question: "the question", queries: ["the question"] }]);
 });
 
+test("a very short or very long question is still searched when there is no plan", () => {
+  assert.deepEqual(parseResearchPlan("", "AI").angles, [{ question: "AI", queries: ["AI"] }]);
+  const long = `Compare ${"the costs, risks and timelines of solar and wind power ".repeat(12)}in India`;
+  const [{ queries }] = parseResearchPlan("{broken", long).angles;
+  assert.equal(queries.length, 1);
+  assert.ok(queries[0].length <= 300 && long.startsWith(queries[0]), queries[0]);
+  assert.ok(!/\s$/.test(queries[0]) && long[queries[0].length] === " ", "cut at a word");
+  assert.deepEqual(parseResearchPlan("", "   ").angles, [{ question: "   ", queries: [] }]);
+});
+
 test("gaps map to their angle, and a gap no angle covers becomes a new one", () => {
   const v = parseGaps('{"sufficient": false, "gaps": [{"angle": 2, "missing": "a number", "query": "wind tariff 2026"}, {"angle": 0, "missing": "policy", "query": "renewable policy 2026"}, {"angle": 9, "query": "out of range angle"}]}', 2);
   assert.equal(v.sufficient, false);
@@ -352,4 +362,32 @@ test("a research model that hangs is given up on, and the research carries on wi
   assert.ok(Date.now() - started < 9000, `${Date.now() - started}ms`);
   assert.deepEqual(calls, ["wind tariff india 2026"]);
   assert.equal(result.results.length, 1);
+});
+
+test("a cancelled research stops searching, reading and asking the model, and returns what it has", async () => {
+  const controller = new AbortController();
+  const calls = [];
+  const reads = [];
+  const { fn, prompts } = scriptedModel({ reflections: ['{"sufficient": false, "gaps": [{"angle": 1, "missing": "x", "query": "solar lcoe india"}]}'] });
+  const result = await performAgenticSearch("solar vs wind cost in india 2026", {
+    searchFn: async (q) => {
+      calls.push(q);
+      controller.abort(); // the reader leaves during the first searches
+      return RESULTS[q.toLowerCase()] || [];
+    },
+    plannerFn: fn,
+    readFn: async (url) => { reads.push(url); return null; },
+    searchConcurrency: 1,
+    signal: controller.signal,
+  });
+  assert.equal(calls.length, 1, "searches queued behind the first are skipped");
+  assert.deepEqual(reads, []);
+  assert.equal(prompts.length, 1, "only the plan was asked for");
+  assert.ok(Array.isArray(result.results));
+
+  const before = new AbortController();
+  before.abort();
+  const searched = [];
+  await performAgenticSearch("anything", { searchFn: async (q) => { searched.push(q); return []; }, plannerFn: fn, readFn: async () => null, signal: before.signal });
+  assert.deepEqual(searched, []);
 });

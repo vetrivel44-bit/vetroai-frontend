@@ -149,6 +149,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       } else if ((type === "research" || type === "research_result") && data) {
         // DeepSearch's activity log, and (from /api/research) its findings.
         onMeta?.(type, data);
+      } else if (type === "research_reset") {
+        // Another model took over (research-puter-bridge.js): the log is stale.
+        onMeta?.(type, null);
       }
     } catch (err) {
       console.error("SSE parse error:", err, raw, reqId);
@@ -6536,6 +6539,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // streams its activity log; then the chosen model writes the report
       // from those findings, with the same brief the backend's models get.
       const isResearchMode = isDeepSearch || selectedMode === "research";
+      // Set when the chosen model failed to write the report; then the backend
+      // researches and writes it instead (below).
+      let researchWriterFailed = false;
       if (puterModelId && isResearchMode && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         let findings = null;
         try {
@@ -6596,14 +6602,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             return;
           } catch (puterErr) {
             if (!isActive()) return;
-            if (!isPuterCreditsError(puterErr)) throw puterErr;
-            // Out of credits for this model: the backend's DeepSearch (and its
-            // Sonar Pro fallback) answers instead.
-            puterCreditsExhaustedRef.current.add(effectivePuterProvider);
-            addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
+            // The chosen model couldn't write the report (out of credits, or
+            // any other failure): the backend's DeepSearch, with its Sonar Pro
+            // fallback, answers instead.
+            researchWriterFailed = true;
+            addDebugLog("Research.browserWriterFailed", { reqId, provider: effectivePuterProvider, error: puterErr?.message });
+            if (isPuterCreditsError(puterErr)) {
+              puterCreditsExhaustedRef.current.add(effectivePuterProvider);
+              addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
+            }
             setMessages((previous) => {
               const next = [...previous];
-              next[next.length - 1] = { ...next[next.length - 1], content: "" };
+              next[next.length - 1] = { ...next[next.length - 1], content: "", research: null, sources: null };
               return next;
             });
             setStreamingContent("");
@@ -6615,7 +6625,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // backend doesn't know them — it used to answer with its own top-weighted
       // model instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
-      if (puterModelId && browserSearch && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+      if (puterModelId && browserSearch && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
         let web = null;
         try {
           web = await fetchWebResults();
@@ -6766,6 +6776,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 if (metaType === "sources") last.sources = metaData;
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
                 if (metaType === "research") last.research = metaData;
+                if (metaType === "research_reset") last.research = null;
                 u[u.length - 1] = last;
                 return u;
               });
@@ -7974,7 +7985,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
           </button>
           {/* Its own page (public/todo/) in a new tab, so an open chat isn't lost. */}
-          <a href="/todo/" target="_blank" rel="noopener noreferrer" onClick={() => setSidebarMobileOpen(false)} title="Your to-do list, in a new tab" className="claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors" style={{ textDecoration: "none" }}>
+          <a href="/todo/index.html" target="_blank" rel="noopener noreferrer" onClick={() => setSidebarMobileOpen(false)} title="Your to-do list, in a new tab" className="claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors" style={{ textDecoration: "none" }}>
             <span className="flex items-center gap-3"><ListTodo size={17} /> To-Do</span>
             <ExternalLink size={13} style={{ color: "var(--ink-4)" }} />
           </a>

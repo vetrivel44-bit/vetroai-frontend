@@ -115,16 +115,27 @@ test("the default effort asks for light reasoning, and Deep or Max ask for more"
   ]);
 }));
 
-test("a model that rejects the reasoning setting is retried once without it", withFetch([
+test("a model that rejects the reasoning setting is retried once without it, and not sent it again", withFetch([
   { status: 400, body: '{"error":{"message":"reasoning is not supported by this model"}}' },
   OK,
+  OK,
 ], async (calls) => {
-  config.vercelModel = "openai/gpt-4o-mini";
+  config.vercelModel = "openai/gpt-5-mini";
   await vercel.generateStream([{ role: "user", content: "hi" }]);
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0].body.reasoning, { effort: "low" });
   assert.equal(calls[1].body.reasoning, undefined);
-  assert.equal(calls[1].body.model, "openai/gpt-4o-mini", "the user's model is kept");
+  assert.equal(calls[1].body.model, "openai/gpt-5-mini", "the user's model is kept");
+  await vercel.generateStream([{ role: "user", content: "hello" }]);
+  assert.equal(calls.length, 3, "the next message doesn't pay for the refusal again");
+  assert.equal(calls[2].body.reasoning, undefined);
+}));
+
+test("a model that doesn't reason is never sent the reasoning setting", withFetch([OK], async (calls) => {
+  config.vercelModel = "openai/gpt-4o-mini";
+  await vercel.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.reasoning, undefined);
 }));
 
 test("reasoning models are recognised so they aren't asked for a <think> block too", () => {
