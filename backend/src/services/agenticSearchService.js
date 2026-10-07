@@ -358,13 +358,22 @@ function defaultThinker() {
  */
 function createProgress({ onProgress, onStatus }) {
   const startedAt = Date.now();
-  const state = { phase: "planning", angles: [], steps: [], sources: 0, pagesRead: 0, queries: 0 };
-  const snapshot = () => ({ ...state, angles: [...state.angles], steps: state.steps.map((s) => ({ ...s })), elapsedMs: Date.now() - startedAt });
+  const state = { phase: "planning", angles: [], angleSources: [], domains: [], steps: [], sources: 0, sites: 0, pagesRead: 0, queries: 0 };
+  const snapshot = () => ({
+    ...state,
+    angles: [...state.angles],
+    angleSources: [...state.angleSources],
+    domains: [...state.domains],
+    steps: state.steps.map((s) => ({ ...s, items: [...s.items] })),
+    elapsedMs: Date.now() - startedAt,
+  });
   const emit = () => { try { onProgress?.(snapshot()); } catch (err) { logger.warn("research.progress.failed", { error: err.message }); } };
   return {
-    start(id, label, detail = "", phase = id) {
+    // `items`: what the step is working on (its queries, the sites it reads),
+    // shown as chips.
+    start(id, label, detail = "", phase = id, items = []) {
       state.phase = phase;
-      state.steps.push({ id, label, detail, status: "active" });
+      state.steps.push({ id, label, detail, status: "active", items: items.slice(0, 8) });
       onStatus?.(`${label}…`);
       emit();
     },
@@ -396,11 +405,6 @@ async function inPool(items, limit, run) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
-
-const shortList = (queries, max = 3) => {
-  const shown = queries.slice(0, max).map((q) => `“${q}”`).join(" · ");
-  return queries.length > max ? `${shown} +${queries.length - max} more` : shown;
-};
 
 /**
  * Run the research.
@@ -434,7 +438,19 @@ async function performAgenticSearch(query, options = {}) {
   const usedQueries = [];
   let rounds = 0;
   let fetchedPages = 0;
-  const syncCounts = () => progress.set({ sources: registry.size, pagesRead: registry.pagesRead, queries: usedQueries.length });
+  // Counts for the activity panel, plus the sites found (in the order found)
+  // and how many sources each angle has.
+  const syncCounts = () => {
+    const sites = [...new Set(registry.list.map((s) => domainOf(s.url)).filter(Boolean))];
+    progress.set({
+      sources: registry.size,
+      pagesRead: registry.pagesRead,
+      queries: usedQueries.length,
+      sites: sites.length,
+      domains: sites.slice(0, 16),
+      angleSources: plan.angles.map((_, i) => registry.list.filter((s) => s.angles.has(i)).length),
+    });
+  };
 
   // ── 1. Plan ───────────────────────────────────────────────────────────────
   let plan = parseResearchPlan("", query, opts);
@@ -445,7 +461,7 @@ async function performAgenticSearch(query, options = {}) {
     } catch (err) {
       logger.warn("research.plan.failed", { error: err.message });
     }
-    progress.set({ angles: plan.angles.map((a) => a.question) });
+    progress.set({ angles: plan.angles.map((a) => a.question), angleSources: plan.angles.map(() => 0) });
     progress.finish("plan", `${plan.angles.length} ${plan.angles.length === 1 ? "angle" : "angles"} to research`);
   } else {
     progress.set({ angles: plan.angles.map((a) => a.question) });
@@ -478,7 +494,7 @@ async function performAgenticSearch(query, options = {}) {
       .slice(0, budget)
       .map(({ s }) => s);
     if (!unread.length) return 0;
-    progress.start("read", `Reading ${unread.length} ${unread.length === 1 ? "page" : "pages"}`, unread.slice(0, 3).map((s) => domainOf(s.url)).join(" · "), "reading");
+    progress.start("read", `Reading ${unread.length} ${unread.length === 1 ? "page" : "pages"}`, "", "reading", unread.map((s) => domainOf(s.url)));
     unread.forEach((s) => { s.fetched = true; });
     fetchedPages += unread.length;
     const outcomes = await inPool(unread, 5, (s) => readPage(s.url));
@@ -505,7 +521,7 @@ async function performAgenticSearch(query, options = {}) {
     rounds += 1;
 
     const id = `search-${round}`;
-    progress.start(id, round === 0 ? `Searching ${plan.angles.length > 1 ? `${plan.angles.length} angles` : "the web"}` : "Following up", shortList(batch.map((j) => j.query)), "searching");
+    progress.start(id, round === 0 ? `Searching ${plan.angles.length > 1 ? `${plan.angles.length} angles` : "the web"}` : "Following up", "", "searching", batch.map((j) => j.query));
     const found = await runSearches(batch);
     progress.finish(id, `${found} new ${found === 1 ? "source" : "sources"} · ${registry.size} in total`);
 
@@ -579,7 +595,7 @@ async function performAgenticSearch(query, options = {}) {
     }
     if (claims.length) {
       progress.finish("verify", `Checking ${claims.length} ${claims.length === 1 ? "claim" : "claims"} independently`);
-      progress.start("verify-search", "Searching independent sources", shortList(claims.map((c) => c.query)), "verifying");
+      progress.start("verify-search", "Searching independent sources", "", "verifying", claims.map((c) => c.claim));
       await runSearches(claims.map((c, i) => ({ query: c.query, claim: i })));
       await readMissing(4);
       progress.finish("verify-search", `${claims.length} ${claims.length === 1 ? "claim" : "claims"} checked`);

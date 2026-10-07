@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Suspense } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -44,7 +44,13 @@ const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
 import ThinkingPanel from "./components/ThinkingPanel";
 import ResearchActivity from "./components/ResearchActivity";
+import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
 import { settleResearch } from "./lib/research";
+import { sourceDomain } from "./lib/sources";
+import SourceFavicon from "./components/SourceFavicon";
+import { CitationLink } from "./components/CitationLink";
+import { CitationContext } from "./lib/citationContext";
+import { remarkCitations } from "./lib/citations";
 // These screens are all behind a toggle — none of them is on screen when the app
 // opens, and between them they pull in three.js, chess.js and the map stacks.
 // Importing them eagerly meant every visitor downloaded and parsed all of it
@@ -1041,6 +1047,8 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
 //      earlier message keeps its identity and its subtree is skipped entirely.
 // The result is O(length) per token for the one message still growing.
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
+// For answers with sources: [n] becomes a source chip (CitationLink).
+const REMARK_PLUGINS_CITED = [remarkGfm, remarkMath, remarkCitations];
 const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
 
 // While a message is actively streaming in, fade the most recently mounted
@@ -1073,7 +1081,9 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   // renderer below stays stable (re-creating it every token would remount
   // every code block and diagram in the reply).
   const openBlock = useMemo(() => (isStreaming ? openFenceTail(content) : null), [content, isStreaming]);
+  const sources = useContext(CitationContext);
   const components = useMemo(() => ({
+    a: CitationLink,
     code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const langMatch = /language-(\w+)/.exec(className || "");
@@ -1097,7 +1107,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   return (
     <div ref={containerRef} className="vai-stream-body">
       <OpenBlockContext.Provider value={openBlock}>
-        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+        <ReactMarkdown remarkPlugins={sources?.length ? REMARK_PLUGINS_CITED : REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
           {normalizeMathDelimiters(content)}
         </ReactMarkdown>
       </OpenBlockContext.Provider>
@@ -1135,10 +1145,13 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
 // The whole "which renderer does this answer need?" decision, behind one memo
 // boundary. The structured/writing-block probes are regex scans of the entire
 // message, so they are part of what must not re-run per token per message.
-const AssistantBody = React.memo(function AssistantBody({ content, autoOpen, onSaveArtifact, isStreaming }) {
-  if (hasStructuredContent(content)) return <StructuredResponseRenderer response={content} />;
-  if (isWritingBlock(content)) return <WritingBlockCard content={content} />;
-  return <RichMarkdown content={content} autoOpen={autoOpen} onSaveArtifact={onSaveArtifact} isStreaming={isStreaming} />;
+// `sources` are the answer's numbered sources; its [n] citations become chips.
+const AssistantBody = React.memo(function AssistantBody({ content, autoOpen, onSaveArtifact, isStreaming, sources = null }) {
+  let body;
+  if (hasStructuredContent(content)) body = <StructuredResponseRenderer response={content} />;
+  else if (isWritingBlock(content)) body = <WritingBlockCard content={content} />;
+  else body = <RichMarkdown content={content} autoOpen={autoOpen} onSaveArtifact={onSaveArtifact} isStreaming={isStreaming} />;
+  return <CitationContext.Provider value={sources?.length ? sources : null}>{body}</CitationContext.Provider>;
 });
 
 // A multi-AI consensus/model answer: structured when the model emitted a
@@ -2538,42 +2551,6 @@ const formatFreshness = (dateStr) => {
   return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 };
 
-// ─── SOURCE CARDS (Perplexity-style) ──────────────────────────────────────────
-// Memoized: rendered once per message inside a feed that re-renders on every
-// streamed token. The props come straight off the message object, whose
-// identity only changes for the message actually being streamed.
-const sourceDomain = (s) => {
-  if (s.domain) return s.domain;
-  try { return new URL(s.url).hostname.replace(/^www\./, ""); } catch { return s.url || ""; }
-};
-
-// Google's service answers 404 (and the browser fires onError) when it has no
-// icon at the requested size, so fall through a few sources before a letter.
-const faviconSources = (domain) => [
-  `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`,
-  `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`,
-  `https://${domain}/favicon.ico`,
-];
-
-const SourceFavicon = ({ domain }) => {
-  const [attempt, setAttempt] = useState(0);
-  const sources = domain ? faviconSources(domain) : [];
-  if (attempt >= sources.length) {
-    const siteName = (domain || "?").split(".").slice(-2)[0] || "?";
-    return <span className="px-src-favicon px-src-favicon-letter" aria-hidden="true">{siteName[0].toUpperCase()}</span>;
-  }
-  return (
-    <img
-      key={attempt}
-      className="px-src-favicon"
-      src={sources[attempt]}
-      alt=""
-      referrerPolicy="no-referrer"
-      onError={() => setAttempt((n) => n + 1)}
-    />
-  );
-};
-
 const DOWNLOAD_FORMATS = [
   { id: "pdf", label: "PDF", ext: ".pdf" },
   { id: "docx", label: "Word", ext: ".docx" },
@@ -2647,6 +2624,10 @@ function DocumentDownloads({ content, requested = [], variant = "menu" }) {
   );
 }
 
+// ─── SOURCE CARDS (Perplexity-style) ──────────────────────────────────────────
+// Memoized: rendered once per message inside a feed that re-renders on every
+// streamed token. The props come straight off the message object, whose
+// identity only changes for the message actually being streamed.
 const VISIBLE_SOURCE_CARDS = 3;
 
 const SourceCards = React.memo(function SourceCards({ sources }) {
@@ -4615,10 +4596,10 @@ export default function App() {
       ]
     : isDeepSearch
       ? [
-        "Deep compare AI agent frameworks with citations",
-        "Analyze market outlook from multiple sources",
-        "Research best laptop for coding under budget",
-        "Summarize latest tech policy changes with links",
+        "How do solar and wind power costs compare in India in 2026?",
+        "Which AI agent frameworks lead in 2026, and how do they differ?",
+        "Is a heat pump worth it for a home in a cold climate?",
+        "What does the latest research say about intermittent fasting?",
       ]
       : isWebMode
         ? [
@@ -7342,7 +7323,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           placeholder={
             isDictating ? t.listening || "Listening..." :
             isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
-            isDeepSearch ? "DeepSearch: ask a research question (I will query multiple angles)..." :
+            isDeepSearch ? "Ask a research question…" :
             isWebMode    ? "Search the web with AI — I fetch real page content…" :
                            "How can I help you today?"
           }
@@ -8230,12 +8211,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
              {messages.length === 0 ? (
                 <div className="vetro-empty flex flex-col items-center justify-center w-full max-w-3xl mx-auto py-10" style={{ marginTop: "auto", marginBottom: "auto" }}>
                   <div className="vetro-empty-greeting mb-8 text-center animate-fade-in w-full mt-10 md:mt-16">
-                    <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>
+                    {isDeepSearch
+                      ? <DeepSearchIntro />
+                      : <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>}
                   </div>
                   <div className="vetro-empty-input w-full">
                     {renderInputBox()}
                   </div>
-                  {suggestionOptions.length > 0 && (
+                  {isDeepSearch && <DeepSearchExamples examples={suggestionOptions} onPick={(question) => sendMessage(null, question)} />}
+                  {!isDeepSearch && suggestionOptions.length > 0 && (
                     <div className="vetro-empty-pills claude-suggestion-pills-row">
                       <div className="claude-suggestion-pills" style={{ justifyContent: "center", padding: 0 }}>
                         {!(isYtMode || isDeepSearch || isWebMode) && suggestionOptions.length >= 5
@@ -8459,6 +8443,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                        autoOpen={i === messages.length - 1 && !isLoading}
                                        onSaveArtifact={saveArtifact}
                                        isStreaming={isLoading && i === messages.length - 1}
+                                       sources={m.sources}
                                      />
                                    </ReplyContext.Provider>
                                  </ErrorBoundary>

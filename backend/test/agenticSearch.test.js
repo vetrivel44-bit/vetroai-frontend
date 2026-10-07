@@ -224,6 +224,16 @@ test("a full run plans, searches every angle, reads pages, follows up, cross-che
   assert.equal(last.pagesRead, 8, "every source was read in full");
   assert.match(last.steps.find((s) => s.id === "reflect").detail, /Missing: the exact wind tariff/);
   assert.deepEqual(statuses.slice(0, 2), ["Planning the research…", "Searching 3 angles…"]);
+  // What the panel shows beyond the steps: sites found, sources per angle, chips.
+  assert.deepEqual(last.domains.slice(0, 3), ["news.test", "seci.test", "blog.test"]);
+  assert.equal(last.sites, new Set(result.results.map((r) => new URL(r.url).hostname)).size);
+  assert.equal(last.angleSources.length, 3);
+  assert.ok(last.angleSources.every((n) => n > 0));
+  const steps = Object.fromEntries(last.steps.map((s) => [s.id, s]));
+  assert.ok(steps["search-0"].items.includes("solar tariff india 2026"));
+  assert.ok(steps["search-0"].items.length <= 8);
+  assert.deepEqual(steps.read.items, ["blog.test"]);
+  assert.deepEqual(steps["verify-search"].items, ["SECI solar auction cleared at a record ₹2.48 per kWh"]);
   assert.deepEqual(result.angles.length, 3);
 
   // The compact context, for a writer with a small budget: same sources, same

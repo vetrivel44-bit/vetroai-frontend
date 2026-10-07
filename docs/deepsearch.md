@@ -1,9 +1,21 @@
 # DeepSearch
 
 DeepSearch (the "DeepSearch" and "Research" modes) researches a question the
-way Claude's Research does, then writes a cited report. While it works, the
-chat shows a live activity panel: the research plan and each step as it
-happens.
+way Claude's Research does, then writes a cited report.
+
+## What the reader sees
+
+- **Start screen:** picking DeepSearch replaces the greeting with what it
+  does and example research questions (`DeepSearchIntro.jsx`).
+- **Live research card** (`ResearchActivity.jsx`): a stage bar (Plan,
+  Search, Read, Check, Write), the sites found so far and a running clock.
+  It opens onto the research plan with sources per angle, each step with its
+  queries and the pages it read, and every site consulted. It folds into
+  "Research complete · 24 sources · 11 searches · 1m 12s" once the report
+  starts.
+- **Citations:** each [n] in the report is a chip with the source's icon,
+  linking to it. Hovering or focusing it previews the title, site and date
+  (`CitationChip.jsx`). This works in any answer that has sources.
 
 ## How a question is researched
 
