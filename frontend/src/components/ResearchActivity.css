@@ -1,0 +1,154 @@
+/* DeepSearch's activity panel. A quiet header line like the thinking panel's,
+   opening onto the research plan and a timeline of steps. */
+.vai-ra {
+  margin: 0 0 12px;
+  max-width: 100%;
+  border: 1px solid var(--border-med, rgba(31, 30, 29, .13));
+  border-radius: 12px;
+  background: var(--bg-elevated, transparent);
+}
+
+.vai-ra-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink-2, #3d3a35);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+.vai-ra-header:hover { color: var(--ink, #1f1e1d); }
+.vai-ra-header:focus-visible { outline: 2px solid var(--accent-mid, rgba(217, 119, 87, .3)); outline-offset: 2px; }
+
+.vai-ra-label { flex: 1; min-width: 0; }
+.vai-ra-stats {
+  flex-shrink: 0;
+  color: var(--ink-4, #9a968f);
+  font-size: 12.5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.vai-ra-chevron { flex-shrink: 0; color: var(--ink-4, #9a968f); transition: transform .2s ease; }
+.vai-ra.is-open .vai-ra-chevron { transform: rotate(90deg); }
+
+/* The headline shimmers while the research runs, like "Thinking…". */
+.vai-ra.is-active .vai-ra-label {
+  background: linear-gradient(90deg,
+    var(--ink-4, #9a968f) 0%, var(--ink-4, #9a968f) 35%,
+    var(--ink, #1f1e1d) 50%,
+    var(--ink-4, #9a968f) 65%, var(--ink-4, #9a968f) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: vaiRaShimmer 1.8s linear infinite;
+}
+@keyframes vaiRaShimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+.vai-ra-body {
+  padding: 2px 14px 12px;
+  border-top: 1px solid var(--border-med, rgba(31, 30, 29, .13));
+  animation: vaiRaIn .18s ease-out;
+}
+.vai-ra-body[hidden] { display: none; }
+@keyframes vaiRaIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.vai-ra-heading {
+  margin: 10px 0 4px;
+  color: var(--ink-4, #9a968f);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.vai-ra-plan ol {
+  margin: 0 0 4px;
+  padding-left: 20px;
+  /* The app's CSS reset strips list markers; the plan's numbers matter. */
+  list-style: decimal outside;
+  color: var(--ink-2, #3d3a35);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.vai-ra-steps {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.vai-ra-step {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 0 0 10px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+/* The thread joining the steps. */
+.vai-ra-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 8.5px;
+  top: 20px;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-med, rgba(31, 30, 29, .13));
+}
+.vai-ra-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  color: var(--ink-4, #9a968f);
+  background: var(--bg-active, rgba(31, 30, 29, .06));
+}
+.vai-ra-step.is-done .vai-ra-icon { color: var(--ink-2, #3d3a35); }
+.vai-ra-step.is-failed .vai-ra-icon { color: #b42318; }
+.vai-ra-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: vaiRaSpin .8s linear infinite;
+}
+@keyframes vaiRaSpin { to { transform: rotate(360deg); } }
+
+.vai-ra-step-text { display: flex; flex-direction: column; min-width: 0; }
+.vai-ra-step-label { color: var(--ink-2, #3d3a35); }
+.vai-ra-step.is-active .vai-ra-step-label { color: var(--ink, #1f1e1d); font-weight: 500; }
+.vai-ra-step-detail {
+  color: var(--ink-4, #9a968f);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .vai-ra-header { flex-wrap: wrap; row-gap: 2px; }
+  .vai-ra-stats { order: 3; flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vai-ra.is-active .vai-ra-label { animation: none; color: var(--ink-2, #3d3a35); -webkit-text-fill-color: currentColor; background: none; }
+  .vai-ra-spinner, .vai-ra-body { animation: none; }
+}

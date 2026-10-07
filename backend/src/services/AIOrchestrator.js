@@ -8,6 +8,7 @@ const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = requ
 const { buildAstrologyContext } = require("./astrologyContext");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
+const { withTimeout } = require("../utils/withTimeout");
 
 // Adapters that read a message's `images` field, so they can be handed a
 // screenshot (see geminiAdapter.js / cohereAdapter.js). Order is preference:
@@ -27,6 +28,34 @@ const ATTEMPT_TIMEOUT_MS = 30000;
 // A provider whose key or billing is broken stays parked this long.
 const CONFIG_PROBLEM_SUSPEND_MS = 10 * 60 * 1000;
 const VISION_ATTEMPT_TIMEOUT_MS = 50000;
+// How DeepSearch writes up its research (see agenticSearchService.js for the
+// research itself): a report in the style of Claude's Research, built only on
+// the numbered sources, with corroboration and disagreement made visible.
+const RESEARCH_REPORT_PROMPT = `[MODE: DEEP SEARCH — RESEARCH REPORT]
+You have just researched this question: the research plan, the numbered SOURCES with their key passages, any coverage gaps and the claims that were cross-checked are under LIVE SEARCH RESULTS below. Write the report a careful analyst would hand over.
+
+Structure
+- Start with the bottom line: 2–4 sentences that answer the question directly, with the most important figures.
+- Then the findings, under clear headings that follow the research plan's angles. Use a table when comparing options, figures or dates side by side.
+- End with "Confidence and gaps": what is well established (several independent sources agree), what is uncertain or disputed, and what the research could not find.
+
+Evidence
+- Put an inline citation [n] after every factual claim, using only numbers from the SOURCES list. Cite every source that supports a claim, e.g. [2][7]; agreement between independent sources is the strongest evidence you have.
+- Where sources disagree, say so and cite each side, rather than silently picking one.
+- For each cross-checked claim, say whether the independent check confirmed it, contradicted it or didn't address it.
+- Give dates for anything that changes over time, and prefer the most recent reliable source. Keep exact numbers, units and currencies.
+- Keep facts, estimates and forecasts, and your own inferences visibly apart.
+- Never invent a source, number, quote or date. If the evidence is thin, say so plainly instead of filling in from memory.
+
+Style
+- Thorough but not padded: as long as the question needs, usually 500–1500 words. No preamble about how you researched.
+- The numbered sources are shown to the reader as cards next to your answer, so don't add a list of sources or links at the end.`;
+// How long DeepSearch may research before the report is written.
+const RESEARCH_DEADLINE_MS = 150000;
+// Writers whose requests are capped tightly (Groq's free tier: ~12k tokens).
+const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
+// A research report runs long; this is the least room the writer gets.
+const RESEARCH_MIN_TOKENS = 8192;
 
 class AIOrchestrator {
   constructor() {
@@ -103,7 +132,9 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
   }
 
   async buildSystemPrompt(mode, context = {}) {
-    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock } = context;
+    // `lean` leaves out the visual-block instructions (about two thirds of the
+    // prompt) for a writer with a small request budget.
+    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock, lean = false } = context;
 
     // ── Core system prompt ──
     // The date is the user's, in their own timezone (clockService) — the
@@ -336,12 +367,10 @@ The assistant should feel like:
       sys += "\n\n[MODE: DATA ANALYSIS] You are optimized for structured thinking. When the user sends data (CSV, table, numbers, or a plain description), identify what type of analysis fits, run it, and return a clean structured report — with sections like Summary, Key Findings, Breakdown, and Recommendations. Response should feel like a junior analyst handed you a report, not a chatbot answering a question. Always include a chart JSON block when data allows.";
     } else if (mode === "summarize") {
       sys += "\n\n[MODE: SUMMARIZE] Automatically detect the content type and summarize it at three levels: a one-sentence TL;DR at the top, a short paragraph summary below, and bullet-point key takeaways at the bottom. If the content seems very long, also add a 'What to read in full' note pointing out which section is most important. Tone should match the source — formal docs get formal summaries, casual articles get casual ones.";
-    } else if (mode === "deep_search") {
-      sys += "\n\n[MODE: DEEP SEARCH] Write a well-structured response with inline citations (numbered footnotes or source links at the bottom). Final response should feel like a researched answer, not a chat reply — use paragraphs, sources, and state confidence level where relevant.";
+    } else if (mode === "deep_search" || mode === "research") {
+      sys += `\n\n${RESEARCH_REPORT_PROMPT}`;
     } else if (mode === "creative") {
       sys += "\n\n[MODE: CREATIVE] You are a creative writer. Be vivid, imaginative, and original.";
-    } else if (mode === "research") {
-      sys += "\n\n[MODE: RESEARCH] Provide well-cited, comprehensive answers.";
     } else if (mode === "computer_use") {
       sys = `You are VetroAI's screen-control agent. A human has explicitly granted you permission, for this session only, to move their mouse, click, and type on their real desktop through a companion app. You act one small, reversible step at a time and a human is watching the screen the whole time; they can revoke control instantly.
 
@@ -402,7 +431,7 @@ Before finishing, mentally check: every class referenced in the HTML has a match
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with
     // the "ONE html code block only" rule and dilutes the model's attention away from styling;
     // for computer_use it would corrupt the strict single-JSON-action contract entirely)
-    if (mode !== "design" && mode !== "computer_use") {
+    if (mode !== "design" && mode !== "computer_use" && !lean) {
     sys += `\n\n### RICH VISUALIZATION INTENT SYSTEM
 You are equipped with a dynamic visualization rendering system. When responding to comparisons, trends, analytics, rankings, geographical queries, statistics, timelines, process milestones, system architectures, or technical details, you MUST output the appropriate structured JSON block inside your response. Never return only plain text or standard markdown tables when these premium visual components would improve user understanding. You may mix markdown text before and after the blocks.
 
@@ -541,7 +570,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // Inline visuals: ```mermaid / ```chartjs / ```html widget / ```json map
     // blocks are drawn in the chat. Not for design (single HTML block) or
     // computer_use (single JSON action).
-    if (mode !== "design" && mode !== "computer_use") {
+    if (mode !== "design" && mode !== "computer_use" && !lean) {
       sys += VISUALS_PROMPT;
     }
 
@@ -694,13 +723,17 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // usable — the answering model must not paper over that gap with stale
     // training knowledge dressed up as a current fact.
     let noRealtimeData = false;
+    // DeepSearch's activity log as last sent, so it can be marked finished
+    // once the report has been written.
+    let research = null;
+    let compactContext = null;
+    const isAgentic = mode === "deep_search" || mode === "research";
 
     if (shouldSearch) {
-      // Research mode runs the agentic loop: it searches, reads what came back,
-      // works out what is still missing and searches again. That takes longer
-      // than one round trip, so it gets its own budget and streams progress —
-      // the flat 10s cap below would kill it mid-loop.
-      const isAgentic = mode === "deep_search" || mode === "research";
+      // DeepSearch runs the full research (agenticSearchService.js): plan,
+      // search every angle, read the pages, fill gaps, cross-check claims.
+      // That takes a minute or two, so it has its own budget and streams its
+      // activity log — the flat 10s cap below would cut it off.
 
       this.sendVetroEvent(
         res,
@@ -713,22 +746,29 @@ Choose the single best-fitting visualization block(s) from the formats below:
         if (isAgentic) {
           // The service enforces its own deadline and returns partial evidence
           // rather than throwing, so the outer race only guards a hung socket.
-          searchRes = await Promise.race([
+          searchRes = await withTimeout(
             performAgenticSearch(userQuery, {
               clock: params.clock,
+              deadlineMs: RESEARCH_DEADLINE_MS,
+              history: this.recentHistory(messages),
               onStatus: (msg) => { if (msg) this.sendVetroEvent(res, "status", msg); },
+              onProgress: (snapshot) => {
+                research = snapshot;
+                this.sendVetroEvent(res, "research", snapshot);
+              },
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 35000)),
-          ]);
+            RESEARCH_DEADLINE_MS + 20000,
+            "Search timeout",
+          );
         } else {
-          searchRes = await Promise.race([
-            searchWeb(userQuery, { clock: params.clock }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Search timeout")), 10000)),
-          ]);
+          searchRes = await withTimeout(searchWeb(userQuery, { clock: params.clock }), 10000, "Search timeout");
         }
         webContext = searchRes.context;
+        compactContext = searchRes.compactContext || null;
 
-        const sources = this.normalizeSources(searchRes.results);
+        // Every research source goes to the browser, in citation order, so
+        // card n is always the [n] the report cites.
+        const sources = this.normalizeSources(searchRes.results, isAgentic ? 40 : 10);
         if (sources.length) {
           this.sendVetroEvent(res, "sources", sources);
         } else {
@@ -749,12 +789,20 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
 
-    let finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock });
-    if (clockNote) finalSysPrompt += clockNote;
+    let promptExtras = "";
+    if (clockNote) promptExtras += clockNote;
     if (noRealtimeData) {
-      finalSysPrompt += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
+      promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
     }
-    finalSysPrompt += buildPluginPrompt(params.activePlugins);
+    promptExtras += buildPluginPrompt(params.activePlugins);
+    const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock }) + promptExtras;
+    // Groq's free tier refuses any request over ~12k tokens, and a full
+    // research context alone is about that. Its writer gets the compact
+    // evidence (same sources and numbers, one short passage each) and a lean
+    // prompt instead; every other writer gets everything.
+    const compactSysPrompt = isAgentic && compactContext
+      ? await this.buildSystemPrompt(mode, { userQuery, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true }) + promptExtras
+      : null;
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one. Models that reason natively stream their own and skip it
     // (see messagesFor) — asking them as well made them deliberate twice.
@@ -763,6 +811,19 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const astrologyPrompt = astrology.prompt || "";
     // The adapters that honour it map this to the model's own reasoning depth.
     options = { ...options, effort: params.effort };
+    if (isAgentic && webContext) {
+      options.maxTokens = Math.max(Number(options.maxTokens) || 0, RESEARCH_MIN_TOKENS);
+    }
+    // Marks DeepSearch's activity log finished (or failed) in the browser.
+    const finishResearch = (phase) => {
+      if (!research) return;
+      research = {
+        ...research,
+        phase,
+        steps: research.steps.map((step) => (step.status === "active" ? { ...step, status: phase === "done" ? "done" : "failed" } : step)),
+      };
+      this.sendVetroEvent(res, "research", research);
+    };
 
     console.log(`[ORCHESTRATOR DEBUG] User Query: "${userQuery}"`);
     console.log(`[ORCHESTRATOR DEBUG] Frontend custom systemPrompt: "${params.systemPrompt || ''}"`);
@@ -774,7 +835,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
     });
     const messagesFor = (providerName) => {
       const thinking = providerManager.getAdapter(providerName)?.reasonsNatively?.() ? "" : thinkingPrompt;
-      return [{ role: "system", content: finalSysPrompt + thinking + astrologyPrompt }, ...history];
+      const base = compactSysPrompt && TIGHT_BUDGET_PROVIDERS.has(providerName) ? compactSysPrompt : finalSysPrompt;
+      return [{ role: "system", content: base + thinking + astrologyPrompt }, ...history];
     };
 
     while (attempts < maxAttempts && !success) {
@@ -801,11 +863,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         // adapter's own request kept running.
         const streamPromise = adapter.generateStream(messagesFor(currentProviderName), options);
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Stream generation timeout")), attemptTimeout)
-        );
-
-        const stream = await Promise.race([streamPromise, timeoutPromise]);
+        const stream = await withTimeout(streamPromise, attemptTimeout, "Stream generation timeout");
         
         if (!stream) throw new Error("Provider returned empty stream");
 
@@ -828,6 +886,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
         }
 
         providerManager.updateMetrics(currentProviderName, true, Date.now() - startTime);
+        finishResearch("done");
         success = true;
       } catch (err) {
         logger.error(`AIOrchestrator.error [${currentProviderName}]`, { reqId, error: err.message });
@@ -858,6 +917,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
           if (!nextProvider) {
             // Every image-capable provider failed: let the client read the
             // image itself (NO_VISION) rather than giving up on the turn.
+            finishResearch("failed");
             this.sendVetroEvent(res, "error", needsVision
               ? "The image-reading models on the server are unavailable right now."
               : "All configured AI providers are currently unavailable. Please try again shortly.",
@@ -882,6 +942,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
           // that retry their own short rate limits still pause inside.
           currentProviderName = nextProvider;
         } else {
+          finishResearch("failed");
           this.sendVetroEvent(res, "error", this.describeFinalFailure(lastFailure, attemptedProviders));
         }
       }
@@ -890,6 +951,17 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // Tells the caller whether the user actually received an answer — a request
     // that exhausted every provider must not be billed.
     return success;
+  }
+
+  // The last few turns before the question, short, so DeepSearch can tell
+  // what a follow-up like "and in 2027?" refers to.
+  recentHistory(messages) {
+    return messages
+      .slice(0, -1)
+      .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
+      .slice(-4)
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.replace(/\s+/g, " ").slice(0, 400)}`)
+      .join("\n");
   }
 
   sendVetroEvent(res, type, data, extra) {
@@ -923,8 +995,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
   // Turns raw Tavily/DDG result objects into the small, stable shape the
   // frontend renders as source cards — including a freshness date when the
   // provider supplied one, so the UI can show how current each source is.
-  normalizeSources(results) {
-    return (results || []).slice(0, 10).map((r) => {
+  normalizeSources(results, limit = 10) {
+    return (results || []).slice(0, limit).map((r) => {
       let domain = "";
       try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { domain = r.url || ""; }
       return {
@@ -1377,3 +1449,6 @@ Choose the single best-fitting visualization block(s) from the formats below:
 }
 
 module.exports = new AIOrchestrator();
+// The browser-model DeepSearch path writes its report with the same brief.
+module.exports.RESEARCH_REPORT_PROMPT = RESEARCH_REPORT_PROMPT;
+module.exports.RESEARCH_DEADLINE_MS = RESEARCH_DEADLINE_MS;

@@ -232,4 +232,4 @@ async function fillMissingImages(articles, { budgetMs = 4000, concurrency = 6, m
   return articles;
 }
 
-module.exports = { extractImageFromHtml, findArticleImage, fillMissingImages, isPrivateAddress, _cache: cache };
+module.exports = { extractImageFromHtml, findArticleImage, fillMissingImages, isPrivateAddress, assertPublicHttpUrl, _cache: cache };

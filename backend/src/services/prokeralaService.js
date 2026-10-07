@@ -6,6 +6,8 @@ const TOKEN_URL = "https://api.prokerala.com/token";
 const API_BASE = "https://api.prokerala.com/v2/astrology";
 const GEOCODE_URL = "https://nominatim.openstreetmap.org/search";
 
+const isConfigured = () => Boolean(config.prokeralaClientId && config.prokeralaClientSecret);
+
 // OAuth2 client-credentials token, cached in memory until shortly before it expires.
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
@@ -144,6 +146,11 @@ async function getAstrologyData(details) {
   if (!details || !details.year || !details.month || !details.day || !details.city) {
     return null;
   }
+  // Without the keys every call fails at the token step; say why instead.
+  if (!isConfigured()) {
+    logger.warn("ProKerala is not configured: set PROKERALA_CLIENT_ID and PROKERALA_CLIENT_SECRET");
+    return null;
+  }
 
   try {
     const hour = details.hour ?? 12;
@@ -214,4 +221,4 @@ ${historyText}`;
   }
 }
 
-module.exports = { getAstrologyData, extractBirthDetails };
+module.exports = { getAstrologyData, extractBirthDetails, isConfigured };

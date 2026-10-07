@@ -43,6 +43,8 @@ const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
 import ThinkingPanel from "./components/ThinkingPanel";
+import ResearchActivity from "./components/ResearchActivity";
+import { settleResearch } from "./lib/research";
 // These screens are all behind a toggle — none of them is on screen when the app
 // opens, and between them they pull in three.js, chess.js and the map stacks.
 // Importing them eagerly meant every visitor downloaded and parsed all of it
@@ -138,6 +140,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("sources", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
+      } else if ((type === "research" || type === "research_result") && data) {
+        // DeepSearch's activity log, and (from /api/research) its findings.
+        onMeta?.(type, data);
       }
     } catch (err) {
       console.error("SSE parse error:", err, raw, reqId);
@@ -3131,7 +3136,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
 const getStatusLabel = (status, mode) => {
   if (!status || status === "preparing" || status === "streaming" || status === "idle") {
     switch(mode) {
-      case "deep_search": return "Searching sources…";
+      case "deep_search": return "Researching…";
       case "debugger": return "Reading your code…";
       case "summarize": return "Condensing…";
       case "analyst": return "Crunching data…";
@@ -6545,6 +6550,86 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         // a model writes the answer from the results, sources attached.
       }
 
+      // DeepSearch with a browser model: the backend does the research (plan,
+      // search every angle, read the pages, fill gaps, cross-check) and
+      // streams its activity log; then the chosen model writes the report
+      // from those findings, with the same brief the backend's models get.
+      const isResearchMode = isDeepSearch || selectedMode === "research";
+      if (puterModelId && isResearchMode && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+        let findings = null;
+        try {
+          setStreamStatus("Researching…");
+          const researchRes = await fetch(`${API}/research`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: userQuery,
+              messages: hist.slice(0, -1).filter((m) => typeof m?.content === "string" && m.content).slice(-8).map(({ role, content }) => ({ role, content })),
+              clientTimeZone: userTimeZone(),
+            }),
+            signal: ctrl.signal,
+          });
+          if (!researchRes.ok || !researchRes.body) throw new Error(`Research failed (${researchRes.status})`);
+          let researchError = "";
+          await readSSEStream(
+            researchRes.body.getReader(),
+            () => {},
+            (statusMsg) => { if (isActive()) setStreamStatus(statusMsg); },
+            (errorMsg) => { researchError = errorMsg; },
+            isActive,
+            reqId,
+            null,
+            (metaType, metaData) => {
+              if (!isActive()) return;
+              if (metaType === "research_result") { findings = metaData; return; }
+              setMessages((previous) => {
+                const next = [...previous];
+                const last = { ...next[next.length - 1] };
+                if (metaType === "research") last.research = metaData;
+                if (metaType === "sources") last.sources = metaData;
+                next[next.length - 1] = last;
+                return next;
+              });
+            },
+          );
+          if (researchError && !findings) throw new Error(researchError);
+        } catch (researchErr) {
+          if (researchErr?.name === "AbortError" || !isActive()) throw researchErr;
+          addDebugLog("Research.failed", { reqId, error: researchErr?.message });
+        }
+        if (!isActive()) return;
+        if (findings?.context) {
+          try {
+            const researchedBot = await streamWithPuter(
+              effectivePuterProvider,
+              [findings.instructions, `LIVE SEARCH RESULTS:\n${findings.context}`, astro?.prompt].filter(Boolean).join("\n\n"),
+              astro?.chartBlock || "",
+            );
+            if (!isActive() || researchedBot === null) return;
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], research: settleResearch(next[next.length - 1].research, "done") };
+              return next;
+            });
+            finishChat(researchedBot);
+            return;
+          } catch (puterErr) {
+            if (!isActive()) return;
+            if (!isPuterCreditsError(puterErr)) throw puterErr;
+            // Out of credits for this model: the backend's DeepSearch (and its
+            // Sonar Pro fallback) answers instead.
+            puterCreditsExhaustedRef.current.add(effectivePuterProvider);
+            addToast(puterFailureToast(effectivePuterProvider, puterErr), "info", 4000);
+            setMessages((previous) => {
+              const next = [...previous];
+              next[next.length - 1] = { ...next[next.length - 1], content: "" };
+              return next;
+            });
+            setStreamingContent("");
+          }
+        }
+      }
+
       // Web search with a browser model: browser models can't search, and the
       // backend doesn't know them — it used to answer with its own top-weighted
       // model instead of the one the user picked. So search here via
@@ -6699,6 +6784,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 const last = { ...u[u.length - 1] };
                 if (metaType === "sources") last.sources = metaData;
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
+                if (metaType === "research") last.research = metaData;
                 u[u.length - 1] = last;
                 return u;
               });
@@ -6871,11 +6957,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       });
     } finally {
       clearFiles();
-      // Aborted, failed or completed — the thinking panel must settle either way.
+      // Aborted, failed or completed — the thinking panel must settle either way,
+      // and a research log still running was stopped.
       setMessages(prev => {
-        if (prev.length === 0 || !prev[prev.length - 1].isThinking) return prev;
+        const last = prev[prev.length - 1];
+        if (!last || (!last.isThinking && last.research === settleResearch(last.research, "failed"))) return prev;
         const u = [...prev];
-        u[u.length - 1] = { ...u[u.length - 1], isThinking: false };
+        u[u.length - 1] = { ...last, isThinking: false, research: settleResearch(last.research, "failed") };
         return u;
       });
     }
@@ -8247,6 +8335,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                durationMs={m.thinkingMs}
                              />
                            )}
+                           {m.research && (
+                             <ResearchActivity
+                               research={m.research}
+                               live={isLoading && i === messages.length - 1}
+                               answering={Boolean(m.content)}
+                             />
+                           )}
                            {m.sources && m.sources.length > 0 && (
                              <SourceCards sources={m.sources} />
                            )}
@@ -8355,7 +8450,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   </div>
                                   );
                                })()
-                               : !m.content && isLoading && !m.isThinking && !m.reasoning
+                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research
                                ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
                                    <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
