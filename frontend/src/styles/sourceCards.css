@@ -178,6 +178,16 @@
 @media (max-width: 768px) {
   .px-src .px-src-card { width: 148px; }
 }
+/* On a phone two 148px cards filled the row exactly, so nothing showed that
+   more scroll in. Narrower cards let the third peek in, and the row fades out
+   at its right edge. */
+@media (max-width: 480px) {
+  .px-src .px-src-card { width: calc((100% - 16px) / 2.4); }
+  .px-src-row {
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent);
+    mask-image: linear-gradient(90deg, #000 88%, transparent);
+  }
+}
 
 /* Tailwind's preflight strips list markers everywhere, so Markdown lists in
    replies showed neither bullets nor numbers. Restore them for plain

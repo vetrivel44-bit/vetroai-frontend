@@ -17,18 +17,21 @@
   }
   async function downloadImage(src){ try{const r=await fetch(src);const b=await r.blob();downloadBlob(b,safeName('vetroai-image',b.type.includes('png')?'png':'jpg'));}catch{const a=document.createElement('a');a.href=src;a.download='vetroai-image.png';a.click();} }
 
-  function addImageTools(img){ if(img.dataset.vetroTools)return; img.dataset.vetroTools='1'; const wrap=img.parentElement; if(!wrap)return; const bar=document.createElement('div'); bar.className='vetro-image-actions'; bar.innerHTML='<button type="button">Download</button><button type="button">Share</button>'; bar.children[0].onclick=()=>downloadImage(img.src); bar.children[1].onclick=()=>shareImage(img.src); wrap.appendChild(bar); }
+  // The bar goes after the image, or after the link or button around it: inside
+  // one, tapping Download would also follow the link.
+  function addImageTools(img){ if(img.dataset.vetroTools)return; img.dataset.vetroTools='1'; const anchor=img.closest('a,button'); const host=anchor && anchor.closest('.msg-row, [class*=message]') ? anchor : img; const bar=document.createElement('div'); bar.className='vetro-image-actions'; bar.innerHTML='<button type="button">Download</button><button type="button">Share</button>'; bar.children[0].onclick=()=>downloadImage(img.src); bar.children[1].onclick=()=>shareImage(img.src); host.insertAdjacentElement('afterend',bar); }
   function addOutputTools(row){ if(row.dataset.vetroExports)return; const text=textOf(row); if(!text || text==='Generating your image...')return; row.dataset.vetroExports='1'; const bar=document.createElement('div'); bar.className='vetro-export-actions'; ['PDF','Word','Spreadsheet'].forEach((label,i)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>downloadText(textOf(row),['pdf','doc','csv'][i]);bar.appendChild(b);}); row.appendChild(bar); }
   // Download/Share are for pictures (generated images, photos, charts), never
   // for icons: site icons in citations, source cards and DeepSearch's research
-  // card, logos, model icons, map tiles. Components mark their icons with
-  // data-no-image-tools; anything else drawn or sized like an icon is skipped
-  // too, judged once the image has loaded (a favicon .ico can be 256px wide but
-  // is drawn at 16px).
-  const ICON_AREAS='[data-no-image-tools], .px-src, .vai-cite, .vai-ra, .vetro-diagram, .vetro-visual, .maplibregl-map';
-  const ICON_MAX=96;
+  // card, logos, crests, model icons, badges, map tiles. Components mark their
+  // icons with data-no-image-tools. Anything else is judged once it has loaded
+  // and is drawn: by its drawn size, since a favicon.ico or a team crest can be
+  // 256px but is drawn at 16-40px, and by its shortest side, which catches
+  // badges and tracking pixels. Until it is drawn (a hidden or collapsed
+  // container reports 0x0) it is looked at again later.
+  const ICON_AREAS='[data-no-image-tools], .px-src, .vai-cite, .vai-ra, .ls-card, .vetro-diagram, .vetro-visual, .maplibregl-map';
+  const ICON_MAX=96, THIN_MAX=64;
   const isIcon=img=>img.classList.contains('response-model-icon') || img.classList.contains('px-src-favicon') || !!img.closest(ICON_AREAS);
-  const iconSized=img=>{ const r=img.getBoundingClientRect(); return (r.width>0 && r.width<=ICON_MAX && r.height<=ICON_MAX) || (img.naturalWidth<=ICON_MAX && img.naturalHeight<=ICON_MAX); };
   function considerImage(img){
     const src=img.currentSrc || img.src;
     if(img.dataset.vetroTools || img.dataset.vetroChecked===src) return;
@@ -36,8 +39,11 @@
       if(img.dataset.vetroWaiting!==src){ img.dataset.vetroWaiting=src; img.addEventListener('load',()=>requestAnimationFrame(sync),{once:true}); }
       return;
     }
+    if(Math.min(img.naturalWidth,img.naturalHeight)<THIN_MAX){ img.dataset.vetroChecked=src; return; }
+    const r=img.getBoundingClientRect();
+    if(!r.width || !r.height) return;
     img.dataset.vetroChecked=src;
-    if(!iconSized(img)) addImageTools(img);
+    if(r.width>ICON_MAX || r.height>ICON_MAX) addImageTools(img);
   }
   function sync(){ document.querySelectorAll('img').forEach(img=>{ if(img.src && (img.closest('.msg-row') || img.closest('[class*=message]')) && !isIcon(img)) considerImage(img); }); }
   new MutationObserver(()=>requestAnimationFrame(sync)).observe(document.documentElement,{subtree:true,childList:true}); if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sync);else sync();

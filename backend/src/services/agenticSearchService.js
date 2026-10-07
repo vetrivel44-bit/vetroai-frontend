@@ -652,7 +652,9 @@ async function performAgenticSearch(query, options = {}) {
   }
   const numberOf = new Map(chosen.map(({ s }, i) => [s, i + 1]));
 
-  progress.start("write", "Writing the report", `${chosen.length} sources · ${usedQueries.length} searches · ${registry.pagesRead} pages read`, "writing");
+  // "read in full" counts every source with its page text, which includes the
+  // pages Tavily returned whole; the read steps count only the pages fetched.
+  progress.start("write", "Writing the report", `${chosen.length} sources · ${usedQueries.length} searches · ${registry.pagesRead} read in full`, "writing");
 
   logger.info("research.done", {
     angles: plan.angles.length,

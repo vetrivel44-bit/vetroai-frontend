@@ -12268,6 +12268,36 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   }
 }
 
+/* The composer dock's `px-4 sm:px-6` is inert for the same reason, so the
+   composer ran edge to edge on a phone. */
+.composer-dock {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+@media (min-width: 640px) {
+  .composer-dock {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+/* Jump to latest sits just above the composer, however tall it grows. Placed
+   from the bottom of the screen, it landed on the text field on a phone. The
+   older placements above are !important, hence these. */
+.composer-dock .scroll-btn {
+  position: absolute !important;
+  top: auto !important;
+  left: auto !important;
+  right: 4px !important;
+  bottom: calc(100% + 10px) !important;
+}
+
+/* On a phone the action row fits on one line as icons; every button has a
+   title and aria-label. */
+@media (max-width: 480px) {
+  .msg-action-row .msg-action-btn:not(.is-copied) > span { display: none; }
+  .msg-action-row .msg-action-btn { padding: 6px 8px; }
+}
+
 
 /* -- Web Search view (standalone Web Search mode) ---------------------- */
 .websearch-view {

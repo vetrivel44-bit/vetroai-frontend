@@ -8,4 +8,5 @@
 .response-model-icon ~ .vetro-image-actions,
 .px-src .vetro-image-actions,
 .vai-cite .vetro-image-actions,
-.vai-ra .vetro-image-actions { display: none !important; }
+.vai-ra .vetro-image-actions,
+.ls-card .vetro-image-actions { display: none !important; }

@@ -288,7 +288,12 @@
   .vai-ra-stages { gap: 4px; padding: 0 12px 11px; }
   .vai-ra-stage-label { font-size: 9.5px; letter-spacing: .03em; }
   .vai-ra-body { padding: 12px 12px 14px; }
-  .vai-ra-meta { white-space: normal; }
+  /* Once done, the Sources row below shows these sites, and without them the
+     summary ("8 sources · 7 searches · 7s") fits on one line instead of
+     leaving "· 7s" alone on the next. While it runs, the icons stay and the
+     live status may wrap. */
+  .vai-ra:not(.is-active) .vai-ra-stack { display: none; }
+  .vai-ra.is-active .vai-ra-meta { white-space: normal; }
   /* The source count drops under its angle rather than squeezing it. */
   .vai-ra-plan li { flex-wrap: wrap; row-gap: 3px; }
   .vai-ra-angle { flex-basis: calc(100% - 30px); }

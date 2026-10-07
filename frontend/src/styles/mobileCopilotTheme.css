@@ -602,7 +602,8 @@
     align-self: stretch !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 0 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    /* A side gutter, so the example cards and composer don't touch the edges. */
+    padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
     justify-content: flex-end !important;
     min-height: 100%;
   }
