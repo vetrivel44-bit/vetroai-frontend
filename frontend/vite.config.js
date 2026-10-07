@@ -1,6 +1,54 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import process from 'node:process'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createHash } from 'node:crypto'
+
+// Files in public/ are copied to dist/ under their own names, so every deploy
+// serves /rich-output-tools.js (and the other classic scripts index.html loads)
+// at the same URL. A phone holding an older copy can then run it next to a
+// newer hashed app bundle — which is how site icons in DeepSearch answers
+// got Download/Share buttons that a later version of the script had already
+// stopped adding. This adds ?v=<content hash> to every <script src> and
+// stylesheet/preload <link href> in index.html that names a file in public/, so
+// the URL changes exactly when the file does and a cached copy cannot outlive it.
+//
+// It runs before Vite's own HTML pass ("pre"): Vite recognises a public file
+// with the query stripped, keeps the query on output and still applies `base`.
+// Build only: the dev server always serves the files on disk.
+function versionPublicFiles() {
+  let publicDir = '';
+  const TAG = /<(script|link)\b[^>]*>/gi;
+  const URL_ATTR = /(\s(?:src|href)\s*=\s*)(["'])(\/[^"'?#]+)\2/i;
+  const VERSIONED_LINK = /\srel\s*=\s*["']?(?:stylesheet|preload|modulepreload)\b/i;
+  const versionOf = (url) => {
+    let rel;
+    try { rel = decodeURI(url); } catch { return null; }
+    const file = path.resolve(publicDir, `.${rel}`);
+    if (!file.startsWith(publicDir + path.sep)) return null;
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return null;
+    return createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 10);
+  };
+  return {
+    name: 'vetroai-version-public-files',
+    apply: 'build',
+    configResolved(config) { publicDir = config.publicDir ? path.resolve(config.publicDir) : ''; },
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html) {
+        if (!publicDir) return html;
+        return html.replace(TAG, (tag, name) => {
+          if (name.toLowerCase() === 'link' && !VERSIONED_LINK.test(tag)) return tag;
+          return tag.replace(URL_ATTR, (attr, prefix, quote, url) => {
+            const v = versionOf(url);
+            return v ? `${prefix}${quote}${url}?v=${v}${quote}` : attr;
+          });
+        });
+      },
+    },
+  };
+}
 
 function browserPuterModelsTransform() {
   return {
@@ -45,7 +93,7 @@ function browserPuterModelsTransform() {
   };
 }
 
-export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react()], build:{
+export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react(),versionPublicFiles()], build:{
     // Everything used to land in one ~7.8 MB chunk that had to be downloaded,
     // parsed and executed before the first chat could paint. The screens, the
     // chart/map/editor components and the syntax highlighter are behind

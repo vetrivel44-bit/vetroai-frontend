@@ -1,1 +1,11 @@
 .vetro-export-actions,.vetro-image-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.vetro-export-actions button,.vetro-image-actions button{appearance:none;border:1px solid rgba(255,255,255,.13);background:#111113;color:#e9e9eb;border-radius:9px;padding:6px 10px;font:500 12px/1.2 Inter,system-ui,sans-serif;cursor:pointer}.vetro-export-actions button:hover,.vetro-image-actions button:hover{background:#1b1b1e;border-color:rgba(255,255,255,.22)}.vetro-image-actions{position:relative;width:max-content;margin-top:8px}@media(max-width:768px){.vetro-export-actions button,.vetro-image-actions button{padding:7px 11px;font-size:12px}}
+/* Icons never get the image toolbar. rich-output-tools.js skips them, but it
+   is a public script and a browser can keep running an older copy after a
+   deploy; this stylesheet ships in the hashed bundle, so it always matches the
+   app. The old script appended the bar right after the icon, inside its chip. */
+.px-src-favicon ~ .vetro-image-actions,
+[data-no-image-tools] ~ .vetro-image-actions,
+.response-model-icon ~ .vetro-image-actions,
+.px-src .vetro-image-actions,
+.vai-cite .vetro-image-actions,
+.vai-ra .vetro-image-actions { display: none !important; }
