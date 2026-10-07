@@ -120,13 +120,24 @@ ${question || "Continue the research from the conversation context."}`;
     "Cache-Control": "no-cache, no-transform",
   };
 
+  // A Sonar Pro citation as a source card, numbered as Sonar numbers it.
+  const sourceCard = (url) => {
+    let domain = url;
+    try { domain = new URL(url).hostname.replace(/^www\./, ""); } catch { /* keep the raw URL */ }
+    return { title: domain, url, domain, published: null };
+  };
+
   // Researches the question with Sonar Pro and writes the answer to the stream.
   const finishWithSonar = async (controller, form, signal, notice) => {
     const send = (event) => controller.enqueue(frame(event));
     try {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (notice) {
+        // The backend's research card and source cards belong to an answer
+        // that never came; Sonar Pro's answer brings its own sources.
         send({ type: "clear", data: "" });
+        send({ type: "research_reset", data: null });
+        send({ type: "sources", data: [] });
         send({ type: "status", data: notice });
       }
       await window.whenPuter?.();
@@ -147,6 +158,7 @@ ${question || "Continue the research from the conversation context."}`;
         text += `\n\n## Sources\n${citations.map((url, index) => `${index + 1}. ${url}`).join("\n")}`;
       }
 
+      if (citations.length) send({ type: "sources", data: citations.map(sourceCard) });
       send({ type: "content", data: text });
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();

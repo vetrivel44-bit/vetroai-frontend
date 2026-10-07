@@ -19,6 +19,26 @@
 
   function addImageTools(img){ if(img.dataset.vetroTools)return; img.dataset.vetroTools='1'; const wrap=img.parentElement; if(!wrap)return; const bar=document.createElement('div'); bar.className='vetro-image-actions'; bar.innerHTML='<button type="button">Download</button><button type="button">Share</button>'; bar.children[0].onclick=()=>downloadImage(img.src); bar.children[1].onclick=()=>shareImage(img.src); wrap.appendChild(bar); }
   function addOutputTools(row){ if(row.dataset.vetroExports)return; const text=textOf(row); if(!text || text==='Generating your image...')return; row.dataset.vetroExports='1'; const bar=document.createElement('div'); bar.className='vetro-export-actions'; ['PDF','Word','Spreadsheet'].forEach((label,i)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>downloadText(textOf(row),['pdf','doc','csv'][i]);bar.appendChild(b);}); row.appendChild(bar); }
-  function sync(){ document.querySelectorAll('img').forEach(img=>{ if(img.src && (img.closest('.msg-row') || img.closest('[class*=message]')) && !img.classList.contains('response-model-icon') && !img.classList.contains('px-src-favicon') && !img.closest('.px-src') && !img.closest('.vetro-diagram, .vetro-visual, .maplibregl-map')) addImageTools(img); /* map tiles, inline visuals and site icons (source cards, DeepSearch, citations) are not photos */ }); }
+  // Download/Share are for pictures (generated images, photos, charts), never
+  // for icons: site icons in citations, source cards and DeepSearch's research
+  // card, logos, model icons, map tiles. Components mark their icons with
+  // data-no-image-tools; anything else drawn or sized like an icon is skipped
+  // too, judged once the image has loaded (a favicon .ico can be 256px wide but
+  // is drawn at 16px).
+  const ICON_AREAS='[data-no-image-tools], .px-src, .vai-cite, .vai-ra, .vetro-diagram, .vetro-visual, .maplibregl-map';
+  const ICON_MAX=96;
+  const isIcon=img=>img.classList.contains('response-model-icon') || img.classList.contains('px-src-favicon') || !!img.closest(ICON_AREAS);
+  const iconSized=img=>{ const r=img.getBoundingClientRect(); return (r.width>0 && r.width<=ICON_MAX && r.height<=ICON_MAX) || (img.naturalWidth<=ICON_MAX && img.naturalHeight<=ICON_MAX); };
+  function considerImage(img){
+    const src=img.currentSrc || img.src;
+    if(img.dataset.vetroTools || img.dataset.vetroChecked===src) return;
+    if(!img.complete || !img.naturalWidth){
+      if(img.dataset.vetroWaiting!==src){ img.dataset.vetroWaiting=src; img.addEventListener('load',()=>requestAnimationFrame(sync),{once:true}); }
+      return;
+    }
+    img.dataset.vetroChecked=src;
+    if(!iconSized(img)) addImageTools(img);
+  }
+  function sync(){ document.querySelectorAll('img').forEach(img=>{ if(img.src && (img.closest('.msg-row') || img.closest('[class*=message]')) && !isIcon(img)) considerImage(img); }); }
   new MutationObserver(()=>requestAnimationFrame(sync)).observe(document.documentElement,{subtree:true,childList:true}); if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sync);else sync();
 })();

@@ -43,7 +43,14 @@ The research runs in `backend/src/services/agenticSearchService.js`.
    sources disagree, and ends with "Confidence and gaps".
 
 Every phase has a limit: 3 rounds, 24 searches, 12 fetched pages, and
-2½ minutes. If a step fails, the research carries on with what it has.
+2½ minutes. If a step fails, the research carries on with what it has. If
+the reader stops the answer or closes the tab, the research stops too, and
+no report is written.
+
+Pages are fetched only from public addresses. The check runs on the address
+each connection actually uses, so a site can't pass the check and then point
+its name at an internal address (DNS rebinding). IPv4 addresses written
+inside IPv6 ones, like `[::ffff:127.0.0.1]`, are checked as the IPv4 address.
 
 ## Which models
 

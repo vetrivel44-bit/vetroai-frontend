@@ -16,14 +16,97 @@
 // guard the news-image reader uses), reads a bounded number of bytes and gives
 // up quickly.
 
-const dns = require("node:dns").promises;
-const { assertPublicHttpUrl } = require("./articleImages");
+const dns = require("node:dns");
+const net = require("node:net");
+const http = require("node:http");
+const https = require("node:https");
+const zlib = require("node:zlib");
+const { Readable } = require("node:stream");
+const { assertPublicHttpUrl, isPrivateAddress } = require("./articleImages");
 
 const MAX_PAGE_BYTES = 1500 * 1024;
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_REDIRECTS = 3;
 
 // ── Fetching ────────────────────────────────────────────────────────────────
+
+/**
+ * A dns.lookup for sockets that refuses any answer that isn't a public
+ * address. Given to the socket itself, so the address checked is the address
+ * connected to: a name can't answer "public" to the check and "private" to
+ * the connection (DNS rebinding).
+ */
+const isPublic = (address) => !isPrivateAddress(address);
+
+function publicOnlyLookup({ resolve = dns.lookup, isAllowed = isPublic } = {}) {
+  return (hostname, options, callback) => {
+    const opts = options && typeof options === "object" ? options : { family: options };
+    resolve(hostname, { ...opts, all: true }, (err, addresses) => {
+      if (err) return callback(err);
+      const list = (Array.isArray(addresses) ? addresses : []).filter((a) => a?.address);
+      if (!list.length || !list.every((a) => isAllowed(a.address))) {
+        const refused = new Error(`${hostname} does not resolve to a public address`);
+        refused.code = "ENONPUBLIC";
+        return callback(refused);
+      }
+      return opts.all ? callback(null, list) : callback(null, list[0].address, list[0].family);
+    });
+  };
+}
+
+const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
+
+/**
+ * fetch() for third-party pages: a plain GET through node's http(s) with
+ * publicOnlyLookup on the socket, decompressing the body, answered as a
+ * standard Response. Redirects are not followed (fetchPageText follows them,
+ * re-checking each).
+ */
+function guardedFetch(href, { signal, headers = {} } = {}, lookupOptions) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(href);
+    const client = url.protocol === "https:" ? https : url.protocol === "http:" ? http : null;
+    if (!client) return reject(new Error("unsupported protocol"));
+    // Sockets don't look up an IP address, so the lookup can't vet one.
+    const literal = url.hostname.replace(/^\[|\]$/g, "");
+    if (net.isIP(literal) && !(lookupOptions?.isAllowed || isPublic)(literal)) {
+      const refused = new Error(`${literal} is not a public address`);
+      refused.code = "ENONPUBLIC";
+      return reject(refused);
+    }
+    const request = client.request(url, {
+      method: "GET",
+      agent: false,
+      signal,
+      lookup: publicOnlyLookup(lookupOptions),
+      headers: { ...headers, "Accept-Encoding": "gzip, deflate, br" },
+    }, (response) => {
+      const encoding = String(response.headers["content-encoding"] || "").toLowerCase();
+      const decoder = encoding.includes("gzip") ? zlib.createGunzip()
+        : encoding === "deflate" ? zlib.createInflate()
+        : encoding === "br" ? zlib.createBrotliDecompress()
+        : null;
+      const body = decoder ? response.pipe(decoder) : response;
+      // A dropped connection mid-body must end the read, not crash the process.
+      response.on("error", (err) => { if (decoder) decoder.destroy(err); });
+      const headerList = Object.entries(response.headers)
+        .filter(([name]) => name !== "set-cookie")
+        .flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).map((v) => [name, String(v)]));
+      try {
+        resolve(new Response(NULL_BODY_STATUS.has(response.statusCode) ? null : Readable.toWeb(body), {
+          status: response.statusCode,
+          headers: headerList,
+        }));
+      } catch (err) {
+        response.destroy();
+        reject(err);
+      }
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 async function readLimited(response, maxBytes) {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -44,16 +127,18 @@ async function readLimited(response, maxBytes) {
 
 /**
  * Fetches a page and returns its readable text, or null when it can't be read
- * (non-public host, error status, not HTML or plain text, timeout).
+ * (non-public host, error status, not HTML or plain text, timeout, cancelled).
  */
-async function fetchPageText(pageUrl, { fetchImpl = fetch, lookup = dns.lookup, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+async function fetchPageText(pageUrl, { fetchImpl = guardedFetch, lookup = dns.promises.lookup, timeoutMs = FETCH_TIMEOUT_MS, signal } = {}) {
   try {
     let current = pageUrl;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (signal?.aborted) return null;
       const url = await assertPublicHttpUrl(current, lookup);
+      const timeout = AbortSignal.timeout(timeoutMs);
       const response = await fetchImpl(url.href, {
         redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; VetroAI-Research/1.0)",
           Accept: "text/html,application/xhtml+xml,text/plain;q=0.8",
@@ -80,6 +165,11 @@ async function fetchPageText(pageUrl, { fetchImpl = fetch, lookup = dns.lookup, 
 }
 
 // ── HTML to text ────────────────────────────────────────────────────────────
+// Pages come from anywhere, so nothing here may take more than linear time on
+// any input: every scan is an indexOf that moves forward, and every pattern
+// stops at the next "<" rather than searching on to the end of the page (a
+// page of unclosed "<!--" or "<nav>" made the regex version take minutes).
+
 const NAMED_ENTITIES = {
   amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ", mdash: "—", ndash: "–",
   hellip: "…", rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“", copy: "©", reg: "®",
@@ -87,7 +177,7 @@ const NAMED_ENTITIES = {
 };
 
 function decodeEntities(text) {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code) => {
+  return text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, (match, code) => {
     if (code[0] === "#") {
       const n = code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
       return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : match;
@@ -96,7 +186,66 @@ function decodeEntities(text) {
   });
 }
 
-const stripTags = (html) => html.replace(/<[^>]+>/g, " ");
+const stripTags = (html) => html.replace(/<[^<>]*>/g, " ");
+
+// Elements whose content is never the page's text.
+const DROPPED = new Set(["script", "style", "noscript", "svg", "template", "iframe", "canvas", "form", "nav", "header", "footer", "aside", "select", "button"]);
+const TAG_NAME = /^<([a-z][a-z0-9-]*)/;
+
+/** The element name of a tag starting at `i` in `lower` ("<nav class=x>" -> "nav"), if any. */
+function tagNameAt(lower, i) {
+  const match = TAG_NAME.exec(lower.slice(i, i + 32));
+  if (!match) return null;
+  const next = lower[i + match[0].length];
+  return next === undefined || next === ">" || next === "/" || /\s/.test(next) ? match[1] : null;
+}
+
+/** Removes comments and DROPPED elements, in one forward pass. */
+function dropNoise(html) {
+  const lower = html.toLowerCase();
+  const unclosed = new Set(); // names with no closing tag anywhere further on
+  let out = "";
+  let i = 0;
+  for (;;) {
+    const lt = lower.indexOf("<", i);
+    if (lt === -1) { out += html.slice(i); break; }
+    if (lower.startsWith("<!--", lt)) {
+      out += `${html.slice(i, lt)} `;
+      const end = lower.indexOf("-->", lt + 4);
+      if (end === -1) break; // an unterminated comment runs to the end, as in a browser
+      i = end + 3;
+      continue;
+    }
+    const name = tagNameAt(lower, lt);
+    if (name && DROPPED.has(name) && !unclosed.has(name)) {
+      const close = lower.indexOf(`</${name}`, lt + 1);
+      if (close === -1) {
+        unclosed.add(name); // so later ones of this name don't search again
+      } else {
+        out += `${html.slice(i, lt)} `;
+        const gt = lower.indexOf(">", close);
+        i = gt === -1 ? html.length : gt + 1;
+        continue;
+      }
+    }
+    out += html.slice(i, lt + 1);
+    i = lt + 1;
+  }
+  return out;
+}
+
+/** The first <name>…</name> element (or from <name> to the end when unclosed), or null. */
+function firstElement(html, lower, name) {
+  for (let from = 0; ;) {
+    const open = lower.indexOf(`<${name}`, from);
+    if (open === -1) return null;
+    if (tagNameAt(lower, open) === name) {
+      const close = lower.indexOf(`</${name}`, open);
+      return html.slice(open, close === -1 ? html.length : close);
+    }
+    from = open + 1;
+  }
+}
 
 /**
  * Turns a page's HTML into plain text, keeping the line breaks that separate
@@ -105,19 +254,19 @@ const stripTags = (html) => html.replace(/<[^>]+>/g, " ");
  * with real content.
  */
 function htmlToText(html) {
-  let s = String(html || "")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<(script|style|noscript|svg|template|iframe|canvas|form|nav|header|footer|aside|select|button)\b[\s\S]*?<\/\1\s*>/gi, " ");
-
-  const body = s.match(/<body\b[\s\S]*$/i)?.[0] || s;
-  const main = body.match(/<article\b[\s\S]*?<\/article\s*>/i)?.[0] || body.match(/<main\b[\s\S]*?<\/main\s*>/i)?.[0];
+  let s = dropNoise(String(html || ""));
+  const lower = s.toLowerCase();
+  const bodyAt = lower.indexOf("<body");
+  const body = bodyAt === -1 ? s : s.slice(bodyAt);
+  const bodyLower = bodyAt === -1 ? lower : lower.slice(bodyAt);
+  const main = firstElement(body, bodyLower, "article") || firstElement(body, bodyLower, "main");
   s = main && stripTags(main).replace(/\s+/g, " ").length > 800 ? main : body;
 
   s = s
-    .replace(/<li\b[^>]*>/gi, "\n• ")
+    .replace(/<li\b[^<>]*>/gi, "\n• ")
     .replace(/<\/t[dh]\s*>/gi, " | ")
-    .replace(/<(br|hr)\b[^>]*>/gi, "\n")
-    .replace(/<\/?(p|div|section|article|h[1-6]|ul|ol|tr|table|blockquote|pre|dd|dt|figcaption)\b[^>]*>/gi, "\n");
+    .replace(/<(br|hr)\b[^<>]*>/gi, "\n")
+    .replace(/<\/?(p|div|section|article|h[1-6]|ul|ol|tr|table|blockquote|pre|dd|dt|figcaption)\b[^<>]*>/gi, "\n");
 
   return decodeEntities(stripTags(s))
     .split("\n")
@@ -230,4 +379,4 @@ function pickPassages(indexed, terms, { max = 3, maxChars = 1600 } = {}) {
   };
 }
 
-module.exports = { fetchPageText, htmlToText, decodeEntities, keyTerms, splitPassages, scorePassage, bestPassages, indexPassages, pickPassages };
+module.exports = { fetchPageText, guardedFetch, publicOnlyLookup, htmlToText, decodeEntities, keyTerms, splitPassages, scorePassage, bestPassages, indexPassages, pickPassages };

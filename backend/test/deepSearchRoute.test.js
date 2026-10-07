@@ -14,6 +14,11 @@ require.cache[servicePath] = {
   exports: {
     performAgenticSearch: async (query, opts) => {
       researchCalls.push({ query, opts });
+      if (query.includes("until cancelled")) {
+        opts.onProgress?.({ phase: "searching", angles: [], steps: [{ id: "plan", label: "Planning the research", detail: "", status: "active" }], sources: 0, pagesRead: 0, queries: 0, elapsedMs: 5 });
+        await new Promise((resolve) => opts.signal.addEventListener("abort", resolve, { once: true }));
+        return { context: "", compactContext: "", results: [], rounds: 0, queries: [], angles: [], claims: [] };
+      }
       opts.onStatus?.("Planning the research…");
       opts.onProgress?.({ phase: "planning", angles: [], steps: [{ id: "plan", label: "Planning the research", detail: "", status: "active" }], sources: 0, pagesRead: 0, queries: 0, elapsedMs: 5 });
       opts.onProgress?.({
@@ -112,6 +117,38 @@ test("DeepSearch streams the research log, every source in citation order, and a
   assert.match(system, /RICH VISUALIZATION INTENT SYSTEM/, "a roomy writer keeps the full prompt");
 });
 
+test("DeepSearch about an attached file skips the research and the report brief", async (t) => {
+  researchCalls.length = 0;
+  let system = null;
+  withProviders(t, {
+    writerModel: { generateStream: async (messages) => { system = messages[0].content; return streamOf(['data: {"choices":[{"delta":{"content":"The file says…"}}]}']); } },
+  });
+  const res = { write: () => {}, end: () => {}, writableEnded: false };
+  const answered = await orchestrator.processRequest("t_deep_file", {
+    messages: [{ role: "user", content: "Summarise the key findings of this report" }], mode: "deep_search", hasAttachments: true, options: {},
+  }, res);
+  assert.equal(answered, true);
+  assert.equal(researchCalls.length, 0);
+  assert.doesNotMatch(system, /RESEARCH REPORT/);
+  assert.match(system, /\[MODE: DEEP SEARCH\] Write a well-structured response/);
+});
+
+test("when the reader leaves during the research, no report is written", async (t) => {
+  researchCalls.length = 0;
+  let wrote = false;
+  withProviders(t, { writerModel: { generateStream: async () => { wrote = true; return streamOf([]); } } });
+  const leaving = new AbortController();
+  const res = { write: () => {}, end: () => {}, writableEnded: false };
+  const answered = orchestrator.processRequest("t_deep_left", {
+    messages: [{ role: "user", content: "Research this until cancelled" }], mode: "deep_search", signal: leaving.signal, options: {},
+  }, res);
+  // The stub research runs until it is cancelled.
+  setTimeout(() => leaving.abort(), 20);
+  assert.equal(await answered, false);
+  assert.equal(researchCalls[0].opts.signal, leaving.signal);
+  assert.equal(wrote, false);
+});
+
 test("Groq writes from the compact research, with a lean prompt that fits its request cap", async (t) => {
   const seen = {};
   withProviders(t, {
@@ -180,4 +217,24 @@ test("POST /api/research streams the research, then the evidence and the report 
   assert.match(evs[4].data.instructions, /RESEARCH REPORT/);
   assert.match(researchCalls[0].opts.history, /Tell me about renewable energy in India/);
   assert.equal(researchCalls[0].opts.clock.timeZone, "Asia/Kolkata");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(researchCalls[0].opts.signal.aborted, false, "a research that finished is not cancelled");
+
+  // The reader leaves mid-research: the research is told to stop.
+  const leaving = new AbortController();
+  const pending = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "Research this until cancelled" }),
+    signal: leaving.signal,
+  });
+  const reader = pending.body.getReader();
+  await reader.read(); // the first activity event arrived
+  leaving.abort();
+  const { signal } = researchCalls.at(-1).opts;
+  await new Promise((resolve, reject) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(() => reject(new Error("the research was never cancelled")), 3000);
+    signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
 });

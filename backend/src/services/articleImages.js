@@ -48,20 +48,54 @@ function cacheSet(url, image) {
   cache.set(url, { image, at: Date.now() });
 }
 
+// An IPv6 address as its eight 16-bit groups, with a trailing dotted IPv4
+// part ("::ffff:1.2.3.4") folded in. Null when it can't be read.
+function ipv6Groups(ip) {
+  let s = String(ip).toLowerCase().split("%")[0];
+  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    s = `${s.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const groups = (part) => (part ? part.split(":").map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN)) : []);
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  const fill = 8 - head.length - tail.length;
+  const all = halves.length === 2 ? [...head, ...Array(Math.max(fill, 0)).fill(0), ...tail] : head;
+  return all.length === 8 && all.every(Number.isFinite) ? all : null;
+}
+
 function isPrivateAddress(ip) {
   if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
+    const [a, b, c] = ip.split(".").map(Number);
     return a === 0 || a === 10 || a === 127 || a >= 224
       || (a === 100 && b >= 64 && b <= 127)
       || (a === 169 && b === 254)
       || (a === 172 && b >= 16 && b <= 31)
       || (a === 192 && b === 168)
+      || (a === 192 && b === 0 && c === 0)
       || (a === 198 && (b === 18 || b === 19));
   }
-  const v6 = ip.toLowerCase();
-  if (v6 === "::" || v6 === "::1") return true;
-  if (v6.startsWith("::ffff:")) return isPrivateAddress(v6.slice(7));
-  return /^(fc|fd|fe[89ab])/.test(v6);
+  if (!net.isIPv6(ip)) return true; // not an address we can vet: refuse it
+  const g = ipv6Groups(ip);
+  if (!g) return true;
+  const zero = (from, to) => g.slice(from, to).every((x) => x === 0);
+  // An IPv4 address carried inside an IPv6 one reaches that IPv4 host, so it
+  // is judged as IPv4. URL parsing writes [::ffff:127.0.0.1] as ::ffff:7f00:1,
+  // which is why the groups are decoded rather than matched as text.
+  const v4 = (hi, lo) => isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+  if (zero(0, 8) || (zero(0, 7) && g[7] === 1)) return true;               // :: and ::1
+  if (zero(0, 5) && g[5] === 0xffff) return v4(g[6], g[7]);                 // ::ffff:a.b.c.d (mapped)
+  if (zero(0, 6)) return v4(g[6], g[7]);                                     // ::a.b.c.d (compatible)
+  if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return v4(g[6], g[7]);   // ::ffff:0:a.b.c.d (translated)
+  if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6)) return v4(g[6], g[7]); // 64:ff9b::/96 (NAT64)
+  if (g[0] === 0x2002) return v4(g[1], g[2]);                                // 2002::/16 (6to4)
+  return (g[0] & 0xfe00) === 0xfc00    // fc00::/7 unique local
+    || (g[0] & 0xffc0) === 0xfe80      // fe80::/10 link-local
+    || (g[0] & 0xffc0) === 0xfec0      // fec0::/10 site-local
+    || (g[0] & 0xff00) === 0xff00;     // ff00::/8 multicast
 }
 
 async function assertPublicHttpUrl(rawUrl, lookup = dns.lookup) {

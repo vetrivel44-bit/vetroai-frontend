@@ -134,7 +134,7 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
   async buildSystemPrompt(mode, context = {}) {
     // `lean` leaves out the visual-block instructions (about two thirds of the
     // prompt) for a writer with a small request budget.
-    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock, lean = false } = context;
+    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock, lean = false, researched = false } = context;
 
     // ── Core system prompt ──
     // The date is the user's, in their own timezone (clockService) — the
@@ -368,7 +368,12 @@ The assistant should feel like:
     } else if (mode === "summarize") {
       sys += "\n\n[MODE: SUMMARIZE] Automatically detect the content type and summarize it at three levels: a one-sentence TL;DR at the top, a short paragraph summary below, and bullet-point key takeaways at the bottom. If the content seems very long, also add a 'What to read in full' note pointing out which section is most important. Tone should match the source — formal docs get formal summaries, casual articles get casual ones.";
     } else if (mode === "deep_search" || mode === "research") {
-      sys += `\n\n${RESEARCH_REPORT_PROMPT}`;
+      // The report brief only fits when research ran. A file, a greeting or
+      // a clock question asked in DeepSearch skips the research, and then the
+      // brief would ask for citations to sources that don't exist.
+      sys += researched
+        ? `\n\n${RESEARCH_REPORT_PROMPT}`
+        : "\n\n[MODE: DEEP SEARCH] Write a well-structured response with inline citations (numbered footnotes or source links at the bottom). Final response should feel like a researched answer, not a chat reply — use paragraphs, sources, and state confidence level where relevant.";
     } else if (mode === "creative") {
       sys += "\n\n[MODE: CREATIVE] You are a creative writer. Be vivid, imaginative, and original.";
     } else if (mode === "computer_use") {
@@ -750,6 +755,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
             performAgenticSearch(userQuery, {
               clock: params.clock,
               deadlineMs: RESEARCH_DEADLINE_MS,
+              signal: params.signal,
               history: this.recentHistory(messages),
               onStatus: (msg) => { if (msg) this.sendVetroEvent(res, "status", msg); },
               onProgress: (snapshot) => {
@@ -789,19 +795,26 @@ Choose the single best-fitting visualization block(s) from the formats below:
       }
     }
 
+    // The reader left during the research: nobody is waiting for a report.
+    if (params.signal?.aborted) {
+      logger.info("AIOrchestrator.cancelled", { reqId, mode });
+      return false;
+    }
+
+    const researched = isAgentic && !!webContext;
     let promptExtras = "";
     if (clockNote) promptExtras += clockNote;
     if (noRealtimeData) {
       promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
     }
     promptExtras += buildPluginPrompt(params.activePlugins);
-    const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock }) + promptExtras;
+    const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // Groq's free tier refuses any request over ~12k tokens, and a full
     // research context alone is about that. Its writer gets the compact
     // evidence (same sources and numbers, one short passage each) and a lean
     // prompt instead; every other writer gets everything.
     const compactSysPrompt = isAgentic && compactContext
-      ? await this.buildSystemPrompt(mode, { userQuery, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true }) + promptExtras
+      ? await this.buildSystemPrompt(mode, { userQuery, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
       : null;
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one. Models that reason natively stream their own and skip it

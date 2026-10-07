@@ -131,8 +131,12 @@ function parseResearchPlan(text, query, { maxAngles = DEFAULTS.maxAngles, querie
   if (!angles.length) angles = [{ question: query, queries: [] }];
 
   // The question as asked is always searched too: search engines handle
-  // natural language well, and it guards against a plan that drifted.
-  if (isUsableQuery(query) && fresh(query)) angles[0].queries.unshift(query.trim());
+  // natural language well, and it guards against a plan that drifted. With no
+  // plan it is the only search, so a very short or very long question is
+  // searched as well (a long one cut at a word, to fit a search box).
+  const asked = String(query || "").replace(/\s+/g, " ").trim();
+  const searchable = asked.length > 300 ? asked.slice(0, 300).replace(/\s+\S*$/, "") : asked;
+  if (searchable && fresh(searchable)) angles[0].queries.unshift(searchable);
 
   return {
     brief: typeof parsed?.brief === "string" ? parsed.brief.trim().slice(0, 400) : "",
@@ -418,20 +422,24 @@ async function inPool(items, limit, run) {
  * @param {Function} [options.searchFn] query -> results (tests)
  * @param {Function} [options.plannerFn] (prompt, maxTokens) -> reply text (tests); null disables planning
  * @param {Function} [options.readFn] url -> page text or null (tests)
+ * @param {AbortSignal} [options.signal] stops the research early (the reader left); what was found so far is returned
  * @returns {Promise<{context: string, results: object[], rounds: number, queries: string[], angles: string[], claims: object[]}>}
  */
 async function performAgenticSearch(query, options = {}) {
   const opts = { ...DEFAULTS, ...options };
   const startedAt = Date.now();
-  const timeLeft = () => opts.deadlineMs - (Date.now() - startedAt);
+  // Once cancelled, no time is left: every phase checks this before starting.
+  const timeLeft = () => (opts.signal?.aborted ? 0 : opts.deadlineMs - (Date.now() - startedAt));
   const search = opts.searchFn || ((q) => searchForResearch(q, { clock: opts.clock }));
-  const readPage = opts.readFn || ((url) => fetchPageText(url));
+  const readPage = opts.readFn || ((url) => fetchPageText(url, { signal: opts.signal }));
   const rawThink = "plannerFn" in options ? options.plannerFn : defaultThinker();
-  const think = rawThink && ((prompt, maxTokens) => withTimeout(
-    Promise.resolve().then(() => rawThink(prompt, maxTokens)),
-    Math.max(3000, Math.min(THINK_TIMEOUT_MS, timeLeft() - 10000)),
-    "The research model took too long",
-  ));
+  const think = rawThink && ((prompt, maxTokens) => (opts.signal?.aborted
+    ? Promise.reject(new Error("Research cancelled"))
+    : withTimeout(
+      Promise.resolve().then(() => rawThink(prompt, maxTokens)),
+      Math.max(3000, Math.min(THINK_TIMEOUT_MS, timeLeft() - 10000)),
+      "The research model took too long",
+    )));
   const today = describeClock(opts.clock || {}).date;
   const progress = createProgress(opts);
   const registry = new SourceRegistry();
@@ -472,10 +480,12 @@ async function performAgenticSearch(query, options = {}) {
   let angleTerms = plan.angles.map((a) => termsFor([a.question, ...a.queries]));
 
   const runSearches = async (jobs) => {
-    const outcomes = await inPool(jobs, opts.searchConcurrency, (job) => search(job.query));
+    const cancelled = () => opts.signal?.aborted;
+    if (cancelled()) return 0;
+    const outcomes = await inPool(jobs, opts.searchConcurrency, (job) => (cancelled() ? null : search(job.query)));
     let found = 0;
     outcomes.forEach((outcome, i) => {
-      if (outcome.ok) found += registry.add(outcome.value, jobs[i]);
+      if (outcome.ok) found += outcome.value ? registry.add(outcome.value, jobs[i]) : 0;
       else logger.warn("research.search.failed", { query: jobs[i].query, error: outcome.error?.message });
     });
     usedQueries.push(...jobs.map((j) => j.query));

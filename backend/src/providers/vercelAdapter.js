@@ -37,10 +37,12 @@ function reasonsNatively() {
   return REASONING_MODEL.test(currentModel());
 }
 
-// A model that doesn't take the reasoning setting is retried once without it.
+// A model that doesn't take the reasoning setting is retried once without it,
+// and isn't sent it again.
 function isReasoningRejected(status, detail) {
   return [400, 422].includes(status) && /reasoning/i.test(detail);
 }
+const rejectedReasoning = new Set();
 
 // A short-lived 429 is retried after a pause (Retry-After when sent, capped)
 // rather than failing over on the first one. A spend or credit limit won't
@@ -70,8 +72,10 @@ async function generateStream(messages, options = {}) {
   }
 
   const { temperature, maxTokens, model, effort } = options;
-  let reasoning = { effort: REASONING_EFFORT[effort] || REASONING_EFFORT.balanced };
-  const request = (modelName) => fetch(endpoint(), {
+  const setting = { effort: REASONING_EFFORT[effort] || REASONING_EFFORT.balanced };
+  // Only reasoning models get the setting; others may refuse the whole request.
+  const reasoningFor = (modelName) => (REASONING_MODEL.test(modelName) && !rejectedReasoning.has(modelName) ? setting : null);
+  const request = (modelName, reasoning = reasoningFor(modelName)) => fetch(endpoint(), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -95,9 +99,9 @@ async function generateStream(messages, options = {}) {
 
     if (!res.ok) {
       let detail = await res.text();
-      if (isReasoningRejected(res.status, detail)) {
+      if (reasoningFor(modelName) && isReasoningRejected(res.status, detail)) {
         logger.warn("vercelAdapter.reasoningRejected", { model: modelName, status: res.status });
-        reasoning = null;
+        rejectedReasoning.add(modelName);
         res = await request(modelName);
         if (!res.ok) detail = await res.text();
       }
@@ -132,7 +136,7 @@ module.exports = {
   generateStream,
   reasonsNatively,
   DEFAULT_MODEL,
-  resetAcceptedModel: () => { acceptedModel = null; },
+  resetAcceptedModel: () => { acceptedModel = null; rejectedReasoning.clear(); },
   // Tests shorten the pauses between rate-limit retries.
   setRateLimitDelays: (delays) => { rateLimitDelaysMs = delays; },
 };
