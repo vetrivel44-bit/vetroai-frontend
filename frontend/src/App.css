@@ -12238,13 +12238,12 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 }
 
 /* The chat feed reserves a fixed 130px for the composer (set inline on
-   .claude-feed-scroll). The mobile composer is taller than that, so the last
-   ~45px of ANY message — not just the related list — sat underneath it once
-   scrolled to the bottom. Reserve enough room, plus the home-indicator inset. */
-@media (max-width: 768px) {
-  .claude-feed-scroll {
-    padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)) !important;
-  }
+   .claude-feed-scroll). The composer and its fade are taller than that at
+   every width (about 200px on desktop too), so the end of the last message,
+   including its Copy/Retry row, sat underneath it once scrolled to the
+   bottom. Reserve enough room, plus the home-indicator inset. */
+.claude-feed-scroll {
+  padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* ── Chat content gutters ───────────────────────────────────────────────────
@@ -12269,16 +12268,22 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
 }
 
 /* The composer dock's `px-4 sm:px-6` is inert for the same reason, so the
-   composer ran edge to edge on a phone. */
+   composer ran edge to edge on a phone. Kept small (and the same as the start
+   screen's, mobileCopilotTheme.css) so the composer's buttons still fit; from
+   1024px its 720px max-width decides. */
 .composer-dock {
   padding-left: 12px;
   padding-right: 12px;
 }
-@media (min-width: 640px) {
+@media (max-width: 400px) {
   .composer-dock {
-    padding-left: 24px;
-    padding-right: 24px;
+    padding-left: 8px;
+    padding-right: 8px;
   }
+}
+@media (max-width: 480px) {
+  /* Room for the mode name ("DeepSearch") in the composer's pill. */
+  :root[data-theme="light"] .claude-input-footer .mode-pill { padding: 0 10px; }
 }
 /* Jump to latest sits just above the composer, however tall it grows. Placed
    from the bottom of the screen, it landed on the text field on a phone. The
@@ -12291,10 +12296,11 @@ textarea,input{font-family:var(--font);outline:none;border:none;background:trans
   bottom: calc(100% + 10px) !important;
 }
 
-/* On a phone the action row fits on one line as icons; every button has a
-   title and aria-label. */
-@media (max-width: 480px) {
-  .msg-action-row .msg-action-btn:not(.is-copied) > span { display: none; }
+/* On a phone the action row fits on one line as icons (with labels it needs
+   about 426px, so up to a 520px screen); every button has a title and
+   aria-label, and Copy turns into a check mark when it has copied. */
+@media (max-width: 520px) {
+  .msg-action-row .msg-action-btn > span { display: none; }
   .msg-action-row .msg-action-btn { padding: 6px 8px; }
 }
 

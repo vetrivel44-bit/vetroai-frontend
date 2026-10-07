@@ -39,23 +39,29 @@ async function shareImage(url){const blob=await imageBlob(url),file=new File([bl
 function menu(items,x,y){document.querySelector('.vetro-download-menu')?.remove();const el=document.createElement('div');el.className='vetro-download-menu';Object.assign(el.style,{position:'fixed',zIndex:999999,left:`${Math.max(8,Math.min(x,innerWidth-220))}px`,top:`${Math.max(8,Math.min(y,innerHeight-330))}px`,width:'205px',padding:'7px',borderRadius:'12px',background:'#111113',border:'1px solid #303034',boxShadow:'0 12px 35px rgba(0,0,0,.35)'});items.forEach(([name,fn])=>{const b=document.createElement('button');b.textContent=name;b.style.cssText='display:block;width:100%;padding:10px;border:0;border-radius:8px;background:transparent;color:#eee;text-align:left;cursor:pointer';b.onmouseenter=()=>b.style.background='#222226';b.onmouseleave=()=>b.style.background='transparent';b.onclick=async ev=>{ev.stopPropagation();el.remove();try{await fn()}catch(e){alert(e.message||'Download failed')}};el.appendChild(b)});document.body.appendChild(el);setTimeout(()=>document.addEventListener('click',()=>el.remove(),{once:true}),0)}
 function previousUserText(row){let n=row.previousElementSibling;while(n){const t=n.innerText?.trim()||'';if(t&&!n.querySelector('.response-model-icon'))return t;n=n.previousElementSibling}return ''}
 function iconButton(title){const b=document.createElement('button');b.type='button';b.title=title;b.setAttribute('aria-label',title);b.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';b.className='vetro-export-btn';b.style.cssText='display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:0;background:transparent;color:inherit;opacity:.78;cursor:pointer;border-radius:7px';return b}
-// Replaces the plain Download button rich-output-tools.js puts under an image
-// (its Share stays). Only that bar's buttons: matching every button in the row
-// by its label also deleted the app's own Download, code-block and chart PNG
-// buttons, which React owns.
-function removeLegacyImageButtons(row){row.querySelectorAll('.vetro-image-actions button').forEach(b=>{const t=(b.textContent||'').trim().toLowerCase();if(t==='png'||t==='jpg'||t==='jpeg'||t==='download')b.remove()})}
 // Site icons and other marked icons are never offered as images to save. An
 // icon that isn't drawn (a citation's hover card) reports its natural size,
 // which for a favicon.ico can pass the size check below.
-const isIcon=img=>img.classList.contains('px-src-favicon')||img.classList.contains('response-model-icon')||!!img.closest('[data-no-image-tools], .px-src, .vai-cite, .vai-ra')
-function nearestActions(row,img){return row.querySelector('.msg-actions,.message-actions,.response-actions,.action-buttons')||img.parentElement||row}
+// Gallery thumbnails sit in a clipped box (their full-size view gets the
+// controls), so they are skipped too, as rich-output-tools.js does.
+const isIcon=img=>img.classList.contains('px-src-favicon')||img.classList.contains('response-model-icon')||!!img.closest('[data-no-image-tools], .px-src, .vai-cite, .vai-ra, .ls-card, .gallery-image-container')
+// The image's own Download/Share bar from rich-output-tools.js: placed right
+// after the image, or after the link or button around it.
+const imageHost=(row,img)=>{const a=img.closest('a,button');return a&&row.contains(a)?a:img}
+const imageBar=(row,img)=>{const n=imageHost(row,img).nextElementSibling;return n&&n.classList.contains('vetro-image-actions')?n:null}
 
 function enhance(){
  document.querySelectorAll('.msg-row').forEach(row=>{
    const text=row.innerText?.trim(); if(!text)return;
    // Reply file downloads (PDF/Word/Excel) are rendered by DocumentDownloads in App.jsx.
-   row.querySelectorAll('img').forEach(img=>{if(img.dataset.vetroImageActions||!img.src||isIcon(img)||img.width<180||img.height<120)return;removeLegacyImageButtons(row);const host=nearestActions(row,img),b=iconButton('Download image');b.classList.add('vetro-image-download');b.onclick=e=>{e.stopPropagation();menu([['PNG',()=>saveImage(img.src,'png')],['JPG',()=>saveImage(img.src,'jpg')],['WebP',()=>saveImage(img.src,'webp')]],e.clientX,e.clientY)};
-     const share=[...host.querySelectorAll('button')].find(x=>(x.title||x.getAttribute('aria-label')||x.textContent||'').toLowerCase().includes('share'));if(share)share.insertAdjacentElement('beforebegin',b);else host.appendChild(b);img.dataset.vetroImageActions='1';
+   // The image's download icon (PNG/JPG/WebP) takes the place of its bar's
+   // plain Download, next to Share. It waits until rich-output-tools.js has
+   // judged the image (data-vetro-checked), so the two never race into two
+   // Download controls, and it never touches another image's bar.
+   row.querySelectorAll('img').forEach(img=>{if(img.dataset.vetroImageActions||!img.src||isIcon(img)||img.width<180||img.height<120)return;const bar=imageBar(row,img);if(!bar&&!img.dataset.vetroChecked)return;
+     if(bar)bar.querySelectorAll('button').forEach(x=>{if((x.textContent||'').trim().toLowerCase()==='download')x.remove()});
+     const b=iconButton('Download image');b.classList.add('vetro-image-download');b.onclick=e=>{e.preventDefault();e.stopPropagation();menu([['PNG',()=>saveImage(img.src,'png')],['JPG',()=>saveImage(img.src,'jpg')],['WebP',()=>saveImage(img.src,'webp')]],e.clientX,e.clientY)};
+     if(bar)bar.prepend(b);else imageHost(row,img).insertAdjacentElement('afterend',b);img.dataset.vetroImageActions='1';
    });
  });
 }

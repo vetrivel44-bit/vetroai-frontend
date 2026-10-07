@@ -8471,8 +8471,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
-                               <button className={`msg-action-btn${copiedAiIdx === i ? ' is-copied' : ''}`} onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
-                                 <CopyIcon /><span>{copiedAiIdx === i ? 'Copied!' : 'Copy'}</span>
+                               <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
+                                 {copiedAiIdx === i ? <CheckIcon /> : <CopyIcon />}<span>{copiedAiIdx === i ? 'Copied!' : 'Copy'}</span>
                                </button>
                                <button className="msg-action-btn" onClick={() => handleRegen(i)} title="Regenerate response" aria-label="Regenerate" disabled={isLoading}>
                                  <ReloadIcon /><span>Retry</span>
@@ -8545,7 +8545,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                  </div>
                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="composer-dock px-4 sm:px-6">
                    <div style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto', position: 'relative' }}>
-                    {/* Just above the composer, however tall it grows (styles/phoneLayout.css). */}
+                    {/* Just above the composer, however tall it grows (App.css, .composer-dock .scroll-btn). */}
                     {showScrollDn && (
                       <button
                         type="button"

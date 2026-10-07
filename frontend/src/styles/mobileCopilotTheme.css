@@ -602,7 +602,8 @@
     align-self: stretch !important;
     max-width: none !important;
     margin: 0 !important;
-    /* A side gutter, so the example cards and composer don't touch the edges. */
+    /* A side gutter, so the example cards and composer don't touch the edges
+       (8px at 400px and less, the same as the chat's composer dock). */
     padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
     justify-content: flex-end !important;
     min-height: 100%;
@@ -615,4 +616,7 @@
   }
   .vetro-empty-pills { order: 2; width: 100%; margin: 0 0 10px !important; }
   .vetro-empty-input { order: 3; }
+}
+@media (max-width: 400px) {
+  .vetro-empty { padding-left: 8px !important; padding-right: 8px !important; }
 }

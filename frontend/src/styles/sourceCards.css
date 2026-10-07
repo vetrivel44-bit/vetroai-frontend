@@ -179,14 +179,16 @@
   .px-src .px-src-card { width: 148px; }
 }
 /* On a phone two 148px cards filled the row exactly, so nothing showed that
-   more scroll in. Narrower cards let the third peek in, and the row fades out
-   at its right edge. */
+   more scroll in. Narrower cards (never under 120px) let the third peek in,
+   and the row fades out at its right edge. The spacer at the end lets the
+   last card scroll clear of the fade. */
 @media (max-width: 480px) {
-  .px-src .px-src-card { width: calc((100% - 16px) / 2.4); }
+  .px-src .px-src-card { width: max(120px, calc((100% - 16px) / 2.4)); }
   .px-src-row {
     -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent);
     mask-image: linear-gradient(90deg, #000 88%, transparent);
   }
+  .px-src-row::after { content: ""; flex: 0 0 calc(12% - 8px); }
 }
 
 /* Tailwind's preflight strips list markers everywhere, so Markdown lists in

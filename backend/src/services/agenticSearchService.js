@@ -652,9 +652,11 @@ async function performAgenticSearch(query, options = {}) {
   }
   const numberOf = new Map(chosen.map(({ s }, i) => [s, i + 1]));
 
-  // "read in full" counts every source with its page text, which includes the
-  // pages Tavily returned whole; the read steps count only the pages fetched.
-  progress.start("write", "Writing the report", `${chosen.length} sources · ${usedQueries.length} searches · ${registry.pagesRead} read in full`, "writing");
+  // Of the sources going to the writer, how many it has whole pages for
+  // (fetched here or returned whole by Tavily). The read steps count only the
+  // pages fetched, so "pages read" here used to contradict them.
+  const readInFull = chosen.filter(({ s }) => s.text.length >= 400).length;
+  progress.start("write", "Writing the report", `${chosen.length} sources · ${usedQueries.length} searches · ${readInFull} read in full`, "writing");
 
   logger.info("research.done", {
     angles: plan.angles.length,

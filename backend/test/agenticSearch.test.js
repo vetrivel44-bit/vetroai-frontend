@@ -245,6 +245,10 @@ test("a full run plans, searches every angle, reads pages, follows up, cross-che
   assert.deepEqual(steps.read.items, ["blog.test"]);
   assert.deepEqual(steps["verify-search"].items, ["SECI solar auction cleared at a record ₹2.48 per kWh"]);
   assert.deepEqual(result.angles.length, 3);
+  // The write step counts whole pages among the sources it writes from, so the
+  // count never exceeds the sources beside it.
+  const [, chosenCount, , whole] = steps.write.detail.match(/^(\d+) sources · (\d+) searches · (\d+) read in full$/);
+  assert.ok(Number(whole) <= Number(chosenCount), steps.write.detail);
 
   // The compact context, for a writer with a small budget: same sources, same
   // numbers, shorter quotes.

@@ -18,8 +18,11 @@
   async function downloadImage(src){ try{const r=await fetch(src);const b=await r.blob();downloadBlob(b,safeName('vetroai-image',b.type.includes('png')?'png':'jpg'));}catch{const a=document.createElement('a');a.href=src;a.download='vetroai-image.png';a.click();} }
 
   // The bar goes after the image, or after the link or button around it: inside
-  // one, tapping Download would also follow the link.
-  function addImageTools(img){ if(img.dataset.vetroTools)return; img.dataset.vetroTools='1'; const anchor=img.closest('a,button'); const host=anchor && anchor.closest('.msg-row, [class*=message]') ? anchor : img; const bar=document.createElement('div'); bar.className='vetro-image-actions'; bar.innerHTML='<button type="button">Download</button><button type="button">Share</button>'; bar.children[0].onclick=()=>downloadImage(img.src); bar.children[1].onclick=()=>shareImage(img.src); host.insertAdjacentElement('afterend',bar); }
+  // one, tapping Download would also follow the link. It remembers its image:
+  // React replaces an image while a reply streams (e.g. when the closing
+  // "](link)" arrives), and sync() then drops the old image's bar.
+  const only=fn=>e=>{ e.preventDefault(); e.stopPropagation(); fn(); };
+  function addImageTools(img){ if(img.dataset.vetroTools)return; img.dataset.vetroTools='1'; const anchor=img.closest('a,button'); const host=anchor && anchor.closest('.msg-row, [class*=message]') ? anchor : img; const bar=document.createElement('div'); bar.className='vetro-image-actions'; bar._vetroImg=img; bar.innerHTML='<button type="button">Download</button><button type="button">Share</button>'; bar.children[0].onclick=only(()=>downloadImage(img.src)); bar.children[1].onclick=only(()=>shareImage(img.src)); host.insertAdjacentElement('afterend',bar); }
   function addOutputTools(row){ if(row.dataset.vetroExports)return; const text=textOf(row); if(!text || text==='Generating your image...')return; row.dataset.vetroExports='1'; const bar=document.createElement('div'); bar.className='vetro-export-actions'; ['PDF','Word','Spreadsheet'].forEach((label,i)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>downloadText(textOf(row),['pdf','doc','csv'][i]);bar.appendChild(b);}); row.appendChild(bar); }
   // Download/Share are for pictures (generated images, photos, charts), never
   // for icons: site icons in citations, source cards and DeepSearch's research
@@ -29,7 +32,9 @@
   // 256px but is drawn at 16-40px, and by its shortest side, which catches
   // badges and tracking pixels. Until it is drawn (a hidden or collapsed
   // container reports 0x0) it is looked at again later.
-  const ICON_AREAS='[data-no-image-tools], .px-src, .vai-cite, .vai-ra, .ls-card, .vetro-diagram, .vetro-visual, .maplibregl-map';
+  // Gallery thumbnails sit in a clipped box (the bar would be invisible); their
+  // full-size view gets the bar.
+  const ICON_AREAS='[data-no-image-tools], .px-src, .vai-cite, .vai-ra, .ls-card, .gallery-image-container, .vetro-diagram, .vetro-visual, .maplibregl-map';
   const ICON_MAX=96, THIN_MAX=64;
   const isIcon=img=>img.classList.contains('response-model-icon') || img.classList.contains('px-src-favicon') || !!img.closest(ICON_AREAS);
   function considerImage(img){
@@ -41,10 +46,14 @@
     }
     if(Math.min(img.naturalWidth,img.naturalHeight)<THIN_MAX){ img.dataset.vetroChecked=src; return; }
     const r=img.getBoundingClientRect();
-    if(!r.width || !r.height) return;
+    if(!r.width || !r.height){ whenDrawn?.observe(img); return; }
+    whenDrawn?.unobserve(img);
     img.dataset.vetroChecked=src;
     if(r.width>ICON_MAX || r.height>ICON_MAX) addImageTools(img);
   }
-  function sync(){ document.querySelectorAll('img').forEach(img=>{ if(img.src && (img.closest('.msg-row') || img.closest('[class*=message]')) && !isIcon(img)) considerImage(img); }); }
-  new MutationObserver(()=>requestAnimationFrame(sync)).observe(document.documentElement,{subtree:true,childList:true}); if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sync);else sync();
+  // An image that is not drawn yet (in a hidden or closed container) is looked
+  // at again as soon as it gets a size, even if nothing else changes.
+  const whenDrawn=window.ResizeObserver ? new ResizeObserver(entries=>{ if(entries.some(e=>e.contentRect.width && e.contentRect.height)) requestAnimationFrame(sync); }) : null;
+  function sync(){ document.querySelectorAll('.vetro-image-actions').forEach(bar=>{ if(bar._vetroImg && !bar._vetroImg.isConnected) bar.remove(); }); document.querySelectorAll('img').forEach(img=>{ if(img.src && (img.closest('.msg-row') || img.closest('[class*=message]')) && !isIcon(img)) considerImage(img); }); }
+  new MutationObserver(()=>requestAnimationFrame(sync)).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['src']}); if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sync);else sync();
 })();

@@ -290,10 +290,11 @@
   .vai-ra-body { padding: 12px 12px 14px; }
   /* Once done, the Sources row below shows these sites, and without them the
      summary ("8 sources · 7 searches · 7s") fits on one line instead of
-     leaving "· 7s" alone on the next. While it runs, the icons stay and the
-     live status may wrap. */
-  .vai-ra:not(.is-active) .vai-ra-stack { display: none; }
-  .vai-ra.is-active .vai-ra-meta { white-space: normal; }
+     leaving "· 7s" alone on the next. While it runs (or if it stopped, with
+     no Sources row) the icons stay. On the narrowest phones the summary may
+     still wrap rather than be cut off. */
+  .vai-ra.is-done .vai-ra-stack { display: none; }
+  .vai-ra-meta { white-space: normal; }
   /* The source count drops under its angle rather than squeezing it. */
   .vai-ra-plan li { flex-wrap: wrap; row-gap: 3px; }
   .vai-ra-angle { flex-basis: calc(100% - 30px); }
