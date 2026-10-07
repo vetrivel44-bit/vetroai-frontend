@@ -90,6 +90,10 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
+    // Deals screen: SerpApi's Google Shopping engine gives structured offers
+    // (price, image, rating, merchant link). Without it, deals fall back to
+    // web search over the store domains with prices read from snippets.
+    serpApiKey:          getEnv("SERPAPI_API_KEY",        ""),
     // NEWSDATA_API_KEY is the original name and still works; NEWS_API_KEY is
     // the provider-neutral one, since the feed now speaks to whichever
     // service the key belongs to.

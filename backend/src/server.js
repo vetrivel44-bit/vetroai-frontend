@@ -38,6 +38,8 @@ async function bootstrap() {
       stripeKey: process.env.STRIPE_SECRET_KEY ? "✅ configured" : "⚠️ missing",
       mongodb: dbConnected ? "connected" : "offline mode",
     });
+    // Deals: re-check tracked product prices every hour.
+    require("./services/dealsService").startDealsRefresher();
   });
 }
 
