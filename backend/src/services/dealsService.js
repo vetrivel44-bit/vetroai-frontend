@@ -3,7 +3,8 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { searchDDG, searchBingRss } = require("../controllers/searchController");
 const { recordPrices, attachHistory } = require("./priceHistoryService");
-const { enrichOffers } = require("./productExtras");
+const { enrichOffers, asinFromUrl } = require("./productExtras");
+const canopy = require("./canopyService");
 
 // ── Deals: cheapest current prices across shopping sites ─────────────────────
 // Two sources, best first:
@@ -248,6 +249,9 @@ async function findDeals(rawQuery, regionCode, { force = false, track = true } =
 
   let provider = null;
   let items = [];
+  // Amazon straight from Canopy, in parallel with the multi-store search.
+  const amazonStore = REGIONS[region].stores.find((st) => st.id === "amazon");
+  const canopyPending = canopy.searchAmazon(query, region, amazonStore);
   try {
     const serp = await searchSerpApi(query, region);
     if (serp?.length) { provider = "google-shopping"; items = serp; }
@@ -258,6 +262,14 @@ async function findDeals(rawQuery, regionCode, { force = false, track = true } =
     const web = await searchWeb(query, region);
     provider = web.provider;
     items = web.items;
+  }
+  const canopyItems = await canopyPending;
+  if (canopyItems.length) {
+    // Canopy's Amazon listing wins over another source's copy of the same ASIN.
+    const asins = new Set(canopyItems.map((i) => i.asin).filter(Boolean));
+    const others = items.filter((i) => !(i.storeId === "amazon" && asins.has(asinFromUrl(i.url))));
+    items = finalize([...canopyItems.slice(0, 20), ...others], region);
+    provider = provider && others.length ? `${provider}+canopy` : "canopy";
   }
   // Long-range price history (Keepa) and full-size product photos.
   items = await enrichOffers(items.slice(0, 40), region, (url) => storeForUrl(url, region));

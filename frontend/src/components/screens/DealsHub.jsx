@@ -647,7 +647,7 @@ export default function DealsHub({ onClose }) {
 
         <footer className="dh-footer">
           Prices and availability are checked live and re-checked every hour; the store's checkout price is final.
-          “3–4 month low” means today's price is the lowest in at least 90 days of price history (Amazon history from Keepa, other stores from VetroAI's hourly checks).
+          “3–4 month low” means today's price is the lowest in at least 90 days of price history (Amazon history from Keepa, other stores from VetroAI's hourly checks). Amazon listings and photos via Canopy API.
         </footer>
       </main>
     </div>

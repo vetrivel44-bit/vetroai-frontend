@@ -1,5 +1,6 @@
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
+const canopy = require("./canopyService");
 
 // ── Extras for deal offers: long-range price history and product photos ──────
 //
@@ -237,8 +238,10 @@ async function resolvePhotos(item, store, deep) {
   const add = (url) => { const u = upgradeImageUrl(url); if (u && !candidates.includes(u)) candidates.push(u); };
   const haveOriginal = () => candidates.some((u) => !isThumbnail(u));
 
-  if (item.image && !isThumbnail(item.image)) add(item.image);              // Keepa / store CDN already
-  const asin = item.storeId === "amazon" ? asinFromUrl(item.url) : null;
+  if (item.image && !isThumbnail(item.image)) add(item.image);              // Canopy / Keepa / store CDN already
+  for (const u of item.images || []) if (!isThumbnail(u)) add(u);
+  const asin = item.storeId === "amazon" ? (item.asin || asinFromUrl(item.url)) : null;
+  if (deep && !haveOriginal() && asin) for (const u of (await canopy.amazonProduct(asin, item.region))?.photos || []) add(u);
   if (deep && !haveOriginal() && asin) add(await amazonAsinImage(asin));
   if (deep && !haveOriginal() && store) add(await pageImage(item.url));      // og:image / Amazon hiRes
   if (deep && !haveOriginal() && store) for (const u of await bingStoreImages(item.title, store.domain, item.storeId)) add(u);
@@ -250,16 +253,17 @@ async function resolvePhotos(item, store, deep) {
 // offer: `image` is the best photo and `images` the fallbacks the page tries
 // in turn. `storeFor(url)` returns the region's store for a product URL.
 async function enrichOffers(items, region, storeFor) {
-  const asins = [...new Set(items.filter((i) => i.storeId === "amazon").map((i) => asinFromUrl(i.url)).filter(Boolean))];
+  const asinOf = (i) => (i.storeId === "amazon" ? (i.asin || asinFromUrl(i.url)) : null);
+  const asins = [...new Set(items.map(asinOf).filter(Boolean))];
   const keepa = await fetchKeepa(asins, region);
   const withKeepa = items.map((item) => {
-    const asin = item.storeId === "amazon" ? asinFromUrl(item.url) : null;
+    const asin = asinOf(item);
     const k = asin ? keepa.get(asin) : null;
     if (!k) return item;
     return { ...item, image: k.image || item.image, externalHistory: { source: k.source, points: k.points } };
   });
   return mapLimit(withKeepa, 6, async (item, i) => {
-    const images = await resolvePhotos(item, storeFor(item.url), i < 30);
+    const images = await resolvePhotos({ ...item, region }, storeFor(item.url), i < 30);
     return { ...item, image: images[0] || null, images: images.slice(0, 4) };
   });
 }

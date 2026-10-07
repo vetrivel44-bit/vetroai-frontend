@@ -266,3 +266,68 @@ test("resolvePhotos finds the store's original photo before falling back to a th
   assert.deepEqual(photos, ["https://m.media-amazon.com/images/I/71a._AC_SL1000_.jpg"]);
   assert.equal(seen.length, before);
 });
+
+test("Canopy supplies Amazon offers with Amazon's original photos, merged with other stores", async (t) => {
+  const history = require("../src/services/priceHistoryService");
+  const canopy = require("../src/services/canopyService");
+  const saved = { serp: config.serpApiKey, tavily: config.tavilyApiKey, keepa: config.keepaApiKey, canopy: config.canopyApiKey };
+  Object.assign(config, { serpApiKey: "test-key", tavilyApiKey: "", keepaApiKey: "", canopyApiKey: "canopy-key" });
+  deals._cache.clear(); history._memory.clear(); extras._imageCache.clear(); canopy._productCache.clear();
+  const realFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.startsWith("https://rest.canopyapi.co/api/amazon/search")) {
+      assert.equal(opts.headers["API-KEY"], "canopy-key");
+      assert.match(u, /searchTerm=boat\+airdopes/);
+      assert.match(u, /domain=IN/);
+      return Response.json({ data: { amazonProductSearchResults: { productResults: { results: [
+        { title: "boAt Airdopes 141 TWS Earbuds", asin: "B09N3ZNHTY", price: { display: "₹999", value: 999, currency: "INR", symbol: "₹" }, rating: 4.1, ratingsTotal: 250000, isPrime: true, sponsored: false,
+          mainImageUrl: "https://m.media-amazon.com/images/I/61KNJav3S9L.jpg", imageUrls: ["https://m.media-amazon.com/images/I/61KNJav3S9L.jpg", "https://m.media-amazon.com/images/I/71side.jpg"] },
+        { title: "Sponsored earbuds", asin: "B0SPONSOR1", price: { value: 499 }, sponsored: true, mainImageUrl: "https://m.media-amazon.com/images/I/ad.jpg" },
+      ] } } } });
+    }
+    if (u.startsWith("https://rest.canopyapi.co/api/amazon/product")) {
+      assert.match(u, /asin=B0OTHERAMZ/);
+      return Response.json({ data: { amazonProduct: { asin: "B0OTHERAMZ", mainImageUrl: "https://m.media-amazon.com/images/I/81other.jpg", imageUrls: [] } } });
+    }
+    if (u.startsWith("https://serpapi.com/")) {
+      return Response.json({ shopping_results: [
+        // Same ASIN as Canopy's → dropped in favour of Canopy's listing.
+        { title: "boAt Airdopes 141", source: "Amazon.in", link: "https://www.amazon.in/dp/B09N3ZNHTY", extracted_price: 1049, thumbnail: "https://encrypted-tbn0.gstatic.com/a" },
+        // Another Amazon listing → its photo comes from Canopy's product endpoint.
+        { title: "boAt Airdopes 131", source: "Amazon.in", link: "https://www.amazon.in/dp/B0OTHERAMZ", extracted_price: 899, thumbnail: "https://encrypted-tbn0.gstatic.com/b" },
+        { title: "boAt Airdopes 141", source: "Flipkart", link: "https://www.flipkart.com/boat/p/itm1", extracted_price: 1099, thumbnail: "https://rukminim2.flixcart.com/image/312/312/boat.jpeg" },
+      ] });
+    }
+    return new Response("", { status: 503 });
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    Object.assign(config, { serpApiKey: saved.serp, tavilyApiKey: saved.tavily, keepaApiKey: saved.keepa, canopyApiKey: saved.canopy });
+    deals._cache.clear(); deals._tracked.clear(); history._memory.clear(); extras._imageCache.clear(); canopy._productCache.clear();
+  });
+
+  const res = await deals.findDeals("boat airdopes", "in", { force: true });
+  assert.equal(res.provider, "google-shopping+canopy");
+  assert.deepEqual(res.items.map((i) => [i.store, i.price]), [["Amazon", 899], ["Amazon", 999], ["Flipkart", 1099]]);
+  const fromCanopy = res.items.find((i) => i.price === 999);
+  assert.equal(fromCanopy.url, "https://www.amazon.in/dp/B09N3ZNHTY");
+  assert.equal(fromCanopy.image, "https://m.media-amazon.com/images/I/61KNJav3S9L.jpg");
+  assert.equal(fromCanopy.images.length, 2);
+  assert.equal(fromCanopy.reviews, 250000);
+  assert.equal(fromCanopy.delivery, "Prime delivery");
+  const other = res.items.find((i) => i.price === 899);
+  assert.equal(other.image, "https://m.media-amazon.com/images/I/81other.jpg");
+  assert.ok(!res.items.some((i) => i.price === 499), "sponsored results are left out");
+  assert.ok(!calls.some((u) => u.includes("images-na.ssl-images-amazon.com")), "Canopy's photo made the fallbacks unnecessary");
+});
+
+test("Canopy price parsing", () => {
+  const canopy = require("../src/services/canopyService");
+  assert.equal(canopy.priceValue({ value: 1299.5 }), 1299.5);
+  assert.equal(canopy.priceValue({ display: "₹1,299" }), 1299);
+  assert.equal(canopy.priceValue(null), null);
+  assert.deepEqual(canopy.photosOf({ mainImageUrl: "https://a/1.jpg", imageUrls: ["https://a/1.jpg", "https://a/2.jpg", null] }), ["https://a/1.jpg", "https://a/2.jpg"]);
+});
