@@ -19,6 +19,31 @@ function isUnknownModelError(status, detail) {
   return [400, 404, 422].includes(status) && /model/i.test(detail);
 }
 
+// gpt-oss and the other reasoning models think before every answer, and with
+// no setting they use their default depth ("medium" for gpt-oss) even for
+// "hi", which held up simple questions. The user's effort setting picks the
+// depth instead, with the default ("balanced") kept light.
+const REASONING_EFFORT = { quick: "low", balanced: "low", deep: "medium", max: "high" };
+
+// Models that stream their own reasoning, so the orchestrator doesn't also
+// ask them for a <think> block (that made them deliberate twice per reply).
+const REASONING_MODEL = /gpt-oss|(^|\/)o\d|gpt-5|deepseek-r1|reasoner|thinking|qwq|magistral/i;
+
+function currentModel() {
+  return acceptedModel || config.vercelModel || DEFAULT_MODEL;
+}
+
+function reasonsNatively() {
+  return REASONING_MODEL.test(currentModel());
+}
+
+// A model that doesn't take the reasoning setting is retried once without it,
+// and isn't sent it again.
+function isReasoningRejected(status, detail) {
+  return [400, 422].includes(status) && /reasoning/i.test(detail);
+}
+const rejectedReasoning = new Set();
+
 // A short-lived 429 is retried after a pause (Retry-After when sent, capped)
 // rather than failing over on the first one. A spend or credit limit won't
 // clear in seconds and is left to the orchestrator's fallback.
@@ -46,8 +71,11 @@ async function generateStream(messages, options = {}) {
     throw new ApiError(500, "Vercel AI Gateway API key not configured.");
   }
 
-  const { temperature, maxTokens, model } = options;
-  const request = (modelName) => fetch(endpoint(), {
+  const { temperature, maxTokens, model, effort } = options;
+  const setting = { effort: REASONING_EFFORT[effort] || REASONING_EFFORT.balanced };
+  // Only reasoning models get the setting; others may refuse the whole request.
+  const reasoningFor = (modelName) => (REASONING_MODEL.test(modelName) && !rejectedReasoning.has(modelName) ? setting : null);
+  const request = (modelName, reasoning = reasoningFor(modelName)) => fetch(endpoint(), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -60,17 +88,24 @@ async function generateStream(messages, options = {}) {
       temperature: temperature ?? config.vercelTemperature ?? 0.7,
       max_tokens: maxTokens ?? config.vercelMaxTokens ?? 8192,
       stream: true,
+      ...(reasoning ? { reasoning } : {}),
     }),
     signal: AbortSignal.timeout(30000),
   });
 
   try {
-    let modelName = model || acceptedModel || config.vercelModel || DEFAULT_MODEL;
+    let modelName = model || currentModel();
     let res = await request(modelName);
 
     if (!res.ok) {
       let detail = await res.text();
-      if (isUnknownModelError(res.status, detail) && modelName !== DEFAULT_MODEL) {
+      if (reasoningFor(modelName) && isReasoningRejected(res.status, detail)) {
+        logger.warn("vercelAdapter.reasoningRejected", { model: modelName, status: res.status });
+        rejectedReasoning.add(modelName);
+        res = await request(modelName);
+        if (!res.ok) detail = await res.text();
+      }
+      if (!res.ok && isUnknownModelError(res.status, detail) && modelName !== DEFAULT_MODEL) {
         logger.warn("vercelAdapter.modelRejected", { model: modelName, status: res.status, retryWith: DEFAULT_MODEL });
         modelName = DEFAULT_MODEL;
         res = await request(modelName);
@@ -99,8 +134,9 @@ async function generateStream(messages, options = {}) {
 
 module.exports = {
   generateStream,
+  reasonsNatively,
   DEFAULT_MODEL,
-  resetAcceptedModel: () => { acceptedModel = null; },
+  resetAcceptedModel: () => { acceptedModel = null; rejectedReasoning.clear(); },
   // Tests shorten the pauses between rate-limit retries.
   setRateLimitDelays: (delays) => { rateLimitDelaysMs = delays; },
 };

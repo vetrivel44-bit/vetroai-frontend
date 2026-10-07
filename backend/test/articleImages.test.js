@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { extractImageFromHtml, findArticleImage, fillMissingImages, isPrivateAddress, _cache } = require("../src/services/articleImages");
+const { extractImageFromHtml, findArticleImage, fillMissingImages, isPrivateAddress, assertPublicHttpUrl, _cache } = require("../src/services/articleImages");
 
 const publicLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 const htmlResponse = (html, status = 200, headers = {}) => new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", ...headers } });
@@ -25,6 +25,25 @@ test("isPrivateAddress blocks internal ranges", () => {
     assert.equal(isPrivateAddress(ip), true, ip);
   }
   assert.equal(isPrivateAddress("93.184.216.34"), false);
+});
+
+test("isPrivateAddress sees IPv4 hosts inside IPv6 addresses, however they are written", () => {
+  // URL parsing writes [::ffff:127.0.0.1] as [::ffff:7f00:1], so the hex forms matter most.
+  for (const ip of ["::ffff:7f00:1", "::ffff:a9fe:a9fe", "::ffff:a00:5", "0:0:0:0:0:ffff:c0a8:101", "::7f00:1",
+    "::ffff:0:7f00:1", "64:ff9b::a9fe:a9fe", "2002:7f00:1::", "fe80::1", "ff02::1", "::", "192.0.0.8"]) {
+    assert.equal(isPrivateAddress(ip), true, ip);
+  }
+  for (const ip of ["::ffff:5db8:d822", "::ffff:93.184.216.34", "2606:4700::6810:84e5", "64:ff9b::5db8:d822"]) {
+    assert.equal(isPrivateAddress(ip), false, ip);
+  }
+});
+
+test("assertPublicHttpUrl refuses IPv4-mapped IPv6 literals of internal hosts", async () => {
+  const noLookup = async () => { throw new Error("IP literals are not looked up"); };
+  for (const url of ["http://[::ffff:127.0.0.1]:3000/", "http://[::ffff:7f00:1]/", "http://[::ffff:169.254.169.254]/latest/meta-data", "http://[::ffff:a9fe:a9fe]/"]) {
+    await assert.rejects(assertPublicHttpUrl(url, noLookup), /non-public host/, url);
+  }
+  assert.equal((await assertPublicHttpUrl("http://[::ffff:93.184.216.34]/", noLookup)).hostname, "[::ffff:5db8:d822]");
 });
 
 test("findArticleImage refuses private hosts without fetching", async () => {

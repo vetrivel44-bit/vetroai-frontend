@@ -40,13 +40,17 @@ function menu(items,x,y){document.querySelector('.vetro-download-menu')?.remove(
 function previousUserText(row){let n=row.previousElementSibling;while(n){const t=n.innerText?.trim()||'';if(t&&!n.querySelector('.response-model-icon'))return t;n=n.previousElementSibling}return ''}
 function iconButton(title){const b=document.createElement('button');b.type='button';b.title=title;b.setAttribute('aria-label',title);b.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';b.className='vetro-export-btn';b.style.cssText='display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:0;background:transparent;color:inherit;opacity:.78;cursor:pointer;border-radius:7px';return b}
 function removeLegacyImageButtons(row){row.querySelectorAll('button').forEach(b=>{const t=(b.textContent||'').trim().toLowerCase();if(t==='png'||t==='jpg'||t==='jpeg'||t==='download')b.remove()})}
+// Site icons and other marked icons are never offered as images to save. An
+// icon that isn't drawn (a citation's hover card) reports its natural size,
+// which for a favicon.ico can pass the size check below.
+const isIcon=img=>img.classList.contains('px-src-favicon')||img.classList.contains('response-model-icon')||!!img.closest('[data-no-image-tools], .px-src, .vai-cite, .vai-ra')
 function nearestActions(row,img){return row.querySelector('.msg-actions,.message-actions,.response-actions,.action-buttons')||img.parentElement||row}
 
 function enhance(){
  document.querySelectorAll('.msg-row').forEach(row=>{
    const text=row.innerText?.trim(); if(!text)return;
    // Reply file downloads (PDF/Word/Excel) are rendered by DocumentDownloads in App.jsx.
-   row.querySelectorAll('img').forEach(img=>{if(img.dataset.vetroImageActions||!img.src||img.width<180||img.height<120)return;removeLegacyImageButtons(row);const host=nearestActions(row,img),b=iconButton('Download image');b.classList.add('vetro-image-download');b.onclick=e=>{e.stopPropagation();menu([['PNG',()=>saveImage(img.src,'png')],['JPG',()=>saveImage(img.src,'jpg')],['WebP',()=>saveImage(img.src,'webp')]],e.clientX,e.clientY)};
+   row.querySelectorAll('img').forEach(img=>{if(img.dataset.vetroImageActions||!img.src||isIcon(img)||img.width<180||img.height<120)return;removeLegacyImageButtons(row);const host=nearestActions(row,img),b=iconButton('Download image');b.classList.add('vetro-image-download');b.onclick=e=>{e.stopPropagation();menu([['PNG',()=>saveImage(img.src,'png')],['JPG',()=>saveImage(img.src,'jpg')],['WebP',()=>saveImage(img.src,'webp')]],e.clientX,e.clientY)};
      const share=[...host.querySelectorAll('button')].find(x=>(x.title||x.getAttribute('aria-label')||x.textContent||'').toLowerCase().includes('share'));if(share)share.insertAdjacentElement('beforebegin',b);else host.appendChild(b);img.dataset.vetroImageActions='1';
    });
  });

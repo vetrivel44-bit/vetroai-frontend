@@ -1,0 +1,80 @@
+/* Inline citations in research answers: a compact chip in the line of text,
+   and a preview card on hover or keyboard focus. */
+.vai-cite {
+  position: relative;
+  display: inline-block;
+  margin: 0 1px;
+  vertical-align: 1px;
+  line-height: 1;
+}
+.vai-cite + .vai-cite { margin-left: 0; }
+
+.vai-cite-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px 0 3px;
+  border-radius: 99px;
+  color: var(--ink-2, inherit) !important;
+  background: var(--bg-active, rgba(127, 127, 127, .14));
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none !important;
+  transition: background .15s ease, color .15s ease;
+}
+.vai-cite-chip .px-src-favicon { width: 12px; height: 12px; }
+.vai-cite-chip .px-src-favicon-letter { font-size: 7.5px; }
+/* Inverted on hover: the theme's text and page colours always contrast,
+   which an accent colour (near-white in some dark themes) does not. */
+.vai-cite-chip:hover,
+.vai-cite-chip:focus-visible {
+  color: var(--bg, #fff) !important;
+  background: var(--ink, #1a1a22);
+  outline: none;
+}
+
+.vai-cite-card {
+  display: none;
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 8px);
+  left: -10px;
+  width: max-content;
+  max-width: min(300px, 78vw);
+  padding: 10px 12px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .25));
+  border-radius: 12px;
+  background: var(--bg-elevated, #fff);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .08);
+  color: var(--ink, inherit);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+}
+/* Pointer devices get the preview; on touch a tap simply opens the source. */
+@media (hover: hover) {
+  .vai-cite:hover .vai-cite-card,
+  .vai-cite:focus-within .vai-cite-card { display: flex; flex-direction: column; gap: 5px; animation: vaiCiteIn .14s ease-out; }
+}
+.vai-cite-site { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vai-cite-site .px-src-favicon { width: 14px; height: 14px; }
+.vai-cite-site-name { font-weight: 600; font-size: 12.5px; text-transform: capitalize; }
+.vai-cite-domain { color: var(--ink-3, #6c6c77); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vai-cite-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 500;
+}
+.vai-cite-open { display: inline-flex; align-items: center; gap: 2px; color: var(--accent, #5b5fe3); font-size: 12px; font-weight: 600; }
+
+.vai-cite-plain { color: var(--ink-3, #6c6c77); font-size: .85em; }
+
+@keyframes vaiCiteIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .vai-cite-card { animation: none !important; } }

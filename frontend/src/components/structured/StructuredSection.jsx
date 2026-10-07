@@ -3,7 +3,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import React, { Suspense } from 'react';
+import React, { Suspense, useContext } from 'react';
+import { CitationLink } from '../CitationLink';
+import { CitationContext } from '../../lib/citationContext';
+import { remarkCitations } from '../../lib/citations';
 
 // Prism's grammars are only needed once a section actually contains code, so
 // they arrive with the first code block rather than with the app.
@@ -13,7 +16,12 @@ import '../../styles/StructuredResponse.css';
 
 const KATEX_OPTIONS = { strict: false };
 
+const PLAIN_PLUGINS = [remarkGfm, remarkMath];
+// Answers with sources turn [n] into source chips (CitationLink).
+const CITED_PLUGINS = [remarkGfm, remarkMath, remarkCitations];
+
 const StructuredSection = ({ title, content, children, delay = 0 }) => {
+  const sources = useContext(CitationContext);
   return (
     <motion.div 
       className="structured-section"
@@ -25,9 +33,10 @@ const StructuredSection = ({ title, content, children, delay = 0 }) => {
       <div className="section-body">
         {content ? (
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={sources?.length ? CITED_PLUGINS : PLAIN_PLUGINS}
             rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
             components={{
+              a: CitationLink,
               code({ node, inline, className, children, ...rest }) {
                 const match = /language-(\w+)/.exec(className || '');
                 return !inline && match ? (

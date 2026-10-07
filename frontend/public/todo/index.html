@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VetroAI To-Do</title>
+  <meta name="description" content="A to-do list saved to your own Puter account, with Claude Opus 5.5 to break tasks into steps and answer questions.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script src="https://js.puter.com/v2/"></script>
+  <style>
+    :root {
+      --bg: #f6f4ef;
+      --card: #ffffff;
+      --ink: #1f1d1a;
+      --ink-2: #57524a;
+      --ink-3: #8a8378;
+      --line: #e5e0d6;
+      --accent: #c2571a;
+      --accent-ink: #ffffff;
+      --accent-soft: #fbeee5;
+      --danger: #b42318;
+      --ok: #2f7d4f;
+      --shadow: 0 1px 2px rgba(31, 29, 26, .06), 0 8px 24px rgba(31, 29, 26, .06);
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171614;
+        --card: #211f1c;
+        --ink: #f1ede6;
+        --ink-2: #c4bdb1;
+        --ink-3: #8f887d;
+        --line: #35322d;
+        --accent: #e8793a;
+        --accent-ink: #1b1003;
+        --accent-soft: #3a2618;
+        --danger: #f07167;
+        --ok: #6fcf97;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+        color-scheme: dark;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+    }
+    button, input, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+
+    main {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 24px 16px 64px;
+      /* A flex column rather than a grid: a grid column grew to its widest
+         child and scrolled sideways on a phone, and it ignores the empty
+         status line's negative margin below. */
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .title { display: flex; flex-direction: column; gap: 2px; }
+    .back { color: var(--ink-3); font-size: 14px; text-decoration: none; }
+    .back:hover { color: var(--accent); }
+    h1 { margin: 0; font-size: 28px; line-height: 1.2; letter-spacing: -.01em; }
+    h2 { margin: 0 0 12px; font-size: 17px; }
+    .account { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 14px; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--card);
+      border-radius: 10px;
+      padding: 8px 14px;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .btn:hover:not(:disabled) { border-color: var(--ink-3); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.05); border-color: var(--accent); }
+    .btn-small { padding: 4px 10px; font-size: 14px; border-radius: 8px; }
+    .btn-quiet { border-color: transparent; background: transparent; color: var(--ink-3); }
+    .btn-quiet:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
+
+    /* Sign-in */
+    .welcome { text-align: center; padding: 40px 20px; }
+    .welcome p { color: var(--ink-2); margin: 0 auto 20px; max-width: 440px; }
+
+    /* Add form */
+    .add { display: flex; gap: 8px; }
+    .add input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+      font-size: 14px;
+      color: var(--ink-2);
+    }
+    .filters { display: flex; gap: 4px; }
+    .filters button {
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: 999px;
+      padding: 4px 12px;
+      color: var(--ink-2);
+    }
+    .filters button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+    /* List */
+    ul.todos { list-style: none; margin: 12px 0 0; padding: 0; border-top: 1px solid var(--line); }
+    .todo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 2px;
+      border-bottom: 1px solid var(--line);
+    }
+    .todo.step { padding-left: 32px; }
+    .todo.step .text { font-size: 15px; }
+    .todo input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin: 0; }
+    .todo .text {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      cursor: text;
+    }
+    .todo.done .text { color: var(--ink-3); text-decoration: line-through; }
+    .badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      vertical-align: 1px;
+    }
+    .todo .edit {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--accent);
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 4px 8px;
+    }
+    .todo .actions { display: flex; gap: 2px; flex: none; }
+    .btn-steps { color: var(--accent); }
+    .empty { color: var(--ink-3); text-align: center; padding: 24px 0 8px; margin: 0; }
+
+    /* Ask Claude */
+    .ask textarea {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .ask .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .model { font-size: 13px; color: var(--ink-3); }
+    .answer {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      overflow-wrap: anywhere;
+    }
+    .answer p { margin: 0 0 10px; }
+    .answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; }
+    .answer h3 { margin: 14px 0 6px; font-size: 16px; }
+    .answer code { background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 14px; }
+    .answer pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; }
+    .answer pre code { border: 0; padding: 0; }
+    .answer.error { color: var(--danger); }
+
+    /* Status line */
+    .status { min-height: 1.5em; font-size: 14px; color: var(--ink-3); margin: 0; }
+    /* Takes no room while empty, so it doesn't double the gap under the header. */
+    .status:empty { min-height: 0; margin-bottom: -20px; }
+    .status.error { color: var(--danger); }
+    .status.ok { color: var(--ok); }
+
+    @media (max-width: 480px) {
+      main { padding-top: 16px; }
+      h1 { font-size: 24px; }
+      .card { padding: 16px; }
+      .todo { gap: 8px; }
+      .todo.step { padding-left: 20px; }
+      .todo .actions .btn-label { display: none; }
+      .todo .actions .btn-small { padding: 4px 7px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="title">
+        <a class="back" href="/">← VetroAI</a>
+        <h1>To-Do</h1>
+      </div>
+      <div class="account" id="account" hidden>
+        <span id="username"></span>
+        <button class="btn btn-small" id="sign-out" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+
+    <section class="card welcome" id="welcome" hidden>
+      <h2>Your tasks, saved to your own Puter account</h2>
+      <p>Sign in with a free Puter account to keep your list. Only you can see it, and it follows you to any device. Claude can break big tasks into small steps for you.</p>
+      <button class="btn btn-primary" id="sign-in" type="button">Sign in with Puter</button>
+    </section>
+
+    <section class="card" id="app" hidden>
+      <form class="add" id="add-form" autocomplete="off">
+        <input id="new-todo" maxlength="500" placeholder="What needs doing?" aria-label="New task">
+        <button class="btn btn-primary" type="submit">Add</button>
+      </form>
+
+      <div class="toolbar">
+        <span id="remaining"></span>
+        <div class="filters" role="group" aria-label="Show">
+          <button type="button" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" data-filter="active" aria-pressed="false">Active</button>
+          <button type="button" data-filter="done" aria-pressed="false">Done</button>
+        </div>
+        <button class="btn btn-small btn-quiet" id="clear-done" type="button">Clear done</button>
+      </div>
+
+      <ul class="todos" id="list"></ul>
+      <p class="empty" id="empty" hidden></p>
+    </section>
+
+    <section class="card ask" id="ask" hidden>
+      <h2>Ask Claude</h2>
+      <form id="ask-form">
+        <textarea id="prompt" aria-label="Question for Claude">Explain quantum computing in simple terms</textarea>
+        <div class="row">
+          <span class="model" id="model-name"></span>
+          <button class="btn btn-primary" id="ask-button" type="submit">Ask</button>
+        </div>
+      </form>
+      <div class="answer" id="answer" aria-live="polite" hidden></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import {
+      CLAUDE_MODEL, KEY_PREFIX, MAX_TASK_LENGTH,
+      errorMessage, ordersBetween, stepSlot, visibleTodos, stepsOf,
+      stepsPrompt, parseSteps, renderMarkdown,
+    } from "./todo-core.js";
+
+    // ── Whose account ───────────────────────────────────────────────────────
+    // Puter.js keeps one sign-in token per website, and VetroAI's chat can put
+    // a shared app-wide token there (VITE_PUTER_AUTH_TOKEN). Tasks saved under
+    // it would land in one account that every visitor uses. So this page only
+    // trusts the token from its own "Sign in with Puter" step, keeps a copy,
+    // and switches Puter back to it whenever something else has replaced it.
+    const OWN_TOKEN_KEY = "vetroai.todo.puterToken";
+    const readOwnToken = () => { try { return localStorage.getItem(OWN_TOKEN_KEY); } catch { return null; } };
+    const writeOwnToken = (token) => {
+      try { token ? localStorage.setItem(OWN_TOKEN_KEY, token) : localStorage.removeItem(OWN_TOKEN_KEY); } catch { /* private mode */ }
+    };
+    // When a session lapses, Puter signs the visitor in again by itself (its
+    // own popup) and carries on with a new token. The copy follows it, or the
+    // next visit would bring back the dead one. Only called once this page has
+    // installed its own token, after which nothing else changes it here.
+    const keepOwnToken = () => {
+      if (puter.authToken && puter.authToken !== readOwnToken()) writeOwnToken(puter.authToken);
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      welcome: $("welcome"), app: $("app"), ask: $("ask"), account: $("account"),
+      username: $("username"), signIn: $("sign-in"), signOut: $("sign-out"),
+      addForm: $("add-form"), newTodo: $("new-todo"), list: $("list"), empty: $("empty"),
+      remaining: $("remaining"), clearDone: $("clear-done"), status: $("status"),
+      askForm: $("ask-form"), prompt: $("prompt"), askButton: $("ask-button"), answer: $("answer"),
+    };
+    $("model-name").textContent = CLAUDE_MODEL;
+    els.newTodo.maxLength = MAX_TASK_LENGTH;
+
+    let todos = [];
+    let filter = "all";
+    let editingId = null;
+    // What was typed into the open editor, carried across re-renders.
+    let editDraft = null;
+    const breakingDown = new Set();
+
+    // ── Status line ─────────────────────────────────────────────────────────
+    let statusTimer = null;
+    function setStatus(message, kind = "") {
+      clearTimeout(statusTimer);
+      els.status.textContent = message;
+      els.status.className = `status ${kind}`.trim();
+      if (message && kind !== "error") statusTimer = setTimeout(() => setStatus(""), 3000);
+    }
+
+    // ── Storage (puter.kv) ──────────────────────────────────────────────────
+    async function loadTodos() {
+      const pairs = await puter.kv.list(`${KEY_PREFIX}*`, true);
+      todos = pairs.map((pair) => pair.value).filter((todo) => todo && typeof todo.text === "string");
+    }
+
+    const saveTodo = (todo) => puter.kv.set(KEY_PREFIX + todo.id, todo);
+    const removeTodo = (id) => puter.kv.del(KEY_PREFIX + id);
+
+    // Updates the screen first, then saves. If the save fails, the list is
+    // reloaded so the screen never shows something that wasn't stored.
+    // Resolves to whether the save went through.
+    async function persist(action, failureMessage) {
+      if (els.status.classList.contains("error")) setStatus("");
+      render();
+      try {
+        await action();
+        keepOwnToken();
+        return true;
+      } catch (err) {
+        setStatus(`${failureMessage}: ${errorMessage(err)}`, "error");
+        try { await loadTodos(); } catch { /* keep what's on screen */ }
+        render();
+        return false;
+      }
+    }
+
+    const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+    function makeTodo(text, extra = {}) {
+      const now = Date.now();
+      return { id: newId(), text, done: false, createdAt: now, updatedAt: now, order: now, ...extra };
+    }
+
+    async function addTodo(text) {
+      const todo = makeTodo(text);
+      todos.push(todo);
+      const saved = await persist(() => saveTodo(todo), "Couldn't save the task");
+      // Hand the text back so it can be retried rather than typed again.
+      if (!saved && !els.newTodo.value) els.newTodo.value = text;
+    }
+
+    function updateTodo(id, changes) {
+      const todo = todos.find((t) => t.id === id);
+      if (!todo) return;
+      Object.assign(todo, changes, { updatedAt: Date.now() });
+      return persist(() => saveTodo(todo), "Couldn't update the task");
+    }
+
+    // A task's steps go with it.
+    function deleteTodo(id) {
+      const ids = [id, ...stepsOf(todos, id).map((t) => t.id)];
+      todos = todos.filter((t) => !ids.includes(t.id));
+      return persist(() => Promise.all(ids.map(removeTodo)), "Couldn't delete the task");
+    }
+
+    function clearDone() {
+      const done = todos.filter((t) => t.done);
+      if (!done.length) return;
+      // Steps of a finished task are cleared with it, finished or not.
+      const ids = new Set(done.map((t) => t.id));
+      for (const t of todos) if (ids.has(t.parentId)) ids.add(t.id);
+      todos = todos.filter((t) => !ids.has(t.id));
+      return persist(() => Promise.all([...ids].map(removeTodo)), "Couldn't clear done tasks");
+    }
+
+    // ── Claude ──────────────────────────────────────────────────────────────
+    // Streams a reply and hands back each new piece. Streaming chunks have the
+    // same shape for every model, unlike a full response.
+    async function streamClaude(prompt, onText) {
+      const response = await puter.ai.chat(prompt, { model: CLAUDE_MODEL, stream: true });
+      let text = "";
+      for await (const part of response) {
+        if (part?.type === "error") throw new Error(part.error?.message || "Claude returned an error.");
+        if (typeof part?.text !== "string" || !part.text) continue;
+        text += part.text;
+        onText?.(text);
+      }
+      keepOwnToken();
+      return text;
+    }
+
+    async function breakIntoSteps(id) {
+      const parent = todos.find((t) => t.id === id);
+      if (!parent || breakingDown.has(id)) return;
+      breakingDown.add(id);
+      render();
+      try {
+        const steps = parseSteps(await streamClaude(stepsPrompt(parent.text)));
+        if (!steps.length) throw new Error("Claude didn't suggest any steps. Try rewording the task.");
+        if (!todos.some((t) => t.id === id)) return; // deleted while Claude was thinking
+        const { after, before } = stepSlot(todos, parent);
+        const orders = ordersBetween(after, before, steps.length);
+        const created = steps.map((text, i) => makeTodo(text, { parentId: id, order: orders[i] }));
+        todos.push(...created);
+        breakingDown.delete(id);
+        if (await persist(() => Promise.all(created.map(saveTodo)), "Couldn't save the steps")) {
+          setStatus(`Added ${created.length} steps.`, "ok");
+        }
+      } catch (err) {
+        setStatus(`Couldn't break that down: ${errorMessage(err)}`, "error");
+      } finally {
+        breakingDown.delete(id);
+        render();
+      }
+    }
+
+    async function askClaude(question) {
+      els.askButton.disabled = true;
+      els.askButton.textContent = "Thinking…";
+      els.answer.hidden = false;
+      els.answer.classList.remove("error");
+      els.answer.textContent = "…";
+      try {
+        const text = await streamClaude(question, (soFar) => { els.answer.innerHTML = renderMarkdown(soFar); });
+        if (!text.trim()) throw new Error("Claude returned an empty answer. Please try again.");
+      } catch (err) {
+        els.answer.classList.add("error");
+        els.answer.textContent = `Couldn't get an answer: ${errorMessage(err)}`;
+      } finally {
+        els.askButton.disabled = false;
+        els.askButton.textContent = "Ask";
+      }
+    }
+
+    // ── Rendering ───────────────────────────────────────────────────────────
+    function render() {
+      // Claude's steps arriving or a failed save reloading the list rebuilds
+      // it; a task being edited keeps what was typed and where the cursor was.
+      const live = els.list.querySelector("input.edit");
+      editDraft = editingId && live?.dataset.id === editingId
+        ? { value: live.value, start: live.selectionStart, end: live.selectionEnd }
+        : null;
+      // Its replacement carries on the edit, so the blur this one fires as
+      // it is removed isn't the user leaving it.
+      if (editDraft) live.dataset.carried = "true";
+      const visible = visibleTodos(todos, filter);
+      const left = todos.filter((t) => !t.done).length;
+
+      els.list.replaceChildren(...visible.map(renderTodo));
+      els.remaining.textContent = `${left} ${left === 1 ? "task" : "tasks"} left`;
+      els.clearDone.disabled = !todos.some((t) => t.done);
+
+      const emptyText = !todos.length ? "Nothing here yet. Add your first task above."
+        : filter === "active" && !visible.length ? "All done. Nice work."
+        : filter === "done" && !visible.length ? "No finished tasks yet."
+        : "";
+      els.empty.textContent = emptyText;
+      els.empty.hidden = !emptyText;
+
+      for (const button of document.querySelectorAll("[data-filter]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
+      }
+    }
+
+    function renderTodo(todo) {
+      const isStep = Boolean(todo.parentId && todos.some((t) => t.id === todo.parentId));
+      const li = document.createElement("li");
+      li.className = `todo${todo.done ? " done" : ""}${isStep ? " step" : ""}`;
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = todo.done;
+      checkbox.setAttribute("aria-label", `Mark "${todo.text}" as ${todo.done ? "not done" : "done"}`);
+      checkbox.addEventListener("change", () => updateTodo(todo.id, { done: checkbox.checked }));
+      li.append(checkbox);
+
+      if (editingId === todo.id) {
+        li.append(renderEditor(todo));
+        return li;
+      }
+
+      const text = document.createElement("span");
+      text.className = "text";
+      text.textContent = todo.text;
+      text.title = "Double-click to edit";
+      text.addEventListener("dblclick", () => startEditing(todo.id));
+      const steps = stepsOf(todos, todo.id);
+      if (steps.length) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = `${steps.filter((s) => s.done).length}/${steps.length}`;
+        badge.title = "Steps done";
+        text.append(badge);
+      }
+      li.append(text);
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      if (!isStep && !todo.done) {
+        const busy = breakingDown.has(todo.id);
+        const stepsButton = actionButton(busy ? "…" : "✦", busy ? "Thinking…" : "Steps", `Break "${todo.text}" into steps with Claude`, () => breakIntoSteps(todo.id));
+        stepsButton.classList.add("btn-steps");
+        stepsButton.disabled = busy;
+        actions.append(stepsButton);
+      }
+      actions.append(
+        actionButton("✎", "Edit", `Edit "${todo.text}"`, () => startEditing(todo.id)),
+        actionButton("✕", "Delete", `Delete "${todo.text}"${steps.length ? " and its steps" : ""}`, () => deleteTodo(todo.id)),
+      );
+      li.append(actions);
+      return li;
+    }
+
+    function actionButton(icon, label, ariaLabel, onClick) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-small btn-quiet";
+      button.setAttribute("aria-label", ariaLabel);
+      button.title = ariaLabel;
+      const iconSpan = document.createElement("span");
+      iconSpan.setAttribute("aria-hidden", "true");
+      iconSpan.textContent = icon;
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "btn-label";
+      labelSpan.textContent = ` ${label}`;
+      button.append(iconSpan, labelSpan);
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function renderEditor(todo) {
+      const input = document.createElement("input");
+      input.className = "edit";
+      input.dataset.id = todo.id;
+      const draft = editDraft;
+      input.value = draft ? draft.value : todo.text;
+      input.maxLength = MAX_TASK_LENGTH;
+      input.setAttribute("aria-label", "Edit task");
+      // Set now as well as on focus: another re-render can come first.
+      if (draft) input.setSelectionRange(draft.start ?? draft.value.length, draft.end ?? draft.value.length);
+      let finished = false;
+      const finish = (save) => {
+        if (finished || input.dataset.carried) return;
+        finished = true;
+        editingId = null;
+        const text = input.value.trim();
+        if (save && text && text !== todo.text) updateTodo(todo.id, { text });
+        else if (save && !text) deleteTodo(todo.id);
+        else render();
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") finish(true);
+        if (event.key === "Escape") finish(false);
+      });
+      input.addEventListener("blur", () => finish(true));
+      requestAnimationFrame(() => {
+        input.focus();
+        if (draft) input.setSelectionRange(draft.start ?? input.value.length, draft.end ?? input.value.length);
+        else input.select();
+      });
+      return input;
+    }
+
+    function startEditing(id) {
+      editingId = id;
+      render();
+    }
+
+    // ── Sign-in and start-up ────────────────────────────────────────────────
+    function showSignedOut() {
+      todos = [];
+      editingId = null;
+      filter = "all";
+      // The next person to sign in on this browser shouldn't see this answer.
+      els.answer.hidden = true;
+      els.answer.textContent = "";
+      els.welcome.hidden = false;
+      els.app.hidden = true;
+      els.ask.hidden = true;
+      els.account.hidden = true;
+    }
+
+    function forgetSignIn() {
+      writeOwnToken(null);
+      puter.auth.signOut();
+    }
+
+    async function showSignedIn(retried = false) {
+      els.welcome.hidden = true;
+      els.account.hidden = false;
+      els.username.textContent = "";
+      setStatus("Loading your tasks…");
+      const tokenUsed = puter.authToken;
+      try {
+        const [user] = await Promise.all([puter.auth.getUser(), loadTodos()]);
+        keepOwnToken();
+        els.username.textContent = user?.username ? `Signed in as ${user.username}` : "";
+        setStatus("");
+      } catch (err) {
+        if (err?.status === 401) {
+          // Puter may have signed the visitor in again while answering: the
+          // new token is theirs, so keep it and load once more with it.
+          if (!retried && puter.authToken && puter.authToken !== tokenUsed) {
+            writeOwnToken(puter.authToken);
+            return showSignedIn(true);
+          }
+          // A saved session Puter no longer accepts: sign in afresh.
+          forgetSignIn();
+          showSignedOut();
+          setStatus("Your Puter session has expired. Please sign in again.", "error");
+          return;
+        }
+        setStatus(`Couldn't load your tasks: ${errorMessage(err)}`, "error");
+      }
+      els.app.hidden = false;
+      els.ask.hidden = false;
+      render();
+      els.newTodo.focus();
+    }
+
+    els.signIn.addEventListener("click", async () => {
+      // Opens Puter's sign-in popup, so it has to run from this click. It
+      // always asks Puter for the visitor's own account; it never reuses a
+      // token that was already on the site.
+      els.signIn.disabled = true;
+      try {
+        const result = await puter.auth.signIn();
+        if (result && result.success === false) throw new Error(result.error || result.msg || "Sign-in was cancelled.");
+        const token = result?.token || puter.authToken;
+        if (!token) throw new Error("Puter didn't return a sign-in.");
+        writeOwnToken(token);
+        await showSignedIn();
+      } catch (err) {
+        setStatus(`Sign-in didn't finish: ${errorMessage(err)}`, "error");
+      } finally {
+        els.signIn.disabled = false;
+      }
+    });
+
+    els.signOut.addEventListener("click", () => {
+      forgetSignIn();
+      showSignedOut();
+      setStatus("Signed out.", "ok");
+    });
+
+    els.addForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = els.newTodo.value.trim();
+      if (!text) return;
+      els.newTodo.value = "";
+      if (filter === "done") filter = "all";
+      addTodo(text);
+    });
+
+    for (const button of document.querySelectorAll("[data-filter]")) {
+      button.addEventListener("click", () => { filter = button.dataset.filter; render(); });
+    }
+
+    els.clearDone.addEventListener("click", clearDone);
+
+    els.askForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const question = els.prompt.value.trim();
+      if (question) askClaude(question);
+    });
+    els.prompt.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) els.askForm.requestSubmit();
+    });
+
+    if (!window.puter) {
+      setStatus("Puter.js didn't load. Check your connection and refresh the page.", "error");
+    } else {
+      const own = readOwnToken();
+      if (own) {
+        if (puter.authToken !== own) puter.setAuthToken(own);
+        showSignedIn();
+      } else {
+        showSignedOut();
+      }
+    }
+  </script>
+</body>
+</html>

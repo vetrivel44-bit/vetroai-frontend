@@ -84,6 +84,10 @@ module.exports = {
     // it writes queries and judges coverage, it does not answer the question,
     // and it runs several times per request.
     searchPlannerModel:  getEnv("SEARCH_PLANNER_MODEL", "llama-3.1-8b-instant"),
+    // DeepSearch plans its research, spots gaps and picks claims to cross-check
+    // with this model (on Groq). A stronger one than the query planner above,
+    // which it falls back to when Groq rate-limits it.
+    researchModel:       getEnv("RESEARCH_MODEL",       "llama-3.3-70b-versatile"),
     enableCloudSessions: getEnv("ENABLE_CLOUD_SESSIONS", "false") === "true",
     twilioAccountSid:    getEnv("TWILIO_ACCOUNT_SID",    ""),
     twilioAuthToken:     getEnv("TWILIO_AUTH_TOKEN",     ""),

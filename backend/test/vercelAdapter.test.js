@@ -103,3 +103,54 @@ test("no key configured is reported, not sent", withFetch([], async (calls) => {
   await assert.rejects(vercel.generateStream([{ role: "user", content: "hi" }]), /not configured/);
   assert.equal(calls.length, 0);
 }));
+
+test("the default effort asks for light reasoning, and Deep or Max ask for more", withFetch([OK, OK, OK, OK], async (calls) => {
+  config.vercelModel = "";
+  await vercel.generateStream([{ role: "user", content: "hi" }]);
+  await vercel.generateStream([{ role: "user", content: "hi" }], { effort: "balanced" });
+  await vercel.generateStream([{ role: "user", content: "hi" }], { effort: "deep" });
+  await vercel.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
+  assert.deepEqual(calls.map((c) => c.body.reasoning), [
+    { effort: "low" }, { effort: "low" }, { effort: "medium" }, { effort: "high" },
+  ]);
+}));
+
+test("a model that rejects the reasoning setting is retried once without it, and not sent it again", withFetch([
+  { status: 400, body: '{"error":{"message":"reasoning is not supported by this model"}}' },
+  OK,
+  OK,
+], async (calls) => {
+  config.vercelModel = "openai/gpt-5-mini";
+  await vercel.generateStream([{ role: "user", content: "hi" }]);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].body.reasoning, { effort: "low" });
+  assert.equal(calls[1].body.reasoning, undefined);
+  assert.equal(calls[1].body.model, "openai/gpt-5-mini", "the user's model is kept");
+  await vercel.generateStream([{ role: "user", content: "hello" }]);
+  assert.equal(calls.length, 3, "the next message doesn't pay for the refusal again");
+  assert.equal(calls[2].body.reasoning, undefined);
+}));
+
+test("a model that doesn't reason is never sent the reasoning setting", withFetch([OK], async (calls) => {
+  config.vercelModel = "openai/gpt-4o-mini";
+  await vercel.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.reasoning, undefined);
+}));
+
+test("reasoning models are recognised so they aren't asked for a <think> block too", () => {
+  const saved = config.vercelModel;
+  vercel.resetAcceptedModel();
+  try {
+    for (const model of ["", "openai/gpt-oss-120b", "openai/o3-mini", "openai/gpt-5", "deepseek/deepseek-r1"]) {
+      config.vercelModel = model;
+      assert.equal(vercel.reasonsNatively(), true, model || "(default model)");
+    }
+    for (const model of ["openai/gpt-4o-mini", "meta/llama-3.3-70b", "anthropic/claude-3.5-haiku"]) {
+      config.vercelModel = model;
+      assert.equal(vercel.reasonsNatively(), false, model);
+    }
+  } finally {
+    config.vercelModel = saved;
+  }
+});

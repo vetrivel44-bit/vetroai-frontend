@@ -117,3 +117,60 @@ test("processRequest falls back to the next provider when one streams an empty a
     for (const [name, [target, fn]] of Object.entries(originals)) target[name] = fn;
   }
 });
+
+test("a native-reasoning model skips the <think> prompt, and a failed provider hands over without a pause", async () => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const providerManager = require("../src/services/ProviderManager");
+
+  const streamOf = (lines) => (async function* () { for (const line of lines) yield line + "\n"; })();
+  const seen = {};
+  const adapters = {
+    reasoner: {
+      reasonsNatively: () => true,
+      generateStream: async (messages, options) => {
+        seen.reasoner = { system: messages[0].content, effort: options.effort };
+        throw new Error("503 service unavailable");
+      },
+    },
+    plain: {
+      generateStream: async (messages, options) => {
+        seen.plain = { system: messages[0].content, effort: options.effort };
+        return streamOf(['data: {"choices":[{"delta":{"content":"DBMS stores data."}}]}']);
+      },
+    },
+  };
+
+  const originals = {};
+  const patch = (target, name, fn) => { originals[name] = [target, target[name]]; target[name] = fn; };
+  patch(providerManager, "getBestProvider", () => "reasoner");
+  patch(providerManager, "getAdapter", (name) => adapters[name]);
+  patch(providerManager, "getAvailableProviders", () => ["reasoner", "plain"]);
+  patch(providerManager, "isConfigured", (name) => name in adapters);
+  patch(providerManager, "updateMetrics", () => {});
+  patch(providerManager, "suspendProvider", () => {});
+  patch(orchestrator, "nextFallback", (failed, attempted) => ["reasoner", "plain"].find((n) => !attempted.has(n)) || null);
+  const savedThinking = config.thinkingEnabled;
+  config.thinkingEnabled = true;
+
+  try {
+    const written = [];
+    const res = { write: (chunk) => written.push(chunk), end: () => {}, writableEnded: false };
+    const startedAt = Date.now();
+    const answered = await orchestrator.processRequest("test_reasoner", {
+      messages: [{ role: "user", content: "What is a DBMS used for?" }],
+      mode: "normal",
+      effort: "balanced",
+      options: { temperature: 0.7, maxTokens: 256 },
+    }, res);
+
+    assert.equal(answered, true);
+    assert.ok(Date.now() - startedAt < 1500, "switching providers no longer waits seconds");
+    assert.doesNotMatch(seen.reasoner.system, /<think>/, "a native reasoner is not asked to think twice");
+    assert.match(seen.plain.system, /<think>/, "other models still get the thinking prompt");
+    assert.equal(seen.reasoner.effort, "balanced");
+    assert.equal(seen.plain.effort, "balanced");
+  } finally {
+    config.thinkingEnabled = savedThinking;
+    for (const [name, [target, fn]] of Object.entries(originals)) target[name] = fn;
+  }
+});

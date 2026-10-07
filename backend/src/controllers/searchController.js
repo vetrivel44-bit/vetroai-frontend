@@ -252,6 +252,41 @@ async function searchWeb(query, { clock } = {}) {
   return { context: snippets.join("\n\n---\n\n"), results };
 }
 
+// DeepSearch's search: structured results with each page's full text where
+// the provider has it, instead of a prompt-ready context string. Tavily
+// returns page text at no extra credit cost; the keyless fallbacks give
+// snippets only, and DeepSearch fetches those pages itself (pageReader.js).
+async function searchForResearch(query) {
+  if (!query) return [];
+  try {
+    const res = await tavilySearch(query, {
+      searchDepth: "basic",
+      maxResults: 6,
+      includeAnswer: false,
+      includeRawContent: "text",
+    }, 12000);
+    if (res?.results?.length) {
+      return res.results.map((r) => ({
+        url: r.url,
+        title: r.title || "",
+        snippet: r.content || "",
+        text: r.rawContent || r.raw_content || "",
+        published: r.publishedDate || r.published_date || null,
+      }));
+    }
+  } catch (err) {
+    logger.warn("research.tavily.failed", { error: err.message });
+  }
+  const { results } = await searchKeyless(query);
+  return results.map((r) => ({
+    url: r.url,
+    title: r.title || "",
+    snippet: r.description || "",
+    text: "",
+    published: r.published || null,
+  }));
+}
+
 async function performSearch(req, res) {
   const query = req.body?.query;
   if (!query) throw new ApiError(400, "Query is required");
@@ -267,4 +302,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems };
+module.exports = { performSearch, searchWeb, searchForResearch, searchImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems };

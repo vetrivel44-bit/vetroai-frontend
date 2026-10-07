@@ -1,0 +1,301 @@
+/* DeepSearch's research card. Built from the app's theme tokens so it sits
+   right in every theme: --bg-elevated card, --accent for the live state,
+   --success / --danger for how it ended. */
+.vai-ra {
+  --ra-accent: var(--accent, #5b5fe3);
+  --ra-accent-soft: var(--accent-soft, rgba(91, 95, 227, .1));
+  --ra-line: var(--border-med, rgba(127, 127, 127, .22));
+  --ra-ok: var(--success, #1f8f67);
+  --ra-bad: var(--danger, #dc4c6b);
+  position: relative;
+  margin: 0 0 14px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--ra-line);
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 90px at 0% 0%, var(--ra-accent-soft), transparent 70%),
+    var(--bg-elevated, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px -16px rgba(0, 0, 0, .25);
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.vai-ra.is-active { border-color: color-mix(in srgb, var(--ra-accent) 38%, var(--ra-line)); }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.vai-ra-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.vai-ra-header:focus-visible { outline: 2px solid var(--ra-accent); outline-offset: -3px; border-radius: 16px; }
+
+.vai-ra-glyph {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  color: var(--ra-accent);
+  background: var(--ra-accent-soft);
+}
+.vai-ra.is-done .vai-ra-glyph { color: var(--ra-ok); background: color-mix(in srgb, var(--ra-ok) 13%, transparent); }
+.vai-ra.is-stopped .vai-ra-glyph { color: var(--ra-bad); background: color-mix(in srgb, var(--ra-bad) 12%, transparent); }
+
+/* A dot circling the telescope while the research runs. */
+.vai-ra-orbit {
+  position: absolute;
+  inset: -3px;
+  animation: vaiRaSpin 2.4s linear infinite;
+}
+.vai-ra-orbit span {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--ra-accent);
+  box-shadow: 0 0 0 2px var(--bg-elevated, #fff), 0 0 10px var(--ra-accent);
+}
+
+.vai-ra-heading { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.vai-ra-title { font-size: 14.5px; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; }
+.vai-ra-meta {
+  color: var(--ink-3, #6c6c77);
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The title shimmers while the research runs, like "Thinking…". */
+.vai-ra.is-active .vai-ra-title {
+  background: linear-gradient(90deg, var(--ink) 0%, var(--ink) 38%, var(--ra-accent) 50%, var(--ink) 62%, var(--ink) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: vaiRaShimmer 2.2s linear infinite;
+}
+
+.vai-ra-stack { display: inline-flex; align-items: center; flex-shrink: 0; padding-left: 4px; }
+.vai-ra-stack .px-src-favicon {
+  width: 18px;
+  height: 18px;
+  margin-left: -6px;
+  border: 2px solid var(--bg-elevated, #fff);
+  box-sizing: content-box;
+  border-radius: 50%;
+}
+.vai-ra-stack-more {
+  margin-left: 4px;
+  color: var(--ink-3, #6c6c77);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.vai-ra-chevron { flex-shrink: 0; color: var(--ink-4, #8e8e99); transition: transform .25s ease; }
+.vai-ra.is-open .vai-ra-chevron { transform: rotate(180deg); }
+
+/* ── Stage bar ──────────────────────────────────────────────────────────── */
+.vai-ra-stages {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+.vai-ra-stage { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.vai-ra-stage-bar {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--bg-active, rgba(127, 127, 127, .18));
+  overflow: hidden;
+}
+.vai-ra-stage.is-reached .vai-ra-stage-bar { background: var(--ra-accent); }
+.vai-ra.is-done .vai-ra-stage.is-reached .vai-ra-stage-bar { background: var(--ra-ok); }
+.vai-ra-stage.is-current .vai-ra-stage-bar {
+  background: linear-gradient(90deg, var(--ra-accent-soft) 0%, var(--ra-accent) 50%, var(--ra-accent-soft) 100%);
+  background-size: 200% 100%;
+  animation: vaiRaFlow 1.2s linear infinite;
+}
+.vai-ra-stage-label {
+  color: var(--ink-4, #8e8e99);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vai-ra-stage.is-reached .vai-ra-stage-label { color: var(--ink-3, #6c6c77); }
+.vai-ra-stage.is-current .vai-ra-stage-label { color: var(--ra-accent); }
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.vai-ra-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--ra-line);
+  animation: vaiRaIn .2s ease-out;
+}
+.vai-ra-body[hidden] { display: none; }
+.vai-ra-section-title {
+  margin: 0 0 8px;
+  color: var(--ink-4, #8e8e99);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+/* Research plan */
+.vai-ra-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vai-ra-plan li { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; line-height: 1.45; color: var(--ink-2, inherit); }
+.vai-ra-num {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 0;
+  border-radius: 6px;
+  color: var(--ra-accent);
+  background: var(--ra-accent-soft);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.vai-ra-angle { flex: 1; min-width: 0; padding-top: 1px; }
+.vai-ra-count {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 99px;
+  color: var(--ink-3, #6c6c77);
+  background: var(--bg-active, rgba(127, 127, 127, .12));
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Activity timeline */
+.vai-ra-steps { list-style: none; margin: 0; padding: 0; }
+.vai-ra-step { position: relative; display: flex; gap: 11px; padding-bottom: 12px; }
+.vai-ra-step:last-child { padding-bottom: 0; }
+.vai-ra-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 11.5px;
+  top: 26px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--ra-line);
+}
+.vai-ra-icon {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--ink-3, #6c6c77);
+  background: var(--bg-active, rgba(127, 127, 127, .14));
+}
+.vai-ra-step.is-done .vai-ra-icon { color: var(--ink-2, inherit); }
+.vai-ra-step.is-active .vai-ra-icon { color: var(--ra-accent); background: var(--ra-accent-soft); }
+.vai-ra-step.is-active .vai-ra-icon::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--ra-accent);
+  animation: vaiRaSpin .9s linear infinite;
+}
+.vai-ra-step.is-failed .vai-ra-icon { color: var(--ra-bad); background: color-mix(in srgb, var(--ra-bad) 12%, transparent); }
+
+.vai-ra-step-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 2px; }
+.vai-ra-step-label { color: var(--ink-2, inherit); font-size: 13.5px; line-height: 1.4; }
+.vai-ra-step.is-active .vai-ra-step-label { color: var(--ink, inherit); font-weight: 600; }
+.vai-ra-step-detail { color: var(--ink-3, #6c6c77); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.vai-ra-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.vai-ra-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--ra-line);
+  border-radius: 99px;
+  color: var(--ink-2, inherit);
+  background: var(--bg, transparent);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.vai-ra-chip svg { flex-shrink: 0; color: var(--ink-4, #8e8e99); }
+.vai-ra-chip .px-src-favicon { width: 13px; height: 13px; }
+.vai-ra-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vai-ra-chip.kind-verify svg { color: var(--ra-ok); }
+
+/* Sites consulted */
+.vai-ra-sites { display: flex; flex-wrap: wrap; gap: 6px; }
+.vai-ra-site {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px 4px 6px;
+  border-radius: 8px;
+  color: var(--ink-2, inherit);
+  background: var(--bg-active, rgba(127, 127, 127, .12));
+  font-size: 12.5px;
+}
+.vai-ra-site > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vai-ra-site .px-src-favicon { width: 14px; height: 14px; }
+.vai-ra-site.is-more { padding-left: 10px; color: var(--ink-3, #6c6c77); }
+
+/* ── Motion ─────────────────────────────────────────────────────────────── */
+@keyframes vaiRaSpin { to { transform: rotate(360deg); } }
+@keyframes vaiRaShimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@keyframes vaiRaFlow { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@keyframes vaiRaIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 560px) {
+  .vai-ra-header { gap: 10px; padding: 11px 12px; }
+  .vai-ra-glyph { width: 32px; height: 32px; border-radius: 10px; }
+  .vai-ra-stack .px-src-favicon:nth-child(n + 4) { display: none; }
+  .vai-ra-stages { gap: 4px; padding: 0 12px 11px; }
+  .vai-ra-stage-label { font-size: 9.5px; letter-spacing: .03em; }
+  .vai-ra-body { padding: 12px 12px 14px; }
+  .vai-ra-meta { white-space: normal; }
+  /* The source count drops under its angle rather than squeezing it. */
+  .vai-ra-plan li { flex-wrap: wrap; row-gap: 3px; }
+  .vai-ra-angle { flex-basis: calc(100% - 30px); }
+  .vai-ra-count { margin-left: 30px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vai-ra-orbit, .vai-ra-step.is-active .vai-ra-icon::after, .vai-ra-stage.is-current .vai-ra-stage-bar, .vai-ra-body { animation: none; }
+  .vai-ra.is-active .vai-ra-title { animation: none; color: var(--ink); -webkit-text-fill-color: currentColor; background: none; }
+}

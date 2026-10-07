@@ -70,3 +70,101 @@ test("POST /api/astrology/context answers for any model", async (t) => {
   assert.equal(missing.astrology, true);
   assert.equal(missing.status, "missing");
 });
+
+test("a chat about a kundli reaches the model with ProKerala's live data, and the chart is shown first", async (t) => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const providerManager = require("../src/services/ProviderManager");
+  config.prokeralaClientId = "id"; config.prokeralaClientSecret = "secret";
+
+  const realFetch = global.fetch;
+  const hits = [];
+  global.fetch = async (url, init) => {
+    const u = String(url); hits.push(u.split("?")[0]);
+    if (u.includes("nominatim")) return Response.json([{ lat: "13.08", lon: "80.27" }]);
+    if (u.includes("/token")) return Response.json({ access_token: "tok", expires_in: 3600 });
+    if (u.includes("/chart")) return new Response("<svg xmlns='http://www.w3.org/2000/svg'><text>Rasi</text></svg>", { headers: { "content-type": "image/svg+xml" } });
+    if (u.includes("/kundli")) {
+      assert.match(u, /ayanamsa=1/);
+      assert.match(u, /coordinates=13\.08%2C80\.27/);
+      assert.match(u, /datetime=1998-03-05T10%3A30%3A00%2B05%3A30/, "Chennai's local time, with India's offset");
+      return Response.json({ data: { nakshatra_details: { nakshatra: { name: "Rohini-from-ProKerala" } } } });
+    }
+    return Response.json({ data: { from: u.split("?")[0] } });
+  };
+
+  let modelInput = null;
+  const originals = [];
+  const patch = (target, name, fn) => { originals.push([target, name, target[name]]); target[name] = fn; };
+  patch(providerManager, "getBestProvider", () => "writer");
+  patch(providerManager, "getAdapter", () => ({
+    generateStream: async (messages) => {
+      modelInput = messages;
+      return (async function* () { yield 'data: {"choices":[{"delta":{"content":"*Data sourced live from the ProKerala Astrology API.*"}}]}\n'; })();
+    },
+  }));
+  patch(providerManager, "getAvailableProviders", () => ["writer"]);
+  patch(providerManager, "isConfigured", (name) => name === "writer");
+  patch(providerManager, "updateMetrics", () => {});
+  t.after(() => {
+    global.fetch = realFetch;
+    for (const [target, name, fn] of originals.reverse()) target[name] = fn;
+  });
+
+  const written = [];
+  const res = { write: (c) => written.push(c), end: () => {}, writableEnded: false };
+  const answered = await orchestrator.processRequest("t_astro", {
+    messages: [{ role: "user", content: "What does my kundli say? I was born on 5 March 1998 at 10:30 am in Chennai" }],
+    mode: "normal",
+    options: { temperature: 0.7, maxTokens: 512 },
+  }, res);
+  assert.equal(answered, true);
+
+  // Every ProKerala endpoint was called, after geocoding the birth city. (No
+  // /token call: the access token from the test above is still cached.)
+  for (const path of ["/kundli", "/planet-position", "/dasha-periods", "/chart"]) {
+    assert.ok(hits.some((h) => h.endsWith(path)), path);
+  }
+  assert.ok(hits.some((h) => h.includes("nominatim.openstreetmap.org")));
+
+  // The model answered from ProKerala's data, not from memory.
+  const system = modelInput[0].content;
+  assert.match(system, /\[LIVE ASTROLOGY API DATA\]/);
+  assert.match(system, /Rohini-from-ProKerala/);
+  assert.match(system, /Vedic \(Sidereal, Lahiri Ayanamsa\)/);
+  assert.match(system, /ONLY use this exact fetched data/);
+  assert.doesNotMatch(system, /data:image\/svg/, "the chart image isn't sent to the model");
+
+  // The reader sees the rasi chart before the reading.
+  const evs = written.join("").split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)));
+  assert.ok(evs.some((e) => e.type === "status" && /ProKerala/.test(e.data)));
+  const contents = evs.filter((e) => e.type === "content").map((e) => e.data);
+  assert.match(contents[0], /visual_gallery[\s\S]*data:image\/svg\+xml;base64/);
+  assert.match(contents[1], /ProKerala Astrology API/);
+});
+
+test("without ProKerala keys nothing is sent to ProKerala, the model is told the service is down, and /health says so", async (t) => {
+  const savedId = config.prokeralaClientId;
+  config.prokeralaClientId = "";
+  const realFetch = global.fetch;
+  const hits = [];
+  global.fetch = async (url) => { hits.push(String(url)); return Response.json([{ lat: "13.08", lon: "80.27" }]); };
+  t.after(() => { global.fetch = realFetch; config.prokeralaClientId = savedId; });
+
+  const msgs = [{ role: "user", content: "My kundli: born 5 March 1998 at 10:30 am in Chennai" }];
+  const result = await buildAstrologyContext(msgs, msgs[0].content);
+  assert.equal(result.status, "error");
+  assert.match(result.prompt, /Do NOT hallucinate a chart/);
+  assert.ok(!hits.some((u) => u.includes("prokerala")));
+
+  global.fetch = realFetch;
+  const app = require("../src/app");
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  const health = await fetch(`http://127.0.0.1:${server.address().port}/health`).then((r) => r.json());
+  assert.equal(health.data.integrations.prokerala, "not configured");
+  config.prokeralaClientId = "id";
+  const again = await fetch(`http://127.0.0.1:${server.address().port}/health`).then((r) => r.json());
+  assert.equal(again.data.integrations.prokerala, "configured");
+  assert.ok(!JSON.stringify(again).includes("secret"), "no keys in the response");
+});

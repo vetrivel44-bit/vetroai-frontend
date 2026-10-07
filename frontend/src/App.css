@@ -874,6 +874,8 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 .msg-action-row {
   display: flex;
   align-items: center;
+  /* Wraps on a phone instead of pushing the chat sideways. */
+  flex-wrap: wrap;
   gap: 2px;
   margin-top: 8px;
   opacity: 0;
