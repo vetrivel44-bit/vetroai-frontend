@@ -302,4 +302,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchForResearch, searchImages, searchTavily, tavilySearch, searchDDG, searchKeyless, parseRssItems };
+module.exports = { performSearch, searchWeb, searchForResearch, searchImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems };
