@@ -331,3 +331,82 @@ test("Canopy price parsing", () => {
   assert.equal(canopy.priceValue(null), null);
   assert.deepEqual(canopy.photosOf({ mainImageUrl: "https://a/1.jpg", imageUrls: ["https://a/1.jpg", "https://a/2.jpg", null] }), ["https://a/1.jpg", "https://a/2.jpg"]);
 });
+
+test("RapidAPI Real-Time Product Search supplies multi-store offers with original photos", async (t) => {
+  const history = require("../src/services/priceHistoryService");
+  const productSearch = require("../src/services/productSearchService");
+  const saved = { ps: config.productSearchRapidApiKey, serp: config.serpApiKey, tavily: config.tavilyApiKey, keepa: config.keepaApiKey, canopy: config.canopyApiKey };
+  Object.assign(config, { productSearchRapidApiKey: "rapid-key", serpApiKey: "", tavilyApiKey: "", keepaApiKey: "", canopyApiKey: "" });
+  deals._cache.clear(); history._memory.clear(); extras._imageCache.clear();
+  const realFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.startsWith("https://real-time-product-search.p.rapidapi.com/search-v2")) {
+      assert.equal(opts.headers["X-RapidAPI-Key"], "rapid-key");
+      assert.equal(opts.headers["X-RapidAPI-Host"], "real-time-product-search.p.rapidapi.com");
+      assert.match(u, /q=iphone\+15/);
+      assert.match(u, /country=in/);
+      return Response.json({ status: "OK", data: { products: [
+        { product_title: "Apple iPhone 15 (128 GB) - Black", product_photos: ["https://m.media-amazon.com/images/I/71657TiFeHL._AC_SL1500_.jpg", "https://m.media-amazon.com/images/I/2.jpg"],
+          product_rating: 4.5, product_num_reviews: 1200,
+          offer: { offer_page_url: "https://www.amazon.in/dp/B0CHX1W1XY", price: "₹69,900.00", original_price: "₹79,900.00", store_name: "Amazon.in" } },
+        { product_title: "Apple iPhone 15 (Black, 128 GB)", product_photos: ["https://rukminim2.flixcart.com/image/416/416/xif0q/mobile/h/d/9/-original.jpeg"],
+          offer: { offer_page_url: "https://www.flipkart.com/apple-iphone-15/p/itm6ac", price: "₹65,999", store_name: "Flipkart" } },
+        { product_title: "Apple iPhone 15 128GB", product_photos: ["https://www.vijaysales.com/media/iphone.jpg"],
+          offer: { offer_page_url: "https://www.vijaysales.com/apple-iphone-15", price: "₹67,490", store_name: "Vijay Sales" } },
+        { product_title: "No price", offer: { offer_page_url: "https://x.example", store_name: "X" } },
+      ] } });
+    }
+    return new Response("", { status: 503 });
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    Object.assign(config, { productSearchRapidApiKey: saved.ps, serpApiKey: saved.serp, tavilyApiKey: saved.tavily, keepaApiKey: saved.keepa, canopyApiKey: saved.canopy });
+    deals._cache.clear(); deals._tracked.clear(); history._memory.clear(); extras._imageCache.clear();
+  });
+
+  const res = await deals.findDeals("iphone 15", "in", { force: true });
+  assert.equal(res.provider, "product-search");
+  assert.deepEqual(res.items.map((i) => [i.store, i.price]), [["Flipkart", 65999], ["Vijay Sales", 67490], ["Amazon", 69900]]);
+  const amazon = res.items.find((i) => i.store === "Amazon");
+  assert.equal(amazon.storeColor, "#ff9900");
+  assert.equal(amazon.originalPrice, 79900);
+  assert.equal(amazon.discountPct, 13);
+  assert.equal(amazon.image, "https://m.media-amazon.com/images/I/71657TiFeHL._AC_SL1000_.jpg");
+  assert.equal(amazon.url, "https://www.amazon.in/dp/B0CHX1W1XY");
+  const flipkart = res.items.find((i) => i.store === "Flipkart");
+  assert.equal(flipkart.image, "https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original.jpeg");
+  // Photos came with the offers, so no page or Bing lookups were needed.
+  assert.ok(!calls.some((u) => u.includes("bing.com") || u.includes("flipkart.com/apple")));
+  assert.ok(!calls.some((u) => u.includes("serpapi.com")));
+
+  // Older response shape: data is the product array itself.
+  assert.equal(productSearch.productsOf({ data: [{ product_title: "a" }] }).length, 1);
+  assert.equal(productSearch.parsePrice("Rs. 1,29,999.50"), 129999.5);
+  assert.equal(productSearch.parsePrice("$249.99"), 249.99);
+  assert.equal(productSearch.parsePrice(""), null);
+});
+
+test("the hourly refresh skips featured searches for regions nobody opened", async (t) => {
+  const saved = { ps: config.productSearchRapidApiKey, serp: config.serpApiKey, tavily: config.tavilyApiKey };
+  Object.assign(config, { productSearchRapidApiKey: "rapid-key", serpApiKey: "", tavilyApiKey: "" });
+  deals._cache.clear(); deals._tracked.clear(); deals._featuredUsed.clear();
+  const realFetch = global.fetch;
+  const countries = [];
+  global.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("rapidapi.com")) { countries.push(new URL(u).searchParams.get("country")); return Response.json({ data: [] }); }
+    return new Response("", { status: 503 });
+  };
+  t.after(() => { global.fetch = realFetch; Object.assign(config, { productSearchRapidApiKey: saved.ps, serpApiKey: saved.serp, tavilyApiKey: saved.tavily }); deals._cache.clear(); deals._tracked.clear(); deals._featuredUsed.clear(); });
+
+  await deals.refreshAll();
+  assert.equal(countries.length, 0, "no region in use → no paid calls");
+
+  deals._featuredUsed.set("in", Date.now());
+  await deals.refreshAll();
+  assert.ok(countries.length > 0);
+  assert.ok(countries.every((c) => c === "in"), "only India's featured rails were refreshed");
+});

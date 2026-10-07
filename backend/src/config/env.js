@@ -103,6 +103,11 @@ module.exports = {
     keepaApiKey:         getEnv("KEEPA_API_KEY",          ""),
     // Canopy API (canopyapi.co) — live Amazon search and product data with
     // Amazon's own prices, ratings and original product photos.
+    // RapidAPI "Real-Time Product Search" (letscrape / OpenWeb Ninja): Google
+    // Shopping offers across every store, with original product photos.
+    // RAPIDAPI_KEY works too when one RapidAPI key is used for several APIs.
+    productSearchRapidApiKey:  getEnv("PRODUCT_SEARCH_RAPIDAPI_KEY", getEnv("RAPIDAPI_KEY", "")),
+    productSearchRapidApiHost: getEnv("PRODUCT_SEARCH_RAPIDAPI_HOST", "real-time-product-search.p.rapidapi.com"),
     canopyApiKey:        getEnv("CANOPY_API_KEY",         ""),
     // Canopy marketplace codes, overridable if Canopy names a market differently.
     canopyDomainIn:      getEnv("CANOPY_DOMAIN_IN",       "IN"),
