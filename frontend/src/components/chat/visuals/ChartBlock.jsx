@@ -87,7 +87,7 @@ export default function ChartBlock({ code, fallback }) {
     return () => { alive = false; chartRef.current?.destroy(); chartRef.current = null; };
   }, [parsed, theme]);
 
-  if (pending) return <VisualPending icon={BarChart3} label="Drawing chart…" />;
+  if (pending) return <VisualPending icon={BarChart3} label="Drawing chart…" sketch="chart" />;
   if (parsed?.error || error) return <VisualFallback what="chart" error={parsed?.error || error} fallback={fallback} />;
 
   const title = parsed?.config?.options?.plugins?.title?.text || `${parsed?.config?.type?.replace(/^\w/, (c) => c.toUpperCase()) || ""} chart`;

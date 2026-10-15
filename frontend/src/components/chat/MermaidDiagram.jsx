@@ -1,7 +1,62 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
-import { Check, Code2, Copy, Download, Network } from "lucide-react";
+import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, Code2, Copy, Download, Maximize2, Network } from "lucide-react";
 import { OpenBlockContext, isStillStreaming } from "../../lib/visualStream";
 import "./mermaidDiagram.css";
+import { PendingSketch } from "./visuals/VisualCard";
+import { useBornLive } from "../../lib/streamReveal";
+import DiagramViewer from "./DiagramViewer";
+import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
+
+// ─── draw-in reveal ─────────────────────────────────────────────────────────
+// A diagram that arrives during a reply is revealed the way it would be
+// sketched: shapes appear one after another, then each connector draws itself
+// along its path. Only the live copy animates — the SVG string that is copied
+// or downloaded is untouched.
+const SHAPES = [
+  "g.node", "g.cluster", ".actor", "g.note", ".labelBox", ".task", ".taskText",
+  ".pieCircle", ".legend", ".mindmap-node", ".section", ".er.entityBox", ".statediagram-state",
+].join(",");
+const CONNECTORS = [
+  "path.flowchart-link", ".edgePaths path", "path.relation", ".relationshipLine",
+  "path.transition", "line[class^='messageLine']", ".messageText", ".edgeLabel", ".loopLine",
+].join(",");
+
+function revealDiagram(host) {
+  const svg = host?.querySelector("svg");
+  if (!svg) return () => {};
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return () => {};
+  const shapes = [...svg.querySelectorAll(SHAPES)].filter((el) => !el.closest(".vd-shape"));
+  const shapeStep = Math.min(70, 900 / Math.max(1, shapes.length));
+  shapes.forEach((el, i) => {
+    el.classList.add("vd-shape");
+    el.style.animationDelay = `${Math.round(i * shapeStep)}ms`;
+  });
+  const start = shapes.length ? Math.min(500, shapes.length * shapeStep * 0.6) : 0;
+  const lines = [...svg.querySelectorAll(CONNECTORS)];
+  const lineStep = Math.min(60, 800 / Math.max(1, lines.length));
+  const cleanups = [];
+  lines.forEach((el, i) => {
+    const delay = Math.round(start + i * lineStep);
+    const dashed = getComputedStyle(el).strokeDasharray;
+    // A dashed connector (-.->) keeps its dashes: it fades in instead.
+    if (typeof el.getTotalLength === "function" && (!dashed || dashed === "none")) {
+      const len = el.getTotalLength();
+      if (len > 0) {
+        el.style.strokeDasharray = `${len}`;
+        el.style.strokeDashoffset = `${len}`;
+        el.style.animation = `vdDraw 0.75s cubic-bezier(0.65, 0, 0.35, 1) ${delay}ms forwards, vdFade 0.3s ease ${delay}ms both`;
+        const done = () => { el.style.strokeDasharray = ""; el.style.strokeDashoffset = ""; el.style.animation = ""; };
+        el.addEventListener("animationend", (e) => { if (e.animationName === "vdDraw") done(); });
+        cleanups.push(done);
+        return;
+      }
+    }
+    el.style.animation = `vdFade 0.45s ease ${delay}ms both`;
+    cleanups.push(() => { el.style.animation = ""; });
+  });
+  if (!shapes.length && !lines.length) svg.classList.add("vd-whole");
+  return () => cleanups.forEach((fn) => fn());
+}
 
 // Renders a ```mermaid code block as a real diagram (flowcharts, UML use
 // case / class / sequence diagrams, ER, state, gantt…), the way Claude.ai
@@ -147,13 +202,8 @@ function colorize(code, theme, presetRoles = null) {
 // «extend» as labels on dashed edges. This turns that into the classic look:
 // stick-figure actors, rounded boxes, and the stereotype as a small second
 // line inside the included/extending use case.
-const RELATION_RE = /(«include»|«extend»|<<include>>|<<extend>>)/;
 const ID = "[A-Za-z_][\\w]*";
 
-function isUseCaseDiagram(code) {
-  if (!/^\s*(flowchart|graph)\b/m.test(code) || /^\s*(classDef|style|class)\s/m.test(code)) return false;
-  return RELATION_RE.test(code) || /\(\(\s*"?\s*👤/.test(code);
-}
 
 function toUseCase(code) {
   const actors = new Map(); // id -> name
@@ -271,23 +321,6 @@ function useDocumentTheme() {
   return theme;
 }
 
-const DIAGRAM_NAMES = [
-  [/^flowchart|^graph/i, "Flowchart"],
-  [/^sequenceDiagram/i, "Sequence diagram"],
-  [/^classDiagram/i, "Class diagram"],
-  [/^stateDiagram/i, "State diagram"],
-  [/^erDiagram/i, "ER diagram"],
-  [/^gantt/i, "Gantt chart"],
-  [/^mindmap/i, "Mind map"],
-  [/^pie/i, "Pie chart"],
-  [/^journey/i, "User journey"],
-  [/^timeline/i, "Timeline"],
-];
-const diagramName = (code) => {
-  if (/«include»|«extend»|<<include>>|<<extend>>|👤/.test(code) && /^\s*(flowchart|graph)/im.test(code)) return "Use case diagram";
-  const first = String(code).trim().split("\n").find((l) => l.trim() && !l.trim().startsWith("%%")) || "";
-  return DIAGRAM_NAMES.find(([rx]) => rx.test(first.trim()))?.[1] || "Diagram";
-};
 
 export default function MermaidDiagram({ code, fallback = null }) {
   const theme = useDocumentTheme();
@@ -297,6 +330,13 @@ export default function MermaidDiagram({ code, fallback = null }) {
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
   const svgRef = useRef(null);
+  // Born during a reply: draw it in once when it is ready.
+  const bornLive = useBornLive();
+  const revealed = useRef(false);
+  // Too wide to read at the chat's width (labels under ~11px): offer the
+  // full-screen viewer.
+  const [tooSmall, setTooSmall] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (pending || !code.trim()) return undefined;
@@ -306,6 +346,32 @@ export default function MermaidDiagram({ code, fallback = null }) {
       .catch((err) => { if (alive) setState({ status: "error", svg: "", error: String(err?.message || err || "Invalid diagram").split("\n")[0] }); });
     return () => { alive = false; };
   }, [code, theme, pending]);
+
+  // The SVG is put in once per finished render, not through
+  // dangerouslySetInnerHTML: that re-inserted it on every streamed token (the
+  // reply re-renders this component ~30 times a second), rebuilding the
+  // diagram each time and wiping the draw-in. Mermaid's strict mode has
+  // already sanitised it.
+  useLayoutEffect(() => {
+    const host = svgRef.current;
+    if (!host || !state.svg) return;
+    host.innerHTML = state.svg;
+    if (bornLive && !revealed.current) {
+      revealed.current = true;
+      revealDiagram(host);
+    }
+    // Mermaid draws labels at 15px; below ~0.72 scale they are unreadable.
+    const measure = () => {
+      const svg = host.querySelector("svg");
+      const vb = svg?.viewBox?.baseVal;
+      if (!vb?.width) return;
+      setTooSmall(svg.getBoundingClientRect().width / vb.width < 0.72);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(host);
+    return () => ro?.disconnect();
+  }, [bornLive, state.svg, showCode]);
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
@@ -323,8 +389,11 @@ export default function MermaidDiagram({ code, fallback = null }) {
   // Mid-stream: the closing ``` hasn't arrived, so the syntax is incomplete.
   if (pending) {
     return (
-      <div className="vetro-diagram not-prose">
-        <div className="vetro-diagram-pending"><Network size={16} /> Drawing diagram…</div>
+      <div className="vetro-diagram vetro-pending not-prose vetro-born-live">
+        <div className="vetro-diagram-pending">
+          <PendingSketch kind="diagram" />
+          <span className="vetro-pending-label"><Network size={15} /> Drawing diagram<span className="vetro-dots" aria-hidden="true" /></span>
+        </div>
       </div>
     );
   }
@@ -340,7 +409,7 @@ export default function MermaidDiagram({ code, fallback = null }) {
   }
 
   return (
-    <div className="vetro-diagram not-prose">
+    <div className={`vetro-diagram not-prose${bornLive ? " vetro-born-live" : ""}`}>
       <div className="vetro-diagram-head">
         <span className="vetro-diagram-title"><Network size={14} /> {diagramName(code)}</span>
         <span className="vetro-diagram-actions">
@@ -353,15 +422,33 @@ export default function MermaidDiagram({ code, fallback = null }) {
           <button type="button" onClick={download} disabled={!state.svg} title="Download as SVG" aria-label="Download as SVG">
             <Download size={14} /><span className="vetro-diagram-btn-label">SVG</span>
           </button>
+          <button type="button" onClick={() => setExpanded(true)} disabled={!state.svg} title="Full screen" aria-label="Expand diagram">
+            <Maximize2 size={14} /><span className="vetro-diagram-btn-label">Expand</span>
+          </button>
         </span>
       </div>
       {showCode ? (
         <pre className="vetro-diagram-code"><code>{code}</code></pre>
       ) : state.svg ? (
-        <div ref={svgRef} className="vetro-diagram-svg" dangerouslySetInnerHTML={{ __html: state.svg }} />
+        <div className="vetro-diagram-stage">
+          <div
+            ref={svgRef}
+            className={`vetro-diagram-svg${bornLive ? " vd-live" : ""}${tooSmall ? " is-too-small" : ""}`}
+            onClick={tooSmall ? () => setExpanded(true) : undefined}
+          />
+          {tooSmall && (
+            <button type="button" className="vetro-diagram-zoom-pill" onClick={() => setExpanded(true)}>
+              <Maximize2 size={13} /> Tap to zoom
+            </button>
+          )}
+        </div>
       ) : (
-        <div className="vetro-diagram-pending"><Network size={16} /> Drawing diagram…</div>
+        <div className="vetro-diagram-pending">
+          <PendingSketch kind="diagram" />
+          <span className="vetro-pending-label"><Network size={15} /> Drawing diagram<span className="vetro-dots" aria-hidden="true" /></span>
+        </div>
       )}
+      {expanded && state.svg && <DiagramViewer svg={state.svg} title={diagramName(code)} onClose={() => setExpanded(false)} />}
     </div>
   );
 }

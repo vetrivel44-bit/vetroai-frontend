@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -51,6 +51,7 @@ import SourceFavicon from "./components/SourceFavicon";
 import { CitationLink } from "./components/CitationLink";
 import { CitationContext } from "./lib/citationContext";
 import { remarkCitations } from "./lib/citations";
+import { useSmoothStream, rehypeStreamWords, ReplyLiveContext } from "./lib/streamReveal";
 // These screens are all behind a toggle — none of them is on screen when the app
 // opens, and between them they pull in three.js, chess.js and the map stacks.
 // Importing them eagerly meant every visitor downloaded and parsed all of it
@@ -1054,30 +1055,8 @@ const REMARK_PLUGINS = [remarkGfm, remarkMath];
 // For answers with sources: [n] becomes a source chip (CitationLink).
 const REMARK_PLUGINS_CITED = [remarkGfm, remarkMath, remarkCitations];
 const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
-
-// While a message is actively streaming in, fade the most recently mounted
-// markdown block in on each render instead of letting it pop in — a plain
-// CSS transition can't fade a node's own mount, so we toggle the animation
-// class in a layout effect keyed off content length and force a reflow to
-// restart it (the video reference this mimics does the same "settle in"
-// motion on each new chunk of streamed text).
-const useStreamFadeIn = (containerRef, content, active) => {
-  const prevLen = useRef(0);
-  useLayoutEffect(() => {
-    const len = content?.length || 0;
-    if (!active) { prevLen.current = len; return; }
-    if (len > prevLen.current) {
-      const el = containerRef.current;
-      const last = el?.lastElementChild;
-      if (last) {
-        last.classList.remove("vai-fade-in");
-        void last.offsetWidth;
-        last.classList.add("vai-fade-in");
-      }
-    }
-    prevLen.current = len;
-  }, [content, active]);
-};
+// While a reply is live, newly arrived words fade in (see lib/streamReveal).
+const REHYPE_PLUGINS_LIVE = [[rehypeKatex, KATEX_OPTIONS], rehypeStreamWords];
 
 // Markdown with the full code-block treatment (artifact button, download, copy).
 const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact, isStreaming }) {
@@ -1106,15 +1085,15 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
       );
     },
   }), [autoOpen, onSaveArtifact]);
-  const containerRef = useRef(null);
-  useStreamFadeIn(containerRef, content, isStreaming);
   return (
-    <div ref={containerRef} className="vai-stream-body">
-      <OpenBlockContext.Provider value={openBlock}>
-        <ReactMarkdown remarkPlugins={sources?.length ? REMARK_PLUGINS_CITED : REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-          {normalizeMathDelimiters(content)}
-        </ReactMarkdown>
-      </OpenBlockContext.Provider>
+    <div className={`vai-stream-body${isStreaming ? " is-live" : ""}`}>
+      <ReplyLiveContext.Provider value={Boolean(isStreaming)}>
+        <OpenBlockContext.Provider value={openBlock}>
+          <ReactMarkdown remarkPlugins={sources?.length ? REMARK_PLUGINS_CITED : REMARK_PLUGINS} rehypePlugins={isStreaming ? REHYPE_PLUGINS_LIVE : REHYPE_PLUGINS} components={components}>
+            {normalizeMathDelimiters(content)}
+          </ReactMarkdown>
+        </OpenBlockContext.Provider>
+      </ReplyLiveContext.Provider>
     </div>
   );
 });
@@ -1150,7 +1129,10 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
 // boundary. The structured/writing-block probes are regex scans of the entire
 // message, so they are part of what must not re-run per token per message.
 // `sources` are the answer's numbered sources; its [n] citations become chips.
-const AssistantBody = React.memo(function AssistantBody({ content, autoOpen, onSaveArtifact, isStreaming, sources = null }) {
+const AssistantBody = React.memo(function AssistantBody({ content: received, autoOpen, onSaveArtifact, isStreaming: streaming, sources = null }) {
+  // Paced reveal: text appears at a steady rate, whole words at a time, and
+  // the reply counts as streaming until the visible text has caught up.
+  const { text: content, live: isStreaming } = useSmoothStream(received, streaming);
   let body;
   if (hasStructuredContent(content)) body = <StructuredResponseRenderer response={content} />;
   else if (isWritingBlock(content)) body = <WritingBlockCard content={content} />;
@@ -5477,6 +5459,22 @@ export default function App() {
     scrollFrameRef.current = 0;
   }, []);
   useEffect(() => { if (!isScrolling.current) scrollToBottom(); }, [messages, scrollToBottom]);
+  // The reply is revealed at a steady pace (lib/streamReveal), so it keeps
+  // growing for a moment after the last chunk lands, and diagrams and charts
+  // grow when they finish drawing — neither changes `messages`. Follow the
+  // feed's real height while a reply is coming in and briefly after.
+  const followUntilRef = useRef(0);
+  useEffect(() => { followUntilRef.current = isLoading ? Infinity : Date.now() + 4000; }, [isLoading]);
+  const hasMessages = messages.length > 0;
+  useEffect(() => {
+    const content = feedRef.current?.firstElementChild;
+    if (!content || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      if (!isScrolling.current && Date.now() < followUntilRef.current) scrollToBottom();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [hasMessages, scrollToBottom]);
 
   // ── Voice ─────────────────────────────────────────────────────────────────────
   const speak = async txt => {

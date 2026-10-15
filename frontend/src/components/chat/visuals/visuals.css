@@ -101,8 +101,10 @@
 .vetro-choice-static { margin: 0 0 0 26px; padding-left: 16px; font-size: 14px; color: var(--ink-2, #4A4744); }
 
 /* ReactMarkdown wraps fenced blocks in a <pre> styled as a dark code card;
-   the quiz and the clarifying question sit in the reply without that frame. */
-.claude-prose pre:has(> .vetro-quiz, > .vetro-choice-inline) {
+   the quiz, the clarifying question and every drawn visual (diagram, chart,
+   map, widget) sit in the reply without that frame — otherwise each one read
+   as a card inside a dark box. */
+.claude-prose pre:has(> .vetro-quiz, > .vetro-choice-inline, > .vetro-diagram, > .vetro-diagram-fallback) {
   background: transparent !important; border: 0 !important; padding: 0 !important; box-shadow: none !important;
   color: inherit !important; font-family: inherit !important; font-size: inherit !important; line-height: inherit !important;
   white-space: normal !important; overflow: visible !important;
