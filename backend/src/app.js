@@ -87,6 +87,7 @@ app.use("/api/call-assistant", require("./routes/callAssistantRoutes"));
 app.use("/api/chess", require("./routes/chessRoutes"));
 app.use("/api/web-search", require("./routes/webSearchRoutes"));
 app.use("/api/time", require("./routes/timeRoutes"));
+app.use("/api/site-image", require("./routes/siteImageRoutes"));
 app.use("/api", require("./routes/externalDataRoutes"));
 app.use("/api/mock/buses", require("./routes/busMockRoutes"));
 app.use("/api", chatRoutes);

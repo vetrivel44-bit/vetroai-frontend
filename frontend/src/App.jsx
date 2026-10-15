@@ -66,6 +66,7 @@ import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, plu
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
+import { resolveSiteImages } from "./lib/siteImages";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -2306,7 +2307,7 @@ function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete
         </Suspense>
       )}
       {tab === "preview" && (
-        <iframe title="artifact-preview" srcDoc={draft} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
+        <iframe title="artifact-preview" srcDoc={resolveSiteImages(draft, API)} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
       )}
       <div className="artifact-footer">
         <span>{language || "text"}{artifact.updatedAt ? " · Edited" : ""}</span>
@@ -2401,7 +2402,10 @@ function DesignCanvas({ onClose }) {
 
   const lastDesign = useMemo(() => {
     const lastAssistant = [...messages].reverse().find(m => m.role === "assistant" && m.content);
-    return lastAssistant ? parseDesignResponse(lastAssistant.content) : { caption: "", html: "" };
+    if (!lastAssistant) return { caption: "", html: "" };
+    // Photos are asked for by subject; point them at real matching pictures.
+    const parsed = parseDesignResponse(lastAssistant.content);
+    return { ...parsed, html: resolveSiteImages(parsed.html, API) };
   }, [messages]);
 
   const send = async () => {

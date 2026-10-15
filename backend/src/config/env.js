@@ -94,6 +94,9 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
+    // Pexels (pexels.com/api, free) — photos for the websites VetroAI builds.
+    // Optional: without it, site images come from Openverse and LoremFlickr.
+    pexelsApiKey:        getEnv("PEXELS_API_KEY",         ""),
     // NEWSDATA_API_KEY is the original name and still works; NEWS_API_KEY is
     // the provider-neutral one, since the feed now speaks to whichever
     // service the key belongs to.
