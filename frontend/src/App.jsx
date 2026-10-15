@@ -61,6 +61,7 @@ const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
 const ComputerUI = React.lazy(() => import("./components/screens/ComputerUI"));
+const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
 const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
@@ -4673,6 +4674,10 @@ export default function App() {
   const [autoSpeak, setAutoSpeak]   = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  // Voice mode's mute button: the mic stays off until it is turned back on,
+  // even when a reply finishes (which normally re-opens it).
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const voiceMutedRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [isDictating, setIsDictating] = useState(false);
@@ -5346,6 +5351,7 @@ export default function App() {
   const startMic = useCallback((opts = {}) => {
     const sr = recogRef.current;
     if (!sr) return false;
+    if (voiceMutedRef.current && !opts.unmute) return false;
     micWantedRef.current = true;
     if (opts.reset !== false) { transcriptRef.current = ""; setInput(""); }
     if (micRunningRef.current || isTTSActive()) return false;
@@ -5642,13 +5648,27 @@ export default function App() {
     // usable later, when no user gesture is in scope.
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(""));
     setAutoSpeak(true);
+    setMuted(false);
     setIsVoiceOpen(true);
     voiceRef.current = true;
-    startMic();
+    startMic({ unmute: true });
+  };
+
+  const setMuted = (value) => { voiceMutedRef.current = value; setVoiceMuted(value); };
+  const toggleVoiceMute = () => {
+    if (voiceMutedRef.current) {
+      setMuted(false);
+      if (!isTTSActive() && !loadRef.current) startMic({ unmute: true });
+    } else {
+      setMuted(true);
+      stopMic();
+    }
   };
 
   const handleOrb = () => {
     if (isLoading) return;
+    // Tapping the orb while muted means "I want to talk".
+    if (voiceMutedRef.current) setMuted(false);
     if (isTTSActive()) {
       // Tap to interrupt: stop the assistant mid-sentence and listen again.
       stopSpeak();
@@ -8534,103 +8554,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
              )}
       {/* Voice Mode Overlay */}
       {isVoiceOpen && (
-        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-2xl animate-in fade-in duration-300 px-4">
-          <button className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors" onClick={closeVoice}>
-             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-
-          <div className="flex flex-col items-center justify-center gap-10 mt-10 w-full max-w-[420px]">
-            {/* The Animated Orb, with expanding rings while active */}
-            <div className="relative" style={{ width: 340, height: 340 }}>
-              {(isListening || isSpeaking) && [
-                { cls: "r1", size: 180 },
-                { cls: "r2", size: 260 },
-                { cls: "r3", size: 340 },
-              ].map((r, i) => (
-                <div
-                  key={r.cls}
-                  className={`vring ${r.cls} on`}
-                  style={{
-                    top: "50%",
-                    left: "50%",
-                    marginTop: -r.size / 2,
-                    marginLeft: -r.size / 2,
-                    borderColor: isListening ? "rgba(16,185,129,0.35)" : "rgba(99,102,241,0.35)",
-                    animationDelay: `${i * 0.3}s`,
-                  }}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={handleOrb}
-                aria-label={isListening ? "Stop listening and send" : isSpeaking ? "Interrupt and speak" : "Start listening"}
-                title={isListening ? "Tap to send" : isSpeaking ? "Tap to interrupt" : "Tap to talk"}
-                className="absolute rounded-full flex items-center justify-center transition-[width,height,background,box-shadow] duration-300 cursor-pointer border-0 p-0"
-                style={{
-                  top: "50%",
-                  left: "50%",
-                  width: isListening ? 150 : 120,
-                  height: isListening ? 150 : 120,
-                  marginTop: isListening ? -75 : -60,
-                  marginLeft: isListening ? -75 : -60,
-                  background: isListening
-                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                    : isSpeaking
-                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
-                      : 'linear-gradient(135deg, #4b5563 0%, #374151 100%)',
-                  boxShadow: isListening
-                    ? '0 0 60px rgba(16, 185, 129, 0.5), inset 0 0 20px rgba(255,255,255,0.4)'
-                    : isSpeaking
-                      ? '0 0 90px rgba(99, 102, 241, 0.6), inset 0 0 30px rgba(255,255,255,0.5)'
-                      : '0 0 40px rgba(0,0,0,0.3)',
-                  animation: isListening
-                    ? 'voiceOrbPulse 1.1s ease-in-out infinite'
-                    : isSpeaking
-                      ? 'voiceOrbPulse 0.45s ease-in-out infinite'
-                      : 'voiceOrbPulse 3s ease-in-out infinite'
-                }}
-              >
-                {/* Inner glowing core */}
-                <div className="absolute inset-2 bg-white/20 rounded-full blur-md mix-blend-overlay"></div>
-              </button>
-            </div>
-
-            {/* Status text */}
-            <div className="text-white/80 font-medium tracking-wide text-xl -mt-6 text-center">
-              {isListening ? "Listening..." : isSpeaking ? "Speaking..." : isLoading ? "Thinking..." : "Ready"}
-              <div className="text-white/40 text-xs font-normal mt-1">
-                {isSpeaking ? "Tap the orb to interrupt" : isListening ? "Tap the orb to send" : "Tap the orb to talk"}
-              </div>
-            </div>
-
-            {/* The Custom Voice Selector Pills */}
-            <div className="w-full bg-white/10 rounded-3xl p-4 backdrop-blur-md border border-white/10 flex flex-col items-center">
-              <span className="text-white/40 text-[11px] uppercase tracking-widest font-bold mb-3">AI Persona</span>
-              <div className="grid grid-cols-3 gap-2 w-full">
-                {[
-                  { id: "en-US-JennyNeural", label: "Jenny", icon: "👩" },
-                  { id: "en-US-GuyNeural", label: "Guy", icon: "👨" },
-                  { id: "en-US-AriaNeural", label: "Aria", icon: "👩" },
-                  { id: "en-US-SteffanNeural", label: "Steffan", icon: "👨" },
-                  { id: "en-GB-SoniaNeural", label: "Sonia", icon: "👩", badge: "UK" },
-                  { id: "en-GB-RyanNeural", label: "Ryan", icon: "👨", badge: "UK" }
-                ].map(v => (
-                  <button
-                    key={v.id}
-                    onClick={() => setTtsVoice(v.id)}
-                    className={`relative flex flex-col items-center justify-center gap-1 px-2 py-2.5 rounded-2xl text-[13px] font-medium transition-all duration-200 ${ttsVoice === v.id ? 'bg-white text-black shadow-xl scale-105' : 'text-white/70 hover:bg-white/20 hover:text-white'}`}
-                  >
-                    {v.badge && (
-                      <span className={`absolute top-1 right-1 text-[8px] font-bold px-1 rounded ${ttsVoice === v.id ? 'bg-black/10 text-black/60' : 'bg-white/15 text-white/50'}`}>{v.badge}</span>
-                    )}
-                    <span className="text-lg leading-none">{v.icon}</span>
-                    <span className="truncate w-full text-center">{v.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={null}>
+          <VoiceMode
+            listening={isListening}
+            speaking={isSpeaking}
+            thinking={isLoading && !isSpeaking}
+            muted={voiceMuted}
+            transcript={input}
+            reply={[...messages].reverse().find(m => m.role === "assistant")?.content || ""}
+            status={getStatusLabel(streamStatus, selectedMode, requestActivity)}
+            voice={ttsVoice}
+            onVoiceChange={setTtsVoice}
+            onOrb={handleOrb}
+            onMute={toggleVoiceMute}
+            onClose={closeVoice}
+          />
+        </Suspense>
       )}
       </div>
       </main>
