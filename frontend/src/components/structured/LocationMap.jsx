@@ -34,7 +34,10 @@ function MapTilerCanvas({ center, zoom, markers, path, mapType, place }) {
       center: [center[1], center[0]],
       zoom,
       navigationControl: true,
-      geolocateControl: true
+      geolocateControl: true,
+      // On touch screens a one-finger drag scrolls the chat instead of being
+      // captured by the map; two fingers move it.
+      cooperativeGestures: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
     });
 
     const markerInstances = markers.map((marker, index) => {
@@ -287,48 +290,27 @@ const LocationMap = ({
       </div>
 
       {mapImages.length > 0 && (
-        <ImageGallery query={isRoute ? `${origin} → ${destination}` : place} images={mapImages} delay={delay + 0.1} />
+        <div className="location-gallery">
+          <ImageGallery query={isRoute ? `${origin} → ${destination}` : place} images={mapImages} delay={delay + 0.1} />
+        </div>
       )}
 
       <div className="map-wrapper">
-        <div style={{ height: 'min(400px, 60vh)', minHeight: 220, borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--structured-border)', position: 'relative' }}>
+        <div className="location-map-frame">
           <MapTilerCanvas center={mapData.center} zoom={mapData.zoom} markers={safeMarkers} path={mapData.path} mapType={mapType} place={place} />
 
-          {/* Map Controls */}
-          <div style={{
-            position: 'absolute', top: 8, right: 8, zIndex: 1000,
-            display: 'flex', gap: 2, padding: 3,
-            background: 'rgba(20,20,24,0.75)', backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
-          }}>
-            <button
-              className={`map-type-btn ${mapType === 'street' ? 'active' : ''}`}
-              onClick={() => setMapType('street')}
-              style={{
-                padding: '8px 12px', minHeight: 36, fontSize: '11px', borderRadius: 6, border: 'none',
-                background: mapType === 'street' ? '#4285F4' : 'transparent',
-                color: mapType === 'street' ? '#fff' : 'rgba(255,255,255,0.65)',
-                cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s ease'
-              }}
-            >Map</button>
-            <button
-              className={`map-type-btn ${mapType === 'satellite' ? 'active' : ''}`}
-              onClick={() => setMapType('satellite')}
-              style={{
-                padding: '8px 12px', minHeight: 36, fontSize: '11px', borderRadius: 6, border: 'none',
-                background: mapType === 'satellite' ? '#4285F4' : 'transparent',
-                color: mapType === 'satellite' ? '#fff' : 'rgba(255,255,255,0.65)',
-                cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s ease'
-              }}
-            >Satellite</button>
+          {/* Street / satellite switch — top-left, clear of the zoom controls. */}
+          <div className="map-type-toggle" role="group" aria-label="Map style">
+            <button type="button" className={`map-type-btn ${mapType === 'street' ? 'active' : ''}`} onClick={() => setMapType('street')}>Map</button>
+            <button type="button" className={`map-type-btn ${mapType === 'satellite' ? 'active' : ''}`} onClick={() => setMapType('satellite')}>Satellite</button>
           </div>
         </div>
 
         <div className="map-actions-row">
           <button className="map-action-btn primary" onClick={() => window.open(googleMapsUrl, '_blank')}>
             <ExternalLink size={16} />
-            <span>Open in Google Maps</span>
+            <span className="map-label-long">Open in Google Maps</span>
+            <span className="map-label-short">Google Maps</span>
           </button>
           <button className="map-action-btn" onClick={() => {
              const dirUrl = isRoute 
