@@ -925,8 +925,17 @@ textarea, input { font-family: var(--font); outline: none; border: none; backgro
 .msg-action-btn span { line-height: 1; }
 .msg-action-btn.feedback-up  { color: #4F7CFF; }
 .msg-action-btn.feedback-down { color: #ef4444; }
-.msg-action-btn.bookmarked { color: #f59e0b; }
-.msg-action-btn.bookmarked svg { fill: currentColor; }
+/* The reply's actions are icons only (copy, good, bad, retry); the labels
+   live in the tooltips and aria-labels. */
+.msg-action-row .msg-action-btn {
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.msg-action-row .msg-action-btn svg { width: 16px; height: 16px; }
+.msg-action-btn.feedback-up svg,
+.msg-action-btn.feedback-down svg { fill: currentColor; fill-opacity: .15; }
 
 /* User message inline edit */
 .user-edit-wrap { max-width: 75%; width: 100%; }

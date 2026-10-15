@@ -5251,15 +5251,6 @@ export default function App() {
   };
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────────
-  const bookmarkId = (msg) => `${msg.timestamp}_${(msg.content || "").slice(0, 60)}`;
-  const toggleBookmark = (msg) => {
-    const id = bookmarkId(msg);
-    const exists = bookmarks.some(b => b.id === id);
-    // Toast outside the updater so StrictMode's double-invoke can't fire it twice.
-    setBookmarks(prev => (exists ? prev.filter(b => b.id !== id) : [...prev, { ...msg, id }]));
-    addToast(exists ? "Bookmark removed" : "🔖 Bookmarked!", exists ? "info" : "success", 1500);
-  };
-  const isBookmarked  = (msg) => bookmarks.some(b => b.id === bookmarkId(msg));
   const removeBookmark = (id) => setBookmarks(prev => prev.filter(b => b.id !== id));
 
 
@@ -7166,14 +7157,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setCopiedAiIdx(i);
     setTimeout(() => setCopiedAiIdx(null), 2000);
   };
-  const shareAiMsg  = (content) => {
-    if (navigator.share) {
-      navigator.share({ title: 'VetroAi', text: content }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(content);
-      addToast("Copied to clipboard", "info", 2000);
-    }
-  };
   const copyUserMsg = (i, content) => {
     navigator.clipboard.writeText(content);
     setCopiedUserIdx(i);
@@ -8479,30 +8462,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
-                               <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
-                                 <CopyIcon /><span>{copiedAiIdx === i ? 'Copied!' : 'Copy'}</span>
+                               <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title={copiedAiIdx === i ? "Copied" : "Copy"} aria-label="Copy response">
+                                 {copiedAiIdx === i ? <CheckIcon /> : <CopyIcon />}
                                </button>
-                               <button className="msg-action-btn" onClick={() => handleRegen(i)} title="Regenerate response" aria-label="Regenerate" disabled={isLoading}>
-                                 <ReloadIcon /><span>Retry</span>
-                               </button>
-                               <button className="msg-action-btn" onClick={() => shareAiMsg(m.content)} title="Share response" aria-label="Share">
-                                 <ShareIcon /><span>Share</span>
-                               </button>
-                               <DocumentDownloads content={m.content} />
-                               <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Like" aria-label="Like response">
+                               <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Good response" aria-label="Good response" aria-pressed={msgFeedback[i] === 'up'}>
                                  <ThumbsUpIcon />
                                </button>
-                               <button className={`msg-action-btn${msgFeedback[i] === 'down' ? ' feedback-down' : ''}`} onClick={() => handleFeedback(i, 'down')} title="Dislike" aria-label="Dislike response">
+                               <button className={`msg-action-btn${msgFeedback[i] === 'down' ? ' feedback-down' : ''}`} onClick={() => handleFeedback(i, 'down')} title="Bad response" aria-label="Bad response" aria-pressed={msgFeedback[i] === 'down'}>
                                  <ThumbsDnIcon />
                                </button>
-                               <button
-                                 className={`msg-action-btn${isBookmarked(m) ? ' bookmarked' : ''}`}
-                                 onClick={() => toggleBookmark(m)}
-                                 title={isBookmarked(m) ? "Remove bookmark" : "Bookmark response"}
-                                 aria-label={isBookmarked(m) ? "Remove bookmark" : "Bookmark response"}
-                                 aria-pressed={isBookmarked(m)}
-                               >
-                                 <BookmarkIcon />
+                               <button className="msg-action-btn" onClick={() => handleRegen(i)} title="Retry" aria-label="Retry" disabled={isLoading}>
+                                 <ReloadIcon />
                                </button>
                              </div>
                            )}
