@@ -68,6 +68,7 @@ import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
 import { resolveSiteImages } from "./lib/siteImages";
+import { pickBrowserVoice, describeTtsVoice } from "./utils/browserVoice";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -5532,6 +5533,14 @@ export default function App() {
       // Fallback to browser TTS if the backend proxy fails (e.g. not configured yet)
       if (window.speechSynthesis) {
         const u = new SpeechSynthesisUtterance(c);
+        // Closest browser voice to the one picked in voice mode, rather than
+        // the browser's default.
+        // A failure here only loses the voice match, never the reply itself.
+        try {
+          const browserVoice = pickBrowserVoice(window.speechSynthesis.getVoices(), ttsVoiceRef.current);
+          if (browserVoice) u.voice = browserVoice;
+          u.lang = browserVoice?.lang || describeTtsVoice(ttsVoiceRef.current).lang;
+        } catch (err) { swallowError(err); }
         u.onstart = () => { stopMic({ keepWanted: true }); setIsSpeaking(true); };
         u.onend   = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
         u.onerror = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
