@@ -36,7 +36,7 @@ import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persis
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -69,6 +69,9 @@ import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
 import { resolveSiteImages } from "./lib/siteImages";
 import { pickBrowserVoice, describeTtsVoice } from "./utils/browserVoice";
+import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyTitle } from "./utils/locationPermission";
+import LocationPermissionSheet from "./components/LocationPermissionSheet";
+import NearbyMapCard from "./components/chat/NearbyMapCard";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -1207,6 +1210,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
   const [tab, setTab]     = useState("profile");
+  const [locationAlways, setLocationAlways] = useState(locationAlwaysAllowed);
   const [name, setName]   = useState(userInfo?.name || init.name || "");
   const [avatar, setAvatar] = useState(init.avatar || "User");
   const [ok, setOk]       = useState(false);
@@ -1330,6 +1334,24 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
             <div className="cust-section">
               <div className="cust-section-title">Data Controls</div>
               <p className="cust-section-desc">{sessionCount} conversation{sessionCount === 1 ? "" : "s"} and {memoryCount} memor{memoryCount === 1 ? "y" : "ies"} stored on this account.</p>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Location</label>
+              <div className="cust-toggle-row">
+                <div>
+                  <div className="cust-toggle-label"><Navigation size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Always allow location</div>
+                  <div className="cust-toggle-desc">Use your precise location for “near me” questions without asking each time. Off: VetroAI asks first.</div>
+                </div>
+                <button
+                  className={`cust-toggle ${locationAlways ? "cust-toggle-on" : ""}`}
+                  role="switch"
+                  aria-checked={locationAlways}
+                  aria-label="Always allow location"
+                  onClick={() => { const next = !locationAlways; setLocationAlwaysAllowed(next); setLocationAlways(next); }}
+                >
+                  <div className="cust-toggle-thumb" />
+                </button>
+              </div>
             </div>
             <div className="field-group">
               <label className="field-label">Export your data</label>
@@ -4678,6 +4700,9 @@ export default function App() {
   // Voice mode's mute button: the mic stays off until it is turned back on,
   // even when a reply finishes (which normally re-opens it).
   const [voiceMuted, setVoiceMuted] = useState(false);
+  // The location sheet: open while a "near me" request waits for an answer.
+  const [locationAskOpen, setLocationAskOpen] = useState(false);
+  const locationAskRef = useRef(null);
   const voiceMutedRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
@@ -5983,6 +6008,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setStreamStatus("idle");
   };
 
+  // Opens the location sheet and resolves with "always", "once" or "decline".
+  // A request that is stopped while it waits counts as a decline.
+  const askLocationAccess = (signal) => new Promise((resolve) => {
+    locationAskRef.current?.("decline");
+    const finish = (choice) => {
+      if (locationAskRef.current !== finish) return;
+      locationAskRef.current = null;
+      setLocationAskOpen(false);
+      resolve(choice);
+    };
+    locationAskRef.current = finish;
+    signal?.addEventListener("abort", () => finish("decline"), { once: true });
+    setLocationAskOpen(true);
+  });
+  const answerLocationAsk = useCallback((choice) => { locationAskRef.current?.(choice); }, []);
+
   const triggerAI = async (hist, filesData = null, ytContext = null) => {
     const reqId = Date.now().toString();
     abortRef.current?.abort();
@@ -6074,33 +6115,66 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
     const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
+    // Shown above the reply: map, place cards and directions (NearbyMapCard).
+    let nearbyCard = null;
     if (nearbyMapsRequest) {
-      const locationResult = await getPreciseUserLocation();
-      const userLocation = locationResult.location;
-      if (userLocation) {
-        const placeQuery = removePluginMention(userQuery, "maps")
-          .replace(/\b(near me|nearby|closest|around me|current location)\b/ig, "")
-          .trim() || "places";
-        try {
-          const nearbyResponse = await fetch(`${API}/maps/search?query=${encodeURIComponent(placeQuery)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=6`);
-          const nearbyPayload = await nearbyResponse.json();
-          const nearbyPlaces = nearbyPayload?.success ? nearbyPayload.data : [];
-          finalSystemPrompt += `\n\n[CURRENT LOCATION MAP REQUEST]\nThe user explicitly requested results near their current browser location (${userLocation.lat}, ${userLocation.lng}). Use only these nearby place results when available and include their map links:\n${JSON.stringify(nearbyPlaces).slice(0, 7000)}`;
-        } catch {
-          finalSystemPrompt += `\n\n[CURRENT LOCATION]\nThe user's browser coordinates are ${userLocation.lat}, ${userLocation.lng}. Use them only for this nearby-place request.`;
-        }
+      setRequestActivity("Checking your location…");
+      // VetroAI asks first (unless "Always allow" was chosen); the browser's
+      // own prompt can still follow the first time.
+      const access = locationAlwaysAllowed() ? "always" : await askLocationAccess(ctrl.signal);
+      if (!isActive()) return;
+      if (access === "always") setLocationAlwaysAllowed(true);
+      if (access === "decline") {
+        finalSystemPrompt += `\n\n[LOCATION DECLINED]\nThe user asked for places near them but chose not to share their location. Don't guess where they are or recommend places from an assumed city. In one or two sentences, say you can't see their location and ask which area, city or PIN code to search near.`;
         fd.set("systemPrompt", finalSystemPrompt.trim());
       } else {
-        const blocked = locationResult.reason === "denied";
-        addToast(
-          blocked
-            ? "Location is blocked. Click the lock icon near the address bar and allow Location."
-            : "Current location is unavailable. Please enter your city or area.",
-          "info",
-          6500
-        );
-        finalSystemPrompt += `\n\n[LOCATION REQUIRED BUT UNAVAILABLE]\nThe user asked for nearby results, but browser location was not available (${locationResult.reason || "unknown"}). Do not guess their city, state, or country and do not recommend places from an assumed location. Ask them to allow browser location access or provide their city, locality, or PIN code.`;
-        fd.set("systemPrompt", finalSystemPrompt.trim());
+        const locationResult = await getPreciseUserLocation();
+        if (!isActive()) return;
+        const userLocation = locationResult.location;
+        if (userLocation) {
+          const subject = nearbySubject(removePluginMention(userQuery, "maps"));
+          setRequestActivity(`Finding ${nearbyTitle(subject).toLowerCase()} near you…`);
+          let places = [];
+          let area = null;
+          try {
+            const nearbyResponse = await fetch(`${API}/maps/search?query=${encodeURIComponent(subject)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=8`, { signal: ctrl.signal });
+            const nearbyPayload = await nearbyResponse.json();
+            if (nearbyPayload?.success && Array.isArray(nearbyPayload.data)) places = nearbyPayload.data;
+            area = nearbyPayload?.meta?.area || null;
+          } catch (err) { swallowError(err); }
+          if (!isActive()) return;
+          places = places.filter((p) => p?.name && p?.location).slice(0, 8).map((p) => ({
+            ...p,
+            photoUrl: p.photoRef ? `${API}/maps/photo?ref=${encodeURIComponent(p.photoRef)}&w=200` : null,
+          }));
+          const where = area ? `around ${area}` : "around them";
+          if (places.length) {
+            nearbyCard = { title: `${nearbyTitle(subject)} near ${area || "you"}`, center: { lat: userLocation.lat, lng: userLocation.lng }, places };
+            const list = places.map((p, i) => [
+              `${i + 1}. ${p.name}`,
+              p.rating ? `${p.rating}★${p.reviews ? ` (${p.reviews} reviews)` : ""}` : null,
+              p.category,
+              p.distanceMeters != null ? `${p.distanceMeters} m away` : null,
+              p.openNow === true ? "open now" : p.openNow === false ? "closed now" : null,
+              p.address || null,
+            ].filter(Boolean).join(" · ")).join("\n");
+            finalSystemPrompt += `\n\n[NEARBY PLACES — MAP ALREADY SHOWN]\nThe user asked for ${subject} near their current location (${where}). The chat already shows a map card above your reply with these places, their distances and a directions button:\n${list}\n\nWrite a short reply: one line naming the area, then the 3–5 best options as a bulleted list — **Name** (rating if given, type or cuisine, distance): one short reason to go. Use only these places and only the facts given here; don't invent ratings, prices, dishes or hours. Don't add links, coordinates or a \`\`\`json map block — the map is already there.`;
+          } else {
+            finalSystemPrompt += `\n\n[NEARBY PLACES]\nThe user asked for ${subject} near their current location (${where}), but the place search found nothing within about 4 km. Say so plainly, don't invent places, and suggest searching a nearby area by name or a broader kind of place.`;
+          }
+          fd.set("systemPrompt", finalSystemPrompt.trim());
+        } else {
+          const blocked = locationResult.reason === "denied";
+          addToast(
+            blocked
+              ? "Location is blocked in your browser. Tap the lock icon by the address bar and allow Location."
+              : "Current location is unavailable. Please enter your city or area.",
+            "info",
+            6500
+          );
+          finalSystemPrompt += `\n\n[LOCATION REQUIRED BUT UNAVAILABLE]\nThe user asked for nearby results, but browser location was not available (${locationResult.reason || "unknown"}). Do not guess their city, state, or country and do not recommend places from an assumed location. Ask them to allow browser location access or provide their city, locality, or PIN code.`;
+          fd.set("systemPrompt", finalSystemPrompt.trim());
+        }
       }
     }
 
@@ -6145,6 +6219,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       medicalData: null,
       sources: null,
       realtimeNotice: null,
+      nearby: nearbyCard,
     };
     setMessages([...hist, emptyAssistantMsg]);
 
@@ -8336,6 +8411,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.medicalData && (
                              <MedicalInfoCard data={m.medicalData} />
                            )}
+                           {m.nearby && <NearbyMapCard data={m.nearby} />}
                            {(m.reasoning || m.isThinking) && (
                              <ThinkingPanel
                                reasoning={m.reasoning}
@@ -8561,6 +8637,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                  </div>
                </div>
              )}
+      {locationAskOpen && <LocationPermissionSheet onChoose={answerLocationAsk} />}
       {/* Voice Mode Overlay */}
       {isVoiceOpen && (
         <Suspense fallback={null}>

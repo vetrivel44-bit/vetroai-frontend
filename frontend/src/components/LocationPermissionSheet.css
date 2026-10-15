@@ -1,0 +1,48 @@
+/* Location permission sheet — rises from the bottom over the composer. */
+.lps-backdrop {
+  position: fixed; inset: 0; z-index: 140;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0 12px max(12px, env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, .35);
+  animation: lpsFade .2s ease both;
+}
+.lps-sheet {
+  width: min(100%, 560px);
+  padding: 22px 20px 16px;
+  border-radius: 28px;
+  border: 1px solid var(--border, rgba(0, 0, 0, .1));
+  background: var(--bg-elevated, #fff);
+  color: var(--ink, #1f1e1d);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, .25);
+  animation: lpsUp .3s cubic-bezier(.2, .8, .2, 1) both;
+}
+:root[data-theme="dark"] .lps-sheet { background: #121212; border-color: rgba(255, 255, 255, .1); color: #f2f0eb; }
+.lps-kicker { margin: 0 0 12px; font-size: 15px; color: var(--ink-3, #6b6b6b); }
+:root[data-theme="dark"] .lps-kicker, :root[data-theme="dark"] .lps-why, :root[data-theme="dark"] .lps-note { color: rgba(242, 240, 235, .62); }
+.lps-item {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 20px; border-radius: 14px;
+  border: 1px solid var(--border, rgba(0, 0, 0, .12));
+}
+:root[data-theme="dark"] .lps-item { border-color: rgba(255, 255, 255, .14); }
+.lps-item strong { display: block; font-size: 17px; font-weight: 650; }
+.lps-item span { display: block; margin-top: 2px; font-size: 15px; }
+.lps-why { margin: 14px 0 18px; font-size: 14.5px; line-height: 1.5; color: var(--ink-3, #6b6b6b); }
+.lps-actions { display: flex; flex-direction: column; gap: 10px; }
+.lps-btn {
+  width: 100%; min-height: 50px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 16px; font-weight: 600;
+  color: inherit; background: transparent;
+  border: 1px solid var(--border, rgba(0, 0, 0, .16));
+  transition: background .15s ease, transform .1s ease;
+}
+:root[data-theme="dark"] .lps-btn { border-color: rgba(255, 255, 255, .16); }
+.lps-btn:hover { background: rgba(127, 127, 127, .1); }
+.lps-btn:active { transform: scale(.985); }
+.lps-btn.is-primary { background: var(--ink, #1f1e1d); color: var(--bg, #fff); border-color: transparent; }
+:root[data-theme="dark"] .lps-btn.is-primary { background: #f2f0eb; color: #121212; }
+.lps-btn:focus-visible { outline: 2px solid var(--accent, #d97757); outline-offset: 2px; }
+.lps-note { margin: 14px 0 0; text-align: center; font-size: 13px; color: var(--ink-3, #6b6b6b); }
+@keyframes lpsFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lpsUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .lps-backdrop, .lps-sheet { animation: none; } }
