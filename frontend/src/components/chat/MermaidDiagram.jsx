@@ -1,9 +1,11 @@
 import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Code2, Copy, Download, Network } from "lucide-react";
+import { Check, Code2, Copy, Download, Maximize2, Network } from "lucide-react";
 import { OpenBlockContext, isStillStreaming } from "../../lib/visualStream";
 import "./mermaidDiagram.css";
 import { PendingSketch } from "./visuals/VisualCard";
 import { useBornLive } from "../../lib/streamReveal";
+import DiagramViewer from "./DiagramViewer";
+import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
 
 // ─── draw-in reveal ─────────────────────────────────────────────────────────
 // A diagram that arrives during a reply is revealed the way it would be
@@ -200,13 +202,8 @@ function colorize(code, theme, presetRoles = null) {
 // «extend» as labels on dashed edges. This turns that into the classic look:
 // stick-figure actors, rounded boxes, and the stereotype as a small second
 // line inside the included/extending use case.
-const RELATION_RE = /(«include»|«extend»|<<include>>|<<extend>>)/;
 const ID = "[A-Za-z_][\\w]*";
 
-function isUseCaseDiagram(code) {
-  if (!/^\s*(flowchart|graph)\b/m.test(code) || /^\s*(classDef|style|class)\s/m.test(code)) return false;
-  return RELATION_RE.test(code) || /\(\(\s*"?\s*👤/.test(code);
-}
 
 function toUseCase(code) {
   const actors = new Map(); // id -> name
@@ -324,23 +321,6 @@ function useDocumentTheme() {
   return theme;
 }
 
-const DIAGRAM_NAMES = [
-  [/^flowchart|^graph/i, "Flowchart"],
-  [/^sequenceDiagram/i, "Sequence diagram"],
-  [/^classDiagram/i, "Class diagram"],
-  [/^stateDiagram/i, "State diagram"],
-  [/^erDiagram/i, "ER diagram"],
-  [/^gantt/i, "Gantt chart"],
-  [/^mindmap/i, "Mind map"],
-  [/^pie/i, "Pie chart"],
-  [/^journey/i, "User journey"],
-  [/^timeline/i, "Timeline"],
-];
-const diagramName = (code) => {
-  if (/«include»|«extend»|<<include>>|<<extend>>|👤/.test(code) && /^\s*(flowchart|graph)/im.test(code)) return "Use case diagram";
-  const first = String(code).trim().split("\n").find((l) => l.trim() && !l.trim().startsWith("%%")) || "";
-  return DIAGRAM_NAMES.find(([rx]) => rx.test(first.trim()))?.[1] || "Diagram";
-};
 
 export default function MermaidDiagram({ code, fallback = null }) {
   const theme = useDocumentTheme();
@@ -353,6 +333,10 @@ export default function MermaidDiagram({ code, fallback = null }) {
   // Born during a reply: draw it in once when it is ready.
   const bornLive = useBornLive();
   const revealed = useRef(false);
+  // Too wide to read at the chat's width (labels under ~11px): offer the
+  // full-screen viewer.
+  const [tooSmall, setTooSmall] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (pending || !code.trim()) return undefined;
@@ -376,6 +360,17 @@ export default function MermaidDiagram({ code, fallback = null }) {
       revealed.current = true;
       revealDiagram(host);
     }
+    // Mermaid draws labels at 15px; below ~0.72 scale they are unreadable.
+    const measure = () => {
+      const svg = host.querySelector("svg");
+      const vb = svg?.viewBox?.baseVal;
+      if (!vb?.width) return;
+      setTooSmall(svg.getBoundingClientRect().width / vb.width < 0.72);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(host);
+    return () => ro?.disconnect();
   }, [bornLive, state.svg, showCode]);
 
   const copy = async () => {
@@ -427,18 +422,33 @@ export default function MermaidDiagram({ code, fallback = null }) {
           <button type="button" onClick={download} disabled={!state.svg} title="Download as SVG" aria-label="Download as SVG">
             <Download size={14} /><span className="vetro-diagram-btn-label">SVG</span>
           </button>
+          <button type="button" onClick={() => setExpanded(true)} disabled={!state.svg} title="Full screen" aria-label="Expand diagram">
+            <Maximize2 size={14} /><span className="vetro-diagram-btn-label">Expand</span>
+          </button>
         </span>
       </div>
       {showCode ? (
         <pre className="vetro-diagram-code"><code>{code}</code></pre>
       ) : state.svg ? (
-        <div ref={svgRef} className={`vetro-diagram-svg${bornLive ? " vd-live" : ""}`} />
+        <div className="vetro-diagram-stage">
+          <div
+            ref={svgRef}
+            className={`vetro-diagram-svg${bornLive ? " vd-live" : ""}${tooSmall ? " is-too-small" : ""}`}
+            onClick={tooSmall ? () => setExpanded(true) : undefined}
+          />
+          {tooSmall && (
+            <button type="button" className="vetro-diagram-zoom-pill" onClick={() => setExpanded(true)}>
+              <Maximize2 size={13} /> Tap to zoom
+            </button>
+          )}
+        </div>
       ) : (
         <div className="vetro-diagram-pending">
           <PendingSketch kind="diagram" />
           <span className="vetro-pending-label"><Network size={15} /> Drawing diagram<span className="vetro-dots" aria-hidden="true" /></span>
         </div>
       )}
+      {expanded && state.svg && <DiagramViewer svg={state.svg} title={diagramName(code)} onClose={() => setExpanded(false)} />}
     </div>
   );
 }
