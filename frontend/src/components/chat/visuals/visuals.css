@@ -109,3 +109,8 @@
   color: inherit !important; font-family: inherit !important; font-size: inherit !important; line-height: inherit !important;
   white-space: normal !important; overflow: visible !important;
 }
+
+/* ```3d blocks — interactive Three.js models (ThreeBlock.jsx) */
+.vetro-three-frame { display: block; width: 100%; border: 0; min-height: 200px; background: #faf9f7; }
+:root[data-theme="dark"] .vetro-three-frame { background: #1d1c1b; }
+.vetro-three-loading { display: grid; place-items: center; height: 300px; font-size: 13px; color: var(--ink-3, #6b6b6b); }
