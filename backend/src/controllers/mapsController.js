@@ -1,6 +1,7 @@
 const ApiError = require("../utils/apiError");
 const { config } = require("../config/env");
 const { searchImages } = require("./searchController");
+const nearby = require("../services/nearbyService");
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || "";
 const USE_GOOGLE = Boolean(GOOGLE_MAPS_API_KEY);
@@ -14,9 +15,19 @@ const safeFetch = async (url, options = {}) => {
   return res.json();
 };
 
+// The Places photo URL carries the server's API key, so it never leaves the
+// server: places carry the photo reference, and GET /api/maps/photo turns it
+// into Google's key-free image URL.
 const buildGooglePhotoUrl = (photoReference, maxWidth = 400) => {
   if (!photoReference) return null;
   return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photoreference=${encodeURIComponent(photoReference)}&key=${GOOGLE_MAPS_API_KEY}`;
+};
+
+// Google place types → "Restaurant", "Cafe", "Tourist attraction".
+const GENERIC_TYPES = new Set(["point_of_interest", "establishment", "food", "store", "health", "place_of_worship"]);
+const categoryFromTypes = (types = []) => {
+  const type = types.find((t) => !GENERIC_TYPES.has(t)) || types[0];
+  return type ? type.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) : null;
 };
 
 const distanceBetween = (lat1, lng1, lat2, lng2) => {
@@ -53,7 +64,8 @@ const formatPlace = (raw, userLocation = null) => {
     rating: raw.rating || null,
     reviews: raw.user_ratings_total || raw.review_count || null,
     openNow: raw.opening_hours?.open_now ?? raw.opening_hours?.is_open ?? null,
-    photoUrl: raw.photos?.length ? buildGooglePhotoUrl(raw.photos[0].photo_reference || raw.photos[0].photo_reference) : null,
+    photoRef: raw.photos?.[0]?.photo_reference || null,
+    category: categoryFromTypes(raw.types),
     mapsUrl: USE_GOOGLE ? buildGoogleMapsUrl(raw.place_id, lat, lng, raw.name) : (lat && lng ? buildOsmMapUrl(lat, lng) : null),
     source: USE_GOOGLE ? "google" : "osm",
     types: raw.types || [],
@@ -118,14 +130,27 @@ const searchPlaces = async (req, res) => {
         rating: detail.rating ?? place.rating,
         reviews: detail.user_ratings_total ?? place.reviews,
         openNow: detail.opening_hours?.open_now ?? place.openNow,
-        photoUrl: detail.photos?.length ? buildGooglePhotoUrl(detail.photos[0].photo_reference) : place.photoUrl,
+        photoRef: detail.photos?.[0]?.photo_reference || place.photoRef,
+        category: categoryFromTypes(detail.types) || place.category,
         website: detail.website || null,
         phone: detail.formatted_phone_number || null,
       };
     });
 
-    const detailed = await Promise.all(detailPromises);
-    return res.json({ success: true, data: detailed });
+    const [detailed, area] = await Promise.all([Promise.all(detailPromises), userLocation ? nearby.areaName(userLocation) : null]);
+    return res.json({ success: true, data: detailed, meta: { area } });
+  }
+
+  // No Google key: a "near me" search for a kind of place (restaurants,
+  // ATMs, pharmacies…) goes to OpenStreetMap's Overpass API, nearest first.
+  const kind = userLocation ? nearby.kindFor(`${query} ${type}`) : null;
+  if (kind) {
+    try {
+      const [places, area] = await Promise.all([nearby.searchOverpass(kind, userLocation, { limit }), nearby.areaName(userLocation)]);
+      if (places.length) return res.json({ success: true, data: places, meta: { area } });
+    } catch (err) {
+      // fall through to the text search below
+    }
   }
 
   // Fallback to OpenStreetMap / Nominatim when no Google API key is configured.
@@ -149,7 +174,8 @@ const searchPlaces = async (req, res) => {
 
   const searchResult = await safeFetch(nominatimUrl.toString(), { headers: { "User-Agent": "VetroAI-Maps/1.0" } });
   const formatted = (searchResult || []).slice(0, limit).map((item) => formatPlace(item, userLocation));
-  return res.json({ success: true, data: formatted });
+  const area = userLocation ? await nearby.areaName(userLocation) : null;
+  return res.json({ success: true, data: formatted, meta: { area } });
 };
 
 const placeDetails = async (req, res) => {
@@ -232,4 +258,17 @@ const getMapImages = async (req, res) => {
   return res.json({ success: true, data: images });
 };
 
-module.exports = { searchPlaces, placeDetails, getDirections, getMapImages };
+// GET /api/maps/photo?ref=<photo reference>&w=400 → redirects to Google's
+// key-free image URL for a place photo.
+const placePhoto = async (req, res) => {
+  const ref = ensureValidQuery(req.query.ref);
+  if (!USE_GOOGLE || !ref || ref.length > 1000) throw new ApiError(404, "No photo.");
+  const width = Math.min(Math.max(Number(req.query.w) || 400, 80), 1200);
+  const upstream = await fetch(buildGooglePhotoUrl(ref, width), { redirect: "manual", signal: AbortSignal.timeout(8000) });
+  const location = upstream.headers.get("location");
+  if (upstream.status < 300 || upstream.status >= 400 || !location) throw new ApiError(404, "No photo.");
+  res.set("Cache-Control", "public, max-age=86400");
+  return res.redirect(302, location);
+};
+
+module.exports = { searchPlaces, placeDetails, getDirections, getMapImages, placePhoto };

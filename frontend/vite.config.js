@@ -4,6 +4,30 @@ import process from 'node:process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+import { toClassicThree } from './scripts/threeClassic.mjs'
+
+// `import("virtual:three-classic")` → Three.js as one classic-script string,
+// inlined into the chat's sandboxed 3D frames (components/chat/visuals/
+// ThreeBlock.jsx). See scripts/threeClassic.mjs for why.
+function threeClassicModule() {
+  const ID = 'virtual:three-classic';
+  return {
+    name: 'vetroai-three-classic',
+    resolveId(id) { return id === ID ? '\0' + ID : null; },
+    load(id) {
+      if (id !== '\0' + ID) return null;
+      const buildDir = path.dirname(createRequire(import.meta.url).resolve('three'));
+      const read = (name) => {
+        const file = path.join(buildDir, name);
+        this.addWatchFile(file);
+        return fs.readFileSync(file, 'utf8');
+      };
+      const code = toClassicThree(read('three.core.min.js'), read('three.module.min.js'));
+      return `export default ${JSON.stringify(code)};`;
+    },
+  };
+}
 
 // Files in public/ are copied to dist/ under their own names, so every deploy
 // serves /rich-output-tools.js (and the other classic scripts index.html loads)
@@ -93,7 +117,7 @@ function browserPuterModelsTransform() {
   };
 }
 
-export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react(),versionPublicFiles()], build:{
+export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react(),versionPublicFiles(),threeClassicModule()], build:{
     // Everything used to land in one ~7.8 MB chunk that had to be downloaded,
     // parsed and executed before the first chat could paint. The screens, the
     // chart/map/editor components and the syntax highlighter are behind

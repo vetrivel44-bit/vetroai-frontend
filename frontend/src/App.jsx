@@ -36,7 +36,7 @@ import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persis
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -61,12 +61,17 @@ const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
 const ComputerUI = React.lazy(() => import("./components/screens/ComputerUI"));
+const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
 const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
 import { resolveSiteImages } from "./lib/siteImages";
+import { pickBrowserVoice, describeTtsVoice } from "./utils/browserVoice";
+import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyTitle } from "./utils/locationPermission";
+import LocationPermissionSheet from "./components/LocationPermissionSheet";
+import NearbyMapCard from "./components/chat/NearbyMapCard";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -1205,6 +1210,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
   const [tab, setTab]     = useState("profile");
+  const [locationAlways, setLocationAlways] = useState(locationAlwaysAllowed);
   const [name, setName]   = useState(userInfo?.name || init.name || "");
   const [avatar, setAvatar] = useState(init.avatar || "User");
   const [ok, setOk]       = useState(false);
@@ -1328,6 +1334,24 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
             <div className="cust-section">
               <div className="cust-section-title">Data Controls</div>
               <p className="cust-section-desc">{sessionCount} conversation{sessionCount === 1 ? "" : "s"} and {memoryCount} memor{memoryCount === 1 ? "y" : "ies"} stored on this account.</p>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Location</label>
+              <div className="cust-toggle-row">
+                <div>
+                  <div className="cust-toggle-label"><Navigation size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Always allow location</div>
+                  <div className="cust-toggle-desc">Use your precise location for “near me” questions without asking each time. Off: VetroAI asks first.</div>
+                </div>
+                <button
+                  className={`cust-toggle ${locationAlways ? "cust-toggle-on" : ""}`}
+                  role="switch"
+                  aria-checked={locationAlways}
+                  aria-label="Always allow location"
+                  onClick={() => { const next = !locationAlways; setLocationAlwaysAllowed(next); setLocationAlways(next); }}
+                >
+                  <div className="cust-toggle-thumb" />
+                </button>
+              </div>
             </div>
             <div className="field-group">
               <label className="field-label">Export your data</label>
@@ -4673,6 +4697,13 @@ export default function App() {
   const [autoSpeak, setAutoSpeak]   = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  // Voice mode's mute button: the mic stays off until it is turned back on,
+  // even when a reply finishes (which normally re-opens it).
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  // The location sheet: open while a "near me" request waits for an answer.
+  const [locationAskOpen, setLocationAskOpen] = useState(false);
+  const locationAskRef = useRef(null);
+  const voiceMutedRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [isDictating, setIsDictating] = useState(false);
@@ -5346,6 +5377,7 @@ export default function App() {
   const startMic = useCallback((opts = {}) => {
     const sr = recogRef.current;
     if (!sr) return false;
+    if (voiceMutedRef.current && !opts.unmute) return false;
     micWantedRef.current = true;
     if (opts.reset !== false) { transcriptRef.current = ""; setInput(""); }
     if (micRunningRef.current || isTTSActive()) return false;
@@ -5526,6 +5558,14 @@ export default function App() {
       // Fallback to browser TTS if the backend proxy fails (e.g. not configured yet)
       if (window.speechSynthesis) {
         const u = new SpeechSynthesisUtterance(c);
+        // Closest browser voice to the one picked in voice mode, rather than
+        // the browser's default.
+        // A failure here only loses the voice match, never the reply itself.
+        try {
+          const browserVoice = pickBrowserVoice(window.speechSynthesis.getVoices(), ttsVoiceRef.current);
+          if (browserVoice) u.voice = browserVoice;
+          u.lang = browserVoice?.lang || describeTtsVoice(ttsVoiceRef.current).lang;
+        } catch (err) { swallowError(err); }
         u.onstart = () => { stopMic({ keepWanted: true }); setIsSpeaking(true); };
         u.onend   = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
         u.onerror = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
@@ -5642,13 +5682,27 @@ export default function App() {
     // usable later, when no user gesture is in scope.
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(""));
     setAutoSpeak(true);
+    setMuted(false);
     setIsVoiceOpen(true);
     voiceRef.current = true;
-    startMic();
+    startMic({ unmute: true });
+  };
+
+  const setMuted = (value) => { voiceMutedRef.current = value; setVoiceMuted(value); };
+  const toggleVoiceMute = () => {
+    if (voiceMutedRef.current) {
+      setMuted(false);
+      if (!isTTSActive() && !loadRef.current) startMic({ unmute: true });
+    } else {
+      setMuted(true);
+      stopMic();
+    }
   };
 
   const handleOrb = () => {
     if (isLoading) return;
+    // Tapping the orb while muted means "I want to talk".
+    if (voiceMutedRef.current) setMuted(false);
     if (isTTSActive()) {
       // Tap to interrupt: stop the assistant mid-sentence and listen again.
       stopSpeak();
@@ -5954,6 +6008,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setStreamStatus("idle");
   };
 
+  // Opens the location sheet and resolves with "always", "once" or "decline".
+  // A request that is stopped while it waits counts as a decline.
+  const askLocationAccess = (signal) => new Promise((resolve) => {
+    locationAskRef.current?.("decline");
+    const finish = (choice) => {
+      if (locationAskRef.current !== finish) return;
+      locationAskRef.current = null;
+      setLocationAskOpen(false);
+      resolve(choice);
+    };
+    locationAskRef.current = finish;
+    signal?.addEventListener("abort", () => finish("decline"), { once: true });
+    setLocationAskOpen(true);
+  });
+  const answerLocationAsk = useCallback((choice) => { locationAskRef.current?.(choice); }, []);
+
   const triggerAI = async (hist, filesData = null, ytContext = null) => {
     const reqId = Date.now().toString();
     abortRef.current?.abort();
@@ -6045,33 +6115,66 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
     const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
+    // Shown above the reply: map, place cards and directions (NearbyMapCard).
+    let nearbyCard = null;
     if (nearbyMapsRequest) {
-      const locationResult = await getPreciseUserLocation();
-      const userLocation = locationResult.location;
-      if (userLocation) {
-        const placeQuery = removePluginMention(userQuery, "maps")
-          .replace(/\b(near me|nearby|closest|around me|current location)\b/ig, "")
-          .trim() || "places";
-        try {
-          const nearbyResponse = await fetch(`${API}/maps/search?query=${encodeURIComponent(placeQuery)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=6`);
-          const nearbyPayload = await nearbyResponse.json();
-          const nearbyPlaces = nearbyPayload?.success ? nearbyPayload.data : [];
-          finalSystemPrompt += `\n\n[CURRENT LOCATION MAP REQUEST]\nThe user explicitly requested results near their current browser location (${userLocation.lat}, ${userLocation.lng}). Use only these nearby place results when available and include their map links:\n${JSON.stringify(nearbyPlaces).slice(0, 7000)}`;
-        } catch {
-          finalSystemPrompt += `\n\n[CURRENT LOCATION]\nThe user's browser coordinates are ${userLocation.lat}, ${userLocation.lng}. Use them only for this nearby-place request.`;
-        }
+      setRequestActivity("Checking your location…");
+      // VetroAI asks first (unless "Always allow" was chosen); the browser's
+      // own prompt can still follow the first time.
+      const access = locationAlwaysAllowed() ? "always" : await askLocationAccess(ctrl.signal);
+      if (!isActive()) return;
+      if (access === "always") setLocationAlwaysAllowed(true);
+      if (access === "decline") {
+        finalSystemPrompt += `\n\n[LOCATION DECLINED]\nThe user asked for places near them but chose not to share their location. Don't guess where they are or recommend places from an assumed city. In one or two sentences, say you can't see their location and ask which area, city or PIN code to search near.`;
         fd.set("systemPrompt", finalSystemPrompt.trim());
       } else {
-        const blocked = locationResult.reason === "denied";
-        addToast(
-          blocked
-            ? "Location is blocked. Click the lock icon near the address bar and allow Location."
-            : "Current location is unavailable. Please enter your city or area.",
-          "info",
-          6500
-        );
-        finalSystemPrompt += `\n\n[LOCATION REQUIRED BUT UNAVAILABLE]\nThe user asked for nearby results, but browser location was not available (${locationResult.reason || "unknown"}). Do not guess their city, state, or country and do not recommend places from an assumed location. Ask them to allow browser location access or provide their city, locality, or PIN code.`;
-        fd.set("systemPrompt", finalSystemPrompt.trim());
+        const locationResult = await getPreciseUserLocation();
+        if (!isActive()) return;
+        const userLocation = locationResult.location;
+        if (userLocation) {
+          const subject = nearbySubject(removePluginMention(userQuery, "maps"));
+          setRequestActivity(`Finding ${nearbyTitle(subject).toLowerCase()} near you…`);
+          let places = [];
+          let area = null;
+          try {
+            const nearbyResponse = await fetch(`${API}/maps/search?query=${encodeURIComponent(subject)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=8`, { signal: ctrl.signal });
+            const nearbyPayload = await nearbyResponse.json();
+            if (nearbyPayload?.success && Array.isArray(nearbyPayload.data)) places = nearbyPayload.data;
+            area = nearbyPayload?.meta?.area || null;
+          } catch (err) { swallowError(err); }
+          if (!isActive()) return;
+          places = places.filter((p) => p?.name && p?.location).slice(0, 8).map((p) => ({
+            ...p,
+            photoUrl: p.photoRef ? `${API}/maps/photo?ref=${encodeURIComponent(p.photoRef)}&w=200` : null,
+          }));
+          const where = area ? `around ${area}` : "around them";
+          if (places.length) {
+            nearbyCard = { title: `${nearbyTitle(subject)} near ${area || "you"}`, center: { lat: userLocation.lat, lng: userLocation.lng }, places };
+            const list = places.map((p, i) => [
+              `${i + 1}. ${p.name}`,
+              p.rating ? `${p.rating}★${p.reviews ? ` (${p.reviews} reviews)` : ""}` : null,
+              p.category,
+              p.distanceMeters != null ? `${p.distanceMeters} m away` : null,
+              p.openNow === true ? "open now" : p.openNow === false ? "closed now" : null,
+              p.address || null,
+            ].filter(Boolean).join(" · ")).join("\n");
+            finalSystemPrompt += `\n\n[NEARBY PLACES — MAP ALREADY SHOWN]\nThe user asked for ${subject} near their current location (${where}). The chat already shows a map card above your reply with these places, their distances and a directions button:\n${list}\n\nWrite a short reply: one line naming the area, then the 3–5 best options as a bulleted list — **Name** (rating if given, type or cuisine, distance): one short reason to go. Use only these places and only the facts given here; don't invent ratings, prices, dishes or hours. Don't add links, coordinates or a \`\`\`json map block — the map is already there.`;
+          } else {
+            finalSystemPrompt += `\n\n[NEARBY PLACES]\nThe user asked for ${subject} near their current location (${where}), but the place search found nothing within about 4 km. Say so plainly, don't invent places, and suggest searching a nearby area by name or a broader kind of place.`;
+          }
+          fd.set("systemPrompt", finalSystemPrompt.trim());
+        } else {
+          const blocked = locationResult.reason === "denied";
+          addToast(
+            blocked
+              ? "Location is blocked in your browser. Tap the lock icon by the address bar and allow Location."
+              : "Current location is unavailable. Please enter your city or area.",
+            "info",
+            6500
+          );
+          finalSystemPrompt += `\n\n[LOCATION REQUIRED BUT UNAVAILABLE]\nThe user asked for nearby results, but browser location was not available (${locationResult.reason || "unknown"}). Do not guess their city, state, or country and do not recommend places from an assumed location. Ask them to allow browser location access or provide their city, locality, or PIN code.`;
+          fd.set("systemPrompt", finalSystemPrompt.trim());
+        }
       }
     }
 
@@ -6116,6 +6219,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       medicalData: null,
       sources: null,
       realtimeNotice: null,
+      nearby: nearbyCard,
     };
     setMessages([...hist, emptyAssistantMsg]);
 
@@ -8307,6 +8411,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.medicalData && (
                              <MedicalInfoCard data={m.medicalData} />
                            )}
+                           {m.nearby && <NearbyMapCard data={m.nearby} />}
                            {(m.reasoning || m.isThinking) && (
                              <ThinkingPanel
                                reasoning={m.reasoning}
@@ -8532,105 +8637,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                  </div>
                </div>
              )}
+      {locationAskOpen && <LocationPermissionSheet onChoose={answerLocationAsk} />}
       {/* Voice Mode Overlay */}
       {isVoiceOpen && (
-        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-2xl animate-in fade-in duration-300 px-4">
-          <button className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors" onClick={closeVoice}>
-             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-
-          <div className="flex flex-col items-center justify-center gap-10 mt-10 w-full max-w-[420px]">
-            {/* The Animated Orb, with expanding rings while active */}
-            <div className="relative" style={{ width: 340, height: 340 }}>
-              {(isListening || isSpeaking) && [
-                { cls: "r1", size: 180 },
-                { cls: "r2", size: 260 },
-                { cls: "r3", size: 340 },
-              ].map((r, i) => (
-                <div
-                  key={r.cls}
-                  className={`vring ${r.cls} on`}
-                  style={{
-                    top: "50%",
-                    left: "50%",
-                    marginTop: -r.size / 2,
-                    marginLeft: -r.size / 2,
-                    borderColor: isListening ? "rgba(16,185,129,0.35)" : "rgba(99,102,241,0.35)",
-                    animationDelay: `${i * 0.3}s`,
-                  }}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={handleOrb}
-                aria-label={isListening ? "Stop listening and send" : isSpeaking ? "Interrupt and speak" : "Start listening"}
-                title={isListening ? "Tap to send" : isSpeaking ? "Tap to interrupt" : "Tap to talk"}
-                className="absolute rounded-full flex items-center justify-center transition-[width,height,background,box-shadow] duration-300 cursor-pointer border-0 p-0"
-                style={{
-                  top: "50%",
-                  left: "50%",
-                  width: isListening ? 150 : 120,
-                  height: isListening ? 150 : 120,
-                  marginTop: isListening ? -75 : -60,
-                  marginLeft: isListening ? -75 : -60,
-                  background: isListening
-                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                    : isSpeaking
-                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
-                      : 'linear-gradient(135deg, #4b5563 0%, #374151 100%)',
-                  boxShadow: isListening
-                    ? '0 0 60px rgba(16, 185, 129, 0.5), inset 0 0 20px rgba(255,255,255,0.4)'
-                    : isSpeaking
-                      ? '0 0 90px rgba(99, 102, 241, 0.6), inset 0 0 30px rgba(255,255,255,0.5)'
-                      : '0 0 40px rgba(0,0,0,0.3)',
-                  animation: isListening
-                    ? 'voiceOrbPulse 1.1s ease-in-out infinite'
-                    : isSpeaking
-                      ? 'voiceOrbPulse 0.45s ease-in-out infinite'
-                      : 'voiceOrbPulse 3s ease-in-out infinite'
-                }}
-              >
-                {/* Inner glowing core */}
-                <div className="absolute inset-2 bg-white/20 rounded-full blur-md mix-blend-overlay"></div>
-              </button>
-            </div>
-
-            {/* Status text */}
-            <div className="text-white/80 font-medium tracking-wide text-xl -mt-6 text-center">
-              {isListening ? "Listening..." : isSpeaking ? "Speaking..." : isLoading ? "Thinking..." : "Ready"}
-              <div className="text-white/40 text-xs font-normal mt-1">
-                {isSpeaking ? "Tap the orb to interrupt" : isListening ? "Tap the orb to send" : "Tap the orb to talk"}
-              </div>
-            </div>
-
-            {/* The Custom Voice Selector Pills */}
-            <div className="w-full bg-white/10 rounded-3xl p-4 backdrop-blur-md border border-white/10 flex flex-col items-center">
-              <span className="text-white/40 text-[11px] uppercase tracking-widest font-bold mb-3">AI Persona</span>
-              <div className="grid grid-cols-3 gap-2 w-full">
-                {[
-                  { id: "en-US-JennyNeural", label: "Jenny", icon: "👩" },
-                  { id: "en-US-GuyNeural", label: "Guy", icon: "👨" },
-                  { id: "en-US-AriaNeural", label: "Aria", icon: "👩" },
-                  { id: "en-US-SteffanNeural", label: "Steffan", icon: "👨" },
-                  { id: "en-GB-SoniaNeural", label: "Sonia", icon: "👩", badge: "UK" },
-                  { id: "en-GB-RyanNeural", label: "Ryan", icon: "👨", badge: "UK" }
-                ].map(v => (
-                  <button
-                    key={v.id}
-                    onClick={() => setTtsVoice(v.id)}
-                    className={`relative flex flex-col items-center justify-center gap-1 px-2 py-2.5 rounded-2xl text-[13px] font-medium transition-all duration-200 ${ttsVoice === v.id ? 'bg-white text-black shadow-xl scale-105' : 'text-white/70 hover:bg-white/20 hover:text-white'}`}
-                  >
-                    {v.badge && (
-                      <span className={`absolute top-1 right-1 text-[8px] font-bold px-1 rounded ${ttsVoice === v.id ? 'bg-black/10 text-black/60' : 'bg-white/15 text-white/50'}`}>{v.badge}</span>
-                    )}
-                    <span className="text-lg leading-none">{v.icon}</span>
-                    <span className="truncate w-full text-center">{v.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={null}>
+          <VoiceMode
+            listening={isListening}
+            speaking={isSpeaking}
+            thinking={isLoading && !isSpeaking}
+            muted={voiceMuted}
+            voice={ttsVoice}
+            onVoiceChange={setTtsVoice}
+            onOrb={handleOrb}
+            onMute={toggleVoiceMute}
+            onClose={closeVoice}
+          />
+        </Suspense>
       )}
       </div>
       </main>
