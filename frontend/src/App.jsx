@@ -8560,9 +8560,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             speaking={isSpeaking}
             thinking={isLoading && !isSpeaking}
             muted={voiceMuted}
-            transcript={input}
-            reply={[...messages].reverse().find(m => m.role === "assistant")?.content || ""}
-            status={getStatusLabel(streamStatus, selectedMode, requestActivity)}
             voice={ttsVoice}
             onVoiceChange={setTtsVoice}
             onOrb={handleOrb}
