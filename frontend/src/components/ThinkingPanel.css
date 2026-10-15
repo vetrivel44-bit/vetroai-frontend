@@ -81,3 +81,13 @@
   .vai-tp.is-active .vai-tp-label { animation: none; color: var(--ink-3, #78746e); -webkit-text-fill-color: currentColor; background: none; }
   .vai-tp-body, .vai-tp-chevron { animation: none; transition: none; }
 }
+
+/* The live label summarises the reasoning, so it can run long: keep it to one
+   line and let the chevron stay put. */
+.vai-tp-header { max-width: 100%; }
+.vai-tp-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

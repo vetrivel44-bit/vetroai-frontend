@@ -66,6 +66,7 @@ const DealsHub = React.lazy(() => import("./components/screens/DealsHub"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
+import { describeRequest, isGenericStatus } from "./utils/activityLabel";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -3099,19 +3100,13 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
   );
 }
 
-// Helper to format real-time SSE stream status updates
-const getStatusLabel = (status, mode) => {
-  if (!status || status === "preparing" || status === "streaming" || status === "idle") {
-    switch(mode) {
-      case "deep_search": return "Researching…";
-      case "debugger": return "Reading your code…";
-      case "summarize": return "Condensing…";
-      case "analyst": return "Crunching data…";
-      case "multi_ai": return "Consulting experts…";
-      default: return "Thinking…";
-    }
-  }
-  return status;
+// The status line shown before the reply starts. A specific status from the
+// stream ("Reading 4 sources…") is shown as is; generic ones ("preparing",
+// "Consulting groq...") give way to a description of what this request is
+// doing (utils/activityLabel.js), so the line never just says "Thinking…".
+const getStatusLabel = (status, mode, activity) => {
+  if (isGenericStatus(status)) return activity || describeRequest({ mode });
+  return String(status).replace(/\.\.\.$/, "…");
 };
 
 // ─── NEWS PANEL ──────────────────────────────────────────────────────────────
@@ -4509,6 +4504,8 @@ export default function App() {
   // FIX 1: track auto-continuation status
   const [isContinuing, setIsContinuing]     = useState(false);
   const [streamStatus, setStreamStatus]     = useState("idle"); // idle, preparing, streaming, retrying, recovering, failed
+  // What the current request is doing, for the status line ("Reading notes.pdf…").
+  const [requestActivity, setRequestActivity] = useState("");
   const [debugLogs, setDebugLogs]           = useState([]);
   const [showDebug, setShowDebug]           = useState(false);
 
@@ -5971,6 +5968,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const isActive  = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
 
     setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
+    setRequestActivity(describeRequest({ query: hist[hist.length - 1]?.content, files: filesData, mode: selectedMode }));
     setFollowUps([]); setIsContinuing(false);
 
     // Show web searching indicator if web search will be triggered
@@ -6050,6 +6048,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // first, and a failed search sent the turn to a backend model instead.
     const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     const browserSearch = explicitSearch || (autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
+    setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
     const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
@@ -8455,7 +8454,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   );
                                })()
                                : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research
-                               ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
+                               ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
                                    <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
                                      <AssistantBody
@@ -8517,7 +8516,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                          <VetroSparkWhite size={22} />
                        </div>
                        <div style={{ paddingTop: 6 }}>
-                         <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
+                         <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                        </div>
                      </div>
                    )}
