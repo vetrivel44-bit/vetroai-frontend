@@ -79,7 +79,7 @@ export default function MapBlock({ code, fallback }) {
     return () => { alive = false; map?.remove(); };
   }, [parsed, theme]);
 
-  if (pending) return <VisualPending icon={MapPin} label="Loading map…" />;
+  if (pending) return <VisualPending icon={MapPin} label="Loading map…" sketch="map" />;
   if (parsed?.error) return <VisualFallback what="map" error={parsed.error} fallback={fallback} />;
   const places = parsed?.places || [];
   return (

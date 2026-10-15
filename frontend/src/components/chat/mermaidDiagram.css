@@ -61,18 +61,100 @@
   color: var(--ink-2, #333);
 }
 
+/* ─── While a visual is being written: an animated sketch ─── */
 .vetro-diagram-pending {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 120px;
+  gap: 12px;
+  min-height: 150px;
+  padding: 22px 16px 18px;
   font-size: 13px;
   color: var(--ink-4, #8a8a8a);
-  animation: vetro-diagram-pulse 1.4s ease-in-out infinite;
 }
-@keyframes vetro-diagram-pulse { 50% { opacity: 0.5; } }
-@media (prefers-reduced-motion: reduce) { .vetro-diagram-pending { animation: none; } }
+.vetro-pending-label { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+.vetro-dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: vetroDots 1.2s steps(4, end) infinite;
+}
+@keyframes vetroDots {
+  0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75%, 100% { content: "..."; }
+}
+
+.vetro-sketch { width: min(240px, 80%); height: auto; overflow: visible; }
+.vetro-sketch .sk { fill: color-mix(in srgb, var(--ink, #1a1a1a) 7%, transparent); stroke: color-mix(in srgb, var(--ink, #1a1a1a) 16%, transparent); stroke-width: 1.2; }
+.vetro-sketch .sk-line { fill: none; stroke: color-mix(in srgb, var(--ink, #1a1a1a) 18%, transparent); stroke-width: 1.6; stroke-linecap: round; }
+.vetro-sketch .sk-grid { stroke-width: 1; stroke-dasharray: 3 5; }
+.vetro-sketch .sk-hole { fill: var(--bg-2, #fff); }
+:root[data-theme="dark"] .vetro-sketch .sk { fill: rgba(255, 255, 255, 0.06); stroke: rgba(255, 255, 255, 0.16); }
+:root[data-theme="dark"] .vetro-sketch .sk-line { stroke: rgba(255, 255, 255, 0.18); }
+:root[data-theme="dark"] .vetro-sketch .sk-hole { fill: #262422; }
+
+/* Pieces appear in order, hold, then fade together — a 2.4s loop. */
+.vetro-sketch .sk, .vetro-sketch .sk-line:not(.sk-grid):not(.sk-axis) { animation: vetroSketch 2.4s ease-in-out infinite both; }
+.vetro-sketch .sk-2 { animation-delay: 0.15s; }
+.vetro-sketch .sk-3 { animation-delay: 0.3s; }
+.vetro-sketch .sk-4 { animation-delay: 0.45s; }
+.vetro-sketch .sk-5 { animation-delay: 0.6s; }
+.vetro-sketch .sk-6 { animation-delay: 0.75s; }
+@keyframes vetroSketch {
+  0% { opacity: 0; }
+  18%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.vetro-sketch .sk-bar { transform-box: fill-box; transform-origin: bottom; animation-name: vetroBar; }
+@keyframes vetroBar {
+  0% { opacity: 0; transform: scaleY(0.1); }
+  22%, 70% { opacity: 1; transform: scaleY(1); }
+  100% { opacity: 0; transform: scaleY(1); }
+}
+.vetro-sketch .sk-pin { animation: vetroPin 2.4s cubic-bezier(0.34, 1.56, 0.64, 1) infinite both; }
+.vetro-sketch .sk-pin .sk { animation: none; }
+@keyframes vetroPin {
+  0% { opacity: 0; transform: translateY(-14px); }
+  25%, 75% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+
+/* ─── Arriving during a reply ─── */
+/* The card rises in once when it first appears in a live reply. */
+.vetro-diagram.vetro-born-live { animation: vetroCardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes vetroCardIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+/* A chart, map or widget fades up out of a soft blur when it replaces the sketch. */
+.vetro-born-live .vetro-visual-body { animation: vetroBodyIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes vetroBodyIn {
+  from { opacity: 0; filter: blur(6px); transform: scale(0.985); }
+  to { opacity: 1; filter: none; transform: none; }
+}
+
+/* Diagram draw-in (MermaidDiagram's revealDiagram): shapes pop in one by
+   one, then connectors draw along their paths. `scale` composes with the
+   SVG's own transform attribute, so shapes stay where Mermaid put them. */
+.vd-live .vd-shape {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: vdShapeIn 0.5s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+@keyframes vdShapeIn {
+  from { opacity: 0; scale: 0.86; filter: blur(3px); }
+  to { opacity: 1; scale: 1; filter: none; }
+}
+@keyframes vdDraw { to { stroke-dashoffset: 0; } }
+@keyframes vdFade { from { opacity: 0; } to { opacity: 1; } }
+.vd-live svg.vd-whole { animation: vetroBodyIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vetro-sketch *, .vetro-dots::after,
+  .vetro-diagram.vetro-born-live, .vetro-born-live .vetro-visual-body,
+  .vd-live .vd-shape, .vd-live svg.vd-whole { animation: none !important; }
+}
 
 .vetro-diagram-fallback { margin: 14px 0; }
 .vetro-diagram-error {
