@@ -36,7 +36,7 @@ import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persis
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Tag } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -62,10 +62,11 @@ const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPa
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
 const ComputerUI = React.lazy(() => import("./components/screens/ComputerUI"));
 const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
-const DealsHub = React.lazy(() => import("./components/screens/DealsHub"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
+import { describeRequest, isGenericStatus } from "./utils/activityLabel";
+import { resolveSiteImages } from "./lib/siteImages";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -2306,7 +2307,7 @@ function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete
         </Suspense>
       )}
       {tab === "preview" && (
-        <iframe title="artifact-preview" srcDoc={draft} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
+        <iframe title="artifact-preview" srcDoc={resolveSiteImages(draft, API)} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
       )}
       <div className="artifact-footer">
         <span>{language || "text"}{artifact.updatedAt ? " · Edited" : ""}</span>
@@ -2401,7 +2402,10 @@ function DesignCanvas({ onClose }) {
 
   const lastDesign = useMemo(() => {
     const lastAssistant = [...messages].reverse().find(m => m.role === "assistant" && m.content);
-    return lastAssistant ? parseDesignResponse(lastAssistant.content) : { caption: "", html: "" };
+    if (!lastAssistant) return { caption: "", html: "" };
+    // Photos are asked for by subject; point them at real matching pictures.
+    const parsed = parseDesignResponse(lastAssistant.content);
+    return { ...parsed, html: resolveSiteImages(parsed.html, API) };
   }, [messages]);
 
   const send = async () => {
@@ -3099,19 +3103,13 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
   );
 }
 
-// Helper to format real-time SSE stream status updates
-const getStatusLabel = (status, mode) => {
-  if (!status || status === "preparing" || status === "streaming" || status === "idle") {
-    switch(mode) {
-      case "deep_search": return "Researching…";
-      case "debugger": return "Reading your code…";
-      case "summarize": return "Condensing…";
-      case "analyst": return "Crunching data…";
-      case "multi_ai": return "Consulting experts…";
-      default: return "Thinking…";
-    }
-  }
-  return status;
+// The status line shown before the reply starts. A specific status from the
+// stream ("Reading 4 sources…") is shown as is; generic ones ("preparing",
+// "Consulting groq...") give way to a description of what this request is
+// doing (utils/activityLabel.js), so the line never just says "Thinking…".
+const getStatusLabel = (status, mode, activity) => {
+  if (isGenericStatus(status)) return activity || describeRequest({ mode });
+  return String(status).replace(/\.\.\.$/, "…");
 };
 
 // ─── NEWS PANEL ──────────────────────────────────────────────────────────────
@@ -4509,6 +4507,8 @@ export default function App() {
   // FIX 1: track auto-continuation status
   const [isContinuing, setIsContinuing]     = useState(false);
   const [streamStatus, setStreamStatus]     = useState("idle"); // idle, preparing, streaming, retrying, recovering, failed
+  // What the current request is doing, for the status line ("Reading notes.pdf…").
+  const [requestActivity, setRequestActivity] = useState("");
   const [debugLogs, setDebugLogs]           = useState([]);
   const [showDebug, setShowDebug]           = useState(false);
 
@@ -5254,15 +5254,6 @@ export default function App() {
   };
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────────
-  const bookmarkId = (msg) => `${msg.timestamp}_${(msg.content || "").slice(0, 60)}`;
-  const toggleBookmark = (msg) => {
-    const id = bookmarkId(msg);
-    const exists = bookmarks.some(b => b.id === id);
-    // Toast outside the updater so StrictMode's double-invoke can't fire it twice.
-    setBookmarks(prev => (exists ? prev.filter(b => b.id !== id) : [...prev, { ...msg, id }]));
-    addToast(exists ? "Bookmark removed" : "🔖 Bookmarked!", exists ? "info" : "success", 1500);
-  };
-  const isBookmarked  = (msg) => bookmarks.some(b => b.id === bookmarkId(msg));
   const removeBookmark = (id) => setBookmarks(prev => prev.filter(b => b.id !== id));
 
 
@@ -5971,6 +5962,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const isActive  = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
 
     setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
+    setRequestActivity(describeRequest({ query: hist[hist.length - 1]?.content, files: filesData, mode: selectedMode }));
     setFollowUps([]); setIsContinuing(false);
 
     // Show web searching indicator if web search will be triggered
@@ -6050,6 +6042,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // first, and a failed search sent the turn to a backend model instead.
     const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     const browserSearch = explicitSearch || (autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
+    setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
     const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
     if (nearbyMapsRequest) {
@@ -7167,14 +7160,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setCopiedAiIdx(i);
     setTimeout(() => setCopiedAiIdx(null), 2000);
   };
-  const shareAiMsg  = (content) => {
-    if (navigator.share) {
-      navigator.share({ title: 'VetroAi', text: content }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(content);
-      addToast("Copied to clipboard", "info", 2000);
-    }
-  };
   const copyUserMsg = (i, content) => {
     navigator.clipboard.writeText(content);
     setCopiedUserIdx(i);
@@ -7465,7 +7450,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
   const [showChess, setShowChess] = useState(false);
-  const [showDeals, setShowDeals] = useState(false);
   const [pluginState, setPluginState] = useState(loadPluginState);
   const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -7948,7 +7932,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
         {/* Main nav */}
         <div className="px-1 flex flex-col gap-0.5">
-          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); setShowChess(false); setShowDeals(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
+          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); setShowChess(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
             <MessageSquare size={17} /> Chats
           </button>
           <button onClick={() => { setActiveNav('projects'); setShowSpaces(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'projects' ? 'active' : ''}`}>
@@ -7983,10 +7967,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           <button onClick={() => { setActiveNav('chess'); setShowChess(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chess' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Swords size={17} /> Chess Arena</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
-          </button>
-          <button onClick={() => { setActiveNav('deals'); setShowDeals(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'deals' ? 'active' : ''}`}>
-            <span className="flex items-center gap-3"><Tag size={17} /> Deals</span>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: "#0f9d58", background: "rgba(15,157,88,0.12)" }}>LIVE</span>
           </button>
           {/* Its own page (public/todo/) in a new tab, so an open chat isn't lost. */}
           <a href="/todo/index.html" target="_blank" rel="noopener noreferrer" onClick={() => setSidebarMobileOpen(false)} title="Your to-do list, in a new tab" className="claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors" style={{ textDecoration: "none" }}>
@@ -8144,11 +8124,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               <ChessArena onClose={() => { setShowChess(false); setActiveNav("chats"); }} />
             </Suspense>
           </div>
-        )}
-        {showDeals && (
-          <Suspense fallback={<ScreenLoader />}>
-            <DealsHub onClose={() => { setShowDeals(false); setActiveNav("chats"); }} />
-          </Suspense>
         )}
 
         <header className="chat-header">
@@ -8455,7 +8430,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   );
                                })()
                                : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research
-                               ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
+                               ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
                                    <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
                                      <AssistantBody
@@ -8480,30 +8455,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
-                               <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title="Copy response" aria-label="Copy response">
-                                 <CopyIcon /><span>{copiedAiIdx === i ? 'Copied!' : 'Copy'}</span>
+                               <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title={copiedAiIdx === i ? "Copied" : "Copy"} aria-label="Copy response">
+                                 {copiedAiIdx === i ? <CheckIcon /> : <CopyIcon />}
                                </button>
-                               <button className="msg-action-btn" onClick={() => handleRegen(i)} title="Regenerate response" aria-label="Regenerate" disabled={isLoading}>
-                                 <ReloadIcon /><span>Retry</span>
-                               </button>
-                               <button className="msg-action-btn" onClick={() => shareAiMsg(m.content)} title="Share response" aria-label="Share">
-                                 <ShareIcon /><span>Share</span>
-                               </button>
-                               <DocumentDownloads content={m.content} />
-                               <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Like" aria-label="Like response">
+                               <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Good response" aria-label="Good response" aria-pressed={msgFeedback[i] === 'up'}>
                                  <ThumbsUpIcon />
                                </button>
-                               <button className={`msg-action-btn${msgFeedback[i] === 'down' ? ' feedback-down' : ''}`} onClick={() => handleFeedback(i, 'down')} title="Dislike" aria-label="Dislike response">
+                               <button className={`msg-action-btn${msgFeedback[i] === 'down' ? ' feedback-down' : ''}`} onClick={() => handleFeedback(i, 'down')} title="Bad response" aria-label="Bad response" aria-pressed={msgFeedback[i] === 'down'}>
                                  <ThumbsDnIcon />
                                </button>
-                               <button
-                                 className={`msg-action-btn${isBookmarked(m) ? ' bookmarked' : ''}`}
-                                 onClick={() => toggleBookmark(m)}
-                                 title={isBookmarked(m) ? "Remove bookmark" : "Bookmark response"}
-                                 aria-label={isBookmarked(m) ? "Remove bookmark" : "Bookmark response"}
-                                 aria-pressed={isBookmarked(m)}
-                               >
-                                 <BookmarkIcon />
+                               <button className="msg-action-btn" onClick={() => handleRegen(i)} title="Retry" aria-label="Retry" disabled={isLoading}>
+                                 <ReloadIcon />
                                </button>
                              </div>
                            )}
@@ -8517,7 +8479,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                          <VetroSparkWhite size={22} />
                        </div>
                        <div style={{ paddingTop: 6 }}>
-                         <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode)} />
+                         <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                        </div>
                      </div>
                    )}

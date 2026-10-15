@@ -5,11 +5,13 @@ import StructuredResponseRenderer from "../structured/StructuredResponseRenderer
 import { splitVisualBlocks, visualsToMarkdown } from "../../lib/structuredSegments";
 import "./ComputerUI.css";
 import { resolveApiBase } from "../../lib/apiBase";
+import { resolveSiteImages } from "../../lib/siteImages";
+import { partialHtml, buildStage, buildSteps, analyzeSite } from "../../lib/siteBuild";
 import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
-  Download, File, FolderOpen, Globe2, HardDrive, Loader2, LockKeyhole, MapPin, Mic, Monitor, MoreHorizontal,
-  Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
-  Square, Trash2, X, Zap
+  Download, File, FolderOpen, Globe2, HardDrive, Image as ImageIcon, LayoutTemplate, Loader2, LockKeyhole, MapPin,
+  Maximize2, Mic, Minimize2, Monitor, MoreHorizontal, Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
+  Smartphone, Sparkles, Square, Trash2, X, Zap
 } from "lucide-react";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -35,7 +37,7 @@ const textOf = (node) => {
 // collapsed behind a compact card (language, line count, copy), since the
 // live preview and the download button are what the reader actually wants.
 function CodeBlock({ children }) {
-  const code = textOf(children).replace(/\n$/, "");
+  const code = textOf(children).replace(/\n+$/, "");
   const langClass = Array.isArray(children) ? children[0]?.props?.className : children?.props?.className;
   const lang = /language-([\w+-]+)/.exec(langClass || "")?.[1] || "code";
   const lines = code ? code.split("\n").length : 0;
@@ -76,7 +78,7 @@ const NEARBY_REQUEST = /\b(near me|nearby|nearest|closest|around me|current loca
 const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\bplay\s+(.+?)\s+(?:on|in)\s+youtube\b|\byoutube\s+(?:play|search)\s+(.+))/i;
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
-const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate)\b[\s\S]{0,40}\b(?:website|web ?site|landing page|portfolio site|web page)\b/i;
+const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate|code)\b[\s\S]{0,40}\b(?:website|web ?site|site|landing page|web ?page|home ?page|web ?app|online (?:store|shop)|e-?commerce|storefront)\b/i;
 // Asks that need a real mouse and keyboard. In a normal browser tab there is
 // no way to do these — the page is sandboxed away from the OS — so they get an
 // explanation and the download link instead of being quietly routed to the
@@ -156,6 +158,29 @@ async function prepareScreenshotForModel(dataUrl) {
 function extractHtmlDocument(markdown) {
   const match = HTML_BLOCK.exec(String(markdown || ""));
   return match ? match[1].trim() : null;
+}
+
+// The site as it should be shown and downloaded: photos asked for by subject
+// point at real, matching pictures (lib/siteImages.js).
+function siteHtml(markdown) {
+  const html = extractHtmlDocument(markdown);
+  return html ? resolveSiteImages(html, API) : null;
+}
+
+const formatElapsed = (ms) => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return total < 60 ? `${total}s` : `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, "0")}s`;
+};
+
+// A ticking "0m 42s" while a task runs; frozen at the final time once `until` is set.
+function Elapsed({ since, until }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (until) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [until]);
+  return <>{formatElapsed((until || now) - since)}</>;
 }
 
 // Preview-only instrumentation so the agent can actually "see" what it just
@@ -306,7 +331,7 @@ const starterTasks = [
   { icon: Search, title: "Research a topic", prompt: "Research the latest developments in AI agents. Compare the most important options and create a concise report with sources." },
   { icon: FolderOpen, title: "Work with files", prompt: "Review the files I attach, summarize the important information, and produce a clear action plan." },
   { icon: Globe2, title: "Plan from the web", prompt: "Plan a five-day trip with a practical itinerary, budget, and useful links." },
-  { icon: Zap, title: "Complete a project", prompt: "Turn my goal into a detailed plan, work through it step by step, and give me finished deliverables for review." }
+  { icon: LayoutTemplate, title: "Build a website", prompt: "Build a modern online store for a sneaker brand: product grid with prices and ratings, a working cart, customer reviews, and a newsletter signup. It must look great on phones." }
 ];
 
 const buildPlan = (prompt, files) => {
@@ -318,7 +343,7 @@ const buildPlan = (prompt, files) => {
     { id: "review", label: "Review the result and prepare delivery", status: "pending" }
   ];
   if (/\b(code|app|website|debug|fix|build)\b/i.test(prompt)) {
-    steps[2] = { id: "work", label: "Build, inspect, and validate the solution", status: "pending" };
+    steps[steps.length - 2] = { id: "work", label: "Build, inspect, and validate the solution", status: "pending" };
   }
   return steps;
 };
@@ -414,8 +439,9 @@ export default function ComputerUI({ onClose }) {
   };
 
   // `prefix` is the text already shown for this reply: a continuation of a
-  // cut-off answer streams onto the end of it.
-  const readStream = async (response, taskId, assistantId, prefix = "") => {
+  // cut-off answer streams onto the end of it. `stepsFor`, when given, works
+  // out the task's progress steps from the text so far.
+  const readStream = async (response, taskId, assistantId, prefix = "", stepsFor = null) => {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("The server did not return a stream.");
     const decoder = new TextDecoder();
@@ -439,6 +465,7 @@ export default function ComputerUI({ onClose }) {
             content += data;
             patchTask(taskId, t => ({
               ...t,
+              ...(stepsFor ? { steps: stepsFor(content, t.steps) } : {}),
               messages: t.messages.map(m => m.id === assistantId ? { ...m, content } : m)
             }));
           } else if (type === "clear") {
@@ -478,7 +505,22 @@ export default function ComputerUI({ onClose }) {
     const assistantId = `a-${Date.now()}`;
     const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt };
     const contextMessages = [...task.messages, userMessage].map(({ role, content }) => ({ role, content }));
-    const plan = buildPlan(prompt, files).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
+    // Once a task has produced a website, keep routing follow-ups (e.g. "fix
+    // these errors") through Design mode even if the fix prompt itself
+    // doesn't say "build a website" — otherwise a fix request silently
+    // drops back to a plain code-chat reply instead of a full HTML redo.
+    const hasWebsiteContext = task.messages.some(m => m.exports?.includes("website"));
+    const isWebsiteRequest = WEBSITE_REQUEST.test(prompt) || hasWebsiteContext;
+    // A website build reports what is really being written (styling, each
+    // section, scripts); other tasks move to "working" once the answer starts.
+    const plan = isWebsiteRequest
+      ? buildSteps("")
+      : buildPlan(prompt, files).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
+    const workIndex = plan.findIndex(s => s.id === "work");
+    const stepsFor = isWebsiteRequest
+      ? (content) => buildSteps(content)
+      : (_content, steps) => steps.map((s, i) => ({ ...s, status: i < workIndex ? "done" : i === workIndex ? "active" : s.status === "done" ? "done" : "pending", detail: i === workIndex ? s.detail : undefined }));
+    const startedAt = Date.now();
 
     patchTask(taskId, t => ({
       ...t,
@@ -486,7 +528,7 @@ export default function ComputerUI({ onClose }) {
       status: "running",
       files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
       steps: plan,
-      messages: [...t.messages, userMessage, { id: assistantId, role: "assistant", content: "" }]
+      messages: [...t.messages, userMessage, { id: assistantId, role: "assistant", content: "", startedAt, website: isWebsiteRequest }]
     }));
     setQuery("");
 
@@ -577,12 +619,6 @@ export default function ComputerUI({ onClose }) {
           }
         }
       }
-      // Once a task has produced a website, keep routing follow-ups (e.g. "fix
-      // these errors") through Design mode even if the fix prompt itself
-      // doesn't say "build a website" — otherwise a fix request silently
-      // drops back to a plain code-chat reply instead of a full HTML redo.
-      const hasWebsiteContext = task.messages.some(m => m.exports?.includes("website"));
-      const isWebsiteRequest = WEBSITE_REQUEST.test(prompt) || hasWebsiteContext;
       // A whole single-file website runs well past the backend's default
       // 2,048-token reply, which cut it off mid-code (no closing fence, so no
       // preview). Ask for room up front.
@@ -622,7 +658,7 @@ export default function ComputerUI({ onClose }) {
       };
 
       patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
-      let reply = await readStream(await sendChat(taskPrompt, contextMessages, true), taskId, assistantId);
+      let reply = await readStream(await sendChat(taskPrompt, contextMessages, true), taskId, assistantId, "", stepsFor);
 
       // Still cut off inside a code block (odd number of fences): ask the
       // model to carry on from the exact point it stopped, and append that
@@ -633,7 +669,7 @@ export default function ComputerUI({ onClose }) {
         try {
           more = await readStream(
             await sendChat(CONTINUE_PROMPT, [...contextMessages, { role: "assistant", content: reply }, { role: "user", content: CONTINUE_PROMPT }], false),
-            taskId, assistantId, reply
+            taskId, assistantId, reply, stepsFor
           );
         } catch (error) {
           if (error.name === "AbortError") throw error;
@@ -652,6 +688,7 @@ export default function ComputerUI({ onClose }) {
         steps: t.steps.map(s => ({ ...s, status: "done" })),
         messages: t.messages.map(message => message.id === assistantId ? {
           ...message,
+          finishedAt: Date.now(),
           exports: [
             ...(WORD_REQUEST.test(prompt) ? ["word"] : []),
             ...(SHEET_REQUEST.test(prompt) ? ["spreadsheet"] : []),
@@ -666,9 +703,10 @@ export default function ComputerUI({ onClose }) {
         ...t,
         status: stopped ? "stopped" : "failed",
         steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s),
-        messages: t.messages.map(m => m.id === assistantId && !m.content
-          ? { ...m, content: stopped ? "Task stopped. You can edit the instruction and run it again." : `I couldn't complete this task: ${error.message}` }
-          : m)
+        messages: t.messages.map(m => m.id !== assistantId ? m
+          : !m.content
+            ? { ...m, finishedAt: Date.now(), content: stopped ? "Task stopped. You can edit the instruction and run it again." : `I couldn't complete this task: ${error.message}` }
+            : { ...m, finishedAt: Date.now() })
       }));
     } finally {
       abortRef.current = null;
@@ -1079,7 +1117,13 @@ export default function ComputerUI({ onClose }) {
           <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100"><ArrowLeft size={18} /></button>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm truncate">{activeTask?.title || "VetroAI Computer"}</div>
-            <div className="text-[11px] text-stone-500">Cowork-style task workspace</div>
+            <div className="cw-header-status">
+              {running
+                ? <><span className="cw-pulse-dot" /> Working{activeTask.messages[activeTask.messages.length - 1]?.startedAt ? <> · <Elapsed since={activeTask.messages[activeTask.messages.length - 1].startedAt} /></> : null}</>
+                : activeTask?.status === "completed" ? <><CheckCircle2 size={12} /> Done — ready for your review</>
+                : activeTask?.status === "failed" ? "Needs attention"
+                : "Plans, builds and checks the work for you"}
+            </div>
           </div>
           {activeTask && (running || paused) && (
             <div className="flex items-center gap-1">
@@ -1141,36 +1185,19 @@ export default function ComputerUI({ onClose }) {
                 <div className="space-y-7 min-w-0">
                   {activeTask.messages.map(message => (
                     <div key={message.id} className={message.role === "user" ? "flex justify-end" : "flex gap-3"}>
-                      {message.role === "assistant" && <div className="w-8 h-8 rounded-xl bg-stone-900 text-white flex items-center justify-center flex-shrink-0"><Bot size={16} /></div>}
+                      {message.role === "assistant" && <div className="cw-avatar"><Sparkles size={15} /></div>}
                       <div className={message.role === "user"
                         ? "max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 text-white px-4 py-3 text-sm"
                         : "min-w-0 flex-1 prose prose-sm max-w-none text-stone-800 leading-7"}>
                         {message.role === "assistant"
-                          ? (message.content ? (
-                            <>
-                              <TaskReply content={message.content} />
-                              {message.exports?.length > 0 && (
-                                <div className="cowork-export-actions">
-                                  {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(activeTask.title, visualsToMarkdown(message.content))}><Download size={15} /> Download Word document</button>}
-                                  {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(activeTask.title, visualsToMarkdown(message.content))}><Download size={15} /> Download spreadsheet</button>}
-                                  {message.exports.includes("website") && extractHtmlDocument(message.content) && (
-                                    <>
-                                      <button type="button" onClick={() => downloadBlob(extractHtmlDocument(message.content), "text/html;charset=utf-8", safeFilename(activeTask.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
-                                      <button type="button" onClick={() => window.open("https://dash.cloudflare.com/?to=/:account/pages/new/upload", "_blank", "noopener,noreferrer")}><Globe2 size={15} /> Open Cloudflare Pages to deploy</button>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                              {message.exports?.includes("website") && extractHtmlDocument(message.content) && message.id === activeTask.messages[activeTask.messages.length - 1]?.id && (
-                                <WebsitePreview
-                                  key={message.id}
-                                  html={extractHtmlDocument(message.content)}
-                                  disabled={running}
-                                  onFix={(errors) => requestWebsiteFix(extractHtmlDocument(message.content), errors)}
-                                />
-                              )}
-                            </>
-                          ) : <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={15} className="animate-spin" /> Working on your task…</div>)
+                          ? <AssistantTurn
+                              message={message}
+                              task={activeTask}
+                              live={running && message.id === activeTask.messages[activeTask.messages.length - 1]?.id}
+                              latest={message.id === activeTask.messages[activeTask.messages.length - 1]?.id}
+                              disabled={running}
+                              onFix={requestWebsiteFix}
+                            />
                           : message.content}
                       </div>
                     </div>
@@ -1312,13 +1339,203 @@ export default function ComputerUI({ onClose }) {
   );
 }
 
+// The reply while a task runs and once it is done: a live working card, a
+// website being built in front of you, or the finished answer with its
+// preview and downloads.
+function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
+  const activeIndex = task.steps.findIndex(s => s.status === "active");
+  if (!message.content) {
+    if (!live) return null;
+    return <WorkingCard step={task.steps[activeIndex]} index={activeIndex} count={task.steps.length} startedAt={message.startedAt} />;
+  }
+  if (message.website && live) {
+    const caption = message.content.split(/```html/i)[0];
+    return (
+      <>
+        {caption.trim() && <TaskReply content={caption} />}
+        <LiveBuild content={message.content} startedAt={message.startedAt} />
+      </>
+    );
+  }
+  const html = message.exports?.includes("website") ? siteHtml(message.content) : null;
+  return (
+    <>
+      <TaskReply content={message.content} />
+      {live && (
+        <div className="cw-still-working"><span className="cw-pulse-dot" /> {task.steps[activeIndex]?.label || "Working"}…{message.startedAt ? <> · <Elapsed since={message.startedAt} /></> : null}</div>
+      )}
+      {html && <SiteReport html={html} startedAt={message.startedAt} finishedAt={message.finishedAt} />}
+      {message.exports?.length > 0 && (
+        <div className="cowork-export-actions">
+          {message.exports.includes("word") && <button type="button" onClick={() => downloadWordDocument(task.title, visualsToMarkdown(message.content))}><Download size={15} /> Download Word document</button>}
+          {message.exports.includes("spreadsheet") && <button type="button" onClick={() => downloadSpreadsheet(task.title, visualsToMarkdown(message.content))}><Download size={15} /> Download spreadsheet</button>}
+          {html && (
+            <>
+              <button type="button" onClick={() => downloadBlob(html, "text/html;charset=utf-8", safeFilename(task.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
+              <button type="button" onClick={() => window.open("https://dash.cloudflare.com/?to=/:account/pages/new/upload", "_blank", "noopener,noreferrer")}><Globe2 size={15} /> Open Cloudflare Pages to deploy</button>
+            </>
+          )}
+        </div>
+      )}
+      {html && latest && (
+        <WebsitePreview
+          key={message.id}
+          html={html}
+          title={task.title}
+          disabled={disabled}
+          onFix={(errors) => onFix(extractHtmlDocument(message.content), errors)}
+        />
+      )}
+    </>
+  );
+}
+
+// Shown before the first words of a reply arrive: what step it is on, the
+// latest thing the backend reported, and how long it has been going.
+function WorkingCard({ step, index, count, startedAt }) {
+  return (
+    <div className="cw-working" role="status" aria-live="polite">
+      <div className="cw-working-orb"><Sparkles size={16} /></div>
+      <div className="cw-working-body">
+        <div className="cw-working-title">{step?.label || "Getting started"}</div>
+        <div className="cw-working-detail">{step?.detail || "Planning the work"}</div>
+        <div className="cw-working-bar"><span /></div>
+      </div>
+      <div className="cw-working-meta">
+        {index >= 0 && count > 0 && <span>Step {index + 1} of {count}</span>}
+        {startedAt ? <span><Elapsed since={startedAt} /></span> : null}
+      </div>
+    </div>
+  );
+}
+
+const STAGE_LABEL = {
+  brief: "Reading your brief",
+  design: "Choosing the layout, colors and fonts",
+  style: "Styling the page",
+  sections: "Building the page",
+  script: "Wiring up the interactions",
+  review: "Finishing up",
+};
+
+// The website taking shape while it is written: the HTML so far is drawn in
+// a script-free frame every moment and scrolled to the newest part, with the
+// sections it has built listed underneath.
+function LiveBuild({ content, startedAt }) {
+  const { stage, detail, lines, sections } = buildStage(content);
+  const frameRef = useRef(null);
+  const latestRef = useRef("");
+  useEffect(() => { latestRef.current = partialHtml(content) || ""; }, [content]);
+  const showPage = stage === "sections" || stage === "script" || stage === "review";
+
+  useEffect(() => {
+    const draw = () => {
+      const frame = frameRef.current;
+      const doc = frame?.contentDocument;
+      if (!doc) return;
+      const html = resolveSiteImages(latestRef.current, API);
+      if (frame.dataset.drawn === String(html.length)) return;
+      frame.dataset.drawn = String(html.length);
+      // The frame is sandboxed without allow-scripts, so nothing in the
+      // half-written page runs; allow-same-origin only lets this write it.
+      doc.open();
+      doc.write(html);
+      doc.close();
+      const scroller = doc.scrollingElement || doc.documentElement;
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    };
+    draw();
+    const id = setInterval(draw, 1400);
+    return () => clearInterval(id);
+  }, []);
+
+  const stepIds = ["design", "style", "sections", "script", "review"];
+  const current = stepIds.indexOf(stage);
+  return (
+    <div className="cw-build" aria-live="polite">
+      <div className="cw-browser-bar">
+        <span className="cw-dots"><i /><i /><i /></span>
+        <span className="cw-build-status"><Loader2 size={13} className="animate-spin" /> {STAGE_LABEL[stage]}{detail ? <em> · {detail}</em> : null}</span>
+        <span className="cw-build-meta">{lines > 0 && <>{lines} lines · </>}{startedAt ? <Elapsed since={startedAt} /> : null}</span>
+      </div>
+      <div className="cw-build-stage">
+        <iframe ref={frameRef} title="Website being built" sandbox="allow-same-origin" className={`cw-build-frame${showPage ? " is-visible" : ""}`} />
+        {!showPage && (
+          <div className="cw-build-skeleton" aria-hidden="true">
+            <div className="cw-sk cw-sk-nav" />
+            <div className="cw-sk cw-sk-hero" />
+            <div className="cw-sk-row"><div className="cw-sk" /><div className="cw-sk" /><div className="cw-sk" /></div>
+            <div className="cw-build-caption"><Sparkles size={15} /> {stage === "style" ? `Designing the look${detail ? ` — ${detail}` : ""}` : "Planning the design"}</div>
+          </div>
+        )}
+      </div>
+      <div className="cw-build-steps">
+        {["Design", "Style", "Sections", "Interactions", "Final check"].map((label, i) => (
+          <span key={label} className={i < current ? "is-done" : i === current ? "is-active" : ""}>
+            {i < current ? <Check size={12} /> : i === current ? <Loader2 size={12} className="animate-spin" /> : <Circle size={10} />} {label}
+          </span>
+        ))}
+      </div>
+      {sections.length > 0 && (
+        <div className="cw-build-sections">
+          {sections.map((section, i) => (
+            <span key={section.name} className={i === sections.length - 1 && stage === "sections" ? "is-active" : ""}>
+              {i === sections.length - 1 && stage === "sections" ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} {section.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// What the finished page contains, read from the HTML itself.
+function SiteReport({ html, startedAt, finishedAt }) {
+  const info = useMemo(() => analyzeSite(html), [html]);
+  const items = [
+    { ok: info.sections.length > 0, icon: LayoutTemplate, text: `${info.sections.length} section${info.sections.length === 1 ? "" : "s"}` },
+    { ok: info.images > 0, icon: ImageIcon, text: info.images ? `${info.images} photo${info.images === 1 ? "" : "s"} matched to the content` : "No photos" },
+    { ok: info.responsive, icon: Smartphone, text: info.responsive ? "Phone-ready layout" : "No phone layout found" },
+    { ok: info.mobileMenu, icon: Monitor, text: info.mobileMenu ? "Mobile menu" : "No mobile menu" },
+    { ok: info.interactive, icon: Zap, text: info.interactive ? "Interactive" : "Static page" },
+  ];
+  return (
+    <div className="cw-report">
+      <div className="cw-report-head">
+        <span className="cw-report-badge"><CheckCircle2 size={16} /></span>
+        <div>
+          <strong>Website ready</strong>
+          <small>{startedAt && finishedAt ? <>Built in {formatElapsed(finishedAt - startedAt)} · </> : null}{info.lines} lines of code</small>
+        </div>
+      </div>
+      <div className="cw-report-items">
+        {items.map((item) => (
+          <span key={item.text} className={item.ok ? "is-ok" : "is-warn"}><item.icon size={13} /> {item.text}</span>
+        ))}
+      </div>
+      {info.sections.length > 0 && (
+        <div className="cw-report-sections">{info.sections.map(s => <span key={s.name}>{s.name}</span>)}</div>
+      )}
+    </div>
+  );
+}
+
+const DESKTOP_WIDTH = 1280;
+
 // Renders the generated site in a sandboxed iframe and listens for the
 // runtime errors PREVIEW_ERROR_CAPTURE forwards out of it — this is the
 // "see" half of "see why and fix": without an actual render, computer mode
 // has no way of knowing a script threw or a layout broke, only that text
 // resembling HTML was produced.
-function WebsitePreview({ html, disabled, onFix }) {
+//
+// Desktop view draws the page at a real desktop width and scales it to fit,
+// so the whole layout is visible even on a phone; Phone view shows it at
+// phone width; Full screen gives it the whole display.
+function WebsitePreview({ html, title, disabled, onFix }) {
   const [errors, setErrors] = useState([]);
+  const [device, setDevice] = useState(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "phone" : "desktop"));
+  const [full, setFull] = useState(false);
+  const srcDoc = useMemo(() => withPreviewErrorCapture(html), [html]);
 
   useEffect(() => {
     setErrors([]);
@@ -1330,18 +1547,47 @@ function WebsitePreview({ html, disabled, onFix }) {
     return () => window.removeEventListener("message", onMessage);
   }, [html]);
 
+  useEffect(() => {
+    if (!full) return undefined;
+    const onKey = (event) => { if (event.key === "Escape") setFull(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full]);
+
+  const toolbar = (
+    <div className="cw-preview-tools">
+      <div className="cw-segment" role="group" aria-label="Preview size">
+        <button type="button" className={device === "desktop" ? "is-on" : ""} onClick={() => setDevice("desktop")} aria-pressed={device === "desktop"} title="Desktop view"><Monitor size={14} /><span>Desktop</span></button>
+        <button type="button" className={device === "phone" ? "is-on" : ""} onClick={() => setDevice("phone")} aria-pressed={device === "phone"} title="Phone view"><Smartphone size={14} /><span>Phone</span></button>
+      </div>
+      <button type="button" className="cw-icon-btn" onClick={() => setFull(v => !v)} title={full ? "Exit full screen" : "Full screen"} aria-label={full ? "Exit full screen" : "Full screen"}>
+        {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+      </button>
+    </div>
+  );
+
   return (
     <div className="cowork-website-preview">
       <div className="cowork-website-preview-header">
-        <span><Globe2 size={13} /> Live preview</span>
-        {errors.length > 0 && <span className="cowork-website-preview-badge">{errors.length} error{errors.length > 1 ? "s" : ""} detected</span>}
+        <span className="cw-dots"><i /><i /><i /></span>
+        <span className="cw-preview-title"><Globe2 size={13} /> {title || "Live preview"}</span>
+        {errors.length > 0 && <span className="cowork-website-preview-badge">{errors.length} error{errors.length > 1 ? "s" : ""}</span>}
+        {toolbar}
       </div>
-      <iframe
-        title="Website preview"
-        sandbox="allow-scripts allow-forms allow-popups allow-modals"
-        srcDoc={withPreviewErrorCapture(html)}
-        className="cowork-website-preview-frame"
-      />
+      {full ? (
+        <div className="cw-preview-placeholder"><Maximize2 size={16} /> Showing in full screen</div>
+      ) : (
+        <PreviewFrame srcDoc={srcDoc} device={device} height="inline" />
+      )}
+      {full && (
+        <div className="cw-fullscreen" role="dialog" aria-label="Website preview">
+          <div className="cw-fullscreen-bar">
+            <span className="cw-preview-title"><Globe2 size={14} /> {title || "Live preview"}</span>
+            {toolbar}
+          </div>
+          <PreviewFrame srcDoc={srcDoc} device={device} height="fill" />
+        </div>
+      )}
       {errors.length > 0 && (
         <div className="cowork-website-preview-errors">
           <div className="cowork-website-preview-errors-title">VetroAI can see these errors in the preview:</div>
@@ -1351,6 +1597,38 @@ function WebsitePreview({ html, disabled, onFix }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function PreviewFrame({ srcDoc, device, height }) {
+  const boxRef = useRef(null);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(([entry]) => setBox({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Narrower than a desktop: draw at desktop width and scale down to fit.
+  const scale = device === "desktop" && box.width && box.width < DESKTOP_WIDTH ? box.width / DESKTOP_WIDTH : 1;
+  const frameStyle = device === "phone"
+    ? { width: Math.min(390, box.width || 390), height: "100%" }
+    : scale < 1
+      ? { width: DESKTOP_WIDTH, height: box.height ? box.height / scale : "100%", transform: `scale(${scale})`, transformOrigin: "0 0" }
+      : { width: "100%", height: "100%" };
+
+  return (
+    <div ref={boxRef} className={`cw-frame-box is-${height} is-${device}`}>
+      <iframe
+        title="Website preview"
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        srcDoc={srcDoc}
+        className="cowork-website-preview-frame"
+        style={frameStyle}
+      />
     </div>
   );
 }

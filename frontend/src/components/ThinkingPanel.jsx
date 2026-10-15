@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import "./ThinkingPanel.css";
+import { summarizeReasoning } from "../utils/activityLabel";
 
 /**
  * Claude-style reasoning panel.
@@ -35,8 +36,10 @@ const ThinkingPanel = React.memo(function ThinkingPanel({
   if (!hasReasoning && !isThinking) return null;
 
   const seconds = durationMs ? Math.max(1, Math.round(durationMs / 1000)) : null;
+  // While reasoning streams, the header says what the model is working on
+  // right now (its latest heading or sentence), like Claude's thinking line.
   const label = isThinking
-    ? "Thinking"
+    ? summarizeReasoning(reasoning) || "Thinking…"
     : seconds
       ? `Thought for ${seconds}s`
       : "Thought process";
@@ -52,7 +55,7 @@ const ThinkingPanel = React.memo(function ThinkingPanel({
         aria-expanded={open}
         aria-label={open ? "Hide thinking process" : "Show thinking process"}
       >
-        <span className="vai-tp-label">{isThinking ? "Thinking…" : label}</span>
+        <span className="vai-tp-label" aria-live="polite">{label}</span>
         <ChevronRight size={15} strokeWidth={2} className="vai-tp-chevron" aria-hidden="true" />
       </button>
 

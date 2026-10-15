@@ -54,3 +54,12 @@
   .vai-thinking-card.vai-enter { animation-duration: 0.01s; }
   .vai-thinking-label { animation: none; }
 }
+
+/* Request-specific labels ("Reading quarterly-report.pdf…") stay one line. */
+.vai-thinking-card { max-width: 100%; min-width: 0; }
+.vai-thinking-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

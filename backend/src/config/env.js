@@ -94,24 +94,9 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
-    // Deals screen: SerpApi's Google Shopping engine gives structured offers
-    // (price, image, rating, merchant link). Without it, deals fall back to
-    // web search over the store domains with prices read from snippets.
-    serpApiKey:          getEnv("SERPAPI_API_KEY",        ""),
-    // Keepa (keepa.com) — years of Amazon price history, so the Deals screen
-    // can tell a 3–4 month low immediately instead of after months of tracking.
-    keepaApiKey:         getEnv("KEEPA_API_KEY",          ""),
-    // Canopy API (canopyapi.co) — live Amazon search and product data with
-    // Amazon's own prices, ratings and original product photos.
-    // RapidAPI "Real-Time Product Search" (letscrape / OpenWeb Ninja): Google
-    // Shopping offers across every store, with original product photos.
-    // RAPIDAPI_KEY works too when one RapidAPI key is used for several APIs.
-    productSearchRapidApiKey:  getEnv("PRODUCT_SEARCH_RAPIDAPI_KEY", getEnv("RAPIDAPI_KEY", "")),
-    productSearchRapidApiHost: getEnv("PRODUCT_SEARCH_RAPIDAPI_HOST", "real-time-product-search.p.rapidapi.com"),
-    canopyApiKey:        getEnv("CANOPY_API_KEY",         ""),
-    // Canopy marketplace codes, overridable if Canopy names a market differently.
-    canopyDomainIn:      getEnv("CANOPY_DOMAIN_IN",       "IN"),
-    canopyDomainUs:      getEnv("CANOPY_DOMAIN_US",       "US"),
+    // Pexels (pexels.com/api, free) — photos for the websites VetroAI builds.
+    // Optional: without it, site images come from Openverse and LoremFlickr.
+    pexelsApiKey:        getEnv("PEXELS_API_KEY",         ""),
     // NEWSDATA_API_KEY is the original name and still works; NEWS_API_KEY is
     // the provider-neutral one, since the feed now speaks to whichever
     // service the key belongs to.
