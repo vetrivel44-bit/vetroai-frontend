@@ -98,30 +98,75 @@ const searchPlaces = async (req, res) => {
   if (!query && !type) throw new ApiError(400, "Query or type is required for place search.");
 
   const useType = type || getSearchType(query);
-  const userLocation = lat && lng ? { lat, lng } : null;
+  const userLocation = Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng) ? { lat, lng } : null;
 
   if (USE_GOOGLE) {
-    const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
-    searchUrl.searchParams.set("query", query || useType || "places");
-    if (userLocation) {
-      searchUrl.searchParams.set("location", `${lat},${lng}`);
-      searchUrl.searchParams.set("radius", String(radius));
+    try {
+      const data = await googleTextSearch({ query, useType, userLocation, radius, limit });
+      if (data.length || !userLocation) {
+        const area = userLocation ? await nearby.areaName(userLocation) : null;
+        return res.json({ success: true, data, meta: { area, source: "google" } });
+      }
+    } catch (err) {
+      // Quota, a restricted key or an outage: a "near me" search still has
+      // OpenStreetMap below; anything else reports the error as before.
+      if (!userLocation) throw err;
     }
-    if (useType) searchUrl.searchParams.set("type", useType);
-    searchUrl.searchParams.set("key", GOOGLE_MAPS_API_KEY);
+  }
 
-    const searchResult = await safeFetch(searchUrl.toString());
-    const places = (searchResult.results || []).slice(0, limit);
-    const formatted = places.map((item) => formatPlace(item, userLocation));
+  // "X near me": OpenStreetMap, with several services to fall back on (see
+  // nearbyService.findNearby). Never a 500 — `searchFailed` tells the app the
+  // services were down, as opposed to there being nothing nearby.
+  if (userLocation) {
+    const [result, area] = await Promise.all([
+      nearby.findNearby([query, type].filter(Boolean).join(" "), userLocation, { limit }),
+      nearby.areaName(userLocation),
+    ]);
+    return res.json({
+      success: true,
+      data: result.places,
+      meta: { area, source: result.source, radius: result.radius, searchFailed: result.failed },
+    });
+  }
 
-    const detailPromises = formatted.map(async (place) => {
-      if (!place.placeId) return place;
+  // No location: a plain text search (India-biased, as before).
+  const nominatimUrl = new URL("https://nominatim.openstreetmap.org/search");
+  nominatimUrl.searchParams.set("format", "json");
+  let searchQ = query || useType;
+  if (searchQ && !searchQ.toLowerCase().includes("india")) searchQ += ", India";
+  nominatimUrl.searchParams.set("q", searchQ);
+  nominatimUrl.searchParams.set("countrycodes", "in");
+  nominatimUrl.searchParams.set("addressdetails", "1");
+  nominatimUrl.searchParams.set("limit", String(limit));
+  const searchResult = await safeFetch(nominatimUrl.toString(), { headers: { "User-Agent": "VetroAI-Maps/1.0" } });
+  const formatted = (searchResult || []).slice(0, limit).map((item) => formatPlace(item, null));
+  return res.json({ success: true, data: formatted, meta: { area: null } });
+};
+
+async function googleTextSearch({ query, useType, userLocation, radius, limit }) {
+  const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
+  searchUrl.searchParams.set("query", query || useType || "places");
+  if (userLocation) {
+    searchUrl.searchParams.set("location", `${userLocation.lat},${userLocation.lng}`);
+    searchUrl.searchParams.set("radius", String(radius));
+  }
+  if (useType) searchUrl.searchParams.set("type", useType);
+  searchUrl.searchParams.set("key", GOOGLE_MAPS_API_KEY);
+
+  const searchResult = await safeFetch(searchUrl.toString());
+  if (searchResult.status && !["OK", "ZERO_RESULTS"].includes(searchResult.status)) {
+    throw new ApiError(502, `Google Places: ${searchResult.status}`);
+  }
+  const formatted = (searchResult.results || []).slice(0, limit).map((item) => formatPlace(item, userLocation));
+
+  const detailed = await Promise.all(formatted.map(async (place) => {
+    if (!place.placeId) return place;
+    try {
       const detailUrl = new URL("https://maps.googleapis.com/maps/api/place/details/json");
       detailUrl.searchParams.set("place_id", place.placeId);
       detailUrl.searchParams.set("fields", "name,formatted_address,geometry,opening_hours,rating,user_ratings_total,photos,website,formatted_phone_number,types");
       detailUrl.searchParams.set("key", GOOGLE_MAPS_API_KEY);
-      const detailResult = await safeFetch(detailUrl.toString());
-      const detail = detailResult.result || {};
+      const detail = (await safeFetch(detailUrl.toString())).result || {};
       return {
         ...place,
         name: detail.name || place.name,
@@ -135,48 +180,13 @@ const searchPlaces = async (req, res) => {
         website: detail.website || null,
         phone: detail.formatted_phone_number || null,
       };
-    });
-
-    const [detailed, area] = await Promise.all([Promise.all(detailPromises), userLocation ? nearby.areaName(userLocation) : null]);
-    return res.json({ success: true, data: detailed, meta: { area } });
-  }
-
-  // No Google key: a "near me" search for a kind of place (restaurants,
-  // ATMs, pharmacies…) goes to OpenStreetMap's Overpass API, nearest first.
-  const kind = userLocation ? nearby.kindFor(`${query} ${type}`) : null;
-  if (kind) {
-    try {
-      const [places, area] = await Promise.all([nearby.searchOverpass(kind, userLocation, { limit }), nearby.areaName(userLocation)]);
-      if (places.length) return res.json({ success: true, data: places, meta: { area } });
-    } catch (err) {
-      // fall through to the text search below
+    } catch {
+      return place; // one place's details failing shouldn't lose the list
     }
-  }
-
-  // Fallback to OpenStreetMap / Nominatim when no Google API key is configured.
-  const nominatimUrl = new URL("https://nominatim.openstreetmap.org/search");
-  nominatimUrl.searchParams.set("format", "json");
-  
-  // Append India to query if not present for better regional results
-  let searchQ = query || useType;
-  if (searchQ && !searchQ.toLowerCase().includes("india")) {
-    searchQ += ", India";
-  }
-  
-  nominatimUrl.searchParams.set("q", searchQ);
-  nominatimUrl.searchParams.set("countrycodes", "in"); // Restrict results specifically to India
-  nominatimUrl.searchParams.set("addressdetails", "1");
-  nominatimUrl.searchParams.set("limit", String(limit));
-  if (userLocation) {
-    nominatimUrl.searchParams.set("viewbox", `${lng - 0.5},${lat + 0.5},${lng + 0.5},${lat - 0.5}`);
-    nominatimUrl.searchParams.set("bounded", "1");
-  }
-
-  const searchResult = await safeFetch(nominatimUrl.toString(), { headers: { "User-Agent": "VetroAI-Maps/1.0" } });
-  const formatted = (searchResult || []).slice(0, limit).map((item) => formatPlace(item, userLocation));
-  const area = userLocation ? await nearby.areaName(userLocation) : null;
-  return res.json({ success: true, data: formatted, meta: { area } });
-};
+  }));
+  // Text search ranks by prominence; a "near me" list reads nearest first.
+  return userLocation ? detailed.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity)) : detailed;
+}
 
 const placeDetails = async (req, res) => {
   const placeId = ensureValidQuery(req.query.placeId);
