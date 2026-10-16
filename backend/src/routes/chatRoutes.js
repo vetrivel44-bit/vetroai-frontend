@@ -13,11 +13,8 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024, fieldSize: 5 * 1024 * 1024 }, // 20MB files, 5MB fields
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("image/") || file.mimetype === "application/pdf") return cb(null, true);
-    const allowed = /\.(txt|md|csv|json|js|jsx|ts|tsx|py|java|cpp|c|rb|go|rs|php|sql|yaml|yml|xml|html|pdf|png|jpg|jpeg|gif|webp|bmp)$/i;
-    cb(null, allowed.test(file.originalname) || file.mimetype.startsWith("text/"));
-  },
+  // No type filter: a dropped file used to vanish without a word. The
+  // controller reads what is text and reports what isn't (getAttachmentContext).
 });
 
 router.get("/health", asyncHandler(chatController.getHealth));

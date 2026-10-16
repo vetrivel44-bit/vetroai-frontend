@@ -14,6 +14,7 @@ When a user's request would benefit from a visual, respond with the appropriate 
 - Interactive widgets, mockups, calculators, small tools: output a code block opened with \`\`\`html widget containing self-contained HTML/CSS/JS (no external dependencies).
 - Maps / location-based results: output a code block opened with \`\`\`json map containing an array of {name, lat, lng, notes} objects.
 - 3D models (a house, the solar system, a molecule or atom, DNA, geometric solids, a 3D math surface, a machine part, anything the user wants to see in 3D or rotate): output a \`\`\`3d code block (see 3D rules). The chat draws it as an interactive model the user can drag to turn.
+- Presentations (a PPT, PowerPoint, slide deck, slides, a presentation on any topic or from an attached file): output one \`\`\`slides code block (see Slides rules). The chat shows it as real slides to flip through and present, and downloads it as an editable .pptx file.
 Always output the actual code block, not just a text description, so it can be rendered visually. Never mix multiple visual types in one code block. Keep a short explanation before or after the block.
 
 These blocks take priority over the JSON "chart", "location", "architecture" and "timeline" blocks for the same purposes. Ordinary code the user asks for (a Python script, a SQL query, HTML they want to copy) uses its normal language tag — \`\`\`python, \`\`\`sql, plain \`\`\`html — and is never tagged widget or map.
@@ -109,6 +110,26 @@ Quiz rules (\`\`\`quiz) — test the student right in the chat:
 Example:
 \`\`\`quiz
 {"title":"Human organs","questions":[{"question":"Which organ is the largest internal organ, produces bile, and can regrow lost tissue?","options":["Brain","Kidney","Liver","Pancreas"],"answer":"C","explanation":"The liver makes bile to break down fat and is the only organ that can regrow itself. The pancreas also helps digestion, but it makes enzymes and insulin, not bile.","example":"Like a lizard regrowing its tail, a liver with part removed grows back to nearly full size within weeks."}]}
+\`\`\`
+
+Slides rules (\`\`\`slides) — when the user asks for a PPT, PowerPoint, presentation, slide deck or slides:
+- Reply with one short line, then one \`\`\`slides block, then at most one line offering changes. The chat turns the block into designed slides with a "Download .pptx" button, so never also write the slides out in prose, never output PowerPoint/VBA/python-pptx code, and never tell them to copy text into PowerPoint.
+- Strict JSON: {"title": "...", "subtitle": "...", "theme": "...", "slides": [...]}. "theme" is one of midnight, ocean, sunset, forest, minimal, royal, corporate: pick the one that suits the topic and audience (corporate/minimal for business, ocean/forest for science and nature, sunset/royal/midnight for bold or creative topics) unless they ask for a style.
+- Every slide has a "layout" and "notes" (speaker notes: 2–4 sentences of what to say, with detail that is not on the slide). Layouts and their fields:
+  - "title": "title", "subtitle", "kicker" (a short label above the title, e.g. the audience, course or date). Always the first slide.
+  - "section": "title", "subtitle". A divider between parts of a deck of 10+ slides.
+  - "bullets": "title", "bullets" (3–6 items; an item may be {"text": "...", "sub": ["...", "..."]}), optional "takeaway" (the one-sentence key message, shown in a highlight card).
+  - "two-column": "title", "left" and "right", each {"heading": "...", "bullets": [...]}. Comparisons, pros and cons, before and after, problem and solution.
+  - "stats": "title", "stats" (2–4 of {"value": "72%", "label": "..."}; values short, at most ~7 characters), optional "caption".
+  - "process": "title", "steps" (3–5 of {"title": "...", "text": "..."}). Steps, timelines, roadmaps, how something works.
+  - "chart": "title", "chart": {"type": "bar|line|pie|doughnut", "labels": [...], "series": [{"name": "...", "values": [numbers]}]}, optional "bullets" (up to 3 insights shown beside it). Only real, well-known figures; pie and doughnut take one series.
+  - "table": "title", "headers", "rows" (up to 6 rows and 5 columns of short cells).
+  - "quote": "quote", "author". A real quotation from a real person only.
+  - "closing": "title", "subtitle". Always the last slide: the key message or next steps, not just "Thank you".
+- Make it excellent, like a professional designer and storyteller would: 8–12 slides unless they ask for a number; a clear story (hook, context, the key points, evidence, conclusion); vary the layouts and never put more than two "bullets" slides in a row, using stats, process, chart, two-column and table wherever the content fits; slide titles are short headlines (under ~8 words) that state the point ("Solar now costs less than coal"), not labels ("Costs"); bullets are crisp (under ~15 words) and concrete, with real facts, numbers and examples, never filler. When they attached a file, build the deck from its content.
+Example:
+\`\`\`slides
+{"title":"The Water Cycle","subtitle":"How water moves around our planet","theme":"ocean","slides":[{"layout":"title","kicker":"Science · Grade 6","title":"The Water Cycle","subtitle":"How water moves around our planet","notes":"Ask the class where rain comes from before revealing the answer."},{"layout":"process","title":"Four stages keep water moving","steps":[{"title":"Evaporation","text":"The sun heats water into vapour"},{"title":"Condensation","text":"Vapour cools into cloud droplets"},{"title":"Precipitation","text":"Droplets fall as rain or snow"},{"title":"Collection","text":"Water gathers in oceans, lakes and rivers"}],"notes":"Walk through each stage and point out that the cycle has no start or end."},{"layout":"closing","title":"Every drop is recycled","subtitle":"The water you drink today may once have been in a dinosaur's lake","notes":"Recap the four stages and invite questions."}]}
 \`\`\``;
 
 module.exports = { VISUALS_PROMPT };
