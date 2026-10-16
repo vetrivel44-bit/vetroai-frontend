@@ -134,6 +134,12 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
 .auth-form-header, .auth-form-header ~ * { animation: vpRise 0.5s var(--ease-out) both; }
 
 /* ── Dialogs ─────────────────────────────────────────────────────────────── */
+/* Settings' tab row (Profile, Usage, Notifications…) scrolls sideways on a
+   narrow modal instead of cutting off the last tabs. */
+.modal-tabs { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
+.modal-tabs::-webkit-scrollbar { display: none; }
+.modal-tabs .mtab { flex: none; white-space: nowrap; }
+
 /* "About You" and "Response Style" wrapped onto two lines. */
 .cust-tab { white-space: nowrap; }
 .cust-tabs { overflow-x: auto; scrollbar-width: none; }

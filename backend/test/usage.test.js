@@ -1,0 +1,158 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const os = require("node:os");
+const path = require("node:path");
+
+process.env.USAGE_STORE_FILE = path.join(os.tmpdir(), `vetroai-usage-test-${process.pid}.json`);
+const usage = require("../src/services/usageService");
+const { SESSION_MS, WEEK_MS, limitsFor, tierFor } = require("../src/config/usageLimits");
+
+const T0 = Date.UTC(2026, 9, 16, 9, 0); // 16 Oct 2026, 09:00 UTC
+const HOUR = 3600e3;
+let n = 0;
+const key = () => `test:${process.pid}:${++n}`;
+
+test("models are weighted by how heavy they are", () => {
+  assert.deepEqual(["Groq", "GPT-5.6 Luna", "Claude Haiku 4.5", "Auto"].map((m) => tierFor(m).weight), [1, 1, 1, 1]);
+  assert.deepEqual(["Claude Sonnet 5", "GPT-5.6 Terra", "DeepSeek V4 Pro"].map((m) => tierFor(m).weight), [2, 2, 2]);
+  assert.deepEqual(["Claude Opus 5", "GPT-5.6 Sol", "DeepSearch", "Claude Fable 5"].map((m) => tierFor(m).tier), ["premium", "premium", "premium", "premium"]);
+});
+
+test("a session starts with the first message and resets 5 hours later", async () => {
+  const k = key();
+  const before = await usage.check(k, "free", "Groq", T0);
+  assert.equal(before.summary.session.used, 0);
+  assert.equal(before.summary.session.resetsAt, null, "no window until a message is sent");
+
+  await usage.record(k, "free", "Groq", T0);
+  const s = await usage.record(k, "free", "Claude Sonnet 5", T0 + HOUR);
+  assert.equal(s.session.used, 3);
+  assert.equal(s.session.resetsAt, T0 + SESSION_MS, "from the first message, not the latest");
+  assert.equal(s.weekly.resetsAt, T0 + WEEK_MS);
+  assert.deepEqual(s.models.map((m) => [m.model, m.messages]), [["Claude Sonnet 5", 1], ["Groq", 1]]);
+
+  // After the reset, the session is empty again but the week still counts.
+  const later = (await usage.check(k, "free", "Groq", T0 + SESSION_MS + 1)).summary;
+  assert.equal(later.session.used, 0);
+  assert.equal(later.session.resetsAt, null);
+  assert.equal(later.weekly.used, 3);
+  const next = await usage.record(k, "free", "Groq", T0 + 6 * HOUR);
+  assert.equal(next.session.resetsAt, T0 + 6 * HOUR + SESSION_MS, "a new session starts with the next message");
+});
+
+test("hitting the session limit blocks until it resets, and says when", async () => {
+  const k = key();
+  const { session } = limitsFor("free");
+  for (let i = 0; i < session; i++) await usage.record(k, "free", "Groq", T0 + i * 1000);
+  const blocked = await usage.check(k, "free", "Groq", T0 + HOUR);
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.block.window, "session");
+  assert.equal(blocked.block.resetsAt, T0 + SESSION_MS);
+  assert.equal(usage.limitMessage(blocked.block, "Groq", T0 + HOUR), "You've reached your 5-hour usage limit. It resets in 4 hr.");
+  assert.equal((await usage.check(k, "free", "Groq", T0 + SESSION_MS)).allowed, true, "free again at the reset time");
+});
+
+test("the most capable models share their own weekly cap", async () => {
+  const k = key();
+  const { premiumWeekly } = limitsFor("free");
+  // Spread over several sessions so only the premium cap is reached.
+  for (let i = 0; i < premiumWeekly / 4; i++) await usage.record(k, "free", "Claude Opus 5", T0 + i * 6 * HOUR);
+  const now = T0 + (premiumWeekly / 4) * 6 * HOUR;
+  const opus = await usage.check(k, "free", "Claude Opus 5", now);
+  assert.equal(opus.allowed, false);
+  assert.equal(opus.block.window, "premium");
+  assert.match(usage.limitMessage(opus.block, "Claude Opus 5", now), /weekly limit for the most capable models.*lighter model than Claude Opus 5/);
+  assert.equal((await usage.check(k, "free", "Groq", now)).allowed, true, "lighter models still work");
+});
+
+test("consume checks and counts in one step", async () => {
+  const k = key();
+  const first = await usage.consume(k, "free", "GPT-5.6 Luna", T0);
+  assert.equal(first.allowed, true);
+  assert.equal(first.summary.session.used, 1);
+  const { session } = limitsFor("free");
+  for (let i = 1; i < session; i++) await usage.consume(k, "free", "GPT-5.6 Luna", T0 + i);
+  const last = await usage.consume(k, "free", "GPT-5.6 Luna", T0 + 2 * HOUR);
+  assert.equal(last.allowed, false);
+  assert.equal(last.summary.session.used, session, "a refused message isn't counted");
+});
+
+test("messages sent at the same moment can't both slip under the limit", async () => {
+  const k = key();
+  const { session } = limitsFor("free");
+  for (let i = 0; i < session - 1; i++) await usage.record(k, "free", "Groq", T0 + i);
+  const results = await Promise.all([1, 2, 3].map(() => usage.consume(k, "free", "Groq", T0 + HOUR)));
+  assert.deepEqual(results.map((r) => r.allowed), [true, false, false]);
+});
+
+test("pro plans get more room", () => {
+  assert.ok(limitsFor("pro").session > limitsFor("free").session);
+  assert.deepEqual(limitsFor("nonsense"), limitsFor("free"));
+});
+
+test("signed-in people are counted by account, visitors by address", () => {
+  assert.deepEqual(usage.identityOf({ user: { _id: "507f1f77bcf86cd799439011", plan: "pro" }, headers: {} }), { key: "user:507f1f77bcf86cd799439011", plan: "pro", signedIn: true });
+  assert.deepEqual(usage.identityOf({ user: { id: "firebaseUid123", isFirebase: true }, headers: {} }), { key: "uid:firebaseUid123", plan: "free", signedIn: true });
+  assert.equal(usage.identityOf({ user: null, headers: {}, ip: "203.0.113.9" }).key, "ip:203.0.113.9");
+  assert.equal(usage.identityOf({ user: { id: "offline_user", isOffline: true }, headers: { "cf-connecting-ip": "1.2.3.4" }, ip: "198.51.100.2" }).key, "ip:198.51.100.2", "a client-set header is ignored");
+});
+
+test("reset times read naturally", () => {
+  assert.equal(usage.relative(30 * 1000), "1 min");
+  assert.equal(usage.relative(42 * 60000), "42 min");
+  assert.equal(usage.relative(134 * 60000), "2 hr 14 min");
+  assert.equal(usage.relative(26 * HOUR), "1 day 2 hr");
+});
+
+// ── HTTP ───────────────────────────────────────────────────────────────────
+
+async function startServer(t) {
+  const app = require("../src/app");
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test("GET /api/usage and POST /api/usage/consume", async (t) => {
+  const base = await startServer(t);
+  const ip = `192.0.2.${(process.pid % 200) + 1}`;
+  const headers = { "Content-Type": "application/json", "X-Forwarded-For": ip };
+  usage._memory.delete(`ip:${ip}`);
+  const empty = await (await fetch(`${base}/api/usage`, { headers })).json();
+  assert.equal(empty.success, true);
+  assert.equal(empty.data.signedIn, false);
+  assert.equal(empty.data.plan, "free");
+  assert.equal(empty.data.session.used, 0);
+  assert.ok(empty.data.tiers.length >= 3);
+
+  const ok = await fetch(`${base}/api/usage/consume`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Sol" }) });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).data.session.used, 4);
+
+  usage._memory.set(`ip:${ip}`, { sessionStart: Date.now(), weekStart: Date.now(), events: [{ m: "Groq", u: limitsFor("free").session, t: Date.now() }] });
+  const refused = await fetch(`${base}/api/usage/consume`, { method: "POST", headers, body: JSON.stringify({ model: "Groq" }) });
+  assert.equal(refused.status, 429);
+  const body = await refused.json();
+  assert.equal(body.code, "USAGE_LIMIT");
+  assert.match(body.message, /5-hour usage limit\. It resets in 5 hr/);
+  assert.ok(body.block.resetsAt > Date.now());
+});
+
+test("chat refuses a message once the limit is used up, with the reset time", async (t) => {
+  const base = await startServer(t);
+  const ip = "192.0.2.250";
+  usage._memory.set(`ip:${ip}`, { sessionStart: Date.now() - HOUR, weekStart: Date.now() - HOUR, events: [{ m: "Groq", u: limitsFor("free").session, t: Date.now() - HOUR }] });
+  const res = await fetch(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+    body: JSON.stringify({ input: "Hello", provider: "Groq", modelLabel: "Groq", mode: "normal" }),
+  });
+  const text = await res.text();
+  const event = JSON.parse(text.match(/data: (.*)/)[1]);
+  assert.equal(event.type, "error");
+  assert.equal(event.code, "USAGE_LIMIT");
+  assert.match(event.data, /It resets in 4 hr/);
+  assert.equal(event.usage.window, "session");
+  assert.equal(event.usage.model, "Groq");
+});

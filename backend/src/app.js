@@ -13,6 +13,11 @@ const { successResponse } = require("./utils/response");
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
+// Render (like most hosts) puts one proxy in front of the app. Trusting that
+// one hop makes req.ip the visitor's address, taken from the X-Forwarded-For
+// entry Render appends — without it every request came from the proxy, so
+// per-IP rate limits and visitor usage limits lumped all users together.
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
@@ -78,6 +83,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/sessions", chatSessionRoutes);
 app.use("/api/billing", require("./routes/billingRoutes"));
+app.use("/api/usage", require("./routes/usageRoutes"));
 app.use("/api/maps", mapsRoutes);
 app.use("/api/debug", require("./routes/debugRoutes"));
 app.use("/api/code", require("./routes/codeRoutes"));

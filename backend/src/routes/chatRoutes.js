@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const asyncHandler = require("../middleware/asyncHandler");
+const optionalAuth = require("../middleware/optionalAuth");
 // const authMiddleware = require("../middleware/authMiddleware");
 const { chatLimiter } = require("../middleware/rateLimiters");
 const logger = require("../utils/logger");
@@ -28,7 +29,7 @@ const handleUpload = (req, res, next) => {
     next();
   });
 };
-router.post("/chat", chatLimiter, handleUpload, asyncHandler(chatController.chat));
+router.post("/chat", chatLimiter, handleUpload, optionalAuth, asyncHandler(chatController.chat));
 router.post("/generate-title", chatLimiter, asyncHandler(chatController.generateTitle));
 router.post("/follow-ups", chatLimiter, asyncHandler(chatController.followUps));
 router.post("/search", chatLimiter, asyncHandler(searchController.performSearch));

@@ -35,7 +35,7 @@ import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones } from "./lib/userStore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2 } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -82,6 +82,9 @@ import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
 import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
 import { imageQuestion } from "./lib/imagePrompt";
 import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
+import { authHeaders, consumeUsage, UsageLimitError } from "./lib/usageClient";
+import UsagePanel from "./components/UsagePanel";
+import UsageLimitNotice from "./components/UsageLimitNotice";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. Kept in
@@ -158,7 +161,7 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       } else if (type === "status" && data) {
         onStatus(data);
       } else if (type === "error" && data) {
-        onError(data, event.code);
+        onError(data, event.code, event);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
       } else if (type === "realtime_notice" && data) {
@@ -1231,10 +1234,10 @@ const loadNotifPrefs = () => {
   catch { return { desktop: false, sound: false }; }
 };
 
-function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved, sessionCount = 0, memoryCount = 0, onClearAllSessions, onExportData, onLogout }) {
+function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved, sessionCount = 0, memoryCount = 0, onClearAllSessions, onExportData, onLogout, initialTab = "profile", api }) {
   const PKEY = "vetroai_profile";
   const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
-  const [tab, setTab]     = useState("profile");
+  const [tab, setTab]     = useState(initialTab);
   const [locationAlways, setLocationAlways] = useState(locationAlwaysAllowed);
   const [name, setName]   = useState(userInfo?.name || init.name || "");
   const [avatar, setAvatar] = useState(init.avatar || "User");
@@ -1271,6 +1274,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
         <div className="modal-topbar">
           <div className="modal-tabs">
             <button className={`mtab${tab === "profile" ? " active" : ""}`} onClick={() => setTab("profile")}><UserIcon />{t.profile}</button>
+            <button className={`mtab${tab === "usage" ? " active" : ""}`} onClick={() => setTab("usage")}><Gauge size={14} />Usage</button>
             <button className={`mtab${tab === "notifications" ? " active" : ""}`} onClick={() => setTab("notifications")}><Bell size={14} />Notifications</button>
             <button className={`mtab${tab === "data" ? " active" : ""}`} onClick={() => setTab("data")}><Shield size={14} />Data</button>
             <button className={`mtab${tab === "language" ? " active" : ""}`} onClick={() => setTab("language")}><GlobeIcon />{t.lang}</button>
@@ -1278,6 +1282,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
           </div>
           <button className="modal-x" onClick={onClose}><XIcon /></button>
         </div>
+        {tab === "usage" && <UsagePanel api={api} />}
         {tab === "profile" && (
           <div className="modal-body">
             <div className="av-center">
@@ -2477,7 +2482,7 @@ function DesignCanvas({ onClose }) {
       fd.append("maxTokens", "6000");
       fd.append("reqId", `design_${Date.now()}`);
       fd.append("webSearch", "false");
-      const res = await fetch(API + "/chat", { method: "POST", body: fd, signal: ctrl.signal });
+      const res = await fetch(API + "/chat", { headers: authHeaders(), method: "POST", body: fd, signal: ctrl.signal });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       await readSSEStream(
         res.body.getReader(),
@@ -2826,7 +2831,7 @@ function SummaryPanel({ messages, onClose, addToast }) {
     summaryFd.append("messages", JSON.stringify([{ role: "user", content: userMsgs }]));
     summaryFd.append("provider", "Auto");
     summaryFd.append("mode", "summarize");
-    fetch(API + "/chat", {
+    fetch(API + "/chat", { headers: authHeaders(),
       method: "POST",
       body: summaryFd,
       signal: ctrl.signal
@@ -4678,6 +4683,9 @@ export default function App() {
 
   // ── Modals ────────────────────────────────────────────────────────────────────
   const [showProfile, setShowProfile]       = useState(false);
+  // Which Settings tab opens: "View usage" on a limit notice opens "usage".
+  const [profileTab, setProfileTab]         = useState("profile");
+  const openUsageSettings = () => { setProfileTab("usage"); setShowProfile(true); };
   const [showSysPrompt, setShowSysPrompt]   = useState(false);
   const [showShare, setShowShare]           = useState(false);
   const [showNews, setShowNews]             = useState(false);
@@ -5957,10 +5965,11 @@ export default function App() {
       fd.set("provider", provider);
       fd.set("mode", "normal");
       fd.set("webSearch", "false");
+      fd.set("modelLabel", MULTI_AI_MODELS[idx]?.name || provider);
       const t0 = Date.now();
       updateModel(idx, "", "streaming", { startTime: t0 });
       try {
-        const res = await fetch(API + "/chat", { method: "POST", body: fd, signal: ctrl.signal });
+        const res = await fetch(API + "/chat", { headers: authHeaders(), method: "POST", body: fd, signal: ctrl.signal });
         if (!res.ok) throw new Error("Failed");
         const reader = res.body.getReader();
         const bot = await readSSEStream(
@@ -5984,10 +5993,11 @@ export default function App() {
       fd.set("provider", "agnes");
       fd.set("mode", "normal");
       fd.set("webSearch", "true");
+      fd.set("modelLabel", "Agnes 2.0");
       const t0 = Date.now();
       updateModel(idx, "", "streaming", { startTime: t0 });
       try {
-        const res = await fetch(API + "/chat", { method: "POST", body: fd, signal: ctrl.signal });
+        const res = await fetch(API + "/chat", { headers: authHeaders(), method: "POST", body: fd, signal: ctrl.signal });
         if (!res.ok) throw new Error("Failed");
         const reader = res.body.getReader();
         const bot = await readSSEStream(
@@ -6042,11 +6052,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     consensusFd.append("messages", JSON.stringify([{ role: "user", content: "Synthesize the best answer." }]));
     consensusFd.append("mode", "normal");
     consensusFd.append("provider", "agnes");
+    consensusFd.append("modelLabel", "Agnes 2.0");
     consensusFd.append("temperature", "0.3");
     consensusFd.append("maxTokens", "8000");
 
     try {
-      const cRes = await fetch(API + "/chat", { method: "POST", body: consensusFd, signal: ctrl.signal });
+      const cRes = await fetch(API + "/chat", { headers: authHeaders(), method: "POST", body: consensusFd, signal: ctrl.signal });
       const cReader = cRes.body.getReader();
       const consensusText = await readSSEStream(
         cReader,
@@ -6124,6 +6135,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         : selectedProvider === VERCEL_PROVIDER ? "vercel"
         : selectedProvider
     );
+    // The model as the user knows it, for usage limits (Settings → Usage).
+    fd.append("modelLabel", selectedProvider);
     const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
     const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens, wantsSlides(userQuery) ? SLIDES_MAX_TOKENS : 0);
     fd.append("temperature", String(temperature));
@@ -6314,6 +6327,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     };
     setMessages([...hist, emptyAssistantMsg]);
 
+    // A used-up usage limit ends the turn with a notice instead of a reply:
+    // which limit, when it resets (live), and a way to Settings → Usage. The
+    // text stays as the message content, so saved chats read sensibly.
+    const showUsageLimit = (message, limit) => {
+      setIsLoading(false);
+      setIsTyping(false);
+      setIsWebSearching(false);
+      setStreamStatus("idle");
+      setStreamingContent("");
+      setMessages((previous) => {
+        const next = [...previous];
+        next[next.length - 1] = { ...next[next.length - 1], content: message || "You've reached your usage limit.", usageLimit: limit || null, reasoning: undefined, isThinking: false };
+        return next;
+      });
+    };
+
     try {
       const fileCount = [...fd.entries()].filter(([, v]) => v instanceof File).length;
       addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode, fileCount });
@@ -6449,6 +6478,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const streamWithPuter = async (providerName, extraSystem = "", prefix = "", docs = null) => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
+        // Browser models answer without the server, so they check in first:
+        // the message counts, and a used-up limit stops it (UsageLimitError).
+        await consumeUsage(API, providerName, { signal: ctrl.signal });
         await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
@@ -6584,6 +6616,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // reports it has no image-reading model (NO_VISION). Throws on failure
       // (a credits error included) for the caller to handle.
       const analyzeImagesInBrowser = async () => {
+        await consumeUsage(API, "GPT-5.6 Luna", { signal: ctrl.signal });
         await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
@@ -6891,6 +6924,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       let backendFailure = null;
       let streamError = "";
       let streamErrorCode = "";
+      let streamUsageLimit = null;
       let bot = "";
       // An empty reply or a dropped connection is usually momentary (a provider
       // closing early, the server waking up), so one quiet retry of the same
@@ -6901,7 +6935,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         streamErrorCode = "";
         bot = "";
         try {
-          const res = await fetch(API + "/chat", {
+          const res = await fetch(API + "/chat", { headers: authHeaders(),
             method: "POST",
             body: fd,
             signal: ctrl.signal
@@ -6934,9 +6968,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               setStreamStatus(statusMsg);
               addDebugLog("SSE.status", { status: statusMsg });
             },
-            (errorMsg, code) => {
+            (errorMsg, code, event) => {
               streamError = errorMsg;
               if (code) streamErrorCode = code;
+              if (code === "USAGE_LIMIT") streamUsageLimit = event?.usage || null;
             },
             isActive,
             reqId,
@@ -6996,6 +7031,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setStreamStatus("Retrying…");
         await new Promise((resolve) => setTimeout(resolve, 800));
         if (!isActive()) return;
+      }
+
+      // A used-up usage limit: say when it resets, and don't hand the message
+      // to another model to get round it.
+      if (backendFailure && streamErrorCode === "USAGE_LIMIT") {
+        showUsageLimit(streamError, streamUsageLimit);
+        return;
       }
 
       // The server has no working image-reading model: read the image here
@@ -7111,6 +7153,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           }
           return prev;
         });
+        return;
+      }
+      if (err instanceof UsageLimitError) {
+        showUsageLimit(err.message, err.usageLimit);
         return;
       }
       addDebugLog("Chat.catch", { reqId, error: err.message });
@@ -8048,7 +8094,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       )}
 {showProfile && (
         <ProfileModal
-          onClose={() => setShowProfile(false)}
+          initialTab={profileTab}
+          api={API}
+          onClose={() => { setShowProfile(false); setProfileTab("profile"); }}
           t={t}
           langCode={langCode}
           setLangCode={setLangCode}
@@ -8534,7 +8582,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <SourceCards sources={m.sources} />
                            )}
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
-                             {m.isPending && m.isImageGen
+                             {m.usageLimit
+                               ? <UsageLimitNotice limit={m.usageLimit} onOpenUsage={openUsageSettings} />
+                               : m.isPending && m.isImageGen
                                ? <MediaGenCard type="image" text={m.content} />
                                : m.isPending && m.isVideoGen
                                ? <MediaGenCard type="video" text={m.content} />

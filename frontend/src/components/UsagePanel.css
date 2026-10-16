@@ -1,0 +1,70 @@
+/* Settings → Usage (UsagePanel.jsx) and the in-chat limit notice. */
+.usage-panel { display: flex; flex-direction: column; gap: 18px; }
+.usage-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.usage-head h3 { margin: 0; font-size: 16px; font-weight: 650; color: var(--ink); }
+.usage-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--ink-3); }
+.usage-plan { display: inline-block; padding: 1px 8px; border-radius: 999px; font-weight: 600; color: var(--ink); background: var(--bg-active); }
+.usage-refresh { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border-med); background: transparent; color: var(--ink-2); cursor: pointer; }
+.usage-refresh:hover { background: var(--bg-hover); }
+.usage-refresh .is-spinning { animation: usageSpin .9s linear infinite; }
+@keyframes usageSpin { to { transform: rotate(360deg); } }
+
+.usage-section { display: flex; flex-direction: column; gap: 14px; padding-top: 16px; border-top: 1px solid var(--border); }
+.usage-section:first-of-type { border-top: 0; padding-top: 0; }
+.usage-section h4 { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+
+.usage-meter { display: flex; flex-direction: column; gap: 8px; }
+.usage-meter-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.usage-meter-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.usage-meter-text strong { font-size: 14px; font-weight: 600; color: var(--ink); }
+.usage-meter-text span { font-size: 12.5px; color: var(--ink-3); }
+.usage-meter-text em { font-style: normal; color: var(--ink-4); }
+.usage-meter-pct { flex: none; font-size: 12.5px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.usage-meter-pct.is-high { color: #C2410C; }
+.usage-meter-pct.is-full { color: #DC2626; }
+:root[data-theme="dark"] .usage-meter-pct.is-high { color: #FB923C; }
+:root[data-theme="dark"] .usage-meter-pct.is-full { color: #F87171; }
+.usage-meter-hint { margin: 0; font-size: 12px; color: var(--ink-4); }
+
+.usage-bar { height: 8px; border-radius: 999px; background: var(--bg-active); overflow: hidden; }
+.usage-bar span { display: block; height: 100%; border-radius: inherit; background: var(--ink-2); transition: width .6s cubic-bezier(.22, 1, .36, 1); }
+.usage-bar.is-high span { background: #EA580C; }
+.usage-bar.is-full span { background: #DC2626; }
+
+.usage-models { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.usage-model-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.usage-model-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.usage-tier { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-active); }
+.usage-tier.is-premium { color: #7C3AED; background: rgba(124, 58, 237, .12); }
+.usage-tier.is-standard { color: #0E7490; background: rgba(14, 116, 144, .12); }
+:root[data-theme="dark"] .usage-tier.is-premium { color: #C4B5FD; }
+:root[data-theme="dark"] .usage-tier.is-standard { color: #67E8F9; }
+.usage-model-count { margin-left: auto; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.usage-model-bar { margin-top: 6px; height: 5px; border-radius: 999px; background: var(--bg-active); overflow: hidden; }
+.usage-model-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent, #D97757); }
+.usage-model-meta { margin-top: 4px; font-size: 11.5px; color: var(--ink-4); }
+
+.usage-empty { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--ink-3); }
+.usage-error { padding: 12px 14px; border-radius: 12px; font-size: 13px; color: var(--ink-2); background: var(--bg-hover); }
+.usage-error button { margin-left: 6px; border: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
+.usage-foot { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; line-height: 1.5; color: var(--ink-4); }
+.usage-foot svg { flex: none; margin-top: 2px; }
+
+/* In-chat notice when a limit is reached */
+.usage-limit-card {
+  display: flex; gap: 12px; align-items: flex-start; margin: 2px 0 6px; padding: 14px 16px;
+  border-radius: 16px; border: 1px solid var(--border-med); background: var(--bg-elevated);
+  animation: usageIn .35s cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes usageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.usage-limit-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; color: #EA580C; background: rgba(234, 88, 12, .12); }
+.usage-limit-card.is-reset .usage-limit-icon { color: #16A34A; background: rgba(22, 163, 74, .12); }
+.usage-limit-body { flex: 1; min-width: 0; }
+.usage-limit-body strong { display: block; font-size: 14.5px; font-weight: 650; color: var(--ink); }
+.usage-limit-body p { margin: 3px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.usage-limit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.usage-limit-actions button {
+  height: 30px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  color: var(--ink); background: transparent; border: 1px solid var(--border-med);
+}
+.usage-limit-actions button:hover { background: var(--bg-hover); }
