@@ -87,7 +87,7 @@ export function normalizeJob(j, i = 0) {
     applyLinks: (j.apply_options || []).map((o) => o && o.apply_link).filter(Boolean),
     applyUrl: j.job_apply_link || `https://www.google.com/search?q=${encodeURIComponent(title + " " + (j.employer_name || ""))}`,
     skills: j.job_required_skills || [],
-    color: "#8b7bff",
+    color: null,
     tags: [],
     logo: j.employer_logo || null,
     industry: j.employer_company_type || null,

@@ -6,7 +6,7 @@ const modelOf = (value) => String(value || "Auto").trim().slice(0, 60) || "Auto"
 const describe = (id, summary) => ({
   ...summary,
   signedIn: id.signedIn,
-  storage: usage.persistence(),
+  storage: usage.persistence(id),
   windows: { sessionMs: SESSION_MS, weekMs: WEEK_MS },
   tiers: MODEL_TIERS.map(({ tier, weight, label }) => ({ tier, weight, label })),
 });
@@ -14,7 +14,7 @@ const describe = (id, summary) => ({
 // GET /api/usage — the caller's usage, limits and reset times.
 async function getUsage(req, res) {
   const id = usage.identityOf(req);
-  const { summary } = await usage.check(id.key, id.plan, "Auto");
+  const { summary } = await usage.check(id.key, id.plan, "Auto", Date.now(), id.cloud);
   res.json({ success: true, data: describe(id, summary) });
 }
 
@@ -23,7 +23,7 @@ async function getUsage(req, res) {
 async function consume(req, res) {
   const id = usage.identityOf(req);
   const model = modelOf(req.body?.model);
-  const result = await usage.consume(id.key, id.plan, model);
+  const result = await usage.consume(id.key, id.plan, model, Date.now(), id.cloud);
   if (!result.allowed) {
     return res.status(429).json({
       success: false,
@@ -36,4 +36,24 @@ async function consume(req, res) {
   res.json({ success: true, data: describe(id, result.summary) });
 }
 
-module.exports = { getUsage, consume, modelOf };
+// POST /api/usage/check { model } — may a browser model answer now? Nothing
+// is counted: a browser model can still fail (out of credits) and hand the
+// message to another model, which is the one that should be charged.
+async function checkModel(req, res) {
+  const id = usage.identityOf(req);
+  const model = modelOf(req.body?.model);
+  const result = await usage.check(id.key, id.plan, model, Date.now(), id.cloud);
+  if (!result.allowed) {
+    return res.status(429).json({ success: false, code: "USAGE_LIMIT", message: usage.limitMessage(result.block, model), block: result.block, data: describe(id, result.summary) });
+  }
+  res.json({ success: true, data: describe(id, result.summary) });
+}
+
+// POST /api/usage/record { model } — a browser model finished an answer.
+async function recordModel(req, res) {
+  const id = usage.identityOf(req);
+  const summary = await usage.record(id.key, id.plan, modelOf(req.body?.model), Date.now(), id.cloud);
+  res.json({ success: true, data: describe(id, summary) });
+}
+
+module.exports = { getUsage, consume, checkModel, recordModel, modelOf };

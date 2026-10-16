@@ -56,5 +56,5 @@ weekly cap for the most capable models. Limits and model weights live in
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MONGO_URI` | unset | When set, usage is stored in MongoDB: it survives redeploys and every instance agrees. |
-| `USAGE_STORE_FILE` | OS temp dir | Without MongoDB, usage is kept in memory and saved to this JSON file. It survives restarts, but not a fresh disk (a Render redeploy). |
+| `USAGE_STORE_FILE` | OS temp dir | Without MongoDB, usage is kept in memory and saved to this JSON file. It survives restarts, but not a fresh disk (a Render redeploy). A signed-in person's usage is also saved to their own Firestore space (`users/{uid}/prefs/usage`, written with their sign-in token), so it comes back after a redeploy. Visitors who aren't signed in start again. |
 | `TRUST_PROXY_HOPS` | `1` | Proxies in front of the app (Render has one), so visitor IPs — for usage and rate limits — are the real client address. |

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { UsageLimitError, authHeaders, consumeUsage, formatResetAt, formatResetIn } from "../src/lib/usageClient.js";
+import { UsageLimitError, authHeaders, checkUsage, formatResetAt, formatResetIn, recordUsage } from "../src/lib/usageClient.js";
 
 const store = (token) => ({ getItem: () => token });
 
@@ -12,24 +12,28 @@ test("sends the signed-in user's token, never a local or demo one", () => {
   assert.deepEqual(authHeaders({ getItem: () => { throw new Error("blocked"); } }), {});
 });
 
-test("a browser model checks in, and a used-up limit stops it with the reset time", async () => {
-  const ok = await consumeUsage("/api", "GPT-5.6 Luna", { fetchImpl: async (url, opts) => {
-    assert.equal(url, "/api/usage/consume");
-    assert.deepEqual(JSON.parse(opts.body), { model: "GPT-5.6 Luna" });
-    return { ok: true, status: 200, json: async () => ({ success: true, data: { session: { used: 1 } } }) };
-  } });
-  assert.equal(ok.session.used, 1);
+test("a browser model is checked first, and counted only once it has answered", async () => {
+  const calls = [];
+  const fetchImpl = async (url, opts) => {
+    calls.push([url, JSON.parse(opts.body)]);
+    return { ok: true, status: 200, json: async () => ({ success: true, data: { session: { used: 0 } } }) };
+  };
+  const ok = await checkUsage("/api", "GPT-5.6 Terra", { fetchImpl });
+  assert.equal(ok.session.used, 0);
+  await recordUsage("/api", "GPT-5.6 Terra", { fetchImpl });
+  assert.deepEqual(calls, [["/api/usage/check", { model: "GPT-5.6 Terra" }], ["/api/usage/record", { model: "GPT-5.6 Terra" }]]);
 
   const resetsAt = Date.now() + 3600e3;
   await assert.rejects(
-    consumeUsage("/api", "GPT-5.6 Sol", { fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({ code: "USAGE_LIMIT", message: "You've reached your 5-hour usage limit. It resets in 1 hr.", block: { window: "session", resetsAt } }) }) }),
+    checkUsage("/api", "GPT-5.6 Sol", { fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({ code: "USAGE_LIMIT", message: "You've reached your 5-hour usage limit. It resets in 1 hr.", block: { window: "session", resetsAt } }) }) }),
     (err) => err instanceof UsageLimitError && err.usageLimit.resetsAt === resetsAt && err.usageLimit.model === "GPT-5.6 Sol" && /resets in 1 hr/.test(err.message),
   );
 });
 
 test("an unreachable usage server never blocks chat", async () => {
-  assert.equal(await consumeUsage("/api", "GPT-5.6 Luna", { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } }), null);
-  assert.equal(await consumeUsage("/api", "GPT-5.6 Luna", { fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }) }), null);
+  assert.equal(await checkUsage("/api", "GPT-5.6 Luna", { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } }), null);
+  assert.equal(await checkUsage("/api", "GPT-5.6 Luna", { fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }) }), null);
+  assert.equal(await recordUsage("/api", "GPT-5.6 Luna", { fetchImpl: async () => { throw new TypeError("offline"); } }), null);
 });
 
 test("reset times", () => {

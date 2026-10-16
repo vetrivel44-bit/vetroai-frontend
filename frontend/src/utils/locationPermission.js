@@ -52,7 +52,8 @@ export function nearbySubject(query) {
 
 // "restaurant" → "Restaurants"
 export function nearbyTitle(subject) {
-  const s = String(subject || "places").trim();
-  const plural = /s$/i.test(s) || /\b(food|parking)$/i.test(s) ? s : /y$/i.test(s) && !/[aeiou]y$/i.test(s) ? `${s.slice(0, -1)}ies` : `${s}s`;
-  return plural.charAt(0).toUpperCase() + plural.slice(1);
+  // Initialisms stay capitalised: "atm" → "ATMs", "pg" → "PGs".
+  const s = String(subject || "places").trim().replace(/\b(atm|pg|rto|ev|bmtc|ksrtc)\b/gi, (w) => w.toUpperCase()).replace(/\bbus$/i, "bus stop");
+  const plural = /s$/i.test(s) || /(food|ing)$/i.test(s) ? s : /y$/i.test(s) && !/[aeiou]y$/i.test(s) ? `${s.slice(0, -1)}ies` : `${s}s`;
+  return (plural.charAt(0).toUpperCase() + plural.slice(1)).replace(/\b([A-Z]{2,})S$/, "$1s");
 }

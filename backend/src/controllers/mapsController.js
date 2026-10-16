@@ -118,14 +118,19 @@ const searchPlaces = async (req, res) => {
   // nearbyService.findNearby). Never a 500 — `searchFailed` tells the app the
   // services were down, as opposed to there being nothing nearby.
   if (userLocation) {
+    const asked = [query, type].filter(Boolean).join(" ");
     const [result, area] = await Promise.all([
-      nearby.findNearby([query, type].filter(Boolean).join(" "), userLocation, { limit }),
+      nearby.findNearby(asked, userLocation, { limit }),
       nearby.areaName(userLocation),
     ]);
     return res.json({
       success: true,
       data: result.places,
-      meta: { area, source: result.source, radius: result.radius, searchFailed: result.failed },
+      meta: {
+        area, source: result.source, radius: result.radius, searchFailed: result.failed,
+        // "restarent" was searched as "restaurant": the app titles the map with it.
+        ...(result.query && result.query !== asked ? { correctedQuery: result.query } : {}),
+      },
     });
   }
 

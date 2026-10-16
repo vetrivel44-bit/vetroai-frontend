@@ -82,7 +82,7 @@ import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
 import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
 import { imageQuestion } from "./lib/imagePrompt";
 import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
-import { authHeaders, consumeUsage, UsageLimitError } from "./lib/usageClient";
+import { authHeaders, checkUsage, recordUsage, UsageLimitError } from "./lib/usageClient";
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
 import UserAvatar from "./components/UserAvatar";
@@ -163,6 +163,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onStatus(data);
       } else if (type === "error" && data) {
         onError(data, event.code, event);
+      } else if (type === "model" && data) {
+        // The model that actually answered (the server may have fallen back).
+        onMeta?.("model", data);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
       } else if (type === "realtime_notice" && data) {
@@ -6213,7 +6216,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (!isActive()) return;
         const userLocation = locationResult.location;
         if (userLocation) {
-          const subject = nearbySubject(removePluginMention(userQuery, "maps"));
+          let subject = nearbySubject(removePluginMention(userQuery, "maps"));
           setRequestActivity(`Finding ${nearbyTitle(subject).toLowerCase()} near you…`);
           // The map services are public and sometimes busy, so a failed
           // search is tried once more before telling the user.
@@ -6233,6 +6236,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           }
           if (!isActive()) return;
           const area = payload?.meta?.area || null;
+          // A misspelt "restarent" was searched as "restaurant"; say what was found.
+          if (payload?.meta?.correctedQuery) subject = payload.meta.correctedQuery;
           const radiusKm = Math.round((payload?.meta?.radius || 6000) / 1000);
           const places = (Array.isArray(payload?.data) ? payload.data : []).filter((p) => p?.name && p?.location).slice(0, 8).map((p) => ({
             ...p,
@@ -6371,7 +6376,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       if (tryLocal) localHandled = await (async () => {
         const showAnswer = (content, model) => setMessages((previous) => {
           const next = [...previous];
-          next[next.length - 1] = { ...next[next.length - 1], content, provider: LOCAL_OLLAMA_PROVIDER, localModel: model };
+          next[next.length - 1] = { ...next[next.length - 1], content, provider: LOCAL_OLLAMA_PROVIDER, localModel: model, answeredBy: LOCAL_OLLAMA_PROVIDER };
           return next;
         });
         // The first request may wait on the browser's "allow local network
@@ -6477,9 +6482,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const streamWithPuter = async (providerName, extraSystem = "", prefix = "", docs = null) => {
         const modelId = PUTER_MODEL_IDS[providerName];
         if (!modelId) throw new Error(`${providerName} is not a browser model.`);
-        // Browser models answer without the server, so they check in first:
-        // the message counts, and a used-up limit stops it (UsageLimitError).
-        await consumeUsage(API, providerName, { signal: ctrl.signal });
+        // Browser models answer without the server, so they check in first (a
+        // used-up limit stops them: UsageLimitError) and the message is
+        // counted only once this model has really answered it — if it runs
+        // out of credits, the model that takes over is the one charged.
+        await checkUsage(API, providerName, { signal: ctrl.signal });
         await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
@@ -6524,7 +6531,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           streamed += text;
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: prefix + streamed, provider: providerName };
+            next[next.length - 1] = { ...next[next.length - 1], content: prefix + streamed, provider: providerName, answeredBy: providerName };
             return next;
           });
           setStreamingContent(streamed);
@@ -6532,6 +6539,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
 
         if (!streamed.trim()) throw new Error(`${providerName} returned an empty response. Please try again.`);
+        recordUsage(API, providerName);
         return streamed;
       };
 
@@ -6615,7 +6623,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // reports it has no image-reading model (NO_VISION). Throws on failure
       // (a credits error included) for the caller to handle.
       const analyzeImagesInBrowser = async () => {
-        await consumeUsage(API, "GPT-5.6 Luna", { signal: ctrl.signal });
+        await checkUsage(API, "GPT-5.6 Luna", { signal: ctrl.signal });
         await window.whenPuter?.();
         if (!window.puter?.ai?.chat) {
           throw new Error("GPT-5.6 Luna image analysis could not load. Check your connection and refresh the page.");
@@ -6635,12 +6643,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           const combined = analyses.join("\n\n");
           setMessages((previous) => {
             const next = [...previous];
-            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna" };
+            next[next.length - 1] = { ...next[next.length - 1], content: combined, provider: "GPT-5.6 Luna", answeredBy: "GPT-5.6 Luna" };
             return next;
           });
           setStreamingContent(combined);
         }
         const bot = analyses.join("\n\n");
+        recordUsage(API, "GPT-5.6 Luna");
         setIsLoading(false);
         setStreamStatus("idle");
         setStreamingContent("");
@@ -6795,6 +6804,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 const last = { ...next[next.length - 1] };
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "sources") last.sources = metaData;
+                // The model that really answered, which may be a fallback.
+                if (metaType === "model") last.answeredBy = metaData;
                 next[next.length - 1] = last;
                 return next;
               });
@@ -6997,6 +7008,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 const u = [...prev];
                 const last = { ...u[u.length - 1] };
                 if (metaType === "sources") last.sources = metaData;
+                // The model that really answered, which may be a fallback.
+                if (metaType === "model") last.answeredBy = metaData;
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "research_reset") last.research = null;
@@ -8555,7 +8568,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
                        /* ── NORMAL AI MESSAGE ── */
                        ) : (
-                         <div className="flex-1 min-w-0 msg-row">
+                         <div className="flex-1 min-w-0 msg-row" data-answered-by={m.answeredBy || undefined}>
                            {m.liveScores && m.liveScores.length > 0 && (
                              <LiveScoreWidget scores={m.liveScores} title="Live Scores" />
                            )}
@@ -8733,8 +8746,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
                      <div className="flex w-full mb-6 justify-start gap-3">
-                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
-                         <VetroSparkWhite size={22} />
+                       <div className="thinking-avatar" aria-hidden="true">
+                         <svg viewBox="12 2 76 96" width="20" height="22" focusable="false">
+                           <rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)" />
+                           <rect x="42" y="8" width="16" height="74" rx="8" fill="#146b80" transform="rotate(24 50 82)" />
+                           <circle cx="50" cy="79" r="6.5" fill="var(--bg-elevated, var(--bg))" />
+                         </svg>
                        </div>
                        <div style={{ paddingTop: 6 }}>
                          <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />

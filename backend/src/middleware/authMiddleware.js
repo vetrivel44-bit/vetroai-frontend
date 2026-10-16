@@ -113,6 +113,9 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
       email: payload.email || "",
       isFirebase: true,
     };
+    // Lets the server keep this person's own records (usage) in their
+    // Firestore space, under the same security rules as the app.
+    req.firebaseAuth = { uid: payload.sub, token };
     return next();
   }
 

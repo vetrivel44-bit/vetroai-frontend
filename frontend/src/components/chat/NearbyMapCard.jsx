@@ -4,7 +4,7 @@ import {
   Phone, Pill, Scissors, ShoppingBag, Star, TreePine, Utensils, WifiOff,
 } from "lucide-react";
 import { loadMapTiler, streetStyle } from "../../lib/maptiler";
-import { directionsUrl, formatDistance, mapsSearchUrl, phoneUrl, placeStatus, travelTime, websiteUrl } from "../../lib/nearbyFormat";
+import { directionsUrl, driveTime, fetchRoute, formatDistance, mapsSearchUrl, phoneUrl, placeStatus, travelTime, websiteUrl } from "../../lib/nearbyFormat";
 import { useDocumentTheme } from "./visuals/useDocumentTheme";
 import "./NearbyMapCard.css";
 
@@ -14,7 +14,10 @@ import "./NearbyMapCard.css";
 // website. When nothing was found, or the map services were down, it says so
 // and offers the same search in Google Maps.
 //
-// `data` = { title, subject, area, radiusKm, status: "ok" | "empty" | "failed",
+// With `route: true` (one place, e.g. a job near you) it is a directions map:
+// the road route from you to the place, its length and driving time.
+//
+// `data` = { title, subject, area, radiusKm, status: "ok" | "empty" | "failed", route,
 //   center: {lat, lng}, places: [{ name, location, rating, reviews, category,
 //   distanceMeters, photoUrl, mapsUrl, placeId, openNow, hours, phone, website,
 //   source }] }
@@ -69,6 +72,8 @@ export default function NearbyMapCard({ data }) {
   const center = data?.center || null;
   const [selected, setSelected] = useState(0);
   const [mapState, setMapState] = useState("loading"); // loading | ready | failed
+  const [road, setRoad] = useState(null); // { meters, seconds } of the drawn road route
+  const isRoute = !!data?.route && !!center && places.length === 1;
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const pinsRef = useRef([]);
@@ -82,6 +87,24 @@ export default function NearbyMapCard({ data }) {
     let map = null;
     let alive = true;
     const fail = () => { if (alive) setMapState("failed"); };
+    // The road from you to the place; a dashed straight line when the
+    // router can't be reached, so the way is always shown.
+    const drawRoute = async (m) => {
+      const to = places[0].location;
+      const route = await fetchRoute(center, to);
+      if (!alive) return;
+      const coords = route?.coords || [[center.lng, center.lat], [to.lng, to.lat]];
+      if (route) setRoad({ meters: route.meters, seconds: route.seconds });
+      const accent = theme === "dark" ? "#E08659" : "#D97757";
+      try {
+        m.addSource("nearby-route", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } } });
+        if (route) m.addLayer({ id: "nearby-route-casing", type: "line", source: "nearby-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": theme === "dark" ? "#1B1A19" : "#ffffff", "line-width": 9, "line-opacity": 0.9 } });
+        m.addLayer({ id: "nearby-route", type: "line", source: "nearby-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": accent, "line-width": route ? 5 : 3, ...(route ? {} : { "line-dasharray": [1.5, 1.5] }) } });
+      } catch { /* the pins still show where to go */ }
+      const lngs = coords.map((c) => c[0]);
+      const lats = coords.map((c) => c[1]);
+      m.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: { top: 56, left: 44, right: 44, bottom: 44 }, maxZoom: 16, duration: 400 });
+    };
     loadMapTiler().then((sdk) => {
       if (!alive || !mapEl.current) return;
       const points = places.map((p) => [p.location.lng, p.location.lat]);
@@ -100,7 +123,12 @@ export default function NearbyMapCard({ data }) {
       // A rejected key or blocked tiles used to leave a blank grey box; until
       // the map has drawn, an error means falling back to the list alone.
       let loaded = false;
-      map.on("load", () => { loaded = true; if (alive) setMapState("ready"); });
+      map.on("load", () => {
+        loaded = true;
+        if (!alive) return;
+        setMapState("ready");
+        if (isRoute) drawRoute(map);
+      });
       map.on("error", () => { if (!loaded) fail(); });
       setTimeout(() => { if (!loaded) fail(); }, 12000);
       if (center) {
@@ -129,7 +157,7 @@ export default function NearbyMapCard({ data }) {
       }
     }).catch(fail);
     return () => { alive = false; map?.remove(); mapRef.current = null; pinsRef.current = []; };
-  }, [places, center, theme]);
+  }, [places, center, theme, isRoute]);
 
   // The map follows the selected place.
   useEffect(() => {
@@ -158,7 +186,10 @@ export default function NearbyMapCard({ data }) {
         <span className="nearby-head-icon"><CategoryIcon category={places[0]?.category || data.subject} size={17} /></span>
         <span className="nearby-head-text">
           <strong>{data.title}</strong>
-          <small>{places.length ? `${places.length} place${places.length === 1 ? "" : "s"} · nearest first` : data.status === "failed" ? "Search unavailable" : "Nothing nearby"}</small>
+          <small>{isRoute
+            ? (road ? `${formatDistance(road.meters)} by road · ${driveTime(road.seconds)}` : `${formatDistance(places[0].distanceMeters)} away · ${travelTime(places[0].distanceMeters)}`)
+            : data.route && places.length ? (places[0].category || "On the map")
+            : places.length ? `${places.length} place${places.length === 1 ? "" : "s"} · nearest first` : data.status === "failed" ? "Search unavailable" : "Nothing nearby"}</small>
         </span>
         <a className="nearby-head-link" href={searchUrl} target="_blank" rel="noopener noreferrer" title="Search in Google Maps" aria-label="Search in Google Maps">
           <ExternalLink size={14} /><span>Google Maps</span>
@@ -195,7 +226,9 @@ export default function NearbyMapCard({ data }) {
                       <span>{place.category || "Place"}</span>
                     </span>
                     <span className="nearby-sub">
-                      {place.distanceMeters != null && <span>{formatDistance(place.distanceMeters)} · {travelTime(place.distanceMeters)}</span>}
+                      {isRoute && road
+                        ? <span>{formatDistance(road.meters)} by road · {road.meters <= 2500 ? travelTime(road.meters) : driveTime(road.seconds)}</span>
+                        : place.distanceMeters != null && <span>{formatDistance(place.distanceMeters)} · {travelTime(place.distanceMeters)}</span>}
                       {status && <span className={status.open ? "is-open" : "is-closed"}>{status.label}</span>}
                     </span>
                     <span className="nearby-actions" onClick={(e) => e.stopPropagation()}>

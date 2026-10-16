@@ -136,7 +136,7 @@ export default function UsagePanel({ api }) {
 
           <p className="usage-foot">
             <Clock size={13} /> Each message uses part of your limits: Fast models ×{weights.light || 1}, Balanced ×{weights.standard || 2}, Most capable ×{weights.premium || 4}.
-            A session lasts 5 hours from your first message; the week, 7 days. These are the same numbers VetroAI's server enforces.
+            A session lasts 5 hours from your first message; the week, 7 days. These are the same numbers VetroAI's server enforces. Counting by model started when usage limits were added, so messages from before then aren't included.
           </p>
         </>
       )}

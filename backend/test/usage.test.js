@@ -91,8 +91,9 @@ test("pro plans get more room", () => {
 });
 
 test("signed-in people are counted by account, visitors by address", () => {
-  assert.deepEqual(usage.identityOf({ user: { _id: "507f1f77bcf86cd799439011", plan: "pro" }, headers: {} }), { key: "user:507f1f77bcf86cd799439011", plan: "pro", signedIn: true });
-  assert.deepEqual(usage.identityOf({ user: { id: "firebaseUid123", isFirebase: true }, headers: {} }), { key: "uid:firebaseUid123", plan: "free", signedIn: true });
+  assert.deepEqual(usage.identityOf({ user: { _id: "507f1f77bcf86cd799439011", plan: "pro" }, headers: {} }), { key: "user:507f1f77bcf86cd799439011", plan: "pro", signedIn: true, cloud: null });
+  assert.deepEqual(usage.identityOf({ user: { id: "firebaseUid123", isFirebase: true }, headers: {} }), { key: "uid:firebaseUid123", plan: "free", signedIn: true, cloud: null });
+  assert.deepEqual(usage.identityOf({ user: { id: "firebaseUid123", isFirebase: true }, firebaseAuth: { uid: "firebaseUid123", token: "t" }, headers: {} }).cloud, { uid: "firebaseUid123", token: "t" });
   assert.equal(usage.identityOf({ user: null, headers: {}, ip: "203.0.113.9" }).key, "ip:203.0.113.9");
   assert.equal(usage.identityOf({ user: { id: "offline_user", isOffline: true }, headers: { "cf-connecting-ip": "1.2.3.4" }, ip: "198.51.100.2" }).key, "ip:198.51.100.2", "a client-set header is ignored");
 });
@@ -155,4 +156,91 @@ test("chat refuses a message once the limit is used up, with the reset time", as
   assert.match(event.data, /It resets in 4 hr/);
   assert.equal(event.usage.window, "session");
   assert.equal(event.usage.model, "Groq");
+});
+
+test("a reply from a fallback model is counted against the model that answered", async (t) => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const original = orchestrator.processRequest;
+  orchestrator.processRequest = async (_id, _params, res) => {
+    // GPT-5.6 Terra was picked, but Groq is the one that answered.
+    res.locals.answeredBy = "Groq";
+    res.write(`data: ${JSON.stringify({ type: "content", data: "Hi" })}\n\n`);
+    res.end();
+    return true;
+  };
+  t.after(() => { orchestrator.processRequest = original; });
+  const base = await startServer(t);
+  const ip = "192.0.2.240";
+  usage._memory.delete(`ip:${ip}`);
+  await (await fetch(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+    body: JSON.stringify({ input: "Hello", provider: "GPT-5.6 Terra", modelLabel: "GPT-5.6 Terra", mode: "normal" }),
+  })).text();
+  await new Promise((r) => setTimeout(r, 50));
+  const data = (await (await fetch(`${base}/api/usage`, { headers: { "X-Forwarded-For": ip } })).json()).data;
+  assert.deepEqual(data.models.map((m) => [m.model, m.messages]), [["Groq", 1]]);
+  assert.equal(data.session.used, 1, "charged at Groq's weight, not Terra's");
+});
+
+test("browser models are checked first and counted only once they answer", async (t) => {
+  const base = await startServer(t);
+  const ip = "192.0.2.241";
+  const headers = { "Content-Type": "application/json", "X-Forwarded-For": ip };
+  usage._memory.delete(`ip:${ip}`);
+  const check = await fetch(`${base}/api/usage/check`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Terra" }) });
+  assert.equal(check.status, 200);
+  assert.equal((await check.json()).data.session.used, 0, "a check counts nothing");
+  const rec = await fetch(`${base}/api/usage/record`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Terra" }) });
+  assert.equal((await rec.json()).data.session.used, 2);
+
+  usage._memory.set(`ip:${ip}`, { sessionStart: Date.now(), weekStart: Date.now(), events: [{ m: "Groq", u: limitsFor("free").session, t: Date.now() }] });
+  const refused = await fetch(`${base}/api/usage/check`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Terra" }) });
+  assert.equal(refused.status, 429);
+  assert.equal((await refused.json()).code, "USAGE_LIMIT");
+});
+
+test("a signed-in person's usage survives a server restart, from their own Firestore space", async () => {
+  const k = key();
+  const cloud = { uid: `u${n}`, token: "id-token" };
+  const stored = new Map();
+  const calls = [];
+  const original = global.fetch;
+  global.fetch = async (url, opts = {}) => {
+    calls.push([opts.method || "GET", String(url), opts.headers?.Authorization]);
+    if (opts.method === "PATCH") { stored.set(String(url), JSON.parse(opts.body)); return { ok: true, status: 200, json: async () => ({}) }; }
+    const doc = stored.get(String(url));
+    return doc ? { ok: true, status: 200, json: async () => doc } : { ok: false, status: 404, json: async () => ({}) };
+  };
+  try {
+    await usage.record(k, "free", "Groq", T0, cloud);
+    await usage.record(k, "free", "Groq", T0 + HOUR, cloud);
+    await new Promise((r) => setImmediate(r));
+    assert.ok(calls.some(([m, url, auth]) => m === "PATCH" && url.endsWith(`/documents/users/${cloud.uid}/prefs/usage`) && auth === "Bearer id-token"));
+
+    // A restart: the server's own copy is gone.
+    usage._memory.delete(k);
+    usage._cloudChecked.delete(k);
+    const after = await usage.check(k, "free", "Groq", T0 + 2 * HOUR, cloud);
+    assert.equal(after.summary.models[0].model, "Groq");
+    assert.equal(after.summary.models[0].messages, 2);
+    assert.equal(after.summary.session.resetsAt, T0 + SESSION_MS);
+  } finally {
+    global.fetch = original;
+  }
+});
+
+test("an unreachable Firestore never blocks or slows every message", async () => {
+  const k = key();
+  let reads = 0;
+  const original = global.fetch;
+  global.fetch = async (url, opts = {}) => { if (!opts.method) reads++; throw new TypeError("fetch failed"); };
+  try {
+    await usage.record(k, "free", "Groq", T0, { uid: "x", token: "t" });
+    const s = await usage.record(k, "free", "Groq", T0 + 1000, { uid: "x", token: "t" });
+    assert.equal(s.session.used, 2);
+    assert.equal(reads, 1, "a failed read waits before trying again");
+  } finally {
+    global.fetch = original;
+  }
 });

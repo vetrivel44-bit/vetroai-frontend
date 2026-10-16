@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { cachedCompanyLogo, lookupCompanyLogo } from "../../utils/companyLogos";
+import NearbyMapCard from "../chat/NearbyMapCard";
 import { normalizeJob, closedReason, deadlineLabel, isInternshipQuery, searchParams, POSTED_OPTIONS, MAX_OPEN_DAYS, payPeriodSuffix, missingPayLabel, matchesWorkType } from "../../utils/jobListings";
 
 // ─── CATEGORY DEFINITIONS ─────────────────────────────────────────────────────
@@ -530,7 +531,7 @@ function CompanyLogo({ job, size = 42, radius = 10, className = "jsp-logo" }) {
   const [, rerender] = useState(0);
   const src = sources[0];
   const fail = () => { badLogos.add(src); rerender(n => n + 1); };
-  const color = job.color || "#8b7bff";
+  const color = companyColor(job);
   return (
     <div className={className} style={{ width: size, height: size, borderRadius: radius }}>
       {src
@@ -542,6 +543,32 @@ function CompanyLogo({ job, size = 42, radius = 10, className = "jsp-logo" }) {
     </div>
   );
 }
+
+// A steady colour per company for its initial and map pin: muted tones that
+// sit on both the light and dark surfaces.
+const COMPANY_TONES = ["#D97757", "#3E9C8F", "#C2913A", "#7A8FCB", "#B56A8E", "#5E9E5A", "#C46B4E", "#8C7AB8"];
+function companyColor(job) {
+  if (job?.color) return job.color;
+  const name = String(job?.company || job?.title || "");
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return COMPANY_TONES[h % COMPANY_TONES.length];
+}
+
+const JOB_CATEGORIES = [
+  ["💻", "Technology", "Software Developer"],
+  ["🩺", "Healthcare", "Nurse"],
+  ["🛠️", "Engineering", "Mechanical Engineer"],
+  ["📊", "Finance", "Accountant"],
+  ["🎨", "Design", "UI UX Designer"],
+  ["⚖️", "Legal", "Lawyer"],
+  ["✈️", "Aviation", "Cabin Crew"],
+  ["🏨", "Hospitality", "Hotel Manager"],
+  ["🏛️", "Government", "Government Jobs"],
+  ["📣", "Marketing", "Digital Marketing"],
+  ["🚚", "Delivery", "Delivery Driver"],
+  ["🎓", "Teaching", "Teacher"],
+];
 
 // ─── GEO HELPERS ─────────────────────────────────────────────────────────────
 const RADIUS_OPTIONS = [2, 5, 10, 25, 50];
@@ -560,43 +587,46 @@ const fmtKm = km => km < 1 ? `${Math.max(100, Math.round(km * 10) * 100)} m` : `
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = `
-  .jsp-ov{--bg:#0b0f1a;--sf:#121829;--sf2:#182036;--ln:rgba(148,163,209,.14);--ln2:rgba(148,163,209,.24);--tx:#eef1fa;--tx2:#a3acc6;--tx3:#6b7593;--ac:#8b7bff;--ac2:#5b8cff;--acs:rgba(139,123,255,.14);--acb:rgba(139,123,255,.32);--ok:#34d399;--oks:rgba(52,211,153,.12);--sky:#38bdf8;--skys:rgba(56,189,248,.12);--shA:rgba(255,255,255,.04);--shB:rgba(255,255,255,.09);--sh:0 30px 80px rgba(0,0,0,.6);--scrim:rgba(5,7,14,.72);--scrim2:rgba(0,0,0,.5);--err:#f87171;--errs:rgba(248,113,113,.12);
+  .jsp-ov{--jbg:var(--bg,#1B1A19);--sf:var(--bg-elevated,#242322);--sf2:var(--bg-hover,#2C2B29);--ln:var(--border,rgba(255,255,255,.08));--ln2:var(--border-med,rgba(255,255,255,.13));--tx:var(--ink,#F2EFEA);--tx2:var(--ink-2,#C9C5BE);--tx3:var(--ink-3,#97938C);--ac:#E08659;--acs:rgba(224,134,89,.13);--acb:rgba(224,134,89,.4);--ok:#5CC98E;--oks:rgba(92,201,142,.12);--sky:#5EC4B6;--skys:rgba(94,196,182,.12);--shA:rgba(255,255,255,.035);--shB:rgba(255,255,255,.08);--sh:0 30px 80px rgba(0,0,0,.55);--lift:0 14px 34px -14px rgba(0,0,0,.6);--scrim:rgba(12,11,10,.68);--scrim2:rgba(0,0,0,.5);--err:#F08A7E;--errs:rgba(240,138,126,.12);
     position:fixed;inset:0;z-index:9999;background:var(--scrim);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
-  :root[data-theme="light"] .jsp-ov{--bg:#f5f6fb;--sf:#ffffff;--sf2:#eceff7;--ln:rgba(30,41,82,.11);--ln2:rgba(30,41,82,.2);--tx:#141a2e;--tx2:#4b5575;--tx3:#8a93ad;--ac:#6a55f0;--ac2:#3b6ff5;--acs:rgba(106,85,240,.1);--acb:rgba(106,85,240,.35);--ok:#059669;--oks:rgba(5,150,105,.1);--sky:#0284c7;--skys:rgba(2,132,199,.1);--shA:rgba(20,26,46,.05);--shB:rgba(20,26,46,.1);--sh:0 24px 64px rgba(30,41,82,.16),0 2px 6px rgba(30,41,82,.06);--scrim:rgba(232,235,245,.8);--scrim2:rgba(20,26,46,.28);--err:#dc2626;--errs:rgba(220,38,38,.08);}
-  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--ln);border-radius:20px;box-shadow:var(--sh);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
+  :root[data-theme="light"] .jsp-ov{--ac:#C25E3B;--acs:rgba(217,119,87,.12);--acb:rgba(217,119,87,.42);--ok:#23834F;--oks:rgba(46,158,98,.11);--sky:#147A6E;--skys:rgba(20,122,110,.09);--shA:rgba(31,30,29,.045);--shB:rgba(31,30,29,.09);--sh:0 24px 64px rgba(60,40,20,.16),0 2px 6px rgba(60,40,20,.06);--lift:0 14px 30px -16px rgba(60,40,20,.3);--scrim:rgba(246,243,237,.78);--scrim2:rgba(31,30,29,.28);--err:#C0392B;--errs:rgba(192,57,43,.08);}
+  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--jbg);border:1px solid var(--ln);border-radius:20px;box-shadow:var(--sh);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
   @keyframes jIn{from{opacity:0;transform:scale(.97) translateY(12px)}to{opacity:1;transform:none}}
   @keyframes jUp{from{transform:translateY(100%)}to{transform:none}}
   @keyframes jSpin{to{transform:rotate(360deg)}}
+  @keyframes jRise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   @keyframes jShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 
   .jsp-hd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 20px;}
   .jsp-hdl{display:flex;align-items:center;gap:10px;min-width:0;}
-  .jsp-ico{width:34px;height:34px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,var(--ac),var(--ac2));display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.35);}
-  .jsp-hdtit{font-size:17px;font-weight:700;color:var(--tx);letter-spacing:-.3px;margin:0;white-space:nowrap;}
-  .jsp-pill{padding:3px 9px;border-radius:100px;background:var(--acs);font-size:10px;font-weight:700;color:var(--ac);letter-spacing:.3px;white-space:nowrap;}
-  .jsp-xb{width:34px;height:34px;flex-shrink:0;border-radius:10px;border:none;background:var(--sf);color:var(--tx2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;}
+  .jsp-ico{width:34px;height:34px;border-radius:10px;flex-shrink:0;background:var(--acs);color:var(--ac);display:flex;align-items:center;justify-content:center;}
+  .jsp-hdtit{font-family:var(--font-serif,Georgia,serif);font-size:19px;font-weight:600;color:var(--tx);letter-spacing:-.3px;margin:0;white-space:nowrap;}
+  .jsp-pill{padding:3px 9px;border-radius:100px;border:1px solid var(--ln2);font-size:10px;font-weight:650;color:var(--tx3);letter-spacing:.4px;white-space:nowrap;}
+  .jsp-xb{width:34px;height:34px;flex-shrink:0;border-radius:50%;border:none;background:var(--sf);color:var(--tx2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;}
   .jsp-xb:hover{background:var(--sf2);color:var(--tx);}
 
   .jsp-srchbar{flex-shrink:0;padding:4px 20px 14px;}
   .jsp-srchrow{display:flex;gap:8px;align-items:center;}
   .jsp-srchinwrap{flex:1;position:relative;min-width:0;}
   .jsp-srchinico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--tx3);pointer-events:none;display:flex;}
-  .jsp-srchin{width:100%;height:46px;padding:0 14px 0 42px;background:var(--sf);border:1px solid var(--ln);border-radius:12px;color:var(--tx);font-size:15px;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;text-overflow:ellipsis;}
+  .jsp-srchin{width:100%;height:48px;padding:0 14px 0 42px;background:var(--sf);border:1px solid var(--ln2);border-radius:14px;color:var(--tx);font-size:15px;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;box-sizing:border-box;text-overflow:ellipsis;}
   .jsp-srchin::placeholder{color:var(--tx3);}
-  .jsp-srchin:focus{border-color:var(--acb);box-shadow:0 0 0 4px rgba(139,123,255,.12);}
-  .jsp-srchbtn{width:46px;height:46px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .2s,transform .1s;flex-shrink:0;}
-  .jsp-srchbtn:active{transform:scale(.96);} .jsp-srchbtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;}
+  .jsp-srchin:focus{border-color:color-mix(in srgb,var(--tx) 32%,transparent);box-shadow:0 0 0 4px var(--shA);}
+  .jsp-srchbtn{width:48px;height:48px;border-radius:14px;border:none;background:var(--tx);color:var(--jbg);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .2s,transform .12s;flex-shrink:0;}
+  .jsp-srchbtn:hover:not(:disabled){transform:translateY(-1px);}
+  .jsp-srchbtn:active{transform:scale(.96);} .jsp-srchbtn:disabled{opacity:.3;cursor:not-allowed;transform:none;}
   .jsp-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;}
   .jsp-near{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;}
-  .jsp-nearbtn{display:flex;align-items:center;gap:7px;height:34px;padding:0 13px 0 10px;border-radius:100px;border:1px solid var(--acb);background:var(--acs);color:var(--ac);font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap;max-width:240px;transition:all .15s;}
+  .jsp-nearbtn{display:flex;align-items:center;gap:7px;height:34px;padding:0 13px 0 10px;border-radius:100px;border:1px solid var(--ln2);background:var(--sf);color:var(--tx);font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;max-width:240px;transition:all .15s;}
   .jsp-nearbtn span{overflow:hidden;text-overflow:ellipsis;}
-  .jsp-nearbtn:hover{border-color:var(--ac);}
-  .jsp-nearbtn.on{background:linear-gradient(135deg,var(--ac),var(--ac2));border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(124,108,255,.3);}
+  .jsp-nearbtn svg{color:var(--ac);}
+  .jsp-nearbtn:hover{background:var(--sf2);border-color:color-mix(in srgb,var(--tx) 22%,transparent);}
+  .jsp-nearbtn.on{background:var(--acs);border-color:var(--acb);color:var(--ac);}
   .jsp-nearbtn:disabled{cursor:progress;opacity:.8;}
   .jsp-nearbtn .jsp-spin{width:13px;height:13px;border-width:2px;border-color:var(--acb);border-top-color:var(--ac);}
   .jsp-rads{display:flex;gap:4px;padding:3px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);}
   .jsp-rad{height:28px;padding:0 10px;border-radius:100px;border:none;background:none;color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
-  .jsp-rad:hover{color:var(--tx);} .jsp-rad.on{background:var(--acs);color:var(--ac);}
+  .jsp-rad:hover{color:var(--tx);} .jsp-rad.on{background:var(--tx);color:var(--jbg);}
   .jsp-nearmsg{margin:8px 0 0;font-size:12px;color:var(--err);line-height:1.5;}
   .jsp-dist{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ac);white-space:nowrap;}
 
@@ -608,7 +638,7 @@ const S = `
   .jsp-radar .rg-dot{stroke:var(--sf);stroke-width:2;cursor:pointer;transition:r .15s;} .jsp-radar .rg-dot:hover{r:8;}
   .jsp-radar .rg-sweep{fill:url(#jsp-sweep);}
   .jsp-rinfo{min-width:0;}
-  .jsp-rtit{font-size:16px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.2px;}
+  .jsp-rtit{font-family:var(--font-serif,Georgia,serif);font-size:17px;font-weight:600;color:var(--tx);margin:0 0 4px;letter-spacing:-.2px;}
   .jsp-rsub{font-size:13px;color:var(--tx2);margin:0 0 10px;line-height:1.5;}
   .jsp-rnear{display:flex;flex-direction:column;gap:6px;}
   .jsp-rnear button{display:flex;align-items:center;gap:8px;padding:0;border:none;background:none;font-family:inherit;cursor:pointer;text-align:left;color:var(--tx2);font-size:12.5px;min-width:0;}
@@ -616,16 +646,18 @@ const S = `
   .jsp-rnear i{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
   .jsp-rnear em{font-style:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .jsp-rnear b{margin-left:auto;padding-left:8px;color:var(--ac);white-space:nowrap;}
-  .jsp-cta{margin-top:16px;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:100px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);}
+  .jsp-cta{margin-top:18px;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:100px;border:none;background:var(--tx);color:var(--jbg);font-size:13px;font-weight:650;font-family:inherit;cursor:pointer;transition:transform .15s,opacity .15s;}
+  .jsp-cta:hover{transform:translateY(-1px);} .jsp-cta:active{transform:scale(.97);}
+  .jsp-cta.alt{background:var(--sf);color:var(--tx);border:1px solid var(--ln2);} .jsp-cta.alt svg{color:var(--ac);}
   .jsp-chlbl{font-size:11px;color:var(--tx3);font-weight:600;}
   .jsp-chip{flex-shrink:0;padding:6px 12px;border-radius:100px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .15s;}
-  .jsp-chip:hover{background:var(--acs);border-color:var(--acb);color:var(--tx);}
+  .jsp-chip:hover{background:var(--sf2);border-color:var(--ln2);color:var(--tx);}
 
   .jsp-tabs{flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 20px;border-bottom:1px solid var(--ln);}
   .jsp-tab{padding:10px 12px 12px;font-size:14px;font-weight:600;color:var(--tx3);background:none;border:none;cursor:pointer;position:relative;transition:color .15s;font-family:inherit;display:flex;align-items:center;}
   .jsp-tab:hover{color:var(--tx2);} .jsp-tab.on{color:var(--tx);}
-  .jsp-tab.on::after{content:'';position:absolute;bottom:-1px;left:10px;right:10px;height:2px;background:linear-gradient(90deg,var(--ac),var(--ac2));border-radius:2px;}
-  .jsp-tb{display:inline-flex;align-items:center;justify-content:center;min-width:18px;background:var(--acs);color:var(--ac);font-size:11px;font-weight:700;padding:1px 6px;border-radius:100px;margin-left:6px;}
+  .jsp-tab.on::after{content:'';position:absolute;bottom:-1px;left:10px;right:10px;height:2px;background:var(--tx);border-radius:2px;}
+  .jsp-tb{display:inline-flex;align-items:center;justify-content:center;min-width:18px;background:var(--sf2);color:var(--tx2);font-size:11px;font-weight:700;padding:1px 6px;border-radius:100px;margin-left:6px;}
   .jsp-fbtn{display:none;margin-left:auto;align-items:center;gap:6px;padding:6px 12px;border-radius:100px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;}
   .jsp-fbtn.on{border-color:var(--acb);color:var(--ac);background:var(--acs);}
   .jsp-fdot{width:6px;height:6px;border-radius:50%;background:var(--ac);}
@@ -633,7 +665,7 @@ const S = `
   .jsp-body{flex:1;display:flex;overflow:hidden;min-height:0;position:relative;}
   .jsp-main{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:18px 20px;scrollbar-width:none;-ms-overflow-style:none;}
   .jsp-main::-webkit-scrollbar{display:none;}
-  .jsp-sb{flex-shrink:0;width:230px;border-left:1px solid var(--ln);background:var(--bg);padding:18px 16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:18px;}
+  .jsp-sb{flex-shrink:0;width:230px;border-left:1px solid var(--ln);background:var(--jbg);padding:18px 16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column;gap:18px;}
   .jsp-sb::-webkit-scrollbar{display:none;}
   .jsp-sbhd{display:none;}
   .jsp-scrim{display:none;}
@@ -644,17 +676,19 @@ const S = `
   .jsp-togrow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;}
   .jsp-toglbl{font-size:13px;color:var(--tx2);}
   .jsp-tog{width:36px;height:20px;border-radius:100px;border:none;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
-  .jsp-tog.on{background:var(--ac);} .jsp-tog.off{background:var(--sf2);}
+  .jsp-tog.on{background:var(--ac);} .jsp-tog.off{background:color-mix(in srgb,var(--tx) 18%,transparent);}
   .jsp-togk{position:absolute;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
   .jsp-tog.on .jsp-togk{left:18px;} .jsp-tog.off .jsp-togk{left:2px;}
-  .jsp-applyf{width:100%;height:42px;border-radius:11px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
+  .jsp-applyf{width:100%;height:42px;border-radius:12px;border:none;background:var(--tx);color:var(--jbg);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
   .jsp-applyf:hover{opacity:.88;}
 
   .jsp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
 
   .jsp-card{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden;transition:border-color .2s,background .2s,transform .15s,box-shadow .2s;}
-  .jsp-card::before{content:'';position:absolute;top:14px;bottom:14px;left:0;width:3px;border-radius:0 3px 3px 0;background:var(--cc,var(--ac));opacity:.85;}
-  .jsp-card:hover{border-color:var(--ln2);background:var(--sf2);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.3);}
+    .jsp-card:hover{border-color:var(--ln2);transform:translateY(-2px);box-shadow:var(--lift);}
+  .jsp-card:active{transform:translateY(0) scale(.99);}
+  .jsp-grid > .jsp-card{animation:jRise .35s cubic-bezier(.22,1,.36,1) both;}
+  .jsp-grid > .jsp-card:nth-child(2){animation-delay:.03s} .jsp-grid > .jsp-card:nth-child(3){animation-delay:.06s} .jsp-grid > .jsp-card:nth-child(4){animation-delay:.09s} .jsp-grid > .jsp-card:nth-child(n+5){animation-delay:.12s}
   .jsp-ctop{display:flex;align-items:flex-start;gap:12px;}
   .jsp-logo{border-radius:10px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
   .jsp-logo img{width:78%;height:78%;object-fit:contain;}
@@ -683,23 +717,27 @@ const S = `
   .jsp-skelb{border-radius:6px;background:linear-gradient(90deg,var(--shA) 25%,var(--shB) 50%,var(--shA) 75%);background-size:200% 100%;animation:jShimmer 1.5s infinite;}
 
   .jsp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;padding:32px 16px;}
-  .jsp-emico{width:60px;height:60px;border-radius:18px;background:var(--acs);color:var(--ac);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
-  .jsp-emtit{font-size:16px;font-weight:700;color:var(--tx);margin:0 0 6px;} .jsp-emsub{font-size:13px;color:var(--tx2);margin:0;line-height:1.6;max-width:360px;}
+  .jsp-emico{width:60px;height:60px;border-radius:18px;background:var(--acs);color:var(--ac);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
+  .jsp-emtit{font-family:var(--font-serif,Georgia,serif);font-size:21px;font-weight:600;letter-spacing:-.3px;color:var(--tx);margin:0 0 6px;} .jsp-emsub{font-size:13.5px;color:var(--tx2);margin:0;line-height:1.6;max-width:380px;}
+  .jsp-cats{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:18px auto 0;max-width:520px;}
+  .jsp-cat{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:100px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:13px;font-weight:550;font-family:inherit;cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .15s;animation:jRise .4s cubic-bezier(.22,1,.36,1) both;}
+  .jsp-cat:hover{background:var(--sf2);border-color:var(--ln2);color:var(--tx);transform:translateY(-1px);} .jsp-cat:active{transform:scale(.97);}
+  .jsp-cat span{font-size:15px;line-height:1;}
 
   .jsp-hrow{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-radius:12px;background:var(--sf);border:1px solid var(--ln);cursor:pointer;transition:background .15s;margin-bottom:8px;}
   .jsp-hrow:hover{background:var(--sf2);}
   .jsp-hrow svg{color:var(--tx3);} .jsp-hrow span{font-size:13px;color:var(--tx2);font-weight:500;}
 
-  .jsp-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:jSpin .7s linear infinite;}
+  .jsp-spin{width:17px;height:17px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;border-radius:50%;animation:jSpin .7s linear infinite;}
 
-  .jsp-det{position:absolute;inset:0;z-index:30;border-radius:inherit;background:var(--bg);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
+  .jsp-det{position:absolute;inset:0;z-index:30;border-radius:inherit;background:var(--jbg);display:flex;flex-direction:column;animation:jIn .22s cubic-bezier(.16,1,.3,1);overflow:hidden;}
   .jsp-dhd{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--ln);gap:10px;}
   .jsp-backb{display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--tx2);cursor:pointer;font-size:13px;font-weight:600;padding:0;transition:color .15s;font-family:inherit;white-space:nowrap;}
   .jsp-backb:hover{color:var(--tx);}
   .jsp-dacts{display:flex;gap:8px;align-items:center;}
   .jsp-dactb{display:flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--ln);background:var(--sf);color:var(--tx2);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;}
   .jsp-dactb:hover{border-color:var(--ln2);color:var(--tx);} .jsp-dactb.on{border-color:var(--acb);color:var(--ac);background:var(--acs);}
-  .jsp-applybig{display:flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(124,108,255,.3);transition:opacity .15s;font-family:inherit;white-space:nowrap;}
+  .jsp-applybig{display:flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:10px;border:none;background:var(--tx);color:var(--jbg);font-size:13px;font-weight:650;cursor:pointer;transition:opacity .15s;font-family:inherit;white-space:nowrap;}
   .jsp-applybig:hover{opacity:.88;}
   .jsp-dbody{flex:1;min-height:0;display:flex;overflow:hidden;}
   .jsp-dmain{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:24px 28px 40px;scrollbar-width:thin;scrollbar-color:var(--ln2) transparent;}
@@ -710,9 +748,10 @@ const S = `
   .jsp-dco{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
   .jsp-dlogo{width:56px;height:56px;border-radius:14px;background:#fff;border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
   .jsp-dlogo img{width:72%;height:72%;object-fit:contain;}
-  .jsp-djt{font-size:21px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
+  .jsp-djt{font-family:var(--font-serif,Georgia,serif);font-size:23px;font-weight:600;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
   .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
   .jsp-dbdgs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px;}
+  .jsp-route{margin:0 0 22px;} .jsp-route .nearby-card{margin:0;max-width:none;}
   .jsp-stit{font-size:14px;font-weight:700;color:var(--tx);margin:0 0 9px;}
   .jsp-desc{font-size:14.5px;color:var(--tx2);line-height:1.75;margin:0;white-space:pre-line;max-width:72ch;}
   .jsp-hr{border:none;border-top:1px solid var(--ln);margin:18px 0;}
@@ -721,7 +760,7 @@ const S = `
   .jsp-rdot{width:6px;height:6px;border-radius:50%;background:var(--ac);flex-shrink:0;margin-top:7px;}
   .jsp-skg{display:flex;flex-wrap:wrap;gap:6px;}
   .jsp-sk{padding:4px 10px;border-radius:8px;background:var(--sf);border:1px solid var(--ln);color:var(--tx2);font-size:12px;font-weight:600;}
-  .jsp-aic{border-radius:16px;padding:16px;background:linear-gradient(145deg,rgba(139,123,255,.16),rgba(56,189,248,.07));border:1px solid var(--acb);position:relative;overflow:hidden;}
+  .jsp-aic{border-radius:16px;padding:16px;background:linear-gradient(160deg,var(--acs),transparent 70%),var(--sf);border:1px solid var(--ln2);position:relative;overflow:hidden;}
   .jsp-aihd{display:flex;align-items:center;gap:6px;margin-bottom:12px;}
   .jsp-ailbl{font-size:11px;font-weight:700;color:var(--ac);text-transform:uppercase;letter-spacing:.6px;}
   .jsp-rtrack{stroke:var(--sf2);}
@@ -759,7 +798,7 @@ const S = `
     .jsp-fbtn{display:flex;}
     .jsp-main{padding:14px 16px 24px;}
     .jsp-grid{grid-template-columns:1fr;gap:10px;}
-    .jsp-sb{position:absolute;left:0;right:0;bottom:0;z-index:15;width:auto;max-height:78%;border-left:none;border-top:1px solid var(--ln2);border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 50px rgba(0,0,0,.5);display:none;animation:jUp .25s cubic-bezier(.16,1,.3,1);}
+    .jsp-sb{position:absolute;left:0;right:0;bottom:0;z-index:15;width:auto;max-height:78%;border-left:none;border-top:1px solid var(--ln2);border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 50px var(--scrim2);display:none;animation:jUp .25s cubic-bezier(.16,1,.3,1);}
     .jsp-sb.open{display:flex;}
     .jsp-sbhd{display:flex;align-items:center;justify-content:space-between;padding:6px 0 0;}
     .jsp-sbhd::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:4px;background:var(--ln2);}
@@ -772,6 +811,7 @@ const S = `
     .jsp-dside{width:auto;border-left:none;padding:8px 16px 24px;}
     .jsp-djt{font-size:19px;}
   }
+  @media(prefers-reduced-motion:reduce){ .jsp-grid > .jsp-card,.jsp-cat{animation:none;} }
   @media(max-width:400px){ .jsp-pill{display:none;} .jsp-dactb span{display:none;} }
 `;
 
@@ -934,7 +974,7 @@ export default function JobSearchPanel({ onClose }) {
 
 
   const Card = ({ job }) => (
-    <div className="jsp-card" style={{ "--cc": job.color || "#8b7bff" }} onClick={() => setDetail(job)}>
+    <div className="jsp-card" onClick={() => setDetail(job)}>
       <div className="jsp-ctop">
         <CompanyLogo job={job} />
         <div className="jsp-cinfo">
@@ -999,7 +1039,7 @@ export default function JobSearchPanel({ onClose }) {
             const d = Math.max(.06, j.distance / nr.radius) * R;
             const a = toRad(j.bearing);
             return (
-              <circle key={j.id} className="rg-dot" cx={C + Math.sin(a) * d} cy={C - Math.cos(a) * d} r="6" style={{ fill: j.color || "var(--ac)" }} onClick={() => setDetail(j)}>
+              <circle key={j.id} className="rg-dot" cx={C + Math.sin(a) * d} cy={C - Math.cos(a) * d} r="6" style={{ fill: companyColor(j) }} onClick={() => setDetail(j)}>
                 <title>{`${j.title} · ${j.company} · ${fmtKm(j.distance)}`}</title>
               </circle>
             );
@@ -1019,7 +1059,7 @@ export default function JobSearchPanel({ onClose }) {
             <p className="jsp-rsub">Around {place}{unknown > 0 ? ` · ${unknown} without an exact pin` : ""}</p>
             {pts.length > 0 && <div className="jsp-rnear">
               {pts.slice(0, 3).map(j => (
-                <button key={j.id} type="button" onClick={() => setDetail(j)}><i style={{ background: j.color || "var(--ac)" }} /><em>{j.title} · {j.company}</em><b>{fmtKm(j.distance)}</b></button>
+                <button key={j.id} type="button" onClick={() => setDetail(j)}><i style={{ background: companyColor(j) }} /><em>{j.title} · {j.company}</em><b>{fmtKm(j.distance)}</b></button>
               ))}
             </div>}
           </>}
@@ -1028,11 +1068,14 @@ export default function JobSearchPanel({ onClose }) {
     );
   };
 
-  const Empty = ({ title, sub, action }) => (
+  const Empty = ({ title, sub, action, cats }) => (
     <div className="jsp-empty">
       <div className="jsp-emico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></div>
       <p className="jsp-emtit">{title}</p>
       <p className="jsp-emsub">{sub}</p>
+      {cats && <div className="jsp-cats">{cats.map(([icon, label, query], i) => (
+        <button key={label} type="button" className="jsp-cat" style={{ animationDelay: `${i * 0.025}s` }} onClick={() => { setQ(query); search(query); }}><span aria-hidden="true">{icon}</span>{label}</button>
+      ))}</div>}
       {action}
     </div>
   );
@@ -1046,6 +1089,19 @@ export default function JobSearchPanel({ onClose }) {
     const missing = (job.skills || []).filter(s => !user.includes(s)).slice(0, 2);
     score = Math.min(score + matched.length * 8, 99);
     const r = 30, cx = 35, cy = 35, circ = 2 * Math.PI * r;
+    // Where the job is, and the way there from you: the road route when your
+    // location is known (a "near me" search), else the place to get directions to.
+    const here = resultNear || (near.lat != null && near.lng != null ? near : null);
+    const onMap = !job.remote && job.lat != null && job.lng != null;
+    const km = job.distance ?? (here && onMap ? distanceKm(here.lat, here.lng, job.lat, job.lng) : null);
+    const route = onMap && {
+      title: here ? `Getting to ${job.company || "this job"}` : `${job.company || "This job"} on the map`,
+      subject: job.company || job.title,
+      route: true,
+      center: here ? { lat: here.lat, lng: here.lng } : null,
+      places: [{ name: job.company || job.title, location: { lat: job.lat, lng: job.lng }, category: job.location, distanceMeters: km != null ? Math.round(km * 1000) : null }],
+      status: "ok",
+    };
 
     return (
       <div className="jsp-det">
@@ -1081,6 +1137,7 @@ export default function JobSearchPanel({ onClose }) {
               {job.postedAt && <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>Posted {timeAgo(job.postedAt)}</span>}
               {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {job.experienceLevel === "Internship" ? "Stipend " : ""}{formatSalary(job.salary.min, job.salary.max, job.salary.currency)}{payPeriodSuffix(job.salary.period)}</span>}
             </div>
+            {route && <div className="jsp-route"><NearbyMapCard data={route} /></div>}
             {job.description && (
               <>
                 <p className="jsp-stit">About the Role</p>
@@ -1108,18 +1165,18 @@ export default function JobSearchPanel({ onClose }) {
           </div>
           <div className="jsp-dside">
             <div className="jsp-aic">
-              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
+              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
               <div className="jsp-rw">
                 <svg width="70" height="70" viewBox="0 0 70 70">
                   <circle cx={cx} cy={cy} r={r} fill="none" className="jsp-rtrack" strokeWidth="7" />
                   <circle cx={cx} cy={cy} r={r} fill="none" stroke="url(#jg)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ} transform={`rotate(-90 ${cx} ${cy})`} />
-                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#38bdf8" /><stop offset="100%" stopColor="#8b7bff" /></linearGradient></defs>
+                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style={{ stopColor: "var(--ac)", stopOpacity: .65 }} /><stop offset="100%" style={{ stopColor: "var(--ac)" }} /></linearGradient></defs>
                 </svg>
                 <div className="jsp-rn"><span className="jsp-rbig">{score}</span><span className="jsp-rpct">%</span></div>
               </div>
               {matched.length > 0 && <div><div className="jsp-ml">Matched</div><div className="jsp-mt">{matched.map(s => <span key={s} className="m-y">✓ {s}</span>)}</div></div>}
               {missing.length > 0 && <div><div className="jsp-ml">Missing</div><div className="jsp-mt">{missing.map(s => <span key={s} className="m-n">✗ {s}</span>)}</div></div>}
-              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "#38bdf8" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
+              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "var(--ac)" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
             </div>
             <div className="jsp-coc">
               <p className="jsp-stit" style={{ fontSize: 12, marginBottom: 8 }}>Company Info</p>
@@ -1156,7 +1213,7 @@ export default function JobSearchPanel({ onClose }) {
         <div className="jsp-box">
           <div className="jsp-hd">
             <div className="jsp-hdl">
-              <div className="jsp-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" /></svg></div>
+              <div className="jsp-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" /></svg></div>
               <h2 className="jsp-hdtit">AI Job Search</h2>
               <span className="jsp-pill">{internMode ? "INTERNSHIPS" : "300+ JOB TYPES"}</span>
             </div>
@@ -1173,7 +1230,7 @@ export default function JobSearchPanel({ onClose }) {
                     : (nearReady ? "What kind of job? (optional)" : 'Search any job — e.g. "Delivery boy Bangalore", "Doctor Mumbai", "Python Developer remote"')} autoFocus />
               </div>
               <button className="jsp-srchbtn" onClick={() => search()} disabled={(!q.trim() && !nearReady && !internMode) || loading}>
-                {loading ? <div className="jsp-spin" /> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>}
+                {loading ? <div className="jsp-spin" /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>}
               </button>
             </div>
             <div className="jsp-near">
@@ -1219,10 +1276,10 @@ export default function JobSearchPanel({ onClose }) {
                   ? <Empty title="Find open internships" sub="Software • Data • Design • Marketing • Finance • HR • Engineering • Content • and more — remote, hybrid or near you. Only listings still accepting applications are shown."
                       action={<div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
                         <button type="button" className="jsp-cta" onClick={() => search(q)}>Show open internships</button>
-                        {!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Internships near me</button>}
+                        {!near.on && <button type="button" className="jsp-cta alt" onClick={toggleNear}>{pinIcon} Internships near me</button>}
                       </div>} />
-                  : <Empty title="Search any job across 300+ categories" sub={`Technology • Healthcare • Engineering • Finance • Design • Legal • Aviation • Hospitality • Government • and many more`}
-                      action={!near.on && <button type="button" className="jsp-cta" onClick={toggleNear}>{pinIcon} Find jobs near me</button>} />) :
+                  : <Empty title="Search any job across 300+ categories" sub="Type a role and a city above, or start with one of these." cats={JOB_CATEGORIES}
+                      action={!near.on && <button type="button" className="jsp-cta alt" onClick={toggleNear}>{pinIcon} Find jobs near me</button>} />) :
                 noMatch ? (resultNear
                   ? <Empty title={`No ${noun.many} within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
                       action={resultNear.radius < RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1] && <button type="button" className="jsp-cta" onClick={() => setRadius(RADIUS_OPTIONS.find(r => r > resultNear.radius))}>Search within {RADIUS_OPTIONS.find(r => r > resultNear.radius)} km</button>} />

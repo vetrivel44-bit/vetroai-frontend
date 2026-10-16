@@ -34,15 +34,18 @@ const KINDS = [
   { re: /\b(vets?|veterinar(y|ians?)|pet (clinic|hospital))\b/i, tags: [["amenity", "veterinary"]], label: "Vet" },
   { re: /\b(pet shops?|pet stores?)\b/i, tags: [["shop", "pet"]], label: "Pet shop" },
   { re: /\b(opticians?|opticals?|spectacles|eye ?glasses)\b/i, tags: [["shop", "optician"]], label: "Optician" },
-  { re: /\b(hospitals?|clinics?|doctors?|emergency)\b/i, tags: [["amenity", "hospital"], ["amenity", "clinic"], ["amenity", "doctors"]], label: "Hospital" },
+  { re: /\b(diagnostics?( cent(re|er)s?)?|(blood|medical|lab) tests?|labs?|laborator(y|ies)|pathology|scan(s|ning)? cent(re|er)s?|x-?rays?|mri|ct scans?|ultrasound)\b/i, tags: [["healthcare", "laboratory"], ["amenity", "laboratory"]], label: "Diagnostic lab" },
+  { re: /\b(physio(therap(y|ists?))?)\b/i, tags: [["healthcare", "physiotherapist"]], label: "Physiotherapy" },
+  { re: /\b(hospitals?|clinics?|doctors?|emergency|ambulances?)\b/i, tags: [["amenity", "hospital"], ["amenity", "clinic"], ["amenity", "doctors"]], label: "Hospital" },
   { re: /\b(pharmac(y|ies)|chemists?|medical (stores?|shops?)|medicals?)\b/i, tags: [["amenity", "pharmacy"]], label: "Pharmacy" },
+  { re: /\b(pgs?|paying guests?|co-?living|ladies hostels?|gents hostels?|mens hostels?|womens hostels?)\b/i, tags: [["tourism", "hostel"], ["tourism", "guest_house"], ["building", "dormitory"]], label: "PG / hostel" },
   { re: /\b(hotels?|lodges?|lodging|stays?|hostels?|resorts?|motels?|guest ?houses?|homestays?|rooms? to stay)\b/i, tags: [["tourism", "hotel"], ["tourism", "guest_house"], ["tourism", "hostel"], ["tourism", "motel"], ["tourism", "apartment"]], label: "Hotel" },
   { re: /\b(ice ?creams?|gelato|desserts?)\b/i, tags: [["amenity", "ice_cream"], ["shop", "ice_cream"]], label: "Ice cream" },
   { re: /\b(sweets?|sweet shops?|mithai|confectioner(y|ies))\b/i, tags: [["shop", "confectionery"], ["shop", "pastry"]], label: "Sweet shop" },
-  { re: /\b(caf[eé]s?|coffee|tea shops?|chai|bakery|bakeries|cake shops?)\b/i, tags: [["amenity", "cafe"], ["shop", "bakery"]], label: "Café" },
+  { re: /\b(caf[eé]s?|coffee|tea shops?|tea stalls?|chai|juice( shops?| cent(re|er)s?| bars?)?|juices|bakery|bakeries|cake shops?)\b/i, tags: [["amenity", "cafe"], ["shop", "bakery"]], label: "Café" },
   { re: /\b(bars?|pubs?|brewer(y|ies)|nightlife)\b/i, tags: [["amenity", "bar"], ["amenity", "pub"]], label: "Bar" },
   { re: /\b(liquor|wine shops?|alcohol)\b/i, tags: [["shop", "alcohol"]], label: "Liquor store" },
-  { re: /\b(restaurants?|food|eat|eating|dinner|lunch|breakfast|biryani|dosa|idli|pizza|burgers?|meals?|dhabas?|mess|veg|non[- ]?veg|chinese|north indian|south indian|street food|chaat|shawarma|noodles|kfc|mcdonald'?s|domino'?s)\b/i, tags: [["amenity", "restaurant"], ["amenity", "fast_food"], ["amenity", "food_court"]], label: "Restaurant" },
+  { re: /\b(restaurants?|food|eat|eating|dinner|lunch|breakfast|biryani|dosa|idli|pizza|burgers?|meals?|dhabas?|mess|veg|non[- ]?veg|chinese|north indian|south indian|street food|chaat|tiffins?|tiffin cent(re|er)s?|shawarma|noodles|kfc|mcdonald'?s|domino'?s)\b/i, tags: [["amenity", "restaurant"], ["amenity", "fast_food"], ["amenity", "food_court"]], label: "Restaurant" },
   { re: /\b(atms?|cash machines?)\b/i, tags: [["amenity", "atm"]], label: "ATM" },
   { re: /\b(banks?)\b/i, tags: [["amenity", "bank"]], label: "Bank" },
   { re: /\b(ev charging|charging stations?|ev chargers?)\b/i, tags: [["amenity", "charging_station"]], label: "EV charging" },
@@ -55,7 +58,20 @@ const KINDS = [
   { re: /\b(malls?|shopping)\b/i, tags: [["shop", "mall"], ["shop", "department_store"]], label: "Mall" },
   { re: /\b(clothes|clothing|garments?|boutiques?|dress shops?)\b/i, tags: [["shop", "clothes"]], label: "Clothes" },
   { re: /\b(shoes?|footwear)\b/i, tags: [["shop", "shoes"]], label: "Shoes" },
-  { re: /\b(electronics?|mobile shops?|phone shops?|mobile stores?|mobile service)\b/i, tags: [["shop", "electronics"], ["shop", "mobile_phone"]], label: "Electronics" },
+  { re: /\b(electronics?|mobile shops?|phone shops?|mobile stores?|mobile service|mobile repairs?|phone repairs?|mobiles?)\b/i, tags: [["shop", "electronics"], ["shop", "mobile_phone"]], label: "Electronics" },
+  { re: /\b(furniture)\b/i, tags: [["shop", "furniture"]], label: "Furniture" },
+  { re: /\b(gift shops?|gifts?|gift stores?)\b/i, tags: [["shop", "gift"]], label: "Gift shop" },
+  { re: /\b(toy shops?|toy stores?|toys)\b/i, tags: [["shop", "toys"]], label: "Toy shop" },
+  { re: /\b(sports? (shops?|stores?|goods))\b/i, tags: [["shop", "sports"]], label: "Sports shop" },
+  { re: /\b(cycle shops?|cycle stores?|bicycles?( shops?| stores?)?|cycles)\b/i, tags: [["shop", "bicycle"]], label: "Cycle shop" },
+  { re: /\b(bike showrooms?|two wheeler showrooms?|scooter showrooms?|motorcycle (shops?|showrooms?|dealers?))\b/i, tags: [["shop", "motorcycle"]], label: "Bike showroom" },
+  { re: /\b(car (showrooms?|dealers?|dealerships?))\b/i, tags: [["shop", "car"]], label: "Car showroom" },
+  { re: /\b(car rentals?|rent a car|self drive( cars?)?|car hire)\b/i, tags: [["amenity", "car_rental"]], label: "Car rental" },
+  { re: /\b(bike rentals?|scooter rentals?|rent a (bike|scooter)|bicycle rentals?)\b/i, tags: [["amenity", "motorcycle_rental"], ["shop", "motorcycle_rental"], ["amenity", "bicycle_rental"]], label: "Bike rental" },
+  { re: /\b(photo studios?|photographers?|passport (size )?photos?)\b/i, tags: [["shop", "photo"], ["craft", "photographer"]], label: "Photo studio" },
+  { re: /\b(couriers?|parcel( services?)?)\b/i, tags: [["office", "courier"], ["shop", "courier"], ["amenity", "post_office"]], label: "Courier" },
+  { re: /\b(electricians?)\b/i, tags: [["craft", "electrician"]], label: "Electrician" },
+  { re: /\b(plumbers?|plumbing)\b/i, tags: [["craft", "plumber"]], label: "Plumber" },
   { re: /\b(book ?shops?|book ?stores?|books)\b/i, tags: [["shop", "books"]], label: "Bookstore" },
   { re: /\b(stationery|xerox|photocop(y|ies)|printing|print shops?)\b/i, tags: [["shop", "stationery"], ["shop", "copyshop"]], label: "Stationery" },
   { re: /\b(hardware|paint shops?|tools)\b/i, tags: [["shop", "hardware"], ["shop", "doityourself"]], label: "Hardware" },
@@ -69,6 +85,7 @@ const KINDS = [
   { re: /\b(yoga)\b/i, tags: [["leisure", "fitness_centre"], ["amenity", "studio"]], label: "Yoga" },
   { re: /\b(swimming|swimming pools?|pools?)\b/i, tags: [["leisure", "swimming_pool"], ["leisure", "sports_centre"]], label: "Swimming" },
   { re: /\b(stadiums?|sports? (grounds?|centres?|centers?|complex)|turfs?|play ?grounds?)\b/i, tags: [["leisure", "stadium"], ["leisure", "sports_centre"], ["leisure", "playground"]], label: "Sports" },
+  { re: /\b(water ?parks?|amusement parks?|theme parks?)\b/i, tags: [["leisure", "water_park"], ["tourism", "theme_park"]], label: "Water park" },
   { re: /\b(parks?|gardens?)\b/i, tags: [["leisure", "park"], ["leisure", "garden"]], label: "Park" },
   { re: /\b(beach(es)?)\b/i, tags: [["natural", "beach"]], label: "Beach" },
   { re: /\b(zoos?)\b/i, tags: [["tourism", "zoo"]], label: "Zoo" },
@@ -76,6 +93,8 @@ const KINDS = [
   { re: /\b(tourist|tourism|sightseeing|attractions?|places to (visit|see|go)|things to do|monuments?|forts?|viewpoints?|landmarks?)\b/i, tags: [["tourism", "attraction"], ["tourism", "viewpoint"], ["tourism", "museum"], ["historic", "monument"], ["historic", "fort"]], label: "Attraction" },
   { re: /\b(cinemas?|movies?|movie theat(er|re)s?|multiplex|theat(er|re)s?)\b/i, tags: [["amenity", "cinema"]], label: "Cinema" },
   { re: /\b(libraries|library)\b/i, tags: [["amenity", "library"]], label: "Library" },
+  { re: /\b(courts?|court ?house)\b/i, tags: [["amenity", "courthouse"]], label: "Court" },
+  { re: /\b(government offices?|govt\.? offices?|rto|regional transport offices?|passport (seva kendras?|offices?)|aadhaa?r (cent(re|er)s?|kendras?|offices?)|taluk offices?|municipal offices?|corporation offices?|ward offices?|panchayat offices?)\b/i, tags: [["office", "government"], ["amenity", "townhall"]], label: "Government office" },
   { re: /\b(post offices?)\b/i, tags: [["amenity", "post_office"]], label: "Post office" },
   { re: /\b(police( stations?)?)\b/i, tags: [["amenity", "police"]], label: "Police station" },
   { re: /\b(fire stations?)\b/i, tags: [["amenity", "fire_station"]], label: "Fire station" },
@@ -85,8 +104,11 @@ const KINDS = [
   { re: /\b(colleges?|universit(y|ies))\b/i, tags: [["amenity", "college"], ["amenity", "university"]], label: "College" },
   { re: /\b(co-?working( spaces?)?)\b/i, tags: [["amenity", "coworking_space"], ["office", "coworking"]], label: "Coworking" },
   { re: /\b(wedding halls?|function halls?|marriage halls?|event (halls?|venues?)|banquet( halls?)?|kalyana mandapams?|convention (halls?|centres?|centers?))\b/i, tags: [["amenity", "events_venue"], ["amenity", "conference_centre"]], label: "Event venue" },
-  { re: /\b(bus stops?|bus stations?|bus stands?|bus depots?)\b/i, tags: [["highway", "bus_stop"], ["amenity", "bus_station"]], label: "Bus stop" },
-  { re: /\b(metro( stations?)?|railway stations?|train stations?|railway)\b/i, tags: [["railway", "station"]], label: "Station" },
+  { re: /\b(bus( stops?| stations?| stands?| depots?)?)\b/i, tags: [["highway", "bus_stop"], ["amenity", "bus_station"]], label: "Bus stop" },
+  // Metro stations are railway stations that OpenStreetMap marks as metro
+  // (station=subway/light_rail, or "Metro" in the name or network).
+  { re: /\b(metro|namma metro|subway)( stations?)?\b/i, tags: [["railway", "station"], ["public_transport", "station"], ["railway", "halt"]], select: ['["railway"="station"]["station"~"^(subway|light_rail|monorail)$"]', '["public_transport"="station"]["subway"="yes"]', '["railway"="station"]["name"~"metro",i]', '["railway"="station"]["network"~"metro",i]'], label: "Metro station" },
+  { re: /\b(railway stations?|train stations?|railway|stations?)\b/i, tags: [["railway", "station"], ["railway", "halt"]], label: "Railway station" },
   { re: /\b(airports?)\b/i, tags: [["aeroway", "aerodrome"]], label: "Airport" },
   { re: /\b(taxi( stands?)?|auto stands?|cab stands?)\b/i, tags: [["amenity", "taxi"]], label: "Taxi stand" },
   { re: /\b(parking)\b/i, tags: [["amenity", "parking"]], label: "Parking" },
@@ -99,7 +121,68 @@ const GENERAL = { tags: [["tourism", "attraction"], ["amenity", "restaurant"], [
 
 /** The OpenStreetMap kind for a query, or null when it isn't a place type. */
 function kindFor(query) {
-  return KINDS.find((k) => k.re.test(String(query || ""))) || null;
+  const q = String(query || "");
+  // A corrected spelling wins: in "polise station" the misspelt word is the
+  // one that says what kind of station.
+  const fixed = correctSpelling(q);
+  return (fixed !== q && KINDS.find((k) => k.re.test(fixed))) || KINDS.find((k) => k.re.test(q)) || null;
+}
+
+// Words people misspell when they're in a hurry: "restarent", "resturant",
+// "hospitel", "pharmecy". Each is the word a kind above understands.
+const PLACE_WORDS = [
+  "restaurant", "hospital", "pharmacy", "chemist", "medical", "clinic", "doctor", "dentist", "veterinary",
+  "hotel", "hostel", "lodge", "resort", "homestay", "bakery", "coffee", "dessert", "icecream", "sweets",
+  "biryani", "breakfast", "dinner", "lunch", "pizza", "burger", "shawarma", "noodles", "chinese", "dhaba",
+  "liquor", "supermarket", "grocery", "vegetables", "fruits", "butcher", "seafood", "mall", "shopping",
+  "clothes", "clothing", "boutique", "footwear", "electronics", "bookshop", "stationery", "xerox", "hardware",
+  "jewellery", "jeweller", "jewelry", "florist", "tailor", "laundry", "salon", "barber", "parlour", "beauty",
+  "massage", "fitness", "workout", "swimming", "stadium", "playground", "garden", "beach", "museum", "gallery",
+  "tourist", "sightseeing", "attraction", "monument", "viewpoint", "cinema", "theatre", "theater", "multiplex",
+  "library", "police", "temple", "church", "mosque", "masjid", "gurudwara", "kindergarten", "daycare",
+  "school", "college", "university", "coworking", "banquet", "railway", "metro", "airport", "parking",
+  "toilet", "restroom", "washroom", "bathroom", "petrol", "diesel", "mechanic", "garage", "puncture",
+  "diagnostic", "laboratory", "pathology", "ultrasound", "physiotherapy", "ambulance", "emergency",
+  "furniture", "bicycle", "photographer", "courier", "electrician", "plumber", "station",
+];
+
+// Common spellings too far from the word for the edit distance below.
+const MISSPELT = { restraunt: "restaurant", restraunts: "restaurant", restrant: "restaurant", restrants: "restaurant", restront: "restaurant", restorant: "restaurant", restorants: "restaurant", resto: "restaurant", restos: "restaurant", hotle: "hotel" };
+
+// Edit distance with swapped neighbours counting as one edit ("resturant").
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/** "restarent near me" → "restaurant near me". Words it doesn't recognise stay as they are. */
+function correctSpelling(query) {
+  return String(query || "").replace(/\p{L}{4,}/gu, (word) => {
+    const w = word.toLowerCase();
+    if (MISSPELT[w]) return MISSPELT[w];
+    if (PLACE_WORDS.includes(w) || KINDS.some((k) => k.re.test(w))) return word;
+    const stem = w.replace(/(e?s)$/, "");
+    // Short words allow one slip, longer ones two: "parlor" but never "car" → "bar".
+    const allowed = (x) => (x.length >= 8 ? 2 : 1);
+    let best = null;
+    for (const target of PLACE_WORDS) {
+      if (target.length < 5 || Math.abs(target.length - w.length) > 3) continue;
+      // A four-letter word is only taken as a longer one cut short ("metr",
+      // "hote", "pizz"): otherwise "call" would be a mall and "each" a beach.
+      if (w.length === 4 && (target.length !== 5 || !target.startsWith(w))) continue;
+      const dist = Math.min(editDistance(w, target), editDistance(stem, target));
+      if (dist <= allowed(target) && (!best || dist < best.dist)) best = { target, dist };
+    }
+    return best ? best.target : word;
+  });
 }
 
 const GENERIC = /\b(places?|spots?|shops?|stores?|outlets?|centres?|centers?|near|me|nearby|nearest|closest|around|here|the|a|an|some|best|good|top|any|to|in|my|area|location)\b/gi;
@@ -163,10 +246,11 @@ function overpassRegex(term) {
   return /s$/i.test(escaped) ? `${escaped.slice(0, -1)}'?s` : escaped;
 }
 
-function overpassQuery({ kind, name }, { lat, lng }, radius, max = 150) {
+const OVERPASS_MAX = 400;
+function overpassQuery({ kind, name }, { lat, lng }, radius, max = OVERPASS_MAX) {
   const around = `(around:${radius},${lat},${lng})`;
   const lines = kind
-    ? kind.tags.map(([k, v]) => `nwr["${k}"="${v}"]["name"]${around};`).join("")
+    ? (kind.select ? kind.select.map((sel) => `nwr${sel}["name"]${around};`) : kind.tags.map(([k, v]) => `nwr["${k}"="${v}"]["name"]${around};`)).join("")
     : `nwr["name"~"${overpassRegex(name)}",i]${around};nwr["brand"~"${overpassRegex(name)}",i]["name"]${around};`;
   return `[out:json][timeout:12];(${lines});out center tags ${max};`;
 }
@@ -245,9 +329,17 @@ function rankPlaces(places, prefer = []) {
 async function searchOverpassTarget(target, center, { limit = 8, prefer = [] } = {}) {
   let found = [];
   for (const radius of RADII) {
-    const elements = await overpassFetch(overpassQuery(target, center, radius));
+    let elements = await overpassFetch(overpassQuery(target, center, radius));
+    // Overpass stops at OVERPASS_MAX in its own order, not by distance: where
+    // places are that dense (a busy city centre), the nearest could be cut
+    // off, so look again in a smaller circle that holds them all.
+    let searched = radius;
+    for (let r = Math.round(radius / 3); elements.length >= OVERPASS_MAX && r >= 300; r = Math.round(r / 3)) {
+      elements = await overpassFetch(overpassQuery(target, center, r));
+      searched = r;
+    }
     found = rankPlaces(elements.map((el) => placeFromElement(el, center, target.kind)).filter(Boolean), prefer);
-    if (found.length >= ENOUGH) return { places: found.slice(0, limit), radius };
+    if (found.length >= ENOUGH) return { places: found.slice(0, limit), radius: searched };
   }
   return { places: found.slice(0, limit), radius: RADII[RADII.length - 1] };
 }
@@ -259,7 +351,12 @@ async function searchOverpass(kind, center, opts = {}) {
 
 // Photon ranks results by closeness to a point, so a free-text query finds
 // nearby matches even when Overpass is down.
-async function searchPhoton(query, center, { limit = 8 } = {}) {
+// Photon and Nominatim search text, so "Station" also finds "HAL Police
+// Station" and a "Stationery shop". When a kind of place was asked for, keep
+// only places of that kind.
+const ofKind = (kind, key, value) => !kind?.label || kind.tags.some(([k, v]) => k === key && v === value);
+
+async function searchPhoton(query, center, { limit = 8, kind = null } = {}) {
   const url = `${PHOTON_URL}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}&limit=20&lang=en`;
   const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Photon ${res.status}`);
@@ -269,13 +366,14 @@ async function searchPhoton(query, center, { limit = 8 } = {}) {
     const [lng, lat] = f.geometry?.coordinates || [];
     if (!p.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     if (["place", "boundary", "highway", "landuse"].includes(p.osm_key)) return null;
+    if (!ofKind(kind, p.osm_key, p.osm_value)) return null;
     const location = { lat, lng };
     return {
       placeId: `osm:${({ N: "node", W: "way", R: "relation" })[p.osm_type] || "node"}/${p.osm_id}`,
       name: p.name,
       address: [[p.housenumber, p.street].filter(Boolean).join(" "), p.district || p.locality, p.city].filter(Boolean).join(", "),
       location, rating: null, reviews: null, openNow: null, hours: null,
-      category: titleCase(p.osm_value || p.osm_key || "Place"),
+      category: kind?.label || titleCase(p.osm_value || p.osm_key || "Place"),
       phone: null, website: null, photoRef: null,
       mapsUrl: mapsUrlFor(p.name, location),
       source: "osm",
@@ -286,7 +384,7 @@ async function searchPhoton(query, center, { limit = 8 } = {}) {
 }
 
 // Last resort: Nominatim's text search inside a box around the user.
-async function searchNominatim(query, center, { limit = 8 } = {}) {
+async function searchNominatim(query, center, { limit = 8, kind = null } = {}) {
   const d = 0.15; // ≈ 16 km
   const url = new URL(NOMINATIM_SEARCH);
   url.searchParams.set("format", "jsonv2");
@@ -303,13 +401,14 @@ async function searchNominatim(query, center, { limit = 8 } = {}) {
     const lng = Number(r.lon);
     const name = r.name || String(r.display_name || "").split(",")[0];
     if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (!ofKind(kind, r.category, r.type)) return null;
     const location = { lat, lng };
     return {
       placeId: `osm:${r.osm_type}/${r.osm_id}`,
       name,
       address: String(r.display_name || "").split(",").slice(1, 4).join(",").trim(),
       location, rating: null, reviews: null, openNow: null, hours: null,
-      category: titleCase(r.type || r.category || "Place"),
+      category: kind?.label || titleCase(r.type || r.category || "Place"),
       phone: null, website: null, photoRef: null,
       mapsUrl: mapsUrlFor(name, location),
       source: "osm",
@@ -324,11 +423,15 @@ async function searchNominatim(query, center, { limit = 8 } = {}) {
  * then Nominatim. Never throws. `failed` is true only when every service
  * errored — an empty list with failed=false really means nothing is near.
  */
-async function findNearby(query, center, { limit = 8 } = {}) {
+async function findNearby(rawQuery, center, { limit = 8 } = {}) {
+  const fixed = correctSpelling(rawQuery);
+  const query = fixed !== String(rawQuery || "") && KINDS.some((k) => k.re.test(fixed)) ? fixed : rawQuery;
   const name = kindFor(query) ? null : nameTermFor(query);
   const kind = kindFor(query) || (name ? null : GENERAL);
   const prefer = preferTermsFor(query, kind);
-  const text = (kind && kind.label) || name || (kind === GENERAL ? "tourist attraction" : String(query || "").trim());
+  // What the text searches look for: the words asked ("metro station"),
+  // which say more than the kind's label alone.
+  const text = (kind && kind.label && (nameTermFor(query) || kind.label)) || name || (kind === GENERAL ? "tourist attraction" : String(query || "").trim());
   let errors = 0;
   let attempts = 0;
 
@@ -336,7 +439,7 @@ async function findNearby(query, center, { limit = 8 } = {}) {
     attempts++;
     try {
       const { places, radius } = await searchOverpassTarget(kind ? { kind } : { name }, center, { limit, prefer });
-      if (places.length) return { places, failed: false, source: "overpass", radius };
+      if (places.length) return { places, failed: false, source: "overpass", radius, label: kind?.label || null, query };
     } catch (err) {
       errors++;
       logger.warn("nearby.overpassUnavailable", { error: err.message });
@@ -346,14 +449,14 @@ async function findNearby(query, center, { limit = 8 } = {}) {
     if (!text) break;
     attempts++;
     try {
-      const places = await search(text, center, { limit });
-      if (places.length) return { places, failed: false, source: search === searchPhoton ? "photon" : "nominatim", radius: FALLBACK_MAX_METERS };
+      const places = await search(text, center, { limit, kind });
+      if (places.length) return { places, failed: false, source: search === searchPhoton ? "photon" : "nominatim", radius: FALLBACK_MAX_METERS, label: kind?.label || null, query };
     } catch (err) {
       errors++;
       logger.warn("nearby.fallbackFailed", { source: search.name, error: err.message });
     }
   }
-  return { places: [], failed: attempts > 0 && errors === attempts, source: null, radius: RADII[RADII.length - 1] };
+  return { places: [], failed: attempts > 0 && errors === attempts, source: null, radius: RADII[RADII.length - 1], label: kind?.label || null, query };
 }
 
 /** The neighbourhood the user is in ("Mathikere"), or null. Never throws. */
@@ -371,7 +474,7 @@ async function areaName({ lat, lng }) {
 }
 
 module.exports = {
-  kindFor, nameTermFor, preferTermsFor, categoryOf, rankPlaces, overpassQuery,
+  kindFor, correctSpelling, nameTermFor, PLACE_WORDS, preferTermsFor, categoryOf, rankPlaces, overpassQuery,
   searchOverpass, searchPhoton, searchNominatim, findNearby, areaName, distanceMeters,
   OVERPASS_URLS, RADII,
 };
