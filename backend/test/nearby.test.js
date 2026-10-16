@@ -207,3 +207,61 @@ test("'what's near me' searches a mix of popular places, each named by its own k
   assert.match(body, /"tourism"="attraction"/);
   assert.match(body, /"amenity"="restaurant"/);
 });
+
+test("a misspelt place type still finds that kind of place", async () => {
+  assert.equal(nearby.correctSpelling("restarent near me"), "restaurant near me");
+  for (const q of ["restarents", "resturant", "restraunt", "hospitel", "pharmecy", "hotal", "saloon"]) assert.ok(nearby.kindFor(q), q);
+  // Names and ordinary words are left alone, so a brand is still searched by name.
+  for (const w of ["dominos", "decathlon", "starbucks", "where", "there", "famous", "koramangala", "suggest"]) assert.equal(nearby.correctSpelling(w), w);
+
+  let body = "";
+  await withFetch(async (url, opts) => { body ||= decodeURIComponent(opts.body); return json({ elements: restaurantsAt(6) }); }, async () => {
+    const result = await nearby.findNearby("restarent", HOME);
+    assert.equal(result.places.length, 6);
+    assert.equal(result.query, "restaurant");
+  });
+  assert.match(body, /nwr\["amenity"="restaurant"\]/);
+  assert.doesNotMatch(body, /restarent/);
+});
+
+test("where places are too many to list, the nearest are still found", async () => {
+  const radii = [];
+  const many = Array.from({ length: 400 }, (_, i) => ({ type: "node", id: 1000 + i, lat: 13.05 + i * 0.0001, lon: 77.58, tags: { name: `Far ${i}`, amenity: "restaurant" } }));
+  await withFetch(async (url, opts) => {
+    const radius = Number(/around:(\d+)/.exec(decodeURIComponent(opts.body))[1]);
+    radii.push(radius);
+    return json({ elements: radius >= 2000 ? many : restaurantsAt(9) });
+  }, async () => {
+    const result = await nearby.findNearby("restaurants", HOME);
+    assert.equal(result.places[0].name, "Place 0");
+    assert.ok(result.places.every((p) => p.distanceMeters < 1000));
+    assert.equal(result.radius, radii[radii.length - 1]);
+  });
+  assert.equal(radii[0], 2000);
+  assert.ok(radii[1] < 2000);
+});
+
+test("'metro station near me' finds metro stations — not police stations or stationery shops", async () => {
+  assert.equal(nearby.kindFor("Metro station near me").label, "Metro station");
+  assert.equal(nearby.kindFor("railway station near me").label, "Railway station");
+  let photonUrl = "";
+  let overpassBody = "";
+  await withFetch(async (url, opts) => {
+    if (String(url).includes("photon")) {
+      photonUrl = decodeURIComponent(String(url));
+      return json({ features: [
+        { geometry: { coordinates: [77.566, 13.032] }, properties: { name: "HAL Police Station", osm_key: "amenity", osm_value: "police", osm_type: "N", osm_id: 1 } },
+        { geometry: { coordinates: [77.567, 13.033] }, properties: { name: "Stationery shop", osm_key: "shop", osm_value: "stationery", osm_type: "N", osm_id: 2 } },
+        { geometry: { coordinates: [77.57, 13.04] }, properties: { name: "Baiyappanahalli", osm_key: "railway", osm_value: "station", osm_type: "N", osm_id: 3 } },
+      ] });
+    }
+    overpassBody ||= decodeURIComponent(opts?.body || "");
+    return json({}, 504);
+  }, async () => {
+    const result = await nearby.findNearby("Metro station", HOME);
+    assert.deepEqual(result.places.map((p) => p.name), ["Baiyappanahalli"]);
+    assert.equal(result.places[0].category, "Metro station");
+  });
+  assert.match(photonUrl, /q=Metro station&/i);
+  assert.match(overpassBody, /\["station"~"\^\(subway\|light_rail\|monorail\)\$"\]/);
+});

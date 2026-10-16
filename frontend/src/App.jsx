@@ -6216,7 +6216,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (!isActive()) return;
         const userLocation = locationResult.location;
         if (userLocation) {
-          const subject = nearbySubject(removePluginMention(userQuery, "maps"));
+          let subject = nearbySubject(removePluginMention(userQuery, "maps"));
           setRequestActivity(`Finding ${nearbyTitle(subject).toLowerCase()} near you…`);
           // The map services are public and sometimes busy, so a failed
           // search is tried once more before telling the user.
@@ -6236,6 +6236,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           }
           if (!isActive()) return;
           const area = payload?.meta?.area || null;
+          // A misspelt "restarent" was searched as "restaurant"; say what was found.
+          if (payload?.meta?.correctedQuery) subject = payload.meta.correctedQuery;
           const radiusKm = Math.round((payload?.meta?.radius || 6000) / 1000);
           const places = (Array.isArray(payload?.data) ? payload.data : []).filter((p) => p?.name && p?.location).slice(0, 8).map((p) => ({
             ...p,
@@ -8744,8 +8746,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
                      <div className="flex w-full mb-6 justify-start gap-3">
-                       <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #4F7CFF 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
-                         <VetroSparkWhite size={22} />
+                       <div className="thinking-avatar" aria-hidden="true">
+                         <svg viewBox="12 2 76 96" width="20" height="22" focusable="false">
+                           <rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)" />
+                           <rect x="42" y="8" width="16" height="74" rx="8" fill="#146b80" transform="rotate(24 50 82)" />
+                           <circle cx="50" cy="79" r="6.5" fill="var(--bg-elevated, var(--bg))" />
+                         </svg>
                        </div>
                        <div style={{ paddingTop: 6 }}>
                          <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />

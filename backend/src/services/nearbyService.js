@@ -86,7 +86,10 @@ const KINDS = [
   { re: /\b(co-?working( spaces?)?)\b/i, tags: [["amenity", "coworking_space"], ["office", "coworking"]], label: "Coworking" },
   { re: /\b(wedding halls?|function halls?|marriage halls?|event (halls?|venues?)|banquet( halls?)?|kalyana mandapams?|convention (halls?|centres?|centers?))\b/i, tags: [["amenity", "events_venue"], ["amenity", "conference_centre"]], label: "Event venue" },
   { re: /\b(bus stops?|bus stations?|bus stands?|bus depots?)\b/i, tags: [["highway", "bus_stop"], ["amenity", "bus_station"]], label: "Bus stop" },
-  { re: /\b(metro( stations?)?|railway stations?|train stations?|railway)\b/i, tags: [["railway", "station"]], label: "Station" },
+  // Metro stations are railway stations that OpenStreetMap marks as metro
+  // (station=subway/light_rail, or "Metro" in the name or network).
+  { re: /\b(metro|namma metro|subway)( stations?)?\b/i, tags: [["railway", "station"], ["public_transport", "station"], ["railway", "halt"]], select: ['["railway"="station"]["station"~"^(subway|light_rail|monorail)$"]', '["public_transport"="station"]["subway"="yes"]', '["railway"="station"]["name"~"metro",i]', '["railway"="station"]["network"~"metro",i]'], label: "Metro station" },
+  { re: /\b(railway stations?|train stations?|railway)\b/i, tags: [["railway", "station"], ["railway", "halt"]], label: "Railway station" },
   { re: /\b(airports?)\b/i, tags: [["aeroway", "aerodrome"]], label: "Airport" },
   { re: /\b(taxi( stands?)?|auto stands?|cab stands?)\b/i, tags: [["amenity", "taxi"]], label: "Taxi stand" },
   { re: /\b(parking)\b/i, tags: [["amenity", "parking"]], label: "Parking" },
@@ -99,7 +102,60 @@ const GENERAL = { tags: [["tourism", "attraction"], ["amenity", "restaurant"], [
 
 /** The OpenStreetMap kind for a query, or null when it isn't a place type. */
 function kindFor(query) {
-  return KINDS.find((k) => k.re.test(String(query || ""))) || null;
+  const q = String(query || "");
+  return KINDS.find((k) => k.re.test(q)) || KINDS.find((k) => k.re.test(correctSpelling(q))) || null;
+}
+
+// Words people misspell when they're in a hurry: "restarent", "resturant",
+// "hospitel", "pharmecy". Each is the word a kind above understands.
+const PLACE_WORDS = [
+  "restaurant", "hospital", "pharmacy", "chemist", "medical", "clinic", "doctor", "dentist", "veterinary",
+  "hotel", "hostel", "lodge", "resort", "homestay", "bakery", "coffee", "dessert", "icecream", "sweets",
+  "biryani", "breakfast", "dinner", "lunch", "pizza", "burger", "shawarma", "noodles", "chinese", "dhaba",
+  "liquor", "supermarket", "grocery", "vegetables", "fruits", "butcher", "seafood", "mall", "shopping",
+  "clothes", "clothing", "boutique", "footwear", "electronics", "bookshop", "stationery", "xerox", "hardware",
+  "jewellery", "jeweller", "jewelry", "florist", "tailor", "laundry", "salon", "barber", "parlour", "beauty",
+  "massage", "fitness", "workout", "swimming", "stadium", "playground", "garden", "beach", "museum", "gallery",
+  "tourist", "sightseeing", "attraction", "monument", "viewpoint", "cinema", "theatre", "theater", "multiplex",
+  "library", "police", "temple", "church", "mosque", "masjid", "gurudwara", "kindergarten", "daycare",
+  "school", "college", "university", "coworking", "banquet", "railway", "metro", "airport", "parking",
+  "toilet", "restroom", "washroom", "bathroom", "petrol", "diesel", "mechanic", "garage", "puncture",
+];
+
+// Common spellings too far from the word for the edit distance below.
+const MISSPELT = { restraunt: "restaurant", restraunts: "restaurant", restrant: "restaurant", restrants: "restaurant", restront: "restaurant", restorant: "restaurant", restorants: "restaurant", resto: "restaurant", restos: "restaurant", hotle: "hotel" };
+
+// Edit distance with swapped neighbours counting as one edit ("resturant").
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/** "restarent near me" → "restaurant near me". Words it doesn't recognise stay as they are. */
+function correctSpelling(query) {
+  return String(query || "").replace(/\p{L}{5,}/gu, (word) => {
+    const w = word.toLowerCase();
+    if (MISSPELT[w]) return MISSPELT[w];
+    if (PLACE_WORDS.includes(w) || KINDS.some((k) => k.re.test(w))) return word;
+    const stem = w.replace(/(e?s)$/, "");
+    // Short words allow one slip, longer ones two: "parlor" but never "car" → "bar".
+    const allowed = (x) => (x.length >= 8 ? 2 : 1);
+    let best = null;
+    for (const target of PLACE_WORDS) {
+      if (Math.abs(target.length - w.length) > 3) continue;
+      const dist = Math.min(editDistance(w, target), editDistance(stem, target));
+      if (dist <= allowed(target) && (!best || dist < best.dist)) best = { target, dist };
+    }
+    return best ? best.target : word;
+  });
 }
 
 const GENERIC = /\b(places?|spots?|shops?|stores?|outlets?|centres?|centers?|near|me|nearby|nearest|closest|around|here|the|a|an|some|best|good|top|any|to|in|my|area|location)\b/gi;
@@ -163,10 +219,11 @@ function overpassRegex(term) {
   return /s$/i.test(escaped) ? `${escaped.slice(0, -1)}'?s` : escaped;
 }
 
-function overpassQuery({ kind, name }, { lat, lng }, radius, max = 150) {
+const OVERPASS_MAX = 400;
+function overpassQuery({ kind, name }, { lat, lng }, radius, max = OVERPASS_MAX) {
   const around = `(around:${radius},${lat},${lng})`;
   const lines = kind
-    ? kind.tags.map(([k, v]) => `nwr["${k}"="${v}"]["name"]${around};`).join("")
+    ? (kind.select ? kind.select.map((sel) => `nwr${sel}["name"]${around};`) : kind.tags.map(([k, v]) => `nwr["${k}"="${v}"]["name"]${around};`)).join("")
     : `nwr["name"~"${overpassRegex(name)}",i]${around};nwr["brand"~"${overpassRegex(name)}",i]["name"]${around};`;
   return `[out:json][timeout:12];(${lines});out center tags ${max};`;
 }
@@ -245,9 +302,17 @@ function rankPlaces(places, prefer = []) {
 async function searchOverpassTarget(target, center, { limit = 8, prefer = [] } = {}) {
   let found = [];
   for (const radius of RADII) {
-    const elements = await overpassFetch(overpassQuery(target, center, radius));
+    let elements = await overpassFetch(overpassQuery(target, center, radius));
+    // Overpass stops at OVERPASS_MAX in its own order, not by distance: where
+    // places are that dense (a busy city centre), the nearest could be cut
+    // off, so look again in a smaller circle that holds them all.
+    let searched = radius;
+    for (let r = Math.round(radius / 3); elements.length >= OVERPASS_MAX && r >= 300; r = Math.round(r / 3)) {
+      elements = await overpassFetch(overpassQuery(target, center, r));
+      searched = r;
+    }
     found = rankPlaces(elements.map((el) => placeFromElement(el, center, target.kind)).filter(Boolean), prefer);
-    if (found.length >= ENOUGH) return { places: found.slice(0, limit), radius };
+    if (found.length >= ENOUGH) return { places: found.slice(0, limit), radius: searched };
   }
   return { places: found.slice(0, limit), radius: RADII[RADII.length - 1] };
 }
@@ -259,7 +324,12 @@ async function searchOverpass(kind, center, opts = {}) {
 
 // Photon ranks results by closeness to a point, so a free-text query finds
 // nearby matches even when Overpass is down.
-async function searchPhoton(query, center, { limit = 8 } = {}) {
+// Photon and Nominatim search text, so "Station" also finds "HAL Police
+// Station" and a "Stationery shop". When a kind of place was asked for, keep
+// only places of that kind.
+const ofKind = (kind, key, value) => !kind?.label || kind.tags.some(([k, v]) => k === key && v === value);
+
+async function searchPhoton(query, center, { limit = 8, kind = null } = {}) {
   const url = `${PHOTON_URL}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}&limit=20&lang=en`;
   const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Photon ${res.status}`);
@@ -269,13 +339,14 @@ async function searchPhoton(query, center, { limit = 8 } = {}) {
     const [lng, lat] = f.geometry?.coordinates || [];
     if (!p.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     if (["place", "boundary", "highway", "landuse"].includes(p.osm_key)) return null;
+    if (!ofKind(kind, p.osm_key, p.osm_value)) return null;
     const location = { lat, lng };
     return {
       placeId: `osm:${({ N: "node", W: "way", R: "relation" })[p.osm_type] || "node"}/${p.osm_id}`,
       name: p.name,
       address: [[p.housenumber, p.street].filter(Boolean).join(" "), p.district || p.locality, p.city].filter(Boolean).join(", "),
       location, rating: null, reviews: null, openNow: null, hours: null,
-      category: titleCase(p.osm_value || p.osm_key || "Place"),
+      category: kind?.label || titleCase(p.osm_value || p.osm_key || "Place"),
       phone: null, website: null, photoRef: null,
       mapsUrl: mapsUrlFor(p.name, location),
       source: "osm",
@@ -286,7 +357,7 @@ async function searchPhoton(query, center, { limit = 8 } = {}) {
 }
 
 // Last resort: Nominatim's text search inside a box around the user.
-async function searchNominatim(query, center, { limit = 8 } = {}) {
+async function searchNominatim(query, center, { limit = 8, kind = null } = {}) {
   const d = 0.15; // ≈ 16 km
   const url = new URL(NOMINATIM_SEARCH);
   url.searchParams.set("format", "jsonv2");
@@ -303,13 +374,14 @@ async function searchNominatim(query, center, { limit = 8 } = {}) {
     const lng = Number(r.lon);
     const name = r.name || String(r.display_name || "").split(",")[0];
     if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (!ofKind(kind, r.category, r.type)) return null;
     const location = { lat, lng };
     return {
       placeId: `osm:${r.osm_type}/${r.osm_id}`,
       name,
       address: String(r.display_name || "").split(",").slice(1, 4).join(",").trim(),
       location, rating: null, reviews: null, openNow: null, hours: null,
-      category: titleCase(r.type || r.category || "Place"),
+      category: kind?.label || titleCase(r.type || r.category || "Place"),
       phone: null, website: null, photoRef: null,
       mapsUrl: mapsUrlFor(name, location),
       source: "osm",
@@ -324,11 +396,14 @@ async function searchNominatim(query, center, { limit = 8 } = {}) {
  * then Nominatim. Never throws. `failed` is true only when every service
  * errored — an empty list with failed=false really means nothing is near.
  */
-async function findNearby(query, center, { limit = 8 } = {}) {
+async function findNearby(rawQuery, center, { limit = 8 } = {}) {
+  const query = kindFor(rawQuery) && !KINDS.some((k) => k.re.test(String(rawQuery || ""))) ? correctSpelling(rawQuery) : rawQuery;
   const name = kindFor(query) ? null : nameTermFor(query);
   const kind = kindFor(query) || (name ? null : GENERAL);
   const prefer = preferTermsFor(query, kind);
-  const text = (kind && kind.label) || name || (kind === GENERAL ? "tourist attraction" : String(query || "").trim());
+  // What the text searches look for: the words asked ("metro station"),
+  // which say more than the kind's label alone.
+  const text = (kind && kind.label && (nameTermFor(query) || kind.label)) || name || (kind === GENERAL ? "tourist attraction" : String(query || "").trim());
   let errors = 0;
   let attempts = 0;
 
@@ -336,7 +411,7 @@ async function findNearby(query, center, { limit = 8 } = {}) {
     attempts++;
     try {
       const { places, radius } = await searchOverpassTarget(kind ? { kind } : { name }, center, { limit, prefer });
-      if (places.length) return { places, failed: false, source: "overpass", radius };
+      if (places.length) return { places, failed: false, source: "overpass", radius, label: kind?.label || null, query };
     } catch (err) {
       errors++;
       logger.warn("nearby.overpassUnavailable", { error: err.message });
@@ -346,14 +421,14 @@ async function findNearby(query, center, { limit = 8 } = {}) {
     if (!text) break;
     attempts++;
     try {
-      const places = await search(text, center, { limit });
-      if (places.length) return { places, failed: false, source: search === searchPhoton ? "photon" : "nominatim", radius: FALLBACK_MAX_METERS };
+      const places = await search(text, center, { limit, kind });
+      if (places.length) return { places, failed: false, source: search === searchPhoton ? "photon" : "nominatim", radius: FALLBACK_MAX_METERS, label: kind?.label || null, query };
     } catch (err) {
       errors++;
       logger.warn("nearby.fallbackFailed", { source: search.name, error: err.message });
     }
   }
-  return { places: [], failed: attempts > 0 && errors === attempts, source: null, radius: RADII[RADII.length - 1] };
+  return { places: [], failed: attempts > 0 && errors === attempts, source: null, radius: RADII[RADII.length - 1], label: kind?.label || null, query };
 }
 
 /** The neighbourhood the user is in ("Mathikere"), or null. Never throws. */
@@ -371,7 +446,7 @@ async function areaName({ lat, lng }) {
 }
 
 module.exports = {
-  kindFor, nameTermFor, preferTermsFor, categoryOf, rankPlaces, overpassQuery,
+  kindFor, correctSpelling, nameTermFor, preferTermsFor, categoryOf, rankPlaces, overpassQuery,
   searchOverpass, searchPhoton, searchNominatim, findNearby, areaName, distanceMeters,
   OVERPASS_URLS, RADII,
 };

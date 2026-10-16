@@ -180,3 +180,16 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
   }
 }
 .cust-toggle-row .btn-ghost { flex: none; white-space: nowrap; }
+
+/* The VetroAI mark beside "Thinking…" / "Finding restaurants near you…",
+   in the same quiet circle as the model logo beside each reply. */
+.thinking-avatar {
+  width: 36px; height: 36px; flex: none; margin-top: 1px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--bg-elevated); border: 1px solid var(--border-med);
+  animation: vpThinkPulse 1.8s ease-in-out infinite;
+}
+@keyframes vpThinkPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ink) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 7%, transparent); }
+}
