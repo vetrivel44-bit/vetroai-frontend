@@ -7909,7 +7909,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className="auth-hero-content">
           <div className="auth-hero-logo">
             <VetroLogo width={160} />
-            <div className="logo-ver" style={{ marginTop: 6 }}>v2.3 · Powered by Mistral</div>
+            <div className="logo-ver" style={{ marginTop: 6 }}>v2.3</div>
           </div>
           <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
           <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, code playground and more — all in one place.</p>

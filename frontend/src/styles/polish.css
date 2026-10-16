@@ -1,0 +1,149 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   VetroAI polish — loaded last (main.jsx), so it refines what the earlier
+   sheets set without editing them. Spacing, colour consistency, motion and
+   focus states for the main chat, sidebar, sign-in screen and dialogs.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* ── Keyboard focus ───────────────────────────────────────────────────────
+   Buttons are reset with outline: none, so keyboard users saw no focus at
+   all. A ring only for keyboard focus (not mouse clicks). */
+:where(button, a, [role="button"], [role="tab"], [role="radio"], summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Quiet, thin scrollbars that match the theme. */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 16%, transparent) transparent; }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+.claude-sidebar .claude-sb-item {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-radius: 10px;
+  transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+.claude-sidebar .claude-sb-item svg { transition: transform 0.22s var(--ease-out); }
+.claude-sidebar .claude-sb-item:hover svg { transform: scale(1.08); }
+.claude-sidebar .claude-sb-item:active { transform: scale(0.985); }
+/* The account row sits inside the footer's own padding; double padding
+   truncated the user's name. */
+.claude-sidebar .claude-sb-footer .claude-sb-item { padding-left: 6px; padding-right: 6px; }
+.claude-sidebar .claude-sb-recent { border-radius: 9px; transition: background-color 0.16s ease, color 0.16s ease; }
+
+/* ── Messages ────────────────────────────────────────────────────────────
+   The bubble was capped at 75% of a wrapper that shrinks to fit the bubble,
+   so a short message wrapped onto three lines. Cap the wrapper instead. */
+div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
+.chat-user-bubble {
+  max-width: 100%;
+  animation: vpUserIn 0.34s var(--ease-out) both;
+  transform-origin: 100% 100%;
+}
+/* Light mode used a loud orange fill with white text while dark mode is a
+   calm neutral; both are now the neutral surface. */
+[data-theme="light"] .chat-user-bubble {
+  background: #EFEAE2;
+  border-color: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+.user-att-img { animation: vpUserIn 0.34s var(--ease-out) both; }
+@keyframes vpUserIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The assistant's turn fades up as it starts. */
+.msg-row { animation: vpRise 0.42s var(--ease-out) both; }
+@keyframes vpRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* On phones the avatar slot beside each answer showed nothing yet took 48px
+   of a 390px screen, pushing tables and code into the right edge. */
+@media (max-width: 640px) {
+  .provider-response-avatar { display: none !important; }
+}
+
+/* With side gutters on phones the toolbar is a little narrower; slimmer
+   gutters and gaps keep the mode pill from shrinking to "Normal …". */
+@media (max-width: 420px) {
+  .claude-footer-right { gap: 2px !important; }
+  .px-4:has(> div > .claude-input-box) { padding-left: 8px; padding-right: 8px; }
+}
+
+/* Action buttons under messages: fade in rather than pop. */
+.msg-action-btn { transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, opacity 0.15s ease; }
+.msg-action-btn:hover { transform: translateY(-1px); }
+
+/* Text scrolling under the top bar fades out instead of being cut off. */
+.claude-feed-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+}
+
+/* ── Composer ────────────────────────────────────────────────────────────── */
+.claude-input-box {
+  transition: border-color 0.2s ease, box-shadow 0.25s ease, background-color 0.2s ease;
+}
+.claude-input-box:focus-within {
+  box-shadow: 0 10px 34px -16px rgba(0, 0, 0, 0.45), 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+[data-theme="light"] .claude-input-box:focus-within {
+  box-shadow: 0 10px 30px -18px rgba(60, 40, 20, 0.35), 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+/* ── Home screen ─────────────────────────────────────────────────────────── */
+.vetro-empty-greeting { animation: vpRise 0.6s var(--ease-out) both; }
+.claude-suggestion-pills > * {
+  animation: vpRise 0.5s var(--ease-out) both;
+  transition: transform 0.18s var(--ease-out), background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.claude-suggestion-pills > *:nth-child(1) { animation-delay: 0.08s; }
+.claude-suggestion-pills > *:nth-child(2) { animation-delay: 0.12s; }
+.claude-suggestion-pills > *:nth-child(3) { animation-delay: 0.16s; }
+.claude-suggestion-pills > *:nth-child(4) { animation-delay: 0.2s; }
+.claude-suggestion-pills > *:nth-child(5) { animation-delay: 0.24s; }
+.claude-suggestion-pills > *:hover { transform: translateY(-2px); }
+.claude-suggestion-pills > *:active { transform: translateY(0) scale(0.97); }
+
+/* ── Sign-in screen ──────────────────────────────────────────────────────── */
+/* The submit button was a white-to-brown gradient; a solid ink fill reads
+   as the primary action in both themes. */
+.auth-submit-btn {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+  border: 0 !important;
+  box-shadow: 0 8px 24px -14px rgba(0, 0, 0, 0.6);
+  transition: transform 0.18s var(--ease-out), box-shadow 0.18s ease, opacity 0.18s ease;
+}
+.auth-submit-btn:hover:not(:disabled) { opacity: 1; transform: translateY(-1px); box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.7); }
+.auth-submit-btn:active:not(:disabled) { transform: translateY(0) scale(0.985); }
+/* A neutral focus ring: the red-orange one looked like an error. */
+.auth-input { transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease; }
+.auth-input:focus {
+  border-color: color-mix(in srgb, var(--ink) 45%, transparent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 10%, transparent) !important;
+}
+.auth-form-header, .auth-form-header ~ * { animation: vpRise 0.5s var(--ease-out) both; }
+
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
+/* "About You" and "Response Style" wrapped onto two lines. */
+.cust-tab { white-space: nowrap; }
+.cust-tabs { overflow-x: auto; scrollbar-width: none; }
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
