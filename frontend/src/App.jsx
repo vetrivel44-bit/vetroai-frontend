@@ -85,6 +85,7 @@ import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles"
 import { authHeaders, consumeUsage, UsageLimitError } from "./lib/usageClient";
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
+import UserAvatar from "./components/UserAvatar";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. Kept in
@@ -868,14 +869,6 @@ const ModelIcon = ({ id, size = 16 }) => {
 const MODES = MODES_LIST.map(m => ({ id: m.id, name: m.name }));
 
 
-const AVATARS = ["User", "Bot", "Zap", "Brain", "Globe", "Star", "Flame", "Rocket", "Palette", "Moon", "Sun", "Target", "Compass", "Anchor", "Crown", "Gem", "Shield", "Heart", "Key", "Lock"];
-
-const AvatarIcon = ({ name, size = 16 }) => {
-  const Icon = {
-    User, Bot, Zap, Brain, Globe, Star, Flame, Rocket, Palette, Moon, Sun, Target, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock
-  }[name] || User;
-  return <Icon size={size} />;
-};
 
 const SYSTEM_PRESETS = [
   "You are a Socratic tutor. Guide with questions only.",
@@ -1236,15 +1229,29 @@ const loadNotifPrefs = () => {
 
 function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, userInfo, onProfileSaved, sessionCount = 0, memoryCount = 0, onClearAllSessions, onExportData, onLogout, initialTab = "profile", api }) {
   const PKEY = "vetroai_profile";
-  const init = JSON.parse(localStorage.getItem(PKEY) || '{"name":"","avatar":"User"}');
+  const init = (() => { try { return JSON.parse(localStorage.getItem(PKEY) || "{}") || {}; } catch { return {}; } })();
   const [tab, setTab]     = useState(initialTab);
+  // The tab row scrolls sideways on phones: fade whichever edge has more
+  // tabs past it, and keep the selected tab in view.
+  const tabsRef = useRef(null);
+  const [tabEdges, setTabEdges] = useState({ left: false, right: false });
+  const updateTabEdges = () => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setTabEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  };
+  useEffect(() => {
+    tabsRef.current?.querySelector(".mtab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    updateTabEdges();
+  }, [tab]);
   const [locationAlways, setLocationAlways] = useState(locationAlwaysAllowed);
   const [name, setName]   = useState(userInfo?.name || init.name || "");
-  const [avatar, setAvatar] = useState(init.avatar || "User");
   const [ok, setOk]       = useState(false);
   const [notifPrefs, setNotifPrefs] = useState(loadNotifPrefs);
   const save = () => {
-    const data = { name, avatar };
+    const data = { name };
     localStorage.setItem(PKEY, JSON.stringify(data));
     onProfileSaved?.(data);
     setOk(true);
@@ -1272,7 +1279,7 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-topbar">
-          <div className="modal-tabs">
+          <div className={`modal-tabs${tabEdges.left ? " fade-left" : ""}${tabEdges.right ? " fade-right" : ""}`} ref={tabsRef} onScroll={updateTabEdges}>
             <button className={`mtab${tab === "profile" ? " active" : ""}`} onClick={() => setTab("profile")}><UserIcon />{t.profile}</button>
             <button className={`mtab${tab === "usage" ? " active" : ""}`} onClick={() => setTab("usage")}><Gauge size={14} />Usage</button>
             <button className={`mtab${tab === "notifications" ? " active" : ""}`} onClick={() => setTab("notifications")}><Bell size={14} />Notifications</button>
@@ -1285,18 +1292,12 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
         {tab === "usage" && <UsagePanel api={api} />}
         {tab === "profile" && (
           <div className="modal-body">
-            <div className="av-center">
-              <div className="av-big"><AvatarIcon name={avatar} size={40} /></div>
-              {userInfo?.email && <span style={{ fontSize: "0.78rem", color: "var(--ink-3)" }}>{userInfo.email}</span>}
-            </div>
-            <div className="field-group">
-              <label className="field-label">{t.changeAvatar}</label>
-              <div className="av-grid">
-                {AVATARS.map(a => (
-                  <button key={a} className={`av-opt${avatar === a ? " sel" : ""}`} onClick={() => setAvatar(a)}>
-                    <AvatarIcon name={a} size={20} />{avatar === a && <span className="av-check"><CheckIcon /></span>}
-                  </button>
-                ))}
+            <div className="profile-card">
+              <UserAvatar user={{ ...userInfo, name: name || userInfo?.name }} size={64} />
+              <div className="profile-card-text">
+                <strong>{name || userInfo?.name || "Your account"}</strong>
+                {userInfo?.email && <span>{userInfo.email}</span>}
+                <em className="profile-plan">{userInfo?.plan === "team" ? "Team plan" : userInfo?.plan === "pro" ? "Pro plan" : "Free plan"}</em>
               </div>
             </div>
             <div className="field-group">
@@ -1314,10 +1315,8 @@ function ProfileModal({ onClose, t, langCode, setLangCode, theme, setTheme, user
                 <label className="field-label">Account</label>
                 <div className="cust-toggle-row">
                   <div>
-                    <div className="cust-toggle-label">{userInfo.email}</div>
-                    <div className="cust-toggle-desc">
-                      {userInfo?.plan === "team" ? "Team plan" : userInfo?.plan === "pro" ? "Pro plan" : "Free plan"}
-                    </div>
+                    <div className="cust-toggle-label">Signed in as {userInfo.email}</div>
+                    <div className="cust-toggle-desc">Sign out of VetroAI on this device.</div>
                   </div>
                   <button className="btn-ghost" onClick={onLogout}><LogOut size={14} /> Sign out</button>
                 </div>
@@ -8339,7 +8338,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             </button>
           )}
           <div onClick={() => setShowAccountMenu(o => !o)} data-popover-trigger className="claude-sb-item flex items-center gap-2 w-full px-3 py-2 text-sm font-semibold rounded-lg transition-colors mt-1 cursor-pointer">
-            <div className="w-9 h-9 flex items-center justify-center text-xs flex-shrink-0" style={{ background: "var(--ink)", color: "var(--bg)", borderRadius: 8 }}>{(userInfo?.name || "U")[0].toUpperCase()}</div>
+            <UserAvatar user={userInfo} size={36} rounded={8} className="flex-shrink-0" />
             <span className="flex flex-col items-start flex-1 min-w-0 leading-tight">
               <span className="truncate w-full text-left">{userInfo?.name || "User"}</span>
               <span className="truncate w-full text-left text-[11px] font-normal" style={{ color: "var(--ink-4)" }}>
