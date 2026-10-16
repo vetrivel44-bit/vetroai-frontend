@@ -248,7 +248,7 @@ async function chat(req, res) {
     ? "DeepSearch"
     : modelOf(req.body?.modelLabel || provider);
   try {
-    const gate = await usage.check(usageId.key, usageId.plan, usageModel);
+    const gate = await usage.check(usageId.key, usageId.plan, usageModel, Date.now(), usageId.cloud);
     if (!gate.allowed) {
       res.write(`data: ${JSON.stringify({ type: "error", code: "USAGE_LIMIT", data: usage.limitMessage(gate.block, usageModel), usage: { ...gate.block, model: usageModel } })}\n\n`);
       return res.end();
@@ -296,7 +296,7 @@ async function chat(req, res) {
       // Counted against the model that actually answered: when the one picked
       // failed and another took over, the one that did the work is charged.
       const answeredBy = usageModel === "DeepSearch" ? usageModel : modelOf(res.locals?.answeredBy || usageModel);
-      usage.record(usageId.key, usageId.plan, answeredBy).catch((err) => logger.warn("usage.recordFailed", { reqId, error: err.message }));
+      usage.record(usageId.key, usageId.plan, answeredBy, Date.now(), usageId.cloud).catch((err) => logger.warn("usage.recordFailed", { reqId, error: err.message }));
     }
     if (billingUserId && answered) {
       creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});

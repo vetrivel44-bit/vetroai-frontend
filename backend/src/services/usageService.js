@@ -3,6 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const mongoose = require("mongoose");
 const logger = require("../utils/logger");
+const { config } = require("../config/env");
 const { SESSION_MS, WEEK_MS, tierFor, limitsFor } = require("../config/usageLimits");
 
 // Real usage, counted by the server for every message it answers (and every
@@ -15,7 +16,11 @@ const { SESSION_MS, WEEK_MS, tierFor, limitsFor } = require("../config/usageLimi
 //
 // Stored in MongoDB when the server has one (MONGO_URI), so limits survive
 // restarts and every instance agrees. Without it, in memory and in a JSON file
-// (USAGE_STORE_FILE), which survives restarts but not a fresh disk.
+// (USAGE_STORE_FILE), which survives restarts but not a fresh disk — a Render
+// redeploy, or a free instance waking from sleep, starts it empty. So for a
+// signed-in person it is also kept in their own Firestore space
+// (users/{uid}/prefs/usage), written with their own sign-in token, and read
+// back whenever the server has lost it.
 
 const UsageRecord = mongoose.models.UsageRecord || mongoose.model("UsageRecord", new mongoose.Schema({
   key: { type: String, required: true, unique: true, index: true },
@@ -56,22 +61,76 @@ function scheduleSave() {
   saveTimer.unref?.();
 }
 
-async function load(key) {
+const FIRESTORE_TIMEOUT_MS = 4000;
+const cloudUrl = (uid) => `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/users/${encodeURIComponent(uid)}/prefs/usage`;
+
+function validDoc(doc) {
+  if (!doc || typeof doc !== "object" || !Array.isArray(doc.events)) return null;
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  return {
+    sessionStart: num(doc.sessionStart),
+    weekStart: num(doc.weekStart),
+    events: doc.events.filter((e) => e && typeof e.m === "string" && Number.isFinite(e.u) && Number.isFinite(e.t)).map((e) => ({ m: e.m.slice(0, 60), u: e.u, t: e.t })),
+  };
+}
+
+/** The person's saved usage from Firestore, or null if there is none or it can't be read. */
+async function cloudLoad(cloud) {
+  try {
+    const res = await fetch(cloudUrl(cloud.uid), { headers: { Authorization: `Bearer ${cloud.token}` }, signal: AbortSignal.timeout(FIRESTORE_TIMEOUT_MS) });
+    if (res.status === 404) return { missing: true };
+    if (!res.ok) throw new Error(`Firestore ${res.status}`);
+    const body = await res.json();
+    return { doc: validDoc(JSON.parse(body?.fields?.data?.stringValue || "null")) };
+  } catch (err) {
+    logger.warn("usage.cloudLoadFailed", { error: err.message });
+    return null;
+  }
+}
+
+function cloudSave(cloud, doc) {
+  const body = { fields: { data: { stringValue: JSON.stringify(doc) }, updatedAt: { timestampValue: new Date().toISOString() } } };
+  return fetch(cloudUrl(cloud.uid), {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${cloud.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FIRESTORE_TIMEOUT_MS),
+  }).then((res) => { if (!res.ok) throw new Error(`Firestore ${res.status}`); })
+    .catch((err) => logger.warn("usage.cloudSaveFailed", { error: err.message }));
+}
+
+// Per key: true once its Firestore copy has been read since this server
+// started, or when to try again after a failed read (so an unreachable
+// Firestore can't slow every message down).
+const cloudChecked = new Map();
+const CLOUD_RETRY_MS = 5 * 60 * 1000;
+
+async function load(key, cloud) {
   if (mongoReady()) {
     const rec = await UsageRecord.findOne({ key }).lean();
     return rec ? { sessionStart: rec.sessionStart, weekStart: rec.weekStart, events: rec.events || [] } : emptyDoc();
   }
   loadFile();
+  const state = cloudChecked.get(key);
+  if (cloud?.uid && cloud?.token && state !== true && !(state > Date.now())) {
+    const saved = await cloudLoad(cloud);
+    cloudChecked.set(key, saved ? true : Date.now() + CLOUD_RETRY_MS);
+    // After a restart the server has nothing for this person: their saved
+    // copy is the real count. While it has been up, its own copy is current.
+    const local = memory.get(key);
+    if (saved?.doc && !(local?.events || []).length) memory.set(key, saved.doc);
+  }
   return memory.get(key) || emptyDoc();
 }
 
-async function save(key, doc) {
+async function save(key, doc, cloud) {
   if (mongoReady()) {
     await UsageRecord.updateOne({ key }, { $set: doc }, { upsert: true });
     return;
   }
   memory.set(key, doc);
   scheduleSave();
+  if (cloud?.uid && cloud?.token) cloudSave(cloud, doc);
 }
 
 // One read-modify-write at a time per person, so two messages sent together
@@ -133,8 +192,8 @@ function blockedBy(summary, model) {
 }
 
 /** { allowed, summary, block } — without recording anything. */
-async function check(key, plan, model, now = Date.now()) {
-  const doc = await load(key);
+async function check(key, plan, model, now = Date.now(), cloud = null) {
+  const doc = await load(key, cloud);
   const summary = summarize(doc, plan, now);
   const block = blockedBy(summary, model);
   return { allowed: !block, summary, block };
@@ -151,22 +210,22 @@ function withMessage(doc, model, now) {
 }
 
 /** Counts one message to `model`. Returns the new summary. */
-function record(key, plan, model, now = Date.now()) {
+function record(key, plan, model, now = Date.now(), cloud = null) {
   return serialize(key, async () => {
-    const next = withMessage(await load(key), model, now);
-    await save(key, next);
+    const next = withMessage(await load(key, cloud), model, now);
+    await save(key, next, cloud);
     return summarize(next, plan, now);
   });
 }
 
 /** Check and record together — for browser models that ask before answering. */
-function consume(key, plan, model, now = Date.now()) {
+function consume(key, plan, model, now = Date.now(), cloud = null) {
   return serialize(key, async () => {
-    const doc = await load(key);
+    const doc = await load(key, cloud);
     const block = blockedBy(summarize(doc, plan, now), model);
     if (block) return { allowed: false, summary: summarize(doc, plan, now), block };
     const next = withMessage(doc, model, now);
-    await save(key, next);
+    await save(key, next, cloud);
     return { allowed: true, summary: summarize(next, plan, now), block: null };
   });
 }
@@ -197,7 +256,8 @@ function identityOf(req) {
   if (u && !u.isOffline && (u._id || u.id)) {
     const id = String(u._id || u.id);
     const plan = typeof u.plan === "string" ? u.plan : "free";
-    return { key: mongoose.isValidObjectId(id) ? `user:${id}` : `uid:${id}`, plan, signedIn: true };
+    const fb = req.firebaseAuth;
+    return { key: mongoose.isValidObjectId(id) ? `user:${id}` : `uid:${id}`, plan, signedIn: true, cloud: fb?.uid && fb?.token ? fb : null };
   }
   // req.ip honours the app's "trust proxy" setting; a header the client
   // could set itself (CF-Connecting-IP) would let anyone dodge the limits.
@@ -205,6 +265,6 @@ function identityOf(req) {
   return { key: `ip:${ip}`, plan: "free", signedIn: false };
 }
 
-const persistence = () => (mongoReady() ? "database" : "server");
+const persistence = (id) => (mongoReady() ? "database" : id?.cloud ? "account" : "server");
 
-module.exports = { summarize, blockedBy, check, record, consume, limitMessage, relative, identityOf, persistence, _memory: memory };
+module.exports = { _cloudChecked: cloudChecked, summarize, blockedBy, check, record, consume, limitMessage, relative, identityOf, persistence, _memory: memory };
