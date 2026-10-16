@@ -114,3 +114,23 @@ export function phoneUrl(phone) {
   const first = String(phone || "").split(/[;,/]/)[0].replace(/[^\d+]/g, "");
   return first.length >= 6 ? `tel:${first}` : null;
 }
+
+// The road route between two points, from the public OSRM router: GeoJSON
+// coordinates, metres and seconds. Null when it can't be had.
+export async function fetchRoute(from, to, { fetchImpl = globalThis.fetch, signal } = {}) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+    const res = await fetchImpl(url, { signal: signal || AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const route = (await res.json())?.routes?.[0];
+    const coords = route?.geometry?.coordinates;
+    return Array.isArray(coords) && coords.length > 1 ? { coords, meters: route.distance, seconds: route.duration } : null;
+  } catch {
+    return null;
+  }
+}
+
+export const driveTime = (seconds) => {
+  const mins = Math.max(1, Math.round(seconds / 60));
+  return mins < 60 ? `${mins} min drive` : `${Math.floor(mins / 60)} hr ${mins % 60 ? `${mins % 60} min ` : ""}drive`;
+};

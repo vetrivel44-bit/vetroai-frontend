@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { cachedCompanyLogo, lookupCompanyLogo } from "../../utils/companyLogos";
+import NearbyMapCard from "../chat/NearbyMapCard";
 import { normalizeJob, closedReason, deadlineLabel, isInternshipQuery, searchParams, POSTED_OPTIONS, MAX_OPEN_DAYS, payPeriodSuffix, missingPayLabel, matchesWorkType } from "../../utils/jobListings";
 
 // ─── CATEGORY DEFINITIONS ─────────────────────────────────────────────────────
@@ -750,6 +751,7 @@ const S = `
   .jsp-djt{font-family:var(--font-serif,Georgia,serif);font-size:23px;font-weight:600;color:var(--tx);margin:0 0 4px;letter-spacing:-.4px;line-height:1.25;}
   .jsp-djco{font-size:13px;color:var(--tx2);margin:0;}
   .jsp-dbdgs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px;}
+  .jsp-route{margin:0 0 22px;} .jsp-route .nearby-card{margin:0;max-width:none;}
   .jsp-stit{font-size:14px;font-weight:700;color:var(--tx);margin:0 0 9px;}
   .jsp-desc{font-size:14.5px;color:var(--tx2);line-height:1.75;margin:0;white-space:pre-line;max-width:72ch;}
   .jsp-hr{border:none;border-top:1px solid var(--ln);margin:18px 0;}
@@ -1087,6 +1089,19 @@ export default function JobSearchPanel({ onClose }) {
     const missing = (job.skills || []).filter(s => !user.includes(s)).slice(0, 2);
     score = Math.min(score + matched.length * 8, 99);
     const r = 30, cx = 35, cy = 35, circ = 2 * Math.PI * r;
+    // Where the job is, and the way there from you: the road route when your
+    // location is known (a "near me" search), else the place to get directions to.
+    const here = resultNear || (near.lat != null && near.lng != null ? near : null);
+    const onMap = !job.remote && job.lat != null && job.lng != null;
+    const km = job.distance ?? (here && onMap ? distanceKm(here.lat, here.lng, job.lat, job.lng) : null);
+    const route = onMap && {
+      title: here ? `Getting to ${job.company || "this job"}` : `${job.company || "This job"} on the map`,
+      subject: job.company || job.title,
+      route: true,
+      center: here ? { lat: here.lat, lng: here.lng } : null,
+      places: [{ name: job.company || job.title, location: { lat: job.lat, lng: job.lng }, category: job.location, distanceMeters: km != null ? Math.round(km * 1000) : null }],
+      status: "ok",
+    };
 
     return (
       <div className="jsp-det">
@@ -1122,6 +1137,7 @@ export default function JobSearchPanel({ onClose }) {
               {job.postedAt && <span className="b-t" style={{ fontSize: 12, padding: "4px 11px" }}>Posted {timeAgo(job.postedAt)}</span>}
               {job.salary && <span style={{ padding: "4px 11px", borderRadius: 100, fontSize: 12, fontWeight: 700, background: "var(--oks)", color: "var(--ok)" }}>💰 {job.experienceLevel === "Internship" ? "Stipend " : ""}{formatSalary(job.salary.min, job.salary.max, job.salary.currency)}{payPeriodSuffix(job.salary.period)}</span>}
             </div>
+            {route && <div className="jsp-route"><NearbyMapCard data={route} /></div>}
             {job.description && (
               <>
                 <p className="jsp-stit">About the Role</p>

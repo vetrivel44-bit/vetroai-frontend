@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { directionsUrl, formatDistance, mapsSearchUrl, openingStatus, phoneUrl, placeStatus, travelTime, websiteUrl } from "../src/lib/nearbyFormat.js";
+import { directionsUrl, driveTime, fetchRoute, formatDistance, mapsSearchUrl, openingStatus, phoneUrl, placeStatus, travelTime, websiteUrl } from "../src/lib/nearbyFormat.js";
 
 // Wednesday 14 Oct 2026 (the 17th is a Saturday), local time.
 const at = (h, m = 0, date = 14) => new Date(2026, 9, date, h, m);
@@ -58,4 +58,21 @@ test("links", () => {
   assert.equal(websiteUrl(""), null);
   assert.equal(phoneUrl("+91 80 2345 6789; +91 98450 00000"), "tel:+918023456789");
   assert.equal(phoneUrl("n/a"), null);
+});
+
+test("the road route to a place, and its drive time", async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    return { ok: true, json: async () => ({ routes: [{ distance: 2480, duration: 540, geometry: { coordinates: [[77.56, 13.03], [77.57, 13.04], [77.58, 13.05]] } }] }) };
+  };
+  const route = await fetchRoute({ lat: 13.03, lng: 77.56 }, { lat: 13.05, lng: 77.58 }, { fetchImpl });
+  assert.equal(route.meters, 2480);
+  assert.equal(route.coords.length, 3);
+  assert.match(calls[0], /route\/v1\/driving\/77\.56,13\.03;77\.58,13\.05\?overview=full&geometries=geojson$/);
+  assert.equal(driveTime(540), "9 min drive");
+  assert.equal(driveTime(5400), "1 hr 30 min drive");
+  // No route (router down, or nothing found) is null, never an error.
+  assert.equal(await fetchRoute({ lat: 1, lng: 1 }, { lat: 2, lng: 2 }, { fetchImpl: async () => { throw new TypeError("offline"); } }), null);
+  assert.equal(await fetchRoute({ lat: 1, lng: 1 }, { lat: 2, lng: 2 }, { fetchImpl: async () => ({ ok: true, json: async () => ({ code: "NoRoute", routes: [] }) }) }), null);
 });
