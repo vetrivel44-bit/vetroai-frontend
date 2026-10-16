@@ -265,3 +265,57 @@ test("'metro station near me' finds metro stations — not police stations or st
   assert.match(photonUrl, /q=Metro station&/i);
   assert.match(overpassBody, /\["station"~"\^\(subway\|light_rail\|monorail\)\$"\]/);
 });
+
+test("everyday 'near me' searches each map to the right kind of place", () => {
+  const expected = {
+    "station near me": "Railway station", "bus near me": "Bus stop", "bus stand near me": "Bus stop", "metro near me": "Metro station",
+    "police station near me": "Police station", "fire station near me": "Fire station", "charging station near me": "EV charging",
+    "petrol station near me": "Fuel station", "gas station near me": "Fuel station", "train station near me": "Railway station",
+    "diagnostic centre near me": "Diagnostic lab", "blood test lab near me": "Diagnostic lab", "scan centre near me": "Diagnostic lab",
+    "medical test near me": "Diagnostic lab", "physiotherapy near me": "Physiotherapy", "ambulance near me": "Hospital",
+    "pg near me": "PG / hostel", "paying guest near me": "PG / hostel", "juice shop near me": "Café", "tea stall near me": "Café",
+    "tiffin near me": "Restaurant", "mobile repair near me": "Electronics", "furniture shop near me": "Furniture",
+    "gift shop near me": "Gift shop", "toy shop near me": "Toy shop", "sports shop near me": "Sports shop", "sports ground near me": "Sports",
+    "cycle shop near me": "Cycle shop", "bike showroom near me": "Bike showroom", "car showroom near me": "Car showroom",
+    "car rental near me": "Car rental", "bike rental near me": "Bike rental", "photo studio near me": "Photo studio",
+    "passport photo near me": "Photo studio", "yoga studio near me": "Yoga", "courier near me": "Courier", "court near me": "Court",
+    "rto near me": "Government office", "passport office near me": "Government office", "electrician near me": "Electrician",
+    "plumber near me": "Plumber", "water park near me": "Water park", "parks near me": "Park", "medical shop near me": "Pharmacy",
+  };
+  for (const [q, label] of Object.entries(expected)) assert.equal(nearby.kindFor(q)?.label, label, q);
+});
+
+test("misspelt searches of every common kind are understood", () => {
+  const expected = {
+    "polise station": "Police station", "metr station near me": "Metro station", "hospitl": "Hospital", "pharmacey": "Pharmacy",
+    "libary": "Library", "supermarkt": "Grocery", "jwellery shop": "Jeweller", "resturent": "Restaurant", "bakary": "Café",
+    "electrision near me": "Electrician", "plumbar": "Plumber", "diagnastic centre": "Diagnostic lab", "ambulence": "Hospital",
+    "phisiotherapy": "Physiotherapy", "couriar": "Courier", "hote near me": "Hotel", "pizz near me": "Restaurant",
+  };
+  for (const [q, label] of Object.entries(expected)) assert.equal(nearby.kindFor(q)?.label, label, q);
+  // Ordinary words are never "corrected" into places.
+  const ordinary = "hall call each where there nearest around please famous family party budget evening tonight under walking branch service centre repair store market street road layout nagar medicine nation stadium status statue standing food best good shop open park cafe near home mart dine cheap great late night area city town side main fast take away room stay rent kids girls ladies gents also only more most many very just like make time hour week here what when which your their them they then than even both such same other into over down back done made said came come went keep tell name book order menu price rate cost";
+  for (const w of ordinary.split(" ")) assert.equal(nearby.correctSpelling(w), w, w);
+});
+
+test("every word used for spelling correction belongs to a kind of place", () => {
+  for (const w of nearby.PLACE_WORDS) assert.ok(nearby.kindFor(w), w);
+});
+
+test("the text fallback keeps only the kind asked for, for every kind", async () => {
+  await withFetch(async (url) => {
+    if (String(url).includes("photon")) {
+      return json({ features: [
+        { geometry: { coordinates: [77.566, 13.032] }, properties: { name: "Something else", osm_key: "shop", osm_value: "convenience", osm_type: "N", osm_id: 1 } },
+      ] });
+    }
+    if (String(url).includes("nominatim")) return json([{ lat: "13.032", lon: "77.566", name: "Other", category: "amenity", type: "police", osm_type: "node", osm_id: 2 }]);
+    return json({}, 504);
+  }, async () => {
+    for (const q of ["hospital", "metro station", "atm", "gym", "pg", "court"]) {
+      const result = await nearby.findNearby(q, HOME);
+      assert.deepEqual(result.places, [], q);
+      assert.equal(result.failed, false, q);
+    }
+  });
+});

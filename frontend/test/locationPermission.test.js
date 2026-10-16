@@ -13,6 +13,12 @@ test("pulls the kind of place out of a near-me request", () => {
 test("titles the map", () => {
   assert.equal(nearbyTitle("restaurant"), "Restaurants");
   assert.equal(nearbyTitle("coffee shops"), "Coffee shops");
+  assert.equal(nearbyTitle("atm"), "ATMs");
+  assert.equal(nearbyTitle("pg"), "PGs");
+  assert.equal(nearbyTitle("ev charging"), "EV charging");
+  assert.equal(nearbyTitle("parking"), "Parking");
+  assert.equal(nearbyTitle("bus"), "Bus stops");
+  assert.equal(nearbyTitle("pharmacy"), "Pharmacies");
   assert.equal(nearbyTitle("pharmacy"), "Pharmacies");
 });
 
