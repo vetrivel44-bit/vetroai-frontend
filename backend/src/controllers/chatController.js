@@ -41,6 +41,8 @@ function resolveBillingUserId(req) {
   }
 }
 
+const SYSTEM_PROMPT_LIMIT = 30000;
+
 const SAFE_PATTERNS = [
   /ignore (all|previous|prior) instructions/gi,
   /reveal (system|hidden) prompt/gi,
@@ -154,7 +156,10 @@ async function chat(req, res) {
   }
 
   // Custom system prompt from the frontend
-  const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
+  // Room for a Space's knowledge files and the per-turn notes the web app
+  // appends (nearby places, medical mode). At 2000 characters everything
+  // after the start was cut, so a Space's files never reached the model.
+  const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, SYSTEM_PROMPT_LIMIT);
   const activePlugins = normalizePluginIds(req.body?.plugins);
 
   // The user's own clock (IANA timezone from the browser), so "today" is

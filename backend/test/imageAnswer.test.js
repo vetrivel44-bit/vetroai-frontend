@@ -51,3 +51,16 @@ test("the browser-model copy of the image guidance matches the backend's", () =>
   const literal = src.match(/export const IMAGE_ANSWER_STYLE = (".*");/)[1];
   assert.equal(JSON.parse(literal), IMAGE_ANSWER_STYLE);
 });
+
+// A Space's knowledge files ride at the end of the system prompt; at the old
+// 2000-character cap they never reached the model.
+test("a long custom system prompt reaches the model whole", async (t) => {
+  const form = new FormData();
+  form.append("input", "what does the handbook say about leave?");
+  form.append("mode", "normal");
+  const prompt = `Be helpful.\n\n[SPACE KNOWLEDGE FILES]\n${"Policy text. ".repeat(1500)}LEAVE: 24 days a year.`;
+  form.append("systemPrompt", prompt);
+  const params = await captureParams(t, form);
+  // (multipart form fields arrive with \r\n line endings)
+  assert.equal(params.systemPrompt.replace(/\r\n/g, "\n"), prompt.trim());
+});

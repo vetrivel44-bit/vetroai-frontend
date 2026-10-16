@@ -110,7 +110,10 @@ const isMemoryEnabled = () => {
   }
 };
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
-const MAX_FILE_SIZE_MB = 25;
+// The backend refuses uploads over 20 MB (routes/chatRoutes.js); allowing 25
+// here let a 20–25 MB file attach and then fail the whole message.
+const MAX_FILE_SIZE_MB = 20;
+const SPACE_KNOWLEDGE_LIMIT = 24000;
 // What the attach button offers: images, PDFs, Office files, text and code.
 const FILE_ACCEPT = "image/*,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.txt,.md,.csv,.tsv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.h,.cs,.rb,.go,.rs,.php,.sql,.yaml,.yml,.toml,.ini,.log,.sh,.kt,.swift,.tex";
 
@@ -242,6 +245,22 @@ const renderPdfPages = async (file, maxPages = 4) => {
     if (blob) pages.push(new File([blob], `${file.name.replace(/\.pdf$/i, "")}-page-${i}.jpg`, { type: "image/jpeg" }));
   }
   return pages;
+};
+
+// A Space knowledge file as text: PDFs and Office files are converted, other
+// files are kept only if they are text. Throws for anything unreadable.
+const KNOWLEDGE_ACCEPT = FILE_ACCEPT.replace("image/*,", "");
+const knowledgeFileText = async (file) => {
+  const kind = officeKind(file.name);
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+    const text = await extractPdfText(file);
+    if (!text.trim()) throw new Error("no text (scanned PDF)");
+    return text;
+  }
+  if (kind === "legacy") throw new Error("old Office format");
+  if (kind) return extractOfficeText(file, kind);
+  if (!looksLikeText(new Uint8Array(await file.slice(0, 4096).arrayBuffer()))) throw new Error("binary");
+  return (await file.text()).slice(0, 20000);
 };
 
 // ─── SOURCE CARDS EXTRACTION (Perplexity-style) ───────────────────────────────
@@ -2877,15 +2896,22 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
   const [color, setColor] = useState(space ? space.color || SPACE_COLORS[0] : SPACE_COLORS[0]);
   const [icon, setIcon] = useState(space ? space.icon || SPACE_ICONS[0].id : SPACE_ICONS[0].id);
 
-  const handleFileUpload = (e) => {
+  const [fileError, setFileError] = useState("");
+  // Knowledge files are kept as text. They used to be read with readAsText
+  // whatever they were, so a PDF or Word file became pages of binary noise.
+  const handleFileUpload = async (e) => {
     const newFiles = Array.from(e.target.files);
-    newFiles.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setFiles(prev => [...prev, { name: file.name, type: file.type, content: ev.target.result }]);
-      };
-      reader.readAsText(file); // Assume text files for simplicity
-    });
+    e.target.value = "";
+    const failed = [];
+    for (const file of newFiles) {
+      try {
+        const content = await knowledgeFileText(file);
+        setFiles(prev => [...prev, { name: file.name, type: "text/plain", content }]);
+      } catch {
+        failed.push(file.name);
+      }
+    }
+    setFileError(failed.length ? `Couldn't read ${failed.join(", ")} — use text, code, PDF, Word, PowerPoint or Excel files.` : "");
   };
 
   return (
@@ -2929,7 +2955,8 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
           </div>
           <div>
             <label className="provider-label">Knowledge Files ({files.length})</label>
-            <input type="file" multiple onChange={handleFileUpload} style={{ marginBottom: 8, fontSize: "0.85rem", color: "var(--ink-2)" }} />
+            <input type="file" multiple onChange={handleFileUpload} accept={KNOWLEDGE_ACCEPT} style={{ marginBottom: 8, fontSize: "0.85rem", color: "var(--ink-2)" }} />
+            {fileError && <p style={{ margin: "0 0 8px", fontSize: "0.8rem", color: "#ef4444" }}>{fileError}</p>}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {files.map((f, i) => (
                 <div key={i} className="mode-pill" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px" }}>
@@ -6109,12 +6136,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           finalSystemPrompt = `[SPACE INSTRUCTIONS]\n${space.systemPrompt}\n\n` + finalSystemPrompt;
         }
         if (space.files && space.files.length > 0) {
+          // Capped to leave room in the backend's 30000-character limit for
+          // the notes appended after it (nearby places, medical mode).
           const filesContext = space.files.map(f => `--- FILE: ${f.name} ---\n${f.content}\n`).join("\n");
-          finalSystemPrompt += `\n\n[SPACE KNOWLEDGE FILES]\n${filesContext}`;
+          const capped = filesContext.length > SPACE_KNOWLEDGE_LIMIT
+            ? `${filesContext.slice(0, SPACE_KNOWLEDGE_LIMIT)}\n[…the rest of the knowledge files was cut to fit. If the answer may be in the missing part, say so.]`
+            : filesContext;
+          finalSystemPrompt += `\n\n[SPACE KNOWLEDGE FILES]\n${capped}`;
         }
       }
     }
-    // First, because the backend keeps only the first 2000 characters.
+    // First, so it survives if the backend has to cut a very long prompt.
     const requestedFiles = requestedFileFormats(userQuery);
     if (requestedFiles.length) {
       finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
@@ -7270,10 +7302,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const filesToSend = selFiles.length ? [...selFiles] : null;
-    const fileAttachments = selFiles.length ? selFiles.map(f => {
-      const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
-      return { name: f.name, size: f.size, preview: preview?.src || null };
-    }) : null;
+    // Image previews are read in the background when attached; one sent
+    // straight after pasting may not be ready yet, so it is read here. The
+    // message needs it to show the picture and, after a reload, for Retry.
+    const fileAttachments = selFiles.length ? await Promise.all(selFiles.map(async f => {
+      const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size)?.src
+        || (f.type.startsWith("image/") ? await fileToDataUrl(f).catch(() => null) : null);
+      return { name: f.name, size: f.size, preview: preview || null };
+    })) : null;
     const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
     rememberTurnFiles(userMsg, filesToSend);
     const hist = [...messages, userMsg];
