@@ -6,6 +6,7 @@ import { PendingSketch } from "./visuals/VisualCard";
 import { useBornLive } from "../../lib/streamReveal";
 import DiagramViewer from "./DiagramViewer";
 import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
+import { alignSubgraphs, stripModelStyling } from "../../lib/mermaidCode";
 
 // ─── draw-in reveal ─────────────────────────────────────────────────────────
 // A diagram that arrives during a reply is revealed the way it would be
@@ -132,7 +133,7 @@ async function getMermaid(theme) {
       theme: "base",
       themeVariables: THEME_VARIABLES[theme],
       fontFamily: DIAGRAM_FONT,
-      flowchart: { htmlLabels: false, curve: "basis", padding: 12, nodeSpacing: 40, rankSpacing: 50 },
+      flowchart: { htmlLabels: false, curve: "basis", padding: 12, nodeSpacing: 40, rankSpacing: 50, subGraphTitleMargin: { top: 10, bottom: 6 } },
     });
     configuredTheme = theme;
   }
@@ -143,8 +144,8 @@ async function getMermaid(theme) {
 // Flowcharts and use case diagrams get colour by role, like Claude's
 // diagrams: use cases teal, «include» purple, «extend» orange, decisions
 // amber, actors neutral. Worked out from each node's shape, so it doesn't
-// depend on the model writing styling. A diagram that already has its own
-// classDef/style lines is left exactly as written.
+// depend on the model writing styling; any styling it did write is removed
+// first (stripModelStyling), so the colours always suit the theme.
 const PALETTE = {
   dark: {
     step: "fill:#0E5A48,stroke:#2FB38A,color:#E6FFF6",
@@ -170,7 +171,6 @@ const NODE_RE = /(?:^|--+>?|-\.+->?|==+>?|---|&)\s*([A-Za-z_][\w]*)\s*(\(\(|\(\[
 
 function colorize(code, theme, presetRoles = null) {
   if (!/^\s*(flowchart|graph)\b/m.test(code)) return code;
-  if (/^\s*(classDef|style|class)\s/m.test(code)) return code;
   const roles = new Map(presetRoles || []);
   const setRole = (id, role) => { if (!roles.has(id)) roles.set(id, role); };
   // «include» / «extend» targets first, so they win over their plain shape.
@@ -283,12 +283,13 @@ function drawActors(svg, actors, theme) {
 }
 
 function renderDiagram(rawCode, theme) {
-  const useCase = isUseCaseDiagram(rawCode) ? toUseCase(rawCode) : null;
+  const useCase = isUseCaseDiagram(rawCode) ? toUseCase(stripModelStyling(rawCode)) : null;
   const presetRoles = useCase ? [
     ...[...useCase.actors.keys()].map((id) => [id, "actor"]),
     ...useCase.relations.entries(),
   ] : null;
-  const code = colorize(useCase ? useCase.code : rawCode, theme, presetRoles);
+  const clean = alignSubgraphs(stripModelStyling(rawCode));
+  const code = colorize(useCase ? useCase.code : clean, theme, presetRoles);
   const job = renderQueue.then(async () => {
     const mermaid = await getMermaid(theme);
     const id = `vetro-mermaid-${Date.now().toString(36)}-${renderCount++}`;

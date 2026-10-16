@@ -45,11 +45,17 @@
   display: flex;
   justify-content: center;
 }
-.vetro-diagram-svg svg { max-width: 100%; height: auto; }
+/* margin-inline: auto centres a diagram that fits; one wider than the card
+   loses the auto margins and scrolls from its left edge, never clipped. */
+.vetro-diagram-svg svg { max-width: 100%; height: auto; margin-inline: auto; }
 @media (max-width: 640px) {
   .vetro-diagram-svg { justify-content: flex-start; padding: 14px 10px; }
   .vetro-diagram-svg svg { max-width: none; min-width: 0; }
 }
+/* Room under the diagram for the "Tap to zoom" pill, so it doesn't cover a node. */
+.vetro-diagram-svg.is-too-small { padding-bottom: 52px; }
+/* Softly rounded boxes rather than sharp rectangles. */
+.vetro-diagram-svg .node rect.basic, .vetro-diagram-svg .node rect.label-container { rx: 9px; ry: 9px; }
 
 .vetro-diagram-code {
   margin: 0;
