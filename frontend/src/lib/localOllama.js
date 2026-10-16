@@ -188,7 +188,7 @@ export function buildMessages({ history, question, imageDataUrl, imageTurnsAgo =
     .filter((m) => m?.content && (m.role === "user" || m.role === "assistant"))
     .slice(-20)
     .map(({ role, content }) => ({ role, content: String(content) }));
-  turns.push({ role: "user", content: question || "Describe this image in detail." });
+  turns.push({ role: "user", content: question || "What is this? Name the main subject, then its key details, briefly." });
   if (imageDataUrl) {
     const userTurns = turns.map((m, i) => (m.role === "user" ? i : -1)).filter((i) => i >= 0);
     const target = userTurns[Math.max(0, userTurns.length - 1 - imageTurnsAgo)];

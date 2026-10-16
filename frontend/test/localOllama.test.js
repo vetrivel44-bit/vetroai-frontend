@@ -28,7 +28,7 @@ test("the image rides on the turn it was shared with, and no system prompt goes 
   assert.equal(withImage[2].content, "eye colour?");
   const textOnly = buildMessages({ history: [], question: "hi", systemPrompt: "be nice" });
   assert.deepEqual(textOnly, [{ role: "system", content: "be nice" }, { role: "user", content: "hi" }]);
-  assert.equal(buildMessages({ history: [], question: "", imageDataUrl: "d" })[0].content[0].text, "Describe this image in detail.");
+  assert.equal(buildMessages({ history: [], question: "", imageDataUrl: "d" })[0].content[0].text, "What is this? Name the main subject, then its key details, briefly.");
 });
 
 test("follow-ups find the latest shared image and how many turns back it was", () => {

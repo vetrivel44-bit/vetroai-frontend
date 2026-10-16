@@ -202,7 +202,9 @@
 
 
 /* --- RESET ------------------------------------ */
-*, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+/* In the base layer, under Tailwind's utilities: unlayered, these resets beat
+   every px-3 / mb-6 / border utility in the markup, so none of them applied. */
+@layer base { *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; } }
 html, body, #root { height: 100%; overflow: hidden; }
 body {
   background: var(--bg);
@@ -213,9 +215,9 @@ body {
   -webkit-font-smoothing: antialiased;
   transition: background var(--tr), color var(--tr);
 }
-button { font-family: var(--font); cursor: pointer; border: none; outline: none; transition: var(--tr); }
+@layer base { button { font-family: var(--font); cursor: pointer; border: none; outline: none; transition: var(--tr); } }
 button:active { transform: scale(0.97); }
-textarea, input { font-family: var(--font); outline: none; border: none; background: transparent; }
+@layer base { textarea, input { font-family: var(--font); outline: none; border: none; background: transparent; } }
 .katex { font-size: 1.05em; }
 .katex-display { overflow-x: auto; padding: 8px 0; }
 
@@ -3593,12 +3595,12 @@ code:not([class]) {
 }
 
 /* --- RESET -- */
-*,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+@layer base{*,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}}
 html,body,#root{height:100%;overflow:hidden}
 body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;transition:background var(--tr),color var(--tr)}
-button{font-family:var(--font);cursor:pointer;border:none;outline:none;transition:var(--tr)}
+@layer base{button{font-family:var(--font);cursor:pointer;border:none;outline:none;transition:var(--tr)}}
 button:active{transform:scale(0.97)}
-textarea,input{font-family:var(--font);outline:none;border:none;background:transparent}
+@layer base{textarea,input{font-family:var(--font);outline:none;border:none;background:transparent}}
 .katex{font-size:1.05em}
 .katex-display{overflow-x:auto;padding:8px 0}
 

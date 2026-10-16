@@ -1,5 +1,6 @@
 const Groq = require("groq-sdk");
 const ApiError = require("../utils/apiError");
+const { IMAGE_ANSWER_STYLE } = require("../services/imageAnswerPrompt");
 const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
@@ -40,17 +41,13 @@ function resolveBillingUserId(req) {
   }
 }
 
+const SYSTEM_PROMPT_LIMIT = 30000;
+
 const SAFE_PATTERNS = [
   /ignore (all|previous|prior) instructions/gi,
   /reveal (system|hidden) prompt/gi,
   /developer instructions/gi,
 ];
-
-const ALLOWED_ATTACHMENT_TYPES = new Set([
-  "text/plain", "text/markdown", "text/csv",
-  "application/json", "application/javascript",
-  "application/pdf", "application/x-pdf",
-]);
 
 function normalizeMessages(rawMessages, input) {
   let parsed = [];
@@ -91,24 +88,23 @@ function sanitizePrompt(input, safeMode) {
 
 function getAttachmentContext(file) {
   if (!file) return null;
-  const isTextLike = file.mimetype.startsWith("text/") || ALLOWED_ATTACHMENT_TYPES.has(file.mimetype);
-  if (!isTextLike && !file.mimetype.startsWith("image/")) {
-    throw new ApiError(400, "Unsupported attachment type. Use txt, md, csv, json, pdf, or images.");
-  }
   if (file.mimetype.startsWith("image/")) {
     return null; // Images travel on the message itself (see `images` below).
   }
-  // A PDF's raw bytes are not text: decoding them as UTF-8 handed the model
-  // pages of binary noise. The web app converts PDFs to text before sending;
-  // anything still binary here is reported plainly instead.
+  // A PDF's or Office file's raw bytes are not text: decoding them as UTF-8
+  // handed the model pages of binary noise. The web app converts PDFs, Word,
+  // PowerPoint and Excel files to text before sending; anything still binary
+  // here is reported plainly instead. Text with an unusual MIME type (a .tsx
+  // file is "video/mp2t", many code files are "application/octet-stream") is
+  // judged by its bytes, not refused.
   const head = file.buffer.subarray(0, 4096);
   const isBinary = file.buffer.subarray(0, 5).toString("latin1") === "%PDF-" || head.includes(0);
   if (isBinary) {
-    return `[The user attached "${file.originalname}", but its text could not be extracted here (it is a binary or scanned file). Say so and ask them to paste the text or attach it as an image.]`;
+    return `[The user attached "${file.originalname}", but its text could not be extracted here (it is a binary or scanned file). Say so and ask them to paste the text, or attach it as a PDF, Word, PowerPoint or Excel file or an image.]`;
   }
   const text = file.buffer.toString("utf-8").trim();
   if (!text) return null;
-  return `Attached file (${file.originalname}):\n${text.slice(0, 12000)}`;
+  return `Attached file (${file.originalname}):\n${text.slice(0, 20000)}`;
 }
 
 async function withRetry(operation, retries = 2, delay = 1000) {
@@ -160,7 +156,10 @@ async function chat(req, res) {
   }
 
   // Custom system prompt from the frontend
-  const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, 2000);
+  // Room for a Space's knowledge files and the per-turn notes the web app
+  // appends (nearby places, medical mode). At 2000 characters everything
+  // after the start was cut, so a Space's files never reached the model.
+  const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, SYSTEM_PROMPT_LIMIT);
   const activePlugins = normalizePluginIds(req.body?.plugins);
 
   // The user's own clock (IANA timezone from the browser), so "today" is
@@ -253,7 +252,9 @@ async function chat(req, res) {
       mode,
       provider,
       memories,
-      systemPrompt,
+      // A turn with a picture gets the image-answer guidance: the main subject
+      // first, then only what matters (screen-control steps have their own rules).
+      systemPrompt: imageFiles.length && mode !== "computer_use" ? `${systemPrompt}\n\n${IMAGE_ANSWER_STYLE}`.trim() : systemPrompt,
       webSearch,
       clock,
       hasAttachments: files.length > 0,

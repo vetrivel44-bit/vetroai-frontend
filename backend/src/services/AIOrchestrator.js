@@ -53,6 +53,21 @@ Style
 // How long DeepSearch may research before the report is written.
 const RESEARCH_DEADLINE_MS = 150000;
 // Writers whose requests are capped tightly (Groq's free tier: ~12k tokens).
+// The newest messages that fit in about 60k characters (~15k tokens), always
+// including the latest one. Groq trims further to its own budget.
+const HISTORY_CHAR_BUDGET = 60000;
+function historyWithinBudget(messages, maxChars = HISTORY_CHAR_BUDGET) {
+  const kept = [];
+  let chars = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const size = String(messages[i]?.content || "").length;
+    if (kept.length && chars + size > maxChars) break;
+    kept.unshift(messages[i]);
+    chars += size;
+  }
+  return kept;
+}
+
 const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
 // A research report runs long; this is the least room the writer gets.
 const RESEARCH_MIN_TOKENS = 8192;
@@ -846,10 +861,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
     };
 
     console.log(`[ORCHESTRATOR DEBUG] User Query: "${userQuery}"`);
-    console.log(`[ORCHESTRATOR DEBUG] Frontend custom systemPrompt: "${params.systemPrompt || ''}"`);
+    // Only the start: it can carry a Space's whole knowledge files.
+    console.log(`[ORCHESTRATOR DEBUG] Frontend custom systemPrompt (${(params.systemPrompt || "").length} chars): "${(params.systemPrompt || "").slice(0, 300)}"`);
     console.log(`[ORCHESTRATOR DEBUG] Generated System Prompt (first 600 chars):\n${finalSysPrompt.slice(0, 600)}\n...`);
     // Prevent empty assistant messages (Mistral error)
-    const history = messages.slice(-10).filter(m => {
+    // The conversation the controller kept (up to 50 messages), trimmed to a
+    // size every provider takes — this used to be the last 10 messages only,
+    // so anything said five exchanges back was forgotten.
+    const history = historyWithinBudget(messages).filter(m => {
       if (m.role === "assistant" && !m.content && (!m.tool_calls || m.tool_calls.length === 0)) return false;
       return true;
     });
@@ -1472,3 +1491,4 @@ module.exports = new AIOrchestrator();
 // The browser-model DeepSearch path writes its report with the same brief.
 module.exports.RESEARCH_REPORT_PROMPT = RESEARCH_REPORT_PROMPT;
 module.exports.RESEARCH_DEADLINE_MS = RESEARCH_DEADLINE_MS;
+module.exports.historyWithinBudget = historyWithinBudget;

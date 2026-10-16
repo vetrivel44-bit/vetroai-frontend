@@ -1,0 +1,76 @@
+/* ```slides — a presentation drawn in the chat (SlidesBlock.jsx). The slide
+   itself is a size container: shape positions are percentages and font sizes
+   are cqw, so a slide looks the same in a thumbnail, the chat and full screen. */
+
+.vetro-slides-body { padding: 12px; }
+.vetro-slides { display: flex; flex-direction: column; gap: 10px; }
+
+.vetro-slide {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+  container-type: inline-size; line-height: 1.2; user-select: text;
+}
+.vetro-slide-text { position: absolute; display: flex; flex-direction: column; white-space: pre-line; overflow-wrap: break-word; }
+.vetro-slide-bullets { position: absolute; margin: 0; padding: 0; list-style: none; }
+.vetro-slide-bullets li { position: relative; padding-left: 1.1em; }
+.vetro-slide-bullets li::before {
+  content: ""; position: absolute; left: 0.15em; top: 0.42em; width: 0.38em; height: 0.38em;
+  border-radius: 50%; background: var(--bullet);
+}
+.vetro-slide-bullets li.is-sub { margin-left: 1.3em; font-size: 0.85em; opacity: 0.85; }
+.vetro-slide-bullets li.is-sub::before { border-radius: 0; height: 0.08em; top: 0.6em; width: 0.5em; }
+.vetro-slide-table { border-collapse: collapse; table-layout: fixed; }
+.vetro-slide-table th, .vetro-slide-table td {
+  padding: 0 0.7em; text-align: left; border: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis;
+}
+.vetro-slide-table th { font-weight: 700; }
+
+.vetro-slides-stage {
+  position: relative; border-radius: 12px; overflow: hidden; outline: none;
+  box-shadow: 0 6px 24px rgba(15, 18, 30, 0.18);
+}
+.vetro-slides-stage:focus-visible { box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.6); }
+.vetro-slides-stage:fullscreen { display: grid; place-items: center; background: #000; border-radius: 0; cursor: pointer; }
+.vetro-slides-stage:fullscreen .vetro-slide { width: min(100vw, calc(100vh * 16 / 9)); }
+.vetro-slides-stage:fullscreen .vetro-slides-nav { display: none; }
+
+.vetro-slides-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(0, 0, 0, 0.45); color: #fff; opacity: 0; transition: opacity 0.15s;
+}
+.vetro-slides-nav.is-prev { left: 10px; }
+.vetro-slides-nav.is-next { right: 10px; }
+.vetro-slides-stage:hover .vetro-slides-nav:not(:disabled), .vetro-slides-stage:focus-within .vetro-slides-nav:not(:disabled) { opacity: 1; }
+.vetro-slides-nav:disabled { cursor: default; }
+@media (hover: none) { .vetro-slides-nav:not(:disabled) { opacity: 0.85; } }
+
+.vetro-slides-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.vetro-slides-count { font-size: 13px; color: var(--ink-3, #78746E); font-variant-numeric: tabular-nums; }
+.vetro-slides-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.vetro-slides-actions button {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 500; cursor: pointer; color: var(--ink, #1F1E1D);
+  background: var(--bg, #F6F3ED); border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13));
+}
+.vetro-slides-actions button:hover { background: var(--bg-hover, #EFEAE1); }
+.vetro-slides-actions button.is-on { border-color: #D97757; color: #D97757; }
+.vetro-slides-actions button.is-primary { background: #D97757; border-color: #D97757; color: #fff; }
+.vetro-slides-actions button.is-primary:hover { background: #C4643F; }
+.vetro-slides-actions button:disabled { opacity: 0.7; cursor: progress; }
+.vetro-spin { animation: vetro-spin 0.9s linear infinite; }
+@keyframes vetro-spin { to { transform: rotate(360deg); } }
+
+.vetro-slides-notes, .vetro-slides-error {
+  margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.5;
+  background: var(--bg, #F6F3ED); color: var(--ink-2, #3D3929);
+}
+.vetro-slides-error { color: #D64545; }
+
+.vetro-slides-thumbs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.vetro-slides-thumb {
+  flex: none; width: 112px; padding: 0; border: 2px solid transparent; border-radius: 6px;
+  overflow: hidden; cursor: pointer; background: none; opacity: 0.7; transition: opacity 0.15s, border-color 0.15s;
+}
+.vetro-slides-thumb:hover { opacity: 1; }
+.vetro-slides-thumb.is-active { border-color: #D97757; opacity: 1; }
+.vetro-slides-thumb .vetro-slide { pointer-events: none; }

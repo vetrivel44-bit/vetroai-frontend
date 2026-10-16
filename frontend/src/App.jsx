@@ -78,6 +78,10 @@ import {
   buildMessages as buildOllamaMessages, streamChat as streamOllamaChat,
   readDocuments, documentChars, documentCharBudget, withDocuments, rememberUnsupported, isSingleTurnModel,
 } from "./lib/localOllama";
+import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
+import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
+import { imageQuestion } from "./lib/imagePrompt";
+import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. Kept in
@@ -106,7 +110,12 @@ const isMemoryEnabled = () => {
   }
 };
 const makeExportStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
-const MAX_FILE_SIZE_MB = 25;
+// The backend refuses uploads over 20 MB (routes/chatRoutes.js); allowing 25
+// here let a 20–25 MB file attach and then fail the whole message.
+const MAX_FILE_SIZE_MB = 20;
+const SPACE_KNOWLEDGE_LIMIT = 24000;
+// What the attach button offers: images, PDFs, Office files, text and code.
+const FILE_ACCEPT = "image/*,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,.txt,.md,.csv,.tsv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.h,.cs,.rb,.go,.rs,.php,.sql,.yaml,.yml,.toml,.ini,.log,.sh,.kt,.swift,.tex";
 
 // Shared SSE reader for the chat stream — used by the main chat flow and by
 // standalone panels (e.g. DesignCanvas) that talk to /api/chat independently.
@@ -211,12 +220,12 @@ const extractPdfText = async (file) => {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let text = "";
-  for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+  for (let i = 1; i <= Math.min(pdf.numPages, 40); i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     text += content.items.map(item => item.str).join(" ") + "\n";
   }
-  return text.trim().slice(0, 15000);
+  return text.trim().slice(0, 20000);
 };
 
 // A scanned PDF has no text layer, so its pages are rendered to images the
@@ -236,6 +245,22 @@ const renderPdfPages = async (file, maxPages = 4) => {
     if (blob) pages.push(new File([blob], `${file.name.replace(/\.pdf$/i, "")}-page-${i}.jpg`, { type: "image/jpeg" }));
   }
   return pages;
+};
+
+// A Space knowledge file as text: PDFs and Office files are converted, other
+// files are kept only if they are text. Throws for anything unreadable.
+const KNOWLEDGE_ACCEPT = FILE_ACCEPT.replace("image/*,", "");
+const knowledgeFileText = async (file) => {
+  const kind = officeKind(file.name);
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+    const text = await extractPdfText(file);
+    if (!text.trim()) throw new Error("no text (scanned PDF)");
+    return text;
+  }
+  if (kind === "legacy") throw new Error("old Office format");
+  if (kind) return extractOfficeText(file, kind);
+  if (!looksLikeText(new Uint8Array(await file.slice(0, 4096).arrayBuffer()))) throw new Error("binary");
+  return (await file.text()).slice(0, 20000);
 };
 
 // ─── SOURCE CARDS EXTRACTION (Perplexity-style) ───────────────────────────────
@@ -2871,15 +2896,22 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
   const [color, setColor] = useState(space ? space.color || SPACE_COLORS[0] : SPACE_COLORS[0]);
   const [icon, setIcon] = useState(space ? space.icon || SPACE_ICONS[0].id : SPACE_ICONS[0].id);
 
-  const handleFileUpload = (e) => {
+  const [fileError, setFileError] = useState("");
+  // Knowledge files are kept as text. They used to be read with readAsText
+  // whatever they were, so a PDF or Word file became pages of binary noise.
+  const handleFileUpload = async (e) => {
     const newFiles = Array.from(e.target.files);
-    newFiles.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setFiles(prev => [...prev, { name: file.name, type: file.type, content: ev.target.result }]);
-      };
-      reader.readAsText(file); // Assume text files for simplicity
-    });
+    e.target.value = "";
+    const failed = [];
+    for (const file of newFiles) {
+      try {
+        const content = await knowledgeFileText(file);
+        setFiles(prev => [...prev, { name: file.name, type: "text/plain", content }]);
+      } catch {
+        failed.push(file.name);
+      }
+    }
+    setFileError(failed.length ? `Couldn't read ${failed.join(", ")} — use text, code, PDF, Word, PowerPoint or Excel files.` : "");
   };
 
   return (
@@ -2923,7 +2955,8 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
           </div>
           <div>
             <label className="provider-label">Knowledge Files ({files.length})</label>
-            <input type="file" multiple onChange={handleFileUpload} style={{ marginBottom: 8, fontSize: "0.85rem", color: "var(--ink-2)" }} />
+            <input type="file" multiple onChange={handleFileUpload} accept={KNOWLEDGE_ACCEPT} style={{ marginBottom: 8, fontSize: "0.85rem", color: "var(--ink-2)" }} />
+            {fileError && <p style={{ margin: "0 0 8px", fontSize: "0.8rem", color: "#ef4444" }}>{fileError}</p>}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {files.map((f, i) => (
                 <div key={i} className="mode-pill" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px" }}>
@@ -5751,40 +5784,65 @@ export default function App() {
 
   const clearFiles = () => { setSelFiles([]); setFilePreviews([]); };
 
-  // One intake for the file picker, drag-and-drop and paste. Every PDF is
-  // turned into its text here (drag-and-drop and paste used to send the raw
-  // PDF, which no model could read), and a scanned PDF with no text becomes
-  // page images for the vision model.
+  // One intake for the file picker, drag-and-drop and paste. Every PDF and
+  // Word/PowerPoint/Excel file is turned into its text here (no model can read
+  // the raw bytes), and a scanned PDF with no text becomes page images for the
+  // vision model. Code and text files whose browser MIME type is missing or
+  // wrong (.tsx arrives as "video/mp2t") are re-labelled as plain text so the
+  // backend accepts them.
   const ingestFiles = async (files) => {
     const isPdf = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
-    const pdfFiles = files.filter(isPdf);
-    const otherFiles = files.filter((f) => !isPdf(f));
-    if (pdfFiles.length) {
-      setIsPdfLoading(true);
-      for (const f of pdfFiles) {
+    const asText = (name, label, text) =>
+      new File([new Blob([`[${label}: ${name}]\n\n${text}`], { type: "text/plain" })], name.replace(/\.[^.]+$/, "") + ".txt", { type: "text/plain" });
+    const ready = [];
+    const needsReading = files.some((f) => isPdf(f) || officeKind(f.name));
+    if (needsReading) setIsPdfLoading(true);
+    for (const f of files) {
+      const kind = officeKind(f.name);
+      if (isPdf(f)) {
         addToast(`📄 Reading ${f.name}…`, "info", 2000);
         try {
           const text = await extractPdfText(f);
           if (text.replace(/\s+/g, "").length >= 40) {
-            const textBlob = new Blob([`[PDF: ${f.name}]\n\n${text}`], { type: "text/plain" });
-            addFiles([new File([textBlob], f.name.replace(/\.pdf$/i, ".txt"), { type: "text/plain" })]);
+            ready.push(asText(f.name, "PDF", text));
             addToast(`📄 PDF ready (${text.length} chars from ${f.name})`, "success", 3000);
           } else {
             const pages = await renderPdfPages(f);
             if (!pages.length) throw new Error("no pages");
-            addFiles(pages);
+            ready.push(...pages);
             addToast(`📄 ${f.name} is scanned — attached ${pages.length} page image${pages.length === 1 ? "" : "s"} to read`, "success", 3500);
           }
         } catch {
           addToast(`⚠️ Could not read ${f.name}`, "error");
         }
+      } else if (kind === "legacy") {
+        addToast(`⚠️ ${f.name} is an old Office format — save it as .docx, .pptx or .xlsx (or PDF) and attach it again`, "error", 6000);
+      } else if (kind) {
+        const label = { word: "Word document", powerpoint: "PowerPoint", excel: "Excel workbook" }[kind];
+        addToast(`📄 Reading ${f.name}…`, "info", 2000);
+        try {
+          const text = await extractOfficeText(f, kind);
+          if (!text.trim()) throw new Error("empty");
+          ready.push(asText(f.name, label, text));
+          addToast(`📄 ${label} ready (${text.length} chars from ${f.name})`, "success", 3000);
+        } catch {
+          addToast(`⚠️ Could not read ${f.name}`, "error");
+        }
+      } else if (f.type.startsWith("image/") || f.type.startsWith("text/") || /^application\/(json|javascript|xml)$/.test(f.type)) {
+        ready.push(f);
+      } else {
+        try {
+          if (!looksLikeText(new Uint8Array(await f.slice(0, 4096).arrayBuffer()))) throw new Error("binary");
+          ready.push(new File([f], f.name, { type: "text/plain" }));
+        } catch {
+          addToast(`⚠️ ${f.name} can't be read — attach text, code, PDF, Word, PowerPoint, Excel or image files`, "error", 5000);
+        }
       }
-      setIsPdfLoading(false);
     }
-    if (otherFiles.length) {
-      addFiles(otherFiles);
-      const imgCount = otherFiles.filter(f => f.type.startsWith("image/")).length;
-      const docCount = otherFiles.length - imgCount;
+    if (needsReading) setIsPdfLoading(false);
+    if (ready.length) {
+      addFiles(ready);
+      const docCount = ready.filter((f) => !f.type.startsWith("image/")).length;
       if (docCount > 0) addToast(`📎 ${docCount} file(s) attached`, "success", 2000);
     }
   };
@@ -6061,7 +6119,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         : selectedProvider
     );
     const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
-    const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens);
+    const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens, wantsSlides(userQuery) ? SLIDES_MAX_TOKENS : 0);
     fd.append("temperature", String(temperature));
     fd.append("maxTokens", String(effectiveMaxTokens));
     fd.append("effort", selectedEffort);
@@ -6078,12 +6136,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           finalSystemPrompt = `[SPACE INSTRUCTIONS]\n${space.systemPrompt}\n\n` + finalSystemPrompt;
         }
         if (space.files && space.files.length > 0) {
+          // Capped to leave room in the backend's 30000-character limit for
+          // the notes appended after it (nearby places, medical mode).
           const filesContext = space.files.map(f => `--- FILE: ${f.name} ---\n${f.content}\n`).join("\n");
-          finalSystemPrompt += `\n\n[SPACE KNOWLEDGE FILES]\n${filesContext}`;
+          const capped = filesContext.length > SPACE_KNOWLEDGE_LIMIT
+            ? `${filesContext.slice(0, SPACE_KNOWLEDGE_LIMIT)}\n[…the rest of the knowledge files was cut to fit. If the answer may be in the missing part, say so.]`
+            : filesContext;
+          finalSystemPrompt += `\n\n[SPACE KNOWLEDGE FILES]\n${capped}`;
         }
       }
     }
-    // First, because the backend keeps only the first 2000 characters.
+    // First, so it survives if the backend has to cut a very long prompt.
     const requestedFiles = requestedFileFormats(userQuery);
     if (requestedFiles.length) {
       finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
@@ -6263,11 +6326,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : chatImage;
         const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
         const question = chatDocs ? withDocuments(chatDocs, userQuery) : userQuery;
+        // A picture shared with this message gets the image-answer guidance
+        // (main subject first, briefly); tiny single-turn models keep the bare
+        // question, which they follow better.
+        const freshImage = !!imageDataUrl && shared.turnsAgo === 0 && !chatDocs;
         const messagesFor = (name) => (isSingleTurnModel(name)
           ? buildOllamaMessages({ history: [], question, imageDataUrl })
           : buildOllamaMessages({
             history: hist.slice(0, -1),
-            question,
+            question: freshImage ? imageQuestion(userQuery) : question,
             imageDataUrl,
             imageTurnsAgo: shared ? shared.turnsAgo : 0,
             systemPrompt: finalSystemPrompt,
@@ -6500,9 +6567,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         for (let index = 0; index < attachedImages.length; index++) {
           if (!isActive()) return;
           const imageUrl = await fileToDataUrl(attachedImages[index]);
-          const imagePrompt = attachedImages.length > 1
-            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
-            : userQuery || "Analyze this image in detail.";
+          const imagePrompt = imageQuestion(userQuery, index, attachedImages.length);
           const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
           const analysis = getPuterResponseText(response);
           if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
@@ -7237,11 +7302,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     const filesToSend = selFiles.length ? [...selFiles] : null;
-    const fileAttachments = selFiles.length ? selFiles.map(f => {
-      const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
-      return { name: f.name, size: f.size, preview: preview?.src || null };
-    }) : null;
-    const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
+    // Image previews are read in the background when attached; one sent
+    // straight after pasting may not be ready yet, so it is read here. The
+    // message needs it to show the picture and, after a reload, for Retry.
+    const fileAttachments = selFiles.length ? await Promise.all(selFiles.map(async f => {
+      const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size)?.src
+        || (f.type.startsWith("image/") ? await fileToDataUrl(f).catch(() => null) : null);
+      return { name: f.name, size: f.size, preview: preview || null };
+    })) : null;
+    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
+    rememberTurnFiles(userMsg, filesToSend);
+    const hist = [...messages, userMsg];
     setMessages(hist); setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     if (filesToSend) clearFiles();
@@ -7254,8 +7325,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const submitEdit = idx => {
     if (!editInput.trim()) return; stopSpeak();
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const hist = [...messages.slice(0, idx), { role: "user", content: editInput, timestamp: ts }];
-    setMessages(hist); setEditIdx(null); triggerAI(hist);
+    // The edited message keeps the original's attachments (a picture, a file).
+    const original = messages[idx];
+    const edited = { role: "user", content: editInput, files: original?.files || null, timestamp: ts };
+    carryTurnFiles(original, edited);
+    const hist = [...messages.slice(0, idx), edited];
+    setMessages(hist); setEditIdx(null); triggerAI(hist, filesOfTurn(edited));
   };
 
   // ── AI message copy / share ──────────────────────────────────────────────────
@@ -7273,7 +7348,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const handleRegen = idx => {
     if (idx === 0) return;
     const hist = messages.slice(0, idx);
-    setMessages(hist); triggerAI(hist);
+    // Send the question's attachments again, or the retried answer can't see them.
+    setMessages(hist); triggerAI(hist, filesOfTurn(hist[hist.length - 1]));
     addToast("🔄 Regenerating response…", "info", 2000);
   };
 
@@ -7396,7 +7472,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </div>
         )}
         <form style={{ position: "relative" }} className={`claude-input-box ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-        <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp" multiple />
+        <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept={FILE_ACCEPT} multiple />
         {selFiles.length > 0 && (
           <div className="multi-file-previews">
             {selFiles.map((f, idx) => {
@@ -7771,7 +7847,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0" title="Attach file">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,.pdf,.txt,.md,.csv,.json,.xml,.html,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.rb,.go,.rs,.php,.sql,.yaml,.yml" multiple />
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept={FILE_ACCEPT} multiple />
             <button type="button" className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-solid border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-semibold text-gray-600 transition-colors flex-shrink-0">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               Search <span className="text-gray-400 text-[9px]">&#9660;</span>
@@ -7833,7 +7909,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className="auth-hero-content">
           <div className="auth-hero-logo">
             <VetroLogo width={160} />
-            <div className="logo-ver" style={{ marginTop: 6 }}>v2.3 · Powered by Mistral</div>
+            <div className="logo-ver" style={{ marginTop: 6 }}>v2.3</div>
           </div>
           <h1 className="auth-hero-headline">Your AI study<br />companion.</h1>
           <p className="auth-hero-sub">Smart answers, live web search, YouTube notes, image generation, code playground and more — all in one place.</p>
