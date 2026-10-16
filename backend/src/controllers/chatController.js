@@ -1,5 +1,6 @@
 const Groq = require("groq-sdk");
 const ApiError = require("../utils/apiError");
+const { IMAGE_ANSWER_STYLE } = require("../services/imageAnswerPrompt");
 const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
@@ -246,7 +247,9 @@ async function chat(req, res) {
       mode,
       provider,
       memories,
-      systemPrompt,
+      // A turn with a picture gets the image-answer guidance: the main subject
+      // first, then only what matters (screen-control steps have their own rules).
+      systemPrompt: imageFiles.length && mode !== "computer_use" ? `${systemPrompt}\n\n${IMAGE_ANSWER_STYLE}`.trim() : systemPrompt,
       webSearch,
       clock,
       hasAttachments: files.length > 0,

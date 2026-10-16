@@ -80,6 +80,8 @@ import {
 } from "./lib/localOllama";
 import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
 import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
+import { imageQuestion } from "./lib/imagePrompt";
+import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. Kept in
@@ -6292,11 +6294,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const shared = attachedImages.length ? { preview: attachedImages[attachedImages.length - 1], turnsAgo: 0 } : chatImage;
         const imageDataUrl = shared ? await imageForModel(shared.preview) : null;
         const question = chatDocs ? withDocuments(chatDocs, userQuery) : userQuery;
+        // A picture shared with this message gets the image-answer guidance
+        // (main subject first, briefly); tiny single-turn models keep the bare
+        // question, which they follow better.
+        const freshImage = !!imageDataUrl && shared.turnsAgo === 0 && !chatDocs;
         const messagesFor = (name) => (isSingleTurnModel(name)
           ? buildOllamaMessages({ history: [], question, imageDataUrl })
           : buildOllamaMessages({
             history: hist.slice(0, -1),
-            question,
+            question: freshImage ? imageQuestion(userQuery) : question,
             imageDataUrl,
             imageTurnsAgo: shared ? shared.turnsAgo : 0,
             systemPrompt: finalSystemPrompt,
@@ -6529,9 +6535,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         for (let index = 0; index < attachedImages.length; index++) {
           if (!isActive()) return;
           const imageUrl = await fileToDataUrl(attachedImages[index]);
-          const imagePrompt = attachedImages.length > 1
-            ? `${userQuery || "Analyze this image in detail."}\n\nThis is image ${index + 1} of ${attachedImages.length}.`
-            : userQuery || "Analyze this image in detail.";
+          const imagePrompt = imageQuestion(userQuery, index, attachedImages.length);
           const response = await window.puter.ai.chat(imagePrompt, imageUrl, { model: "gpt-5.6-luna" });
           const analysis = getPuterResponseText(response);
           if (!analysis.trim()) throw new Error(`GPT-5.6 Luna returned no analysis for image ${index + 1}.`);
@@ -7270,7 +7274,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
       return { name: f.name, size: f.size, preview: preview?.src || null };
     }) : null;
-    const hist = [...messages, { role: "user", content: text, files: fileAttachments, timestamp: ts }];
+    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
+    rememberTurnFiles(userMsg, filesToSend);
+    const hist = [...messages, userMsg];
     setMessages(hist); setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     if (filesToSend) clearFiles();
@@ -7283,8 +7289,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const submitEdit = idx => {
     if (!editInput.trim()) return; stopSpeak();
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const hist = [...messages.slice(0, idx), { role: "user", content: editInput, timestamp: ts }];
-    setMessages(hist); setEditIdx(null); triggerAI(hist);
+    // The edited message keeps the original's attachments (a picture, a file).
+    const original = messages[idx];
+    const edited = { role: "user", content: editInput, files: original?.files || null, timestamp: ts };
+    carryTurnFiles(original, edited);
+    const hist = [...messages.slice(0, idx), edited];
+    setMessages(hist); setEditIdx(null); triggerAI(hist, filesOfTurn(edited));
   };
 
   // ── AI message copy / share ──────────────────────────────────────────────────
@@ -7302,7 +7312,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const handleRegen = idx => {
     if (idx === 0) return;
     const hist = messages.slice(0, idx);
-    setMessages(hist); triggerAI(hist);
+    // Send the question's attachments again, or the retried answer can't see them.
+    setMessages(hist); triggerAI(hist, filesOfTurn(hist[hist.length - 1]));
     addToast("🔄 Regenerating response…", "info", 2000);
   };
 
