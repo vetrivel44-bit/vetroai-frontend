@@ -69,7 +69,7 @@ import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
 import { resolveSiteImages } from "./lib/siteImages";
 import { pickBrowserVoice, describeTtsVoice } from "./utils/browserVoice";
-import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyTitle } from "./utils/locationPermission";
+import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyTitle, isNearbyRequest } from "./utils/locationPermission";
 import LocationPermissionSheet from "./components/LocationPermissionSheet";
 import NearbyMapCard from "./components/chat/NearbyMapCard";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
@@ -4000,7 +4000,7 @@ async function getPreciseUserLocation() {
     return { location: null, reason: "denied" };
   }
 
-  return new Promise((resolve) => {
+  const attempt = (options) => new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => resolve({
         location: {
@@ -4014,9 +4014,15 @@ async function getPreciseUserLocation() {
         location: null,
         reason: error?.code === 1 ? "denied" : error?.code === 3 ? "timeout" : "unavailable"
       }),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+      options
     );
   });
+
+  // A GPS fix often times out indoors and on laptops; the network-based fix
+  // that follows is quick and close enough for "places near me".
+  const precise = await attempt({ enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  if (precise.location || precise.reason === "denied") return precise;
+  return attempt({ enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
 }
 
 async function fetchMedicalAnswer(query, language = "en") {
@@ -6177,7 +6183,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const browserSearch = explicitSearch || (autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
     setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
-    const nearbyMapsRequest = !maybeLocal && (/\b(near me|nearby|nearest|closest|around me|current location|near my location)\b/i.test(userQuery));
+    const nearbyMapsRequest = !maybeLocal && isNearbyRequest(userQuery);
     // Shown above the reply: map, place cards and directions (NearbyMapCard).
     let nearbyCard = null;
     if (nearbyMapsRequest) {
@@ -6197,22 +6203,42 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         if (userLocation) {
           const subject = nearbySubject(removePluginMention(userQuery, "maps"));
           setRequestActivity(`Finding ${nearbyTitle(subject).toLowerCase()} near you…`);
-          let places = [];
-          let area = null;
+          // The map services are public and sometimes busy, so a failed
+          // search is tried once more before telling the user.
+          const searchNearby = async () => {
+            const response = await fetch(`${API}/maps/search?query=${encodeURIComponent(subject)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=8`, { signal: ctrl.signal });
+            const payload = await response.json();
+            if (!payload?.success || payload?.meta?.searchFailed) throw new Error(payload?.message || "place search unavailable");
+            return payload;
+          };
+          let payload = null;
+          let searchFailed = false;
           try {
-            const nearbyResponse = await fetch(`${API}/maps/search?query=${encodeURIComponent(subject)}&lat=${userLocation.lat}&lng=${userLocation.lng}&limit=8`, { signal: ctrl.signal });
-            const nearbyPayload = await nearbyResponse.json();
-            if (nearbyPayload?.success && Array.isArray(nearbyPayload.data)) places = nearbyPayload.data;
-            area = nearbyPayload?.meta?.area || null;
-          } catch (err) { swallowError(err); }
+            payload = await searchNearby();
+          } catch (err) {
+            if (err?.name === "AbortError" || !isActive()) return;
+            try { payload = await searchNearby(); } catch (retryErr) { swallowError(retryErr); searchFailed = true; }
+          }
           if (!isActive()) return;
-          places = places.filter((p) => p?.name && p?.location).slice(0, 8).map((p) => ({
+          const area = payload?.meta?.area || null;
+          const radiusKm = Math.round((payload?.meta?.radius || 6000) / 1000);
+          const places = (Array.isArray(payload?.data) ? payload.data : []).filter((p) => p?.name && p?.location).slice(0, 8).map((p) => ({
             ...p,
             photoUrl: p.photoRef ? `${API}/maps/photo?ref=${encodeURIComponent(p.photoRef)}&w=200` : null,
           }));
           const where = area ? `around ${area}` : "around them";
+          // The card always shows: the places, or why there are none, with a
+          // one-tap search in Google Maps either way.
+          nearbyCard = {
+            title: `${nearbyTitle(subject)} near ${area || "you"}`,
+            subject,
+            area,
+            radiusKm,
+            center: { lat: userLocation.lat, lng: userLocation.lng },
+            places,
+            status: places.length ? "ok" : searchFailed ? "failed" : "empty",
+          };
           if (places.length) {
-            nearbyCard = { title: `${nearbyTitle(subject)} near ${area || "you"}`, center: { lat: userLocation.lat, lng: userLocation.lng }, places };
             const list = places.map((p, i) => [
               `${i + 1}. ${p.name}`,
               p.rating ? `${p.rating}★${p.reviews ? ` (${p.reviews} reviews)` : ""}` : null,
@@ -6221,9 +6247,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               p.openNow === true ? "open now" : p.openNow === false ? "closed now" : null,
               p.address || null,
             ].filter(Boolean).join(" · ")).join("\n");
-            finalSystemPrompt += `\n\n[NEARBY PLACES — MAP ALREADY SHOWN]\nThe user asked for ${subject} near their current location (${where}). The chat already shows a map card above your reply with these places, their distances and a directions button:\n${list}\n\nWrite a short reply: one line naming the area, then the 3–5 best options as a bulleted list — **Name** (rating if given, type or cuisine, distance): one short reason to go. Use only these places and only the facts given here; don't invent ratings, prices, dishes or hours. Don't add links, coordinates or a \`\`\`json map block — the map is already there.`;
+            finalSystemPrompt += `\n\n[NEARBY PLACES — MAP ALREADY SHOWN]\nThe user asked for ${subject} near their current location (${where}). The chat already shows a map card above your reply with these places (numbered as below), their distances, walking times and buttons for directions:\n${list}\n\nWrite a short reply: one line naming the area, then the 3–5 best options as a bulleted list — **Name** (rating if given, type or cuisine, distance): one short reason to go. Use only these places and only the facts given here; don't invent ratings, prices, dishes or hours. Don't add links, coordinates or a \`\`\`json map block — the map is already there.`;
+          } else if (searchFailed) {
+            finalSystemPrompt += `\n\n[NEARBY SEARCH UNAVAILABLE]\nThe user asked for ${subject} near their current location (${where}), but the map services didn't respond just now. Say so in one sentence, don't invent or guess places, and tell them the card above has a button to see ${subject} near them in Google Maps, or they can ask again in a moment.`;
           } else {
-            finalSystemPrompt += `\n\n[NEARBY PLACES]\nThe user asked for ${subject} near their current location (${where}), but the place search found nothing within about 4 km. Say so plainly, don't invent places, and suggest searching a nearby area by name or a broader kind of place.`;
+            finalSystemPrompt += `\n\n[NEARBY PLACES]\nThe user asked for ${subject} near their current location (${where}), but the map data has none within about ${radiusKm} km. Say so plainly, don't invent places, and suggest a broader kind of place or naming an area — the card above can also open the search in Google Maps.`;
           }
           fd.set("systemPrompt", finalSystemPrompt.trim());
         } else {

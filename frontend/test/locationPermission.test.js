@@ -15,3 +15,23 @@ test("titles the map", () => {
   assert.equal(nearbyTitle("coffee shops"), "Coffee shops");
   assert.equal(nearbyTitle("pharmacy"), "Pharmacies");
 });
+
+test("recognises the ways people ask for places nearby", async () => {
+  const { isNearbyRequest } = await import("../src/utils/locationPermission.js");
+  for (const q of ["hotels near me", "restaurants near by", "biryani close to me", "salons in my area", "nearest petrol bunk",
+    "closest ATM?", "mere paas hospital", "atm aas paas", "Where can I eat near my hostel", "pharmacy within walking distance"]) {
+    assert.equal(isNearbyRequest(q), true, q);
+  }
+  for (const q of ["explain the nearest neighbour algorithm", "round 4.6 to the nearest integer", "closest pair of points problem",
+    "what is photosynthesis", "write a story about a nearby planet"]) {
+    assert.equal(isNearbyRequest(q), false, q);
+  }
+});
+
+test("turns 'where can I eat' and 'a place to stay' into the kind of place", async () => {
+  const { nearbySubject } = await import("../src/utils/locationPermission.js");
+  assert.equal(nearbySubject("Where can I eat near my hostel"), "restaurants");
+  assert.equal(nearbySubject("any place to stay nearby?"), "hotels");
+  assert.equal(nearbySubject("restaurants near by"), "restaurants");
+  assert.equal(nearbySubject("salons in my area"), "salons");
+});

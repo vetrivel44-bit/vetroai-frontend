@@ -1,77 +1,170 @@
-/* "Near me" answer card: map, swipeable place cards, directions. */
+/* "Near me" answer card (NearbyMapCard.jsx): numbered map pins, a matching
+   list of places, and a route button. It sizes itself by its own width: map
+   beside the list when there's room, map above a swipeable row on phones. */
+
 .nearby-card {
-  margin: 4px 0 16px;
-  border-radius: 18px;
+  --nb-accent: #D97757;
+  --nb-open: #1F9D55;
+  --nb-closed: #C2410C;
+  container-type: inline-size;
+  margin: 4px 0 18px;
+  border-radius: 20px;
   overflow: hidden;
-  border: 1px solid var(--border, rgba(0, 0, 0, .1));
+  border: 1px solid var(--border-med, rgba(0, 0, 0, .12));
   background: var(--bg-elevated, #fff);
   color: var(--ink, #1f1e1d);
+  box-shadow: 0 10px 34px -22px rgba(0, 0, 0, .45);
+  animation: nbCardIn .45s cubic-bezier(.22, 1, .36, 1) both;
 }
-:root[data-theme="dark"] .nearby-card { border-color: rgba(255, 255, 255, .1); background: #1b1b1b; color: #f0eee9; }
-.nearby-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; font-size: 16px; font-weight: 600; }
-.nearby-head svg { flex-shrink: 0; opacity: .8; }
-.nearby-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-theme="dark"] .nearby-card { --nb-open: #4ADE80; --nb-closed: #FB923C; box-shadow: none; }
+@keyframes nbCardIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
-.nearby-body { position: relative; }
-.nearby-map { height: 380px; background: #e9e5dc; }
-:root[data-theme="dark"] .nearby-map { background: #262522; }
-@media (max-width: 640px) { .nearby-map { height: 420px; } }
-
-/* Place cards float over the bottom of the map. */
-.nearby-rail {
-  position: absolute; left: 0; right: 0; bottom: 14px;
-  display: flex; gap: 10px; padding: 0 28px;
-  overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+/* Header */
+.nearby-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.nearby-head-icon {
+  flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px;
+  color: var(--nb-accent); background: color-mix(in srgb, var(--nb-accent) 14%, transparent);
 }
-.nearby-rail::-webkit-scrollbar { display: none; }
-.nearby-card.no-map .nearby-rail { position: static; padding: 4px 18px 14px; }
+.nearby-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.nearby-head-text strong { font-size: 15.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nearby-head-text small { font-size: 12.5px; color: var(--ink-3, #78746e); }
+.nearby-card .nearby-head-link {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 550; text-decoration: none;
+  color: var(--ink-2, #3d3929); border: 1px solid var(--border-med, rgba(0, 0, 0, .12));
+  transition: background-color .15s ease, color .15s ease;
+}
+.nearby-card .nearby-head-link:hover { background: var(--bg-hover, rgba(0, 0, 0, .05)); color: var(--ink, #1f1e1d); }
+
+/* Narrow cards: the header link shrinks to its icon so the title fits. */
+@container (max-width: 480px) {
+  .nearby-card .nearby-head-link { width: 30px; padding: 0; justify-content: center; }
+  .nearby-card .nearby-head-link span { display: none; }
+}
+
+/* Body: map + list */
+.nearby-body { display: flex; flex-direction: column; border-top: 1px solid var(--border, rgba(0, 0, 0, .08)); }
+.nearby-map-wrap { position: relative; height: 240px; background: var(--bg-hover, #ece8df); overflow: hidden; }
+.nearby-map-wrap::before {
+  /* shimmer while the map draws */
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--ink, #000) 6%, transparent) 50%, transparent 70%) 0 0 / 200% 100%;
+  animation: nbShimmer 1.4s linear infinite;
+  transition: opacity .3s ease;
+}
+.nearby-map-wrap.is-ready::before { opacity: 0; animation: none; }
+@keyframes nbShimmer { to { background-position: -200% 0; } }
+/* The map library sets its container to position: relative; keep it filling the frame. */
+.nearby-map-wrap .nearby-map { position: absolute !important; inset: 0; width: 100%; height: 100%; }
+.nearby-recenter {
+  position: absolute; z-index: 2; right: 10px; top: 10px; display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 10px; border: 0; cursor: pointer;
+  color: var(--ink, #1f1e1d); background: var(--bg-elevated, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+}
+
+.nearby-list {
+  list-style: none; margin: 0; padding: 10px 12px 12px;
+  display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+}
+.nearby-list::-webkit-scrollbar { display: none; }
 .nearby-place {
-  flex: 0 0 min(86%, 360px);
-  scroll-snap-align: center;
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px; border-radius: 16px; cursor: pointer;
-  background: rgba(28, 28, 28, .94); color: #f2f0eb;
-  border: 1px solid rgba(255, 255, 255, .08);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
-  transition: transform .2s ease, opacity .2s ease;
-  opacity: .85;
+  flex: 0 0 min(84%, 330px); scroll-snap-align: center;
+  position: relative; display: flex; align-items: flex-start; gap: 11px;
+  padding: 12px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--border, rgba(0, 0, 0, .08));
+  background: var(--bg, #faf9f6);
+  transition: border-color .18s ease, background-color .18s ease, transform .18s cubic-bezier(.22, 1, .36, 1), box-shadow .18s ease;
+  animation: nbItemIn .4s cubic-bezier(.22, 1, .36, 1) both;
 }
-.nearby-place.is-selected { opacity: 1; }
-:root[data-theme="light"] .nearby-place { background: rgba(255, 255, 255, .97); color: #1f1e1d; border-color: rgba(0, 0, 0, .08); box-shadow: 0 8px 24px rgba(0, 0, 0, .15); }
-.nearby-thumb {
-  position: relative; flex-shrink: 0; width: 64px; height: 64px; border-radius: 12px; overflow: hidden;
-  display: grid; place-items: center; color: #e0703a; background: rgba(224, 112, 58, .14);
+@keyframes nbItemIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.nearby-place:hover { border-color: var(--border-med, rgba(0, 0, 0, .16)); }
+.nearby-place.is-selected {
+  border-color: color-mix(in srgb, var(--nb-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--nb-accent) 6%, var(--bg-elevated, #fff));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nb-accent) 14%, transparent);
 }
-.nearby-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
-.nearby-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
-.nearby-info strong { font-size: 16px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nearby-meta, .nearby-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nearby-meta { font-size: 13.5px; opacity: .85; }
-.nearby-meta b { font-weight: 600; }
-.nearby-meta svg { display: inline-block; color: #f5b301; vertical-align: -1px; margin: 0 1px; }
-.nearby-sub { font-size: 12.5px; opacity: .6; }
-.nearby-sub:empty { display: none; }
-.nearby-open { flex-shrink: 0; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: inherit; opacity: .8; }
-.nearby-open:hover { opacity: 1; background: rgba(127, 127, 127, .15); }
 
-.nearby-route {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 15px; font-size: 15px; font-weight: 600;
-  color: inherit; text-decoration: none;
-  border-top: 1px solid var(--border, rgba(0, 0, 0, .08));
+.nearby-num {
+  flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-top: 1px;
+  border-radius: 50%; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--ink-2, #3d3929); background: var(--bg-active, #e7e1d5);
+  transition: background-color .18s ease, color .18s ease;
 }
-:root[data-theme="dark"] .nearby-route { border-color: rgba(255, 255, 255, .08); }
-.nearby-route:hover { background: rgba(127, 127, 127, .08); }
+.nearby-place.is-selected .nearby-num { color: #fff; background: var(--nb-accent); }
 
-/* Map markers */
-.nearby-me {
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #1a73e8; border: 3px solid #fff;
-  box-shadow: 0 0 0 6px rgba(26, 115, 232, .22), 0 1px 4px rgba(0, 0, 0, .35);
+.nearby-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.3; }
+.nearby-info strong { font-size: 14.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nearby-meta, .nearby-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 12.5px; }
+.nearby-meta { color: var(--ink-2, #3d3929); }
+.nearby-rating { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }
+.nearby-rating svg { color: #F5B301; }
+.nearby-rating em { font-style: normal; font-weight: 400; color: var(--ink-3, #78746e); }
+.nearby-sub { color: var(--ink-3, #78746e); }
+.nearby-sub .is-open { color: var(--nb-open); font-weight: 600; }
+.nearby-sub .is-closed { color: var(--nb-closed); font-weight: 600; }
+
+.nearby-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.nearby-card .nearby-actions a {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+  color: var(--ink-2, #3d3929); border: 1px solid var(--border-med, rgba(0, 0, 0, .12)); background: transparent;
+  transition: background-color .15s ease, color .15s ease, transform .15s ease;
 }
-.nearby-pin { padding: 0; border: 0; background: none; cursor: pointer; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .35)); transition: transform .2s ease; transform-origin: 50% 100%; }
-.nearby-pin path { fill: #e5484d; stroke: #b42318; stroke-width: 1; }
-.nearby-pin circle { fill: #7a1414; }
-.nearby-pin.is-selected { transform: scale(1.3); z-index: 2; }
-.nearby-pin.is-selected path { fill: #c81e1e; }
+.nearby-card .nearby-actions a:hover { background: var(--bg-hover, rgba(0, 0, 0, .05)); color: var(--ink, #1f1e1d); transform: translateY(-1px); }
+.nearby-card .nearby-actions a.is-primary { color: #fff; background: var(--nb-accent); border-color: transparent; }
+.nearby-card .nearby-actions a.is-primary:hover { background: color-mix(in srgb, var(--nb-accent) 88%, #000); color: #fff; }
+
+.nearby-photo { flex: none; width: 52px; height: 52px; border-radius: 12px; object-fit: cover; }
+
+/* Wide cards: map on the left, a scrolling list on the right. */
+@container (min-width: 600px) {
+  .nearby-body { flex-direction: row; height: 380px; }
+  .nearby-map-wrap { flex: 1.1 1 0; height: auto; }
+  .nearby-list { flex: 1 1 0; flex-direction: column; overflow-x: hidden; overflow-y: auto; scroll-snap-type: none; padding: 10px; scrollbar-width: thin; }
+  .nearby-place { flex: none; }
+}
+
+/* No map (it failed to load): a plain list of every place. */
+.nearby-card.no-map .nearby-body { flex-direction: column; height: auto; }
+.nearby-card.no-map .nearby-list { flex-direction: column; overflow: visible; scroll-snap-type: none; }
+.nearby-card.no-map .nearby-place { flex: none; }
+
+/* Nothing found / search down */
+.nearby-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 26px 24px 22px; border-top: 1px solid var(--border, rgba(0, 0, 0, .08)); }
+.nearby-empty-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 4px; border-radius: 16px; color: var(--ink-3, #78746e); background: var(--bg-hover, rgba(0, 0, 0, .05)); }
+.nearby-empty-title { margin: 0; font-size: 15px; font-weight: 650; }
+.nearby-empty-sub { margin: 0; max-width: 380px; font-size: 13px; line-height: 1.5; color: var(--ink-3, #78746e); }
+
+/* Footer */
+.nearby-foot { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px 12px; border-top: 1px solid var(--border, rgba(0, 0, 0, .08)); }
+.nearby-card .nearby-cta {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 16px;
+  border-radius: 12px; font-size: 14px; font-weight: 650; text-decoration: none;
+  color: var(--bg, #fff); background: var(--ink, #1f1e1d);
+  transition: transform .18s cubic-bezier(.22, 1, .36, 1), opacity .18s ease;
+}
+.nearby-card .nearby-cta:hover { transform: translateY(-1px); opacity: .92; }
+.nearby-card .nearby-cta:active { transform: scale(.985); }
+.nearby-credit { text-align: center; font-size: 10.5px; color: var(--ink-4, #a39e96); }
+
+/* Map markers: you, and numbered pins that drop in. */
+.nearby-me { position: relative; width: 16px; height: 16px; border-radius: 50%; background: #1a73e8; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
+.nearby-me span { position: absolute; inset: -9px; border-radius: 50%; background: rgba(26, 115, 232, .28); animation: nbPulse 2s ease-out infinite; }
+@keyframes nbPulse { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+.nearby-pin {
+  position: relative; display: block; padding: 0; border: 0; background: none; cursor: pointer;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, .3)); transform-origin: 50% 100%;
+  transition: transform .22s cubic-bezier(.34, 1.4, .64, 1);
+  animation: nbPinDrop .45s cubic-bezier(.34, 1.4, .64, 1) both;
+}
+@keyframes nbPinDrop { from { opacity: 0; transform: translateY(-14px) scale(.6); } to { opacity: 1; transform: none; } }
+.nearby-pin path { fill: #4b4743; stroke: #fff; stroke-width: 2; transition: fill .18s ease; }
+.nearby-pin span { position: absolute; left: 0; right: 0; top: 7px; text-align: center; font: 700 12px/1 system-ui, sans-serif; color: #fff; }
+.nearby-pin:hover { transform: scale(1.12); }
+.nearby-pin.is-selected { transform: scale(1.28); z-index: 2; }
+.nearby-pin.is-selected path { fill: #D97757; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nearby-card, .nearby-place, .nearby-pin, .nearby-me span, .nearby-map-wrap::before { animation: none !important; }
+}
