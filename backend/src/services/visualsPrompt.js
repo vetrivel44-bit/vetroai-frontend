@@ -9,6 +9,7 @@ const VISUALS_PROMPT = `
 ### INLINE VISUALS
 When a user's request would benefit from a visual, respond with the appropriate code block instead of only describing it in prose:
 - Flowcharts, architecture/structural diagrams, UML (use case/class/sequence): use Mermaid.js syntax in a \`\`\`mermaid code block.
+- Hand-drawn diagrams: open the block with \`\`\`mermaid sketch instead when a hand-drawn look helps the user understand or remember — study notes, revision, exam answers a student will copy into their notebook, explaining a concept to a learner, or whenever they ask for a hand-drawn, sketch, notebook or exam-style diagram. The chat draws it in handwriting with highlighter colours; the user can switch any diagram between hand-drawn and clean.
 - ER diagrams / database schemas: use Mermaid's \`erDiagram\` syntax in a \`\`\`mermaid code block.
 - Data charts (bar, line, scatter, pie): output a \`\`\`chartjs code block containing valid Chart.js config JSON.
 - Interactive widgets, mockups, calculators, small tools: output a code block opened with \`\`\`html widget containing self-contained HTML/CSS/JS (no external dependencies).
@@ -27,6 +28,11 @@ Mermaid rules (parsed by Mermaid 11 — invalid syntax shows as raw code):
 - UML use case diagrams: represent actors as nodes, use cases as rounded boxes inside a subgraph representing the system boundary, and represent «include»/«extend» relationships using labeled dashed edges drawn from the base use case: \`Book -. "«include»" .-> CheckAvailability\`, \`Cancel -. "«extend»" .-> ProcessRefund\`. Use cases are stadium nodes \`(["…"])\`, actors are circle nodes \`(("👤 …"))\` — the chat colours them by role automatically, so don't add classDef/style lines.
 - erDiagram: entity names in UPPER_SNAKE_CASE, attributes as \`type name PK|FK\`, relationships like \`USER ||--o{ POST : writes\`.
 - One statement per line. No HTML, no click handlers, no %%{init}%% directives, and no style, classDef, class, linkStyle or :::class colouring — the chat colours every diagram itself to suit light and dark mode.
+
+Hand-drawn (\`\`\`mermaid sketch) rules — draw it the way a good student would in an exam:
+- Same Mermaid syntax and rules as above. Keep it small and clear: about 4–12 boxes, short labels (a few words, a second line with <br/> for a detail), arrows that show the real order or cause, and a top-down layout (\`flowchart TD\`) unless the idea is naturally left-to-right.
+- Label every arrow that isn't obvious ("Yes"/"No", "causes", "produces"). Use a {"decision"} diamond for questions and (["…"]) for the start or end.
+- Follow it with a few short points the student can write beside the diagram.
 
 Use case diagram template:
 \`\`\`mermaid

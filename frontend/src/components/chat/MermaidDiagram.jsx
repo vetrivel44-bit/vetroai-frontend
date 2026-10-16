@@ -1,12 +1,16 @@
 import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Code2, Copy, Download, Maximize2, Network } from "lucide-react";
+import { Check, Code2, Copy, Download, Maximize2, Network, PenLine, Shapes } from "lucide-react";
 import { OpenBlockContext, isStillStreaming } from "../../lib/visualStream";
 import "./mermaidDiagram.css";
+// The handwriting font ships with the app (not from Google Fonts), so a
+// hand-drawn diagram always measures and draws its labels in the same font.
+import "@fontsource/kalam/400.css";
+import "@fontsource/kalam/700.css";
 import { PendingSketch } from "./visuals/VisualCard";
 import { useBornLive } from "../../lib/streamReveal";
 import DiagramViewer from "./DiagramViewer";
 import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
-import { alignSubgraphs, stripModelStyling } from "../../lib/mermaidCode";
+import { alignSubgraphs, stripModelStyling, wantsHandDrawn } from "../../lib/mermaidCode";
 
 // ─── draw-in reveal ─────────────────────────────────────────────────────────
 // A diagram that arrives during a reply is revealed the way it would be
@@ -72,9 +76,13 @@ function revealDiagram(host) {
 // Mermaid measured text in one font and the chat drew it in another, so
 // labels were clipped ("Book appointmen…").
 const DIAGRAM_FONT = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+// Hand-drawn diagrams ("```mermaid sketch") are lettered like notes in an
+// exercise book. Kalam is bundled with the app (@fontsource/kalam).
+const SKETCH_FONT = '"Kalam", "Patrick Hand", "Comic Sans MS", cursive';
+
 
 let mermaidModule = null;
-let configuredTheme = null;
+let configuredKey = null;
 // mermaid.render is not safe to run concurrently; queue every render.
 let renderQueue = Promise.resolve();
 let renderCount = 0;
@@ -123,21 +131,37 @@ const THEME_VARIABLES = {
   },
 };
 
-async function getMermaid(theme) {
+async function getMermaid(theme, sketch = false) {
   if (!mermaidModule) mermaidModule = import("mermaid").then((m) => m.default);
   const mermaid = await mermaidModule;
-  if (configuredTheme !== theme) {
+  const key = `${theme}:${sketch ? "sketch" : "clean"}`;
+  if (configuredKey !== key) {
+    const font = sketch ? SKETCH_FONT : DIAGRAM_FONT;
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       theme: "base",
-      themeVariables: THEME_VARIABLES[theme],
-      fontFamily: DIAGRAM_FONT,
-      flowchart: { htmlLabels: false, curve: "basis", padding: 12, nodeSpacing: 40, rankSpacing: 50, subGraphTitleMargin: { top: 10, bottom: 6 } },
+      look: sketch ? "handDrawn" : "classic",
+      // A fixed seed: the same diagram wobbles the same way every time it is drawn.
+      handDrawnSeed: 7,
+      themeVariables: { ...THEME_VARIABLES[theme], ...(sketch ? SKETCH_INK[theme] : {}), fontFamily: font, fontSize: sketch ? "16px" : "15px" },
+      fontFamily: font,
+      // Handwriting runs wider and less evenly than Inter: more room around labels.
+      flowchart: { htmlLabels: false, curve: "basis", padding: sketch ? 20 : 12, nodeSpacing: sketch ? 46 : 40, rankSpacing: 50, subGraphTitleMargin: { top: 10, bottom: 6 } },
     });
-    configuredTheme = theme;
+    configuredKey = key;
   }
   return mermaid;
+}
+
+// Mermaid sizes boxes by measuring the label text, so the handwriting font
+// must be ready first or labels overflow their boxes.
+async function sketchFontReady() {
+  if (!document.fonts?.load) return;
+  await Promise.race([
+    Promise.all([document.fonts.load('400 16px "Kalam"'), document.fonts.load('700 16px "Kalam"')]),
+    new Promise((resolve) => setTimeout(resolve, 2500)),
+  ]).catch(() => {});
 }
 
 // ─── automatic colours ──────────────────────────────────────────────────────
@@ -165,11 +189,40 @@ const PALETTE = {
   },
 };
 
+// Hand-drawn diagrams fill shapes with hatching in the fill colour, so their
+// fills are soft highlighter tones that sit behind the handwriting, with
+// strong ink outlines and text — like a well-kept exercise book.
+// Only fill and text colour: a classDef stroke would also recolour the
+// hatching (it is a stroked path), so outlines come from the theme's ink
+// colour instead (SKETCH_INK).
+const SKETCH_PALETTE = {
+  dark: {
+    step: "fill:#24574A,color:#F2FFF9",
+    usecase: "fill:#24574A,color:#F2FFF9",
+    include: "fill:#3E3780,color:#F5F3FF",
+    extend: "fill:#6E3B28,color:#FFF1EA",
+    decision: "fill:#6A531C,color:#FFF8E6",
+    actor: "fill:#3F3C39,color:#F2EFEA",
+  },
+  light: {
+    step: "fill:#CDEFE3,color:#12382E",
+    usecase: "fill:#CDEFE3,color:#12382E",
+    include: "fill:#E3DEFF,color:#241D5C",
+    extend: "fill:#FFDCCB,color:#4E1F0B",
+    decision: "fill:#FFEBB0,color:#3F2E06",
+    actor: "fill:#EFEAE2,color:#2B2724",
+  },
+};
+const SKETCH_INK = {
+  dark: { primaryBorderColor: "#D9D2C8", lineColor: "#CFC8BF", clusterBorder: "#8A8279", actorBorder: "#D9D2C8" },
+  light: { primaryBorderColor: "#3A332C", lineColor: "#4F4842", clusterBorder: "#8A8279", actorBorder: "#3A332C" },
+};
+
 // Node ID followed by its opening shape: (( circle, ([ stadium, { rhombus,
 // [ or ( box. Covers definitions at line start and after an edge.
 const NODE_RE = /(?:^|--+>?|-\.+->?|==+>?|---|&)\s*([A-Za-z_][\w]*)\s*(\(\(|\(\[|\[\[|\[\(|\{\{|\{|\[|\()/gm;
 
-function colorize(code, theme, presetRoles = null) {
+function colorize(code, theme, presetRoles = null, sketch = false) {
   if (!/^\s*(flowchart|graph)\b/m.test(code)) return code;
   const roles = new Map(presetRoles || []);
   const setRole = (id, role) => { if (!roles.has(id)) roles.set(id, role); };
@@ -186,7 +239,8 @@ function colorize(code, theme, presetRoles = null) {
     else setRole(id, "step");
   }
   if (!roles.size) return code;
-  const palette = PALETTE[theme] || PALETTE.light;
+  const palettes = sketch ? SKETCH_PALETTE : PALETTE;
+  const palette = palettes[theme] || palettes.light;
   const byRole = {};
   for (const [id, role] of roles) (byRole[role] ||= []).push(id);
   const lines = Object.entries(byRole).flatMap(([role, ids]) => [
@@ -282,16 +336,17 @@ function drawActors(svg, actors, theme) {
   return root.outerHTML;
 }
 
-function renderDiagram(rawCode, theme) {
+function renderDiagram(rawCode, theme, sketch = false) {
   const useCase = isUseCaseDiagram(rawCode) ? toUseCase(stripModelStyling(rawCode)) : null;
   const presetRoles = useCase ? [
     ...[...useCase.actors.keys()].map((id) => [id, "actor"]),
     ...useCase.relations.entries(),
   ] : null;
   const clean = alignSubgraphs(stripModelStyling(rawCode));
-  const code = colorize(useCase ? useCase.code : clean, theme, presetRoles);
+  const code = colorize(useCase ? useCase.code : clean, theme, presetRoles, sketch);
   const job = renderQueue.then(async () => {
-    const mermaid = await getMermaid(theme);
+    if (sketch) await sketchFontReady();
+    const mermaid = await getMermaid(theme, sketch);
     const id = `vetro-mermaid-${Date.now().toString(36)}-${renderCount++}`;
     try {
       await mermaid.parse(code);
@@ -323,8 +378,10 @@ function useDocumentTheme() {
 }
 
 
-export default function MermaidDiagram({ code, fallback = null }) {
+export default function MermaidDiagram({ code, fallback = null, sketch: sketchByDefault = false }) {
   const theme = useDocumentTheme();
+  // Hand-drawn when the block asked for it; either look can be switched to.
+  const [sketch, setSketch] = useState(() => sketchByDefault || wantsHandDrawn(code));
   // Still streaming: this block's closing ``` hasn't arrived yet.
   const pending = isStillStreaming(useContext(OpenBlockContext), code);
   const [state, setState] = useState({ status: "idle", svg: "", error: "" });
@@ -342,11 +399,11 @@ export default function MermaidDiagram({ code, fallback = null }) {
   useEffect(() => {
     if (pending || !code.trim()) return undefined;
     let alive = true;
-    renderDiagram(code, theme)
+    renderDiagram(code, theme, sketch)
       .then((svg) => { if (alive) setState({ status: "ready", svg, error: "" }); })
       .catch((err) => { if (alive) setState({ status: "error", svg: "", error: String(err?.message || err || "Invalid diagram").split("\n")[0] }); });
     return () => { alive = false; };
-  }, [code, theme, pending]);
+  }, [code, theme, pending, sketch]);
 
   // The SVG is put in once per finished render, not through
   // dangerouslySetInnerHTML: that re-inserted it on every streamed token (the
@@ -410,10 +467,13 @@ export default function MermaidDiagram({ code, fallback = null }) {
   }
 
   return (
-    <div className={`vetro-diagram not-prose${bornLive ? " vetro-born-live" : ""}`}>
+    <div className={`vetro-diagram not-prose${bornLive ? " vetro-born-live" : ""}${sketch ? " is-sketch" : ""}`}>
       <div className="vetro-diagram-head">
-        <span className="vetro-diagram-title"><Network size={14} /> {diagramName(code)}</span>
+        <span className="vetro-diagram-title">{sketch ? <PenLine size={14} /> : <Network size={14} />} {diagramName(code)}{sketch ? " · hand-drawn" : ""}</span>
         <span className="vetro-diagram-actions">
+          <button type="button" onClick={() => setSketch((v) => !v)} title={sketch ? "Clean diagram" : "Hand-drawn diagram"} aria-label={sketch ? "Show as a clean diagram" : "Show as a hand-drawn diagram"} aria-pressed={sketch}>
+            {sketch ? <><Shapes size={14} /><span className="vetro-diagram-btn-label">Clean</span></> : <><PenLine size={14} /><span className="vetro-diagram-btn-label">Sketch</span></>}
+          </button>
           <button type="button" onClick={() => setShowCode((v) => !v)} title={showCode ? "Show diagram" : "Show Mermaid code"} aria-label={showCode ? "Show diagram" : "Show Mermaid code"}>
             {showCode ? <><Network size={14} /><span className="vetro-diagram-btn-label">Diagram</span></> : <><Code2 size={14} /><span className="vetro-diagram-btn-label">Code</span></>}
           </button>

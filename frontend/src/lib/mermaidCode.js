@@ -30,3 +30,7 @@ export function alignSubgraphs(code) {
   });
   return out.join("\n");
 }
+
+// Whether the source itself asks for the hand-drawn look (Mermaid's own
+// front-matter `look: handDrawn`).
+export const wantsHandDrawn = (code) => /^\s*look:\s*handDrawn\b/m.test(String(code || ""));

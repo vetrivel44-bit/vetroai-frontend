@@ -28,3 +28,9 @@ test("subgraphs follow the chart's direction unless they set one", () => {
   assert.equal(alignSubgraphs(own), own);
   assert.equal(alignSubgraphs("sequenceDiagram\n  A->>B: hi"), "sequenceDiagram\n  A->>B: hi");
 });
+
+test("spots Mermaid's own hand-drawn setting", async () => {
+  const { wantsHandDrawn } = await import("../src/lib/mermaidCode.js");
+  assert.equal(wantsHandDrawn("---\nconfig:\n  look: handDrawn\n---\nflowchart TD\n  A --> B"), true);
+  assert.equal(wantsHandDrawn("flowchart TD\n  A[\"look: handDrawn\"] --> B"), false);
+});

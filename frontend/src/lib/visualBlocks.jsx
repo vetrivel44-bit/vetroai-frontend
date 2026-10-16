@@ -12,6 +12,7 @@ import SlidesBlock from "../components/chat/visuals/SlidesBlock";
 // Only these exact tags — ordinary code the user asked for (a Python script,
 // a SQL query, a plain ```html or ```json snippet) always stays code:
 //   ```mermaid        diagrams (flowchart, UML, ER, sequence…)
+//   ```mermaid sketch the same, drawn by hand (study notes, exam answers)
 //   ```chartjs        Chart.js config JSON
 //   ```html widget    a self-contained interactive widget / mockup
 //   ```json map       [{ name, lat, lng, notes }]
@@ -22,7 +23,7 @@ import SlidesBlock from "../components/chat/visuals/SlidesBlock";
 export function renderVisualBlock({ lang, meta, code, fallback }) {
   const language = String(lang || "").toLowerCase();
   const tags = String(meta || "").toLowerCase().split(/\s+/);
-  if (language === "mermaid") return <MermaidDiagram code={code} fallback={fallback} />;
+  if (language === "mermaid") return <MermaidDiagram code={code} fallback={fallback} sketch={tags.some((t) => /^(sketch|hand-?drawn|handwritten)$/.test(t))} />;
   if (language === "chartjs") return <ChartBlock code={code} fallback={fallback} />;
   if (language === "html" && tags.includes("widget")) return <WidgetBlock code={code} fallback={fallback} />;
   if (language === "json" && tags.includes("map")) return <MapBlock code={code} fallback={fallback} />;
