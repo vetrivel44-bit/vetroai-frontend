@@ -45,3 +45,16 @@ the Actions tab against any branch without pushing.
 all unused variables in dead code. CI runs it for visibility but does not fail
 on it, so the backlog does not block deploys. Once it is cleared, drop the
 `continue-on-error: true` from `.github/workflows/ci.yml`.
+
+## Usage limits (Settings → Usage)
+
+The backend counts every message per account (or per visitor IP when signed
+out) in a 5-hour session window and a 7-day weekly window, with a separate
+weekly cap for the most capable models. Limits and model weights live in
+`backend/src/config/usageLimits.js`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MONGO_URI` | unset | When set, usage is stored in MongoDB: it survives redeploys and every instance agrees. |
+| `USAGE_STORE_FILE` | OS temp dir | Without MongoDB, usage is kept in memory and saved to this JSON file. It survives restarts, but not a fresh disk (a Render redeploy). |
+| `TRUST_PROXY_HOPS` | `1` | Proxies in front of the app (Render has one), so visitor IPs — for usage and rate limits — are the real client address. |

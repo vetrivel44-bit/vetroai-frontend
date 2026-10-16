@@ -19,6 +19,8 @@ const mistralAvailable = Boolean(config.mistralApiKey);
 
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
+const usage = require("../services/usageService");
+const { modelOf } = require("./usageController");
 const { withGroqModel } = require("../utils/groqModel");
 const mistralAdapter = require("../providers/mistralAdapter");
 const medicalService = require("../services/medicalService");
@@ -238,6 +240,23 @@ async function chat(req, res) {
     }
   }
 
+  // Usage limits (Settings → Usage): checked before answering, counted once
+  // there is an answer. The model is the one the user picked; DeepSearch
+  // counts as its own, heavier model.
+  const usageId = usage.identityOf(req);
+  const usageModel = ["research", "deep_search", "deepsearch"].includes(String(mode || "").toLowerCase())
+    ? "DeepSearch"
+    : modelOf(req.body?.modelLabel || provider);
+  try {
+    const gate = await usage.check(usageId.key, usageId.plan, usageModel);
+    if (!gate.allowed) {
+      res.write(`data: ${JSON.stringify({ type: "error", code: "USAGE_LIMIT", data: usage.limitMessage(gate.block, usageModel), usage: { ...gate.block, model: usageModel } })}\n\n`);
+      return res.end();
+    }
+  } catch (err) {
+    logger.warn("usage.checkFailed", { reqId, error: err.message }); // never block chat on a usage-store error
+  }
+
   const heartbeat = setInterval(() => { res.write(": ping\n\n"); }, 12000);
   const cleanup = () => { clearInterval(heartbeat); };
   // The reader closing the stream before it ends (stop button, closed tab)
@@ -273,6 +292,9 @@ async function chat(req, res) {
     cleanup();
     // Only bill a turn that actually produced an answer — a request that
     // exhausted every provider, or failed outright, is free.
+    if (answered) {
+      usage.record(usageId.key, usageId.plan, usageModel).catch((err) => logger.warn("usage.recordFailed", { reqId, error: err.message }));
+    }
     if (billingUserId && answered) {
       creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});
     }

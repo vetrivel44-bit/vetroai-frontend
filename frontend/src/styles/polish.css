@@ -134,6 +134,38 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
 .auth-form-header, .auth-form-header ~ * { animation: vpRise 0.5s var(--ease-out) both; }
 
 /* ── Dialogs ─────────────────────────────────────────────────────────────── */
+/* Settings' tab row (Profile, Usage, Notifications…) scrolls sideways on a
+   narrow modal instead of cutting off the last tabs. */
+.modal-tabs { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
+.modal-tabs::-webkit-scrollbar { display: none; }
+.modal-tabs .mtab { flex: none; white-space: nowrap; }
+/* An edge fades while there are more tabs past it, so it's clear the row
+   can be swiped. min-width: 0 lets the row shrink inside the top bar. */
+.modal-tabs { min-width: 0; scroll-behavior: smooth; overscroll-behavior-x: contain; touch-action: pan-x; }
+.modal-tabs.fade-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+.modal-tabs.fade-left { -webkit-mask-image: linear-gradient(to right, transparent, #000 36px); mask-image: linear-gradient(to right, transparent, #000 36px); }
+.modal-tabs.fade-left.fade-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+
+/* Settings → Profile: the signed-in account. */
+.user-avatar {
+  display: inline-grid; place-items: center; flex: none; overflow: hidden;
+  font-weight: 650; line-height: 1; color: var(--bg); background: var(--ink);
+}
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile-card {
+  display: flex; align-items: center; gap: 16px; padding: 16px;
+  border-radius: 16px; border: 1px solid var(--border-med); background: var(--bg-hover);
+  animation: vpRise .4s var(--ease-out) both;
+}
+.profile-card .user-avatar { box-shadow: 0 0 0 3px var(--bg-elevated), 0 0 0 4px var(--border-med); }
+.profile-card-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.profile-card-text strong { font-size: 17px; font-weight: 650; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-card-text span { font-size: 13.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-plan {
+  align-self: flex-start; margin-top: 4px; padding: 2px 9px; border-radius: 999px;
+  font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--ink-2); background: var(--bg-active);
+}
+
 /* "About You" and "Response Style" wrapped onto two lines. */
 .cust-tab { white-space: nowrap; }
 .cust-tabs { overflow-x: auto; scrollbar-width: none; }
@@ -147,3 +179,4 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
     scroll-behavior: auto !important;
   }
 }
+.cust-toggle-row .btn-ghost { flex: none; white-space: nowrap; }
