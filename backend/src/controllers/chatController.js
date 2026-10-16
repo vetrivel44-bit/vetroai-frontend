@@ -293,7 +293,10 @@ async function chat(req, res) {
     // Only bill a turn that actually produced an answer — a request that
     // exhausted every provider, or failed outright, is free.
     if (answered) {
-      usage.record(usageId.key, usageId.plan, usageModel).catch((err) => logger.warn("usage.recordFailed", { reqId, error: err.message }));
+      // Counted against the model that actually answered: when the one picked
+      // failed and another took over, the one that did the work is charged.
+      const answeredBy = usageModel === "DeepSearch" ? usageModel : modelOf(res.locals?.answeredBy || usageModel);
+      usage.record(usageId.key, usageId.plan, answeredBy).catch((err) => logger.warn("usage.recordFailed", { reqId, error: err.message }));
     }
     if (billingUserId && answered) {
       creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});

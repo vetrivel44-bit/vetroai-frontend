@@ -1,5 +1,6 @@
-// Keeps every visible assistant response tied to the model selected when that
-// response row first appears. This is deliberately DOM-level so it also covers
+// Keeps every visible assistant response tied to the model that answered it:
+// the one the app reports (data-answered-by), else the model selected when
+// that response row first appeared. This is deliberately DOM-level so it also covers
 // streaming/pending rows without waiting for App.jsx to finish a response.
 
 const VETRO_MARK_SRC = '/favicon.svg';
@@ -105,6 +106,15 @@ function renderProviderAvatar(avatarWrap, label) {
 
 function syncAssistantRow(row, fallbackLabel, force = false) {
   if (!row) return;
+  // The app marks a reply with the model that actually answered it once the
+  // server (or the browser model) says so — that beats the model that was
+  // selected, which is wrong whenever another model took over.
+  const answeredBy = cleanModelLabel(row.dataset.answeredBy || '');
+  if (answeredBy) {
+    row.dataset.modelUsed = answeredBy;
+    renderProviderAvatar(avatarForRow(row), answeredBy);
+    return;
+  }
   let label = cleanModelLabel(fallbackLabel || currentDisplayedModel());
   if (!force && row.dataset.modelUsed) label = row.dataset.modelUsed;
   else row.dataset.modelUsed = label;

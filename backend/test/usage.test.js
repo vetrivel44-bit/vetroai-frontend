@@ -156,3 +156,45 @@ test("chat refuses a message once the limit is used up, with the reset time", as
   assert.equal(event.usage.window, "session");
   assert.equal(event.usage.model, "Groq");
 });
+
+test("a reply from a fallback model is counted against the model that answered", async (t) => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const original = orchestrator.processRequest;
+  orchestrator.processRequest = async (_id, _params, res) => {
+    // GPT-5.6 Terra was picked, but Groq is the one that answered.
+    res.locals.answeredBy = "Groq";
+    res.write(`data: ${JSON.stringify({ type: "content", data: "Hi" })}\n\n`);
+    res.end();
+    return true;
+  };
+  t.after(() => { orchestrator.processRequest = original; });
+  const base = await startServer(t);
+  const ip = "192.0.2.240";
+  usage._memory.delete(`ip:${ip}`);
+  await (await fetch(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+    body: JSON.stringify({ input: "Hello", provider: "GPT-5.6 Terra", modelLabel: "GPT-5.6 Terra", mode: "normal" }),
+  })).text();
+  await new Promise((r) => setTimeout(r, 50));
+  const data = (await (await fetch(`${base}/api/usage`, { headers: { "X-Forwarded-For": ip } })).json()).data;
+  assert.deepEqual(data.models.map((m) => [m.model, m.messages]), [["Groq", 1]]);
+  assert.equal(data.session.used, 1, "charged at Groq's weight, not Terra's");
+});
+
+test("browser models are checked first and counted only once they answer", async (t) => {
+  const base = await startServer(t);
+  const ip = "192.0.2.241";
+  const headers = { "Content-Type": "application/json", "X-Forwarded-For": ip };
+  usage._memory.delete(`ip:${ip}`);
+  const check = await fetch(`${base}/api/usage/check`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Terra" }) });
+  assert.equal(check.status, 200);
+  assert.equal((await check.json()).data.session.used, 0, "a check counts nothing");
+  const rec = await fetch(`${base}/api/usage/record`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Terra" }) });
+  assert.equal((await rec.json()).data.session.used, 2);
+
+  usage._memory.set(`ip:${ip}`, { sessionStart: Date.now(), weekStart: Date.now(), events: [{ m: "Groq", u: limitsFor("free").session, t: Date.now() }] });
+  const refused = await fetch(`${base}/api/usage/check`, { method: "POST", headers, body: JSON.stringify({ model: "GPT-5.6 Terra" }) });
+  assert.equal(refused.status, 429);
+  assert.equal((await refused.json()).code, "USAGE_LIMIT");
+});

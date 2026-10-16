@@ -19,14 +19,16 @@ export class UsageLimitError extends Error {
 }
 
 /**
- * Counts a message to a model that answers in the browser, before it starts.
- * Throws UsageLimitError when a limit is used up. If the server can't be
- * reached the message goes ahead: a usage check must never take chat down.
+ * Asks whether a model that answers in the browser may answer now. Nothing is
+ * counted yet: it may still fail (out of credits) and hand the message to
+ * another model. Throws UsageLimitError when a limit is used up. If the
+ * server can't be reached the message goes ahead: a usage check must never
+ * take chat down.
  */
-export async function consumeUsage(api, model, { fetchImpl = globalThis.fetch, signal } = {}) {
+export async function checkUsage(api, model, { fetchImpl = globalThis.fetch, signal } = {}) {
   let res;
   try {
-    res = await fetchImpl(`${api}/usage/consume`, {
+    res = await fetchImpl(`${api}/usage/check`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ model }),
@@ -41,6 +43,16 @@ export async function consumeUsage(api, model, { fetchImpl = globalThis.fetch, s
     if (body?.code === "USAGE_LIMIT") throw new UsageLimitError(body.message || "You've reached your usage limit.", { ...body.block, model });
   }
   return res.ok ? (await res.json().catch(() => null))?.data || null : null;
+}
+
+/** Counts a message once a browser model has actually answered it. */
+export function recordUsage(api, model, { fetchImpl = globalThis.fetch } = {}) {
+  return fetchImpl(`${api}/usage/record`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ model }),
+    keepalive: true,
+  }).catch(() => null);
 }
 
 /** "2 hr 14 min" until `resetsAt`. */

@@ -36,4 +36,24 @@ async function consume(req, res) {
   res.json({ success: true, data: describe(id, result.summary) });
 }
 
-module.exports = { getUsage, consume, modelOf };
+// POST /api/usage/check { model } — may a browser model answer now? Nothing
+// is counted: a browser model can still fail (out of credits) and hand the
+// message to another model, which is the one that should be charged.
+async function checkModel(req, res) {
+  const id = usage.identityOf(req);
+  const model = modelOf(req.body?.model);
+  const result = await usage.check(id.key, id.plan, model);
+  if (!result.allowed) {
+    return res.status(429).json({ success: false, code: "USAGE_LIMIT", message: usage.limitMessage(result.block, model), block: result.block, data: describe(id, result.summary) });
+  }
+  res.json({ success: true, data: describe(id, result.summary) });
+}
+
+// POST /api/usage/record { model } — a browser model finished an answer.
+async function recordModel(req, res) {
+  const id = usage.identityOf(req);
+  const summary = await usage.record(id.key, id.plan, modelOf(req.body?.model));
+  res.json({ success: true, data: describe(id, summary) });
+}
+
+module.exports = { getUsage, consume, checkModel, recordModel, modelOf };

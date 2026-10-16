@@ -927,6 +927,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
         providerManager.updateMetrics(currentProviderName, true, Date.now() - startTime);
         finishResearch("done");
         success = true;
+        // Which model actually answered (it may be a fallback, not the one
+        // picked): the app labels the reply with it, and usage counts it.
+        const answeredBy = this.providerLabel(currentProviderName);
+        if (res.locals) res.locals.answeredBy = answeredBy;
+        this.sendVetroEvent(res, "model", answeredBy);
       } catch (err) {
         logger.error(`AIOrchestrator.error [${currentProviderName}]`, { reqId, error: err.message });
         providerManager.updateMetrics(currentProviderName, false, Date.now() - startTime);
