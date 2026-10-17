@@ -16,6 +16,7 @@ import { askModel } from "../../lib/computerChat";
 import { xlsxBlob } from "../../lib/documentExport";
 import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
 import ResearchRun from "./ResearchRun";
+import ModeSwitch from "../ModeSwitch";
 import { settleInterruptedTasks } from "../../lib/computerTasks";
 import { publishSite } from "../../lib/sitePublish";
 import ScheduledPanel from "./ScheduledPanel";
@@ -1562,11 +1563,12 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       <main className="cowork-main">
         <header className="cowork-header">
           <button onClick={() => setSidebarOpen(v => !v)} className="hidden md:block p-2 rounded-lg hover:bg-stone-100"><Monitor size={18} /></button>
-          <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100" aria-label="Back to chat"><ArrowLeft size={18} /></button>
+
           <button onClick={() => setDrawer(true)} className="cw-mobile-only p-2 rounded-lg hover:bg-stone-100" aria-label="Your tasks" title="Your tasks">
             <History size={18} />{scheduledUnread > 0 && <span className="cw-dot-badge" />}
           </button>
-          <div className="flex-1 min-w-0">
+          <ModeSwitch mode="computer" onChat={onClose} className="cw-mode-switch" />
+          <div className="flex-1 min-w-0 cw-header-title">
             <div className="font-semibold text-sm truncate">{view === "scheduled" ? "Scheduled tasks" : activeTask?.title || "VetroAI Computer"}</div>
             <div className="cw-header-status">
               {view === "scheduled" ? "Runs on its own, even when the app is closed"

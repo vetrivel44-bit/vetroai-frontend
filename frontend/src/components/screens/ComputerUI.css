@@ -964,3 +964,9 @@ aside .cw-folder-tool { padding: 9px 10px; }
   .cw-drawer-scrim { display: block; position: fixed; inset: 0; z-index: 59; background: rgba(0,0,0,.42); animation: cwFolderIn .2s ease both; }
 }
 @keyframes cwDrawerIn { from { transform: translateX(-100%); } to { transform: none; } }
+/* Chat | Computer in Computer's header too. */
+.cw-mode-switch { margin-right: 4px; }
+@media (max-width: 720px) {
+  .cw-header-title { display: none; }
+  .cw-mode-switch { margin-right: auto; }
+}

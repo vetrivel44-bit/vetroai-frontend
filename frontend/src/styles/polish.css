@@ -194,23 +194,39 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 7%, transparent); }
 }
 
-/* Computer in the chat's top bar. */
-.vetro-computer-pill {
-  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px 0 11px; margin-left: 2px;
-  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-med));
-  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink);
-  font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
-  transition: background-color .15s ease, transform .15s var(--ease-out), border-color .15s ease;
+/* Chat | Computer at the top (components/ModeSwitch.jsx). */
+.vetro-mode-switch {
+  position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; align-items: center;
+  height: 36px; padding: 3px; border-radius: 999px; flex: none;
+  background: color-mix(in srgb, var(--ink) 7%, transparent); border: 1px solid var(--border);
 }
-.vetro-computer-pill svg { color: var(--accent); flex: none; }
-.vetro-computer-pill:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); transform: translateY(-1px); }
-.vetro-computer-pill:active { transform: scale(.97); }
-/* Phones: room for the whole word next to the toolbar icons. */
+.vetro-mode-switch button {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 13px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--ink-3); font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: color .2s ease;
+}
+.vetro-mode-switch button.is-on { color: var(--ink); }
+.vetro-mode-switch button.is-on svg { color: var(--accent); }
+.vetro-mode-switch button:not(.is-on):hover { color: var(--ink-2); }
+.vetro-mode-thumb {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px;
+  background: var(--bg-elevated); box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 0 0 1px var(--border);
+  transition: transform .28s var(--ease-out);
+}
+.vetro-mode-switch.is-computer .vetro-mode-thumb { transform: translateX(100%); }
+
+/* Phones: room for the switch next to the chat toolbar icons. */
 @media (max-width: 480px) {
   .chat-header { padding-left: 10px !important; padding-right: 10px !important; gap: 6px !important; }
   .chat-header .ch-left { flex: none; gap: 4px !important; }
   .chat-header .ch-right { gap: 0 !important; }
-  .chat-header .ch-right .claude-sb-icon-btn { width: 36px !important; min-width: 36px !important; }
-  .vetro-computer-pill { height: 32px; padding: 0 11px 0 9px; gap: 6px; font-size: 12.5px; margin-left: 0; }
+  .chat-header .ch-right .claude-sb-icon-btn { width: 34px !important; min-width: 34px !important; }
+  .vetro-mode-switch { height: 34px; }
+  /* Chat's tools on a phone: Jobs, News and web search (and Share); private chat stays on larger screens. */
+  .chat-header .ch-incognito { display: none !important; }
+  .vetro-mode-switch button { padding: 0 10px; font-size: 12.5px; gap: 5px; height: 26px; }
 }
-@media (max-width: 374px) { .vetro-computer-pill span { display: none; } .vetro-computer-pill { padding: 0 9px; } }
+@media (max-width: 430px) {
+  .vetro-mode-switch button svg { display: none; }
+  .vetro-mode-switch button { padding: 0 9px; }
+}
