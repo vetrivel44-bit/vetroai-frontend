@@ -46,3 +46,13 @@ test("reset times", () => {
   assert.equal(formatResetAt(new Date(2026, 9, 17, 9, 5).getTime(), now, "en-US"), "tomorrow 9:05 AM");
   assert.equal(formatResetAt(new Date(2026, 9, 23, 17, 23).getTime(), now, "en-US"), "Fri, Oct 23, 5:23 PM");
 });
+
+test("Computer runs: allowed, refused with an offer, or allowed when the server is down", async () => {
+  const { startComputerRun } = await import("../src/lib/usageClient.js");
+  const ok = await startComputerRun("/api", { fetchImpl: async () => ({ status: 200, json: async () => ({ success: true, data: { plan: "free", computer: { used: 1, limit: 3 } } }) }) });
+  assert.deepEqual(ok, { allowed: true, computer: { used: 1, limit: 3 }, plan: "free" });
+  const no = await startComputerRun("/api", { fetchImpl: async () => ({ status: 429, json: async () => ({ code: "COMPUTER_LIMIT", message: "You've used your 3 free…", block: { resetsAt: 5 }, data: { plan: "free", computer: { used: 3, limit: 3 } } }) }) });
+  assert.equal(no.allowed, false);
+  assert.equal(no.resetsAt, 5);
+  assert.equal((await startComputerRun("/api", { fetchImpl: async () => { throw new TypeError("offline"); } })).allowed, true);
+});

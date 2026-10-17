@@ -188,6 +188,29 @@ service cloud.firestore {
       }
     }
 
+    // --- Published websites (VetroAI Computer → Publish) ---
+    // Anyone with the link can open one (/s/{siteId}); nobody can list them.
+    // Only a signed-in owner can create, change or remove their own.
+    function isValidSite() {
+      return incoming().owner is string
+        && incoming().html is string
+        && incoming().html.size() <= 900000
+        && (!('title' in incoming()) || (incoming().title is string && incoming().title.size() <= 120));
+    }
+
+    match /sites/{siteId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isAuthenticated() && hasVerifiedEmail()
+                    && siteId.size() <= 48
+                    && incoming().owner == request.auth.uid
+                    && isValidSite() && withinSizeLimit();
+      allow update: if isAuthenticated() && resource.data.owner == request.auth.uid
+                    && incoming().owner == request.auth.uid
+                    && isValidSite() && withinSizeLimit();
+      allow delete: if isAuthenticated() && resource.data.owner == request.auth.uid;
+    }
+
     // Default deny. Any path not matched above is unreachable, for every user,
     // authenticated or not.
     match /{document=**} {

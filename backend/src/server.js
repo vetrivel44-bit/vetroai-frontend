@@ -30,6 +30,11 @@ async function bootstrap() {
     logger.info("server.db_skipped", { note: "MONGO_URI not set — running in offline mode (billing/persistent accounts disabled)" });
   }
 
+  // Scheduled tasks also run from here while the server is awake; the
+  // scheduler outside (see .github/workflows/scheduled-tasks.yml) wakes it.
+  const schedules = require("./services/scheduleService");
+  setInterval(() => schedules.runDue().catch((err) => logger.warn("schedule.tickFailed", { message: err.message })), 5 * 60 * 1000).unref();
+
   app.listen(config.port, "0.0.0.0", () => {
     logger.info("server.started", {
       port: config.port,

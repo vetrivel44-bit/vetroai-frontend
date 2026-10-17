@@ -94,6 +94,14 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
+    // Scheduled tasks (VetroAI Computer): a scheduler outside the server
+    // (.github/workflows/scheduled-tasks.yml) calls POST /api/schedules/run-due
+    // with this secret, which also wakes a sleeping free instance.
+    cronSecret:          getEnv("CRON_SECRET",            ""),
+    // Optional: email a scheduled task's result (resend.com). MAIL_FROM is
+    // a sender on a domain verified there, e.g. "VetroAI <tasks@yourdomain>".
+    resendApiKey:        getEnv("RESEND_API_KEY",         ""),
+    mailFrom:            getEnv("MAIL_FROM",              ""),
     // Pexels (pexels.com/api, free) — photos for the websites VetroAI builds.
     // Optional: without it, site images come from Openverse and LoremFlickr.
     pexelsApiKey:        getEnv("PEXELS_API_KEY",         ""),

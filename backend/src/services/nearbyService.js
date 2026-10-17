@@ -15,6 +15,7 @@ const OVERPASS_URLS = [...new Set([
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ].filter(Boolean))];
 const PHOTON_URL = "https://photon.komoot.io/api/";
 const NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search";
@@ -356,8 +357,9 @@ async function searchOverpass(kind, center, opts = {}) {
 // only places of that kind.
 const ofKind = (kind, key, value) => !kind?.label || kind.tags.some(([k, v]) => k === key && v === value);
 
-async function searchPhoton(query, center, { limit = 8, kind = null } = {}) {
-  const url = `${PHOTON_URL}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}&limit=20&lang=en`;
+async function searchPhoton(query, center, { limit = 8, kind = null, tags = null } = {}) {
+  const filter = (tags || []).map(([k, v]) => `&osm_tag=${encodeURIComponent(`${k}:${v}`)}`).join("");
+  const url = `${PHOTON_URL}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}&limit=${tags ? 40 : 20}&lang=en${filter}`;
   const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Photon ${res.status}`);
   const json = await res.json();
@@ -418,6 +420,37 @@ async function searchNominatim(query, center, { limit = 8, kind = null } = {}) {
   return rankPlaces(places).slice(0, limit);
 }
 
+// A kind of place by its type rather than by words in its name. A text
+// search for "veg restaurant" only finds places with those words in their
+// name, which in a small town is often none. Photon is asked for places
+// tagged amenity=restaurant (and the kind's other tags) nearest the user;
+// Nominatim for the same type ("restaurant" is one of its special phrases)
+// inside a box around them.
+async function searchKindFallback(kind, center, { limit = 8 } = {}) {
+  const tags = kind.tags.slice(0, 3);
+  const found = [];
+  let errors = 0;
+  const word = (v) => v.replace(/_/g, " ");
+  try {
+    found.push(...await searchPhoton(word(tags[0][1]), center, { limit: 40, kind, tags }));
+  } catch (err) {
+    errors++;
+    logger.warn("nearby.photonKindFailed", { error: err.message });
+  }
+  if (found.length < ENOUGH) {
+    for (const [, value] of tags.slice(0, 2)) {
+      try {
+        found.push(...await searchNominatim(word(value), center, { limit: 40, kind }));
+      } catch (err) {
+        errors++;
+        logger.warn("nearby.nominatimKindFailed", { error: err.message });
+      }
+    }
+  }
+  if (!found.length && errors) throw new Error("kind fallback unavailable");
+  return rankPlaces(found).slice(0, limit);
+}
+
 /**
  * Everything "X near me" needs: Overpass by kind or by name, then Photon,
  * then Nominatim. Never throws. `failed` is true only when every service
@@ -443,6 +476,15 @@ async function findNearby(rawQuery, center, { limit = 8 } = {}) {
     } catch (err) {
       errors++;
       logger.warn("nearby.overpassUnavailable", { error: err.message });
+    }
+  }
+  if (kind?.label) {
+    attempts++;
+    try {
+      const places = rankPlaces(await searchKindFallback(kind, center, { limit: limit * 3 }), prefer).slice(0, limit);
+      if (places.length) return { places, failed: false, source: "photon", radius: FALLBACK_MAX_METERS, label: kind.label, query };
+    } catch (err) {
+      errors++;
     }
   }
   for (const search of [searchPhoton, searchNominatim]) {

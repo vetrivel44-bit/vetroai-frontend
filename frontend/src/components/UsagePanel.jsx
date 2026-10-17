@@ -109,6 +109,15 @@ export default function UsagePanel({ api }) {
               idle="Not used this week"
               hint="Claude Opus, GPT-5.6 Sol, Claude Fable and DeepSearch share this limit."
             />
+            {data.computer && (
+              <Meter
+                title="VetroAI Computer tasks"
+                window={{ ...data.computer, percent: data.computer.percent ?? Math.min(100, Math.round((data.computer.used / data.computer.limit) * 100)) }}
+                now={now}
+                idle="Not used this week"
+                hint={`${data.computer.used} of ${data.computer.limit} this week — folder tools, research → files, websites and screen control.`}
+              />
+            )}
           </section>
 
           <section className="usage-section">

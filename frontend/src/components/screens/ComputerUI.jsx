@@ -8,7 +8,23 @@ import { resolveApiBase } from "../../lib/apiBase";
 import { resolveSiteImages } from "../../lib/siteImages";
 import { partialHtml, buildStage, buildSteps, analyzeSite } from "../../lib/siteBuild";
 import {
-  ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
+  AI_PLAN_INSTRUCTIONS, SUMMARY_COLUMNS, SUMMARY_INSTRUCTIONS, applyPlan, exifDate, formatStamp, groupDuplicates, hashFile, isImage,
+  manifest, parseAiPlan, parseSummaryRows, planDuplicates, planOrganizeByType, planRenameByDate, scanFolder, undoPlan, validatePlan, writeFile,
+} from "../../lib/folderOps";
+import { READABLE_DOC, extractFileText } from "../../lib/fileText";
+import { askModel } from "../../lib/computerChat";
+import { xlsxBlob } from "../../lib/documentExport";
+import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
+import ResearchRun from "./ResearchRun";
+import { publishSite } from "../../lib/sitePublish";
+import ScheduledPanel from "./ScheduledPanel";
+import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
+import { authHeaders, startComputerRun } from "../../lib/usageClient";
+import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
+import { settleResearch } from "../../lib/research";
+import { FOLDER_ACTIONS } from "../../lib/folderActions";
+import {
+  ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
   Download, File, FolderOpen, Globe2, HardDrive, Image as ImageIcon, LayoutTemplate, Loader2, LockKeyhole, MapPin,
   Maximize2, Mic, Minimize2, Monitor, MoreHorizontal, Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
   Smartphone, Sparkles, Square, Trash2, X, Zap
@@ -99,6 +115,11 @@ const LIVE_BROWSE_REQUEST = /\b(?:redbus|irctc|makemytrip|goibibo|ixigo|abhibus|
 // sentence starts with "open" — these must not be diverted to the desktop app.
 const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
+// With a folder open: requests to reorganise its files, or to summarise its documents.
+const FOLDER_REORGANIZE_REQUEST = /\b(rename|organi[sz]e|sort|tidy|clean ?up|arrange|group|categori[sz]e|move|put)\b[\s\S]{0,80}\b(files?|folders?|photos?|pictures?|images?|documents?|pdfs?|downloads?|videos?|songs?|music|invoices?|receipts?|everything|them|it)\b|\bduplicates?\b/i;
+const FOLDER_SUMMARY_REQUEST = /\b(summari[sz]e|summary|summaries|spreadsheet|table|extract|list)\b[\s\S]{0,60}\b(documents?|docs|pdfs?|files?|invoices?|receipts?|bills?|letters?|statements?|resumes?|cvs?)\b/i;
+const SUMMARY_MAX_DOCS = 25;
+const SUMMARY_DOC_CHARS = 2500;
 // A long reply the model stopped mid-code is continued at most this often.
 const MAX_CONTINUATIONS = 2;
 const CONTINUE_PROMPT = "Your previous message was cut off in the middle of the code. Continue EXACTLY from the last character you wrote — no greeting, no explanation, do not repeat anything already written, and do not open a new code block; just write the rest, then close the code block with ``` and finish.";
@@ -211,6 +232,27 @@ const PREVIEW_ERROR_CAPTURE = `<script>(function(){
   window.addEventListener("unhandledrejection", function(e){ report("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
   var origError = console.error;
   console.error = function(){ report(Array.prototype.slice.call(arguments).map(String).join(" ")); origError.apply(console, arguments); };
+  // "Click to edit": while the parent turns it on, hovering outlines an
+  // element and a click picks it (instead of following links or buttons).
+  var editing = false, hovered = null;
+  var style = document.createElement("style");
+  style.textContent = ".__vetro-hover{outline:2px solid #D97757 !important;outline-offset:2px !important;cursor:crosshair !important;}";
+  function setHover(el){ if (hovered) hovered.classList.remove("__vetro-hover"); hovered = el; if (el) el.classList.add("__vetro-hover"); }
+  window.addEventListener("message", function(e){
+    if (!e.data || e.data.source !== "vetroai-parent" || e.data.type !== "edit-mode") return;
+    editing = !!e.data.on;
+    if (editing && !style.parentNode) (document.head || document.documentElement).appendChild(style);
+    if (!editing) setHover(null);
+  });
+  document.addEventListener("mouseover", function(e){ if (editing && e.target !== document.body && e.target !== document.documentElement) setHover(e.target); }, true);
+  document.addEventListener("click", function(e){
+    if (!editing) return;
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target;
+    setHover(null);
+    var clone = el.cloneNode(true);
+    try { window.parent.postMessage({ source: "vetroai-preview", type: "pick", tag: el.tagName.toLowerCase(), text: (el.innerText || el.getAttribute("alt") || "").trim().slice(0, 160), html: clone.outerHTML.slice(0, 1800) }, "*"); } catch (err) {}
+  }, true);
 })();</script>`;
 
 function withPreviewErrorCapture(html) {
@@ -328,9 +370,9 @@ const makeTask = (title = "New task") => ({
 });
 
 const starterTasks = [
-  { icon: Search, title: "Research a topic", prompt: "Research the latest developments in AI agents. Compare the most important options and create a concise report with sources." },
+  { icon: Search, title: "Research → slide deck + spreadsheet", prompt: "Research the best electric scooters in India under ₹1.5 lakh and make a slide deck and a comparison spreadsheet." },
   { icon: FolderOpen, title: "Work with files", prompt: "Review the files I attach, summarize the important information, and produce a clear action plan." },
-  { icon: Globe2, title: "Plan from the web", prompt: "Plan a five-day trip with a practical itinerary, budget, and useful links." },
+  { icon: CalendarClock, title: "Runs while you're away", prompt: "Every morning at 8, send me today's top news in India and the cricket scores" },
   { icon: LayoutTemplate, title: "Build a website", prompt: "Build a modern online store for a sneaker brand: product grid with prices and ratings, a working cart, customer reviews, and a newsletter signup. It must look great on phones." }
 ];
 
@@ -364,7 +406,7 @@ function safeLoadTasks() {
   }
 }
 
-export default function ComputerUI({ onClose }) {
+export default function ComputerUI({ onClose, onUpgrade }) {
   const [tasks, setTasks] = useState(safeLoadTasks);
   const [activeId, setActiveId] = useState(() => safeLoadTasks()[0]?.id || null);
   const [query, setQuery] = useState("");
@@ -378,6 +420,13 @@ export default function ComputerUI({ onClose }) {
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
+  // "tasks" (the thread) or "scheduled" (Computer → Scheduled).
+  const [view, setView] = useState("tasks");
+  const [scheduleDraft, setScheduleDraft] = useState("");
+  const [scheduledUnread, setScheduledUnread] = useState(0);
+  // This week's Computer runs ({ used, limit, plan }) and the Pro offer when they run out.
+  const [allowance, setAllowance] = useState(null);
+  const [proGate, setProGate] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [screenControl, setScreenControl] = useState(false);
   const [narrate, setNarrate] = useState(() => {
@@ -415,6 +464,33 @@ export default function ComputerUI({ onClose }) {
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 170)}px`;
   }, [query]);
 
+  useEffect(() => {
+    if (view === "scheduled") return undefined;
+    const api = schedulesApi(API);
+    const check = () => api.list().then(d => setScheduledUnread(d.unread || 0)).catch(() => {});
+    check();
+    const id = setInterval(check, 120000);
+    return () => clearInterval(id);
+  }, [view]);
+
+  useEffect(() => {
+    fetch(`${API}/usage`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(b => { if (b?.data?.computer) setAllowance({ ...b.data.computer, plan: b.data.plan }); })
+      .catch(() => {});
+  }, []);
+
+  /** Takes one run from this week's allowance, or offers Pro and says no. */
+  const allowRun = async () => {
+    const result = await startComputerRun(API);
+    if (result.computer) setAllowance({ ...result.computer, plan: result.plan });
+    if (!result.allowed) {
+      setProGate({ message: result.message, plan: result.plan, resetsAt: result.resetsAt });
+      return false;
+    }
+    return true;
+  };
+
   const patchTask = (id, updater) => {
     setTasks(prev => prev.map(t => t.id === id
       ? { ...(typeof updater === "function" ? updater(t) : { ...t, ...updater }), updatedAt: Date.now() }
@@ -422,6 +498,7 @@ export default function ComputerUI({ onClose }) {
   };
 
   const newTask = () => {
+    setView("tasks");
     const task = makeTask();
     setTasks(prev => [task, ...prev]);
     setActiveId(task.id);
@@ -494,7 +571,9 @@ export default function ComputerUI({ onClose }) {
     return content;
   };
 
-  const execute = async (prompt) => {
+  const execute = async (prompt, display = "") => {
+    // A fix or an edit of something already built continues that run.
+    if (!display && !(await allowRun())) return;
     let task = activeTask;
     if (!task) {
       task = makeTask(prompt.slice(0, 54));
@@ -503,7 +582,7 @@ export default function ComputerUI({ onClose }) {
     }
     const taskId = task.id;
     const assistantId = `a-${Date.now()}`;
-    const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt };
+    const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt, ...(display ? { display } : {}) };
     const contextMessages = [...task.messages, userMessage].map(({ role, content }) => ({ role, content }));
     // Once a task has produced a website, keep routing follow-ups (e.g. "fix
     // these errors") through Design mode even if the fix prompt itself
@@ -524,7 +603,7 @@ export default function ComputerUI({ onClose }) {
 
     patchTask(taskId, t => ({
       ...t,
-      title: t.messages.length ? t.title : prompt.slice(0, 54),
+      title: t.messages.length ? t.title : (display || prompt).slice(0, 54),
       status: "running",
       files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
       steps: plan,
@@ -730,7 +809,44 @@ export default function ComputerUI({ onClose }) {
       html,
       "```"
     ].join("\n");
-    execute(prompt);
+    execute(prompt, `Fix the ${errors.length} error${errors.length === 1 ? "" : "s"} in the preview`);
+  };
+
+  // "Click to edit": the user clicked part of the preview and said what to change.
+  const requestWebsiteEdit = (html, pick, instruction) => {
+    if (running || !instruction.trim()) return;
+    const prompt = [
+      `Change this part of the website: ${instruction.trim()}`,
+      "",
+      `The part I clicked (a <${pick.tag}>${pick.text ? ` showing "${pick.text}"` : ""}), as it is now:`,
+      "```html",
+      pick.html,
+      "```",
+      "",
+      "Make this change (and only what it needs to stay consistent), keep everything else exactly as it is, and output the full updated HTML document in a single ```html code block.",
+      "",
+      "Current HTML:",
+      "```html",
+      html,
+      "```",
+    ].join("\n");
+    execute(prompt, `${instruction.trim()} — on the ${pick.text ? `“${pick.text.slice(0, 40)}${pick.text.length > 40 ? "…" : ""}”` : pick.tag} I clicked`);
+  };
+
+  // One live link per task: publishing a newer version updates the same site.
+  const publishWebsite = async (taskId, messageId, html) => {
+    const task = tasks.find(t => t.id === taskId);
+    patchMessage(taskId, messageId, m => ({ ...m, published: { ...m.published, status: "publishing", error: "" } }));
+    try {
+      const { id, url } = await publishSite({ html, title: task?.title || "Website", id: task?.siteId });
+      patchTask(taskId, t => ({
+        ...t,
+        siteId: id,
+        messages: t.messages.map(m => m.id === messageId ? { ...m, published: { status: "done", id, url, at: Date.now() } } : m),
+      }));
+    } catch (error) {
+      patchMessage(taskId, messageId, m => ({ ...m, published: { ...m.published, status: "failed", error: error.message } }));
+    }
   };
 
   // Drives the real mouse/keyboard through the VetroAI desktop companion:
@@ -739,6 +855,7 @@ export default function ComputerUI({ onClose }) {
   // gate — approving it there is what lets any of computer:* IPC calls succeed at
   // all, and Ctrl+Shift+X always stops it immediately regardless of this loop.
   const runComputerAgent = async (goal) => {
+    if (!(await allowRun())) return;
     const desktop = window.vetroDesktop;
     let task = activeTask;
     if (!task) {
@@ -962,6 +1079,20 @@ export default function ComputerUI({ onClose }) {
       explainDesktopRequired(prompt);
       return;
     }
+    if (workspace?.handle && !files.length) {
+      if (FOLDER_SUMMARY_REQUEST.test(prompt)) { startFolderTask(prompt, "summarize"); return; }
+      if (FOLDER_REORGANIZE_REQUEST.test(prompt)) { startFolderTask(prompt, "ai"); return; }
+    }
+    if (!files.length && SCHEDULE_REQUEST.test(prompt)) {
+      setView("scheduled");
+      setScheduleDraft(prompt);
+      setQuery("");
+      return;
+    }
+    if (!files.length && !WEBSITE_REQUEST.test(prompt) && isResearchFileRequest(prompt)) {
+      startResearchTask(prompt);
+      return;
+    }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
       setPendingAction(prompt);
       return;
@@ -1063,6 +1194,312 @@ export default function ComputerUI({ onClose }) {
     }
   };
 
+  // ── Folder tools ──────────────────────────────────────────────────────────
+  // Plans are made from a fresh read of the folder, shown as a card of
+  // changes with tick boxes, and applied only when the user says so.
+  const patchMessage = (taskId, messageId, fn) => patchTask(taskId, t => ({
+    ...t,
+    messages: t.messages.map(m => m.id === messageId ? fn(m) : m),
+  }));
+  const patchFolder = (taskId, messageId, update) => patchMessage(taskId, messageId, m => ({ ...m, folder: { ...m.folder, ...(typeof update === "function" ? update(m.folder) : update) } }));
+
+  const refreshWorkspace = async () => {
+    if (!workspace?.handle) return;
+    try { setWorkspaceFiles(await scanDirectory(workspace.handle)); } catch { /* keep the old list */ }
+  };
+
+  const startFolderTask = async (prompt, kind) => {
+    if (!workspace?.handle || running) return;
+    if (!(await allowRun())) return;
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(prompt.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    const taskId = task.id;
+    const messageId = `a-${Date.now()}`;
+    const root = workspace.handle;
+    const folderName = workspace.name;
+    const summarize = kind === "summarize";
+    const steps = summarize
+      ? [{ id: "read", label: "Read the documents", status: "active" }, { id: "work", label: "Summarise each one", status: "pending" }, { id: "save", label: "Save the spreadsheet in your folder", status: "pending" }]
+      : [{ id: "read", label: "Read the folder", status: "active" }, { id: "work", label: "Plan the changes", status: "pending" }, { id: "review", label: "Wait for your approval", status: "pending" }];
+    const setStep = (index) => patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => ({ ...s, status: i < index ? "done" : i === index ? "active" : "pending" })) }));
+    patchTask(taskId, t => ({
+      ...t,
+      title: t.messages.length ? t.title : prompt.slice(0, 54),
+      status: "running",
+      steps,
+      messages: [...t.messages, { id: `u-${Date.now()}`, role: "user", content: prompt },
+        summarize
+          ? { id: messageId, role: "assistant", content: "", startedAt: Date.now(), report: { status: "working", folderName, progress: { label: "Reading the folder…" } } }
+          : { id: messageId, role: "assistant", content: "", startedAt: Date.now(), folder: { status: "planning", folderName, progress: { label: "Reading the folder…" } } }],
+    }));
+    setQuery("");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const progress = (label, n = 0, total = 0) => summarize
+      ? patchMessage(taskId, messageId, m => ({ ...m, report: { ...m.report, progress: { label, n, total } } }))
+      : patchFolder(taskId, messageId, { progress: { label, n, total } });
+
+    try {
+      const entries = await scanFolder(root, { signal: controller.signal });
+      if (!entries.length) throw new Error("This folder has no files to work on.");
+
+      if (summarize) {
+        const docs = entries.filter(e => READABLE_DOC.test(e.name) && e.size < 40 * 1024 * 1024).slice(0, SUMMARY_MAX_DOCS);
+        if (!docs.length) throw new Error("There are no PDFs, Word, PowerPoint, Excel or text files in this folder to summarise.");
+        const texts = [];
+        for (let i = 0; i < docs.length; i++) {
+          if (controller.signal.aborted) throw Object.assign(new Error("stopped"), { name: "AbortError" });
+          progress(`Reading ${docs[i].name}`, i, docs.length);
+          let text = "";
+          try { text = await extractFileText(await docs[i].handle.getFile(), SUMMARY_DOC_CHARS); } catch { /* unreadable: summarised from its name */ }
+          texts.push({ path: docs[i].path, text });
+        }
+        setStep(1);
+        progress(`Summarising ${docs.length} document${docs.length === 1 ? "" : "s"}…`);
+        const input = texts.map(({ path, text }, i) => `### Document ${i + 1}: ${path}\n${text.trim() || "(no readable text — a scan or an image; describe it from its file name only)"}`).join("\n\n");
+        const reply = await askModel(API, { input, systemPrompt: SUMMARY_INSTRUCTIONS, maxTokens: 8192, signal: controller.signal });
+        const rows = [SUMMARY_COLUMNS, ...parseSummaryRows(reply, texts.map(t => t.path))];
+        setStep(2);
+        const file = `VetroAI summary ${formatStamp(new Date()).slice(0, 10)}.xlsx`;
+        let savedToFolder = false;
+        try {
+          await writeFile(root, file, await xlsxBlob(rows, "Documents"));
+          savedToFolder = true;
+          refreshWorkspace();
+        } catch { /* offered as a download instead */ }
+        patchTask(taskId, t => ({
+          ...t,
+          status: "completed",
+          steps: t.steps.map(s => ({ ...s, status: "done" })),
+          messages: t.messages.map(m => m.id === messageId ? { ...m, finishedAt: Date.now(), report: { status: "done", folderName, file, rows, savedToFolder } } : m),
+        }));
+        return;
+      }
+
+      let ops = [];
+      let title = "";
+      let summary = "";
+      if (kind === "organize") {
+        ops = planOrganizeByType(entries);
+        title = "Sort files into folders by kind";
+      } else if (kind === "photos") {
+        const photos = entries.filter(e => isImage(e.name));
+        if (!photos.length) throw new Error("There are no photos in this folder.");
+        let exifCount = 0;
+        for (let i = 0; i < photos.length; i++) {
+          if (controller.signal.aborted) throw Object.assign(new Error("stopped"), { name: "AbortError" });
+          if (i % 10 === 0) progress("Reading when each photo was taken", i, photos.length);
+          const e = photos[i];
+          let date = null;
+          if (/\.jpe?g$/i.test(e.name)) {
+            try { date = exifDate(await (await e.handle.getFile()).slice(0, 262144).arrayBuffer()); } catch { /* no EXIF */ }
+          }
+          if (date) exifCount++;
+          e.date = date || new Date(e.lastModified);
+          e.dateSource = date ? "exif" : "modified";
+        }
+        ops = planRenameByDate(photos);
+        title = "Rename photos to the date they were taken";
+        summary = exifCount === photos.length ? "" : `${photos.length - exifCount} photo${photos.length - exifCount === 1 ? " has" : "s have"} no camera date, so the date the file was last changed is used for ${photos.length - exifCount === 1 ? "it" : "them"}.`;
+      } else if (kind === "duplicates") {
+        const bySize = new Map();
+        for (const e of entries) if (e.size > 0) bySize.set(e.size, [...(bySize.get(e.size) || []), e]);
+        const candidates = [...bySize.values()].filter(g => g.length > 1).flat();
+        for (let i = 0; i < candidates.length; i++) {
+          if (controller.signal.aborted) throw Object.assign(new Error("stopped"), { name: "AbortError" });
+          progress("Comparing file contents", i, candidates.length);
+          try { candidates[i].hash = await hashFile(await candidates[i].handle.getFile()); } catch { /* unreadable */ }
+        }
+        const groups = groupDuplicates(candidates);
+        ops = planDuplicates(groups);
+        title = groups.length ? `${groups.length} set${groups.length === 1 ? "" : "s"} of identical files` : "No duplicates found";
+        summary = groups.length ? "The first copy of each stays where it is; the extra copies move to a Duplicates folder so you can check them and delete them yourself." : "";
+      } else {
+        setStep(1);
+        progress("Planning the changes…");
+        const input = `Folder: ${folderName}\nFiles (path | size | modified):\n${manifest(entries)}\n\nWhat the user wants: ${prompt}`;
+        const reply = await askModel(API, { input, systemPrompt: AI_PLAN_INSTRUCTIONS, maxTokens: 12000, signal: controller.signal });
+        const parsed = parseAiPlan(reply);
+        ops = parsed.ops;
+        summary = parsed.summary;
+        title = prompt.length > 70 ? `${prompt.slice(0, 67)}…` : prompt;
+      }
+      const checked = validatePlan(ops, entries);
+      patchTask(taskId, t => ({
+        ...t,
+        status: "review",
+        steps: t.steps.map((s, i) => ({ ...s, status: i < 2 ? "done" : "active" })),
+        messages: t.messages.map(m => m.id === messageId ? {
+          ...m,
+          finishedAt: Date.now(),
+          folder: { ...m.folder, status: "ready", title, summary, ops: checked.ops, selected: checked.ops.map(() => true), skipped: checked.skipped.length, progress: null },
+        } : m),
+      }));
+    } catch (error) {
+      const stopped = error.name === "AbortError";
+      const text = stopped ? "Stopped." : error.message;
+      patchTask(taskId, t => ({
+        ...t,
+        status: stopped ? "stopped" : "failed",
+        steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s),
+        messages: t.messages.map(m => m.id !== messageId ? m : summarize
+          ? { ...m, finishedAt: Date.now(), report: { ...m.report, status: "failed", error: text } }
+          : { ...m, finishedAt: Date.now(), folder: { ...m.folder, status: "failed", error: text } }),
+      }));
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  // ── Research → finished files ─────────────────────────────────────────────
+  // A full DeepSearch (its log streamed live), then the report turned into
+  // the files that were asked for: a deck, a spreadsheet, Word and PDF.
+  const startResearchTask = async (prompt) => {
+    if (running) return;
+    if (!(await allowRun())) return;
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(prompt.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    const taskId = task.id;
+    const messageId = `a-${Date.now()}`;
+    const want = wantedFiles(prompt);
+    const title = topicTitle(prompt);
+    const patchRun = (update) => patchMessage(taskId, messageId, m => ({ ...m, run: { ...m.run, ...(typeof update === "function" ? update(m.run) : update) } }));
+    const steps = [
+      { id: "research", label: "Research the web", status: "active" },
+      { id: "write", label: "Write the report", status: "pending" },
+      ...(want.slides ? [{ id: "slides", label: "Design the slide deck", status: "pending" }] : []),
+      ...(want.sheet ? [{ id: "sheet", label: "Build the spreadsheet", status: "pending" }] : []),
+      { id: "files", label: "Prepare Word and PDF", status: "pending" },
+    ];
+    const setStep = (id, status) => patchTask(taskId, t => ({ ...t, steps: t.steps.map(s => s.id === id ? { ...s, status } : s) }));
+    patchTask(taskId, t => ({
+      ...t,
+      title: t.messages.length ? t.title : title,
+      status: "running",
+      steps,
+      messages: [...t.messages, { id: `u-${Date.now()}`, role: "user", content: prompt },
+        { id: messageId, role: "assistant", content: "", startedAt: Date.now(), run: { status: "researching", title, want } }],
+    }));
+    setQuery("");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      let research = null;
+      const report = await askModel(API, {
+        input: prompt,
+        mode: "deep_search",
+        provider: "auto",
+        webSearch: true,
+        maxTokens: 12000,
+        signal: controller.signal,
+        onEvent: (type, data) => {
+          if (type === "research" && data) {
+            research = data;
+            patchRun({ research: data });
+            if (data.phase === "writing") { setStep("research", "done"); setStep("write", "active"); }
+          }
+        },
+      });
+      if (!report.trim()) throw new Error("The research didn't produce a report. Try again in a moment.");
+      setStep("research", "done");
+      setStep("write", "done");
+      patchRun({ report, research: settleResearch(research, "done"), status: "making" });
+
+      // The files, side by side.
+      const jobs = [];
+      if (want.slides) {
+        setStep("slides", "active");
+        patchRun({ slides: { status: "working" } });
+        jobs.push(askModel(API, { input: deckInput(prompt, report), mode: "normal", provider: "auto", maxTokens: 12000, signal: controller.signal })
+          .then(text => {
+            const code = slidesCode(text);
+            if (!code) throw new Error("No slides came back.");
+            patchRun({ slides: { status: "done", code } });
+            setStep("slides", "done");
+          })
+          .catch(err => {
+            if (err.name === "AbortError") throw err;
+            patchRun({ slides: { status: "failed", error: err.message } });
+            setStep("slides", "failed");
+          }));
+      }
+      if (want.sheet) {
+        setStep("sheet", "active");
+        patchRun({ sheet: { status: "working" } });
+        jobs.push(askModel(API, { input: sheetInput(prompt, report), systemPrompt: SHEET_INSTRUCTIONS, maxTokens: 8192, signal: controller.signal })
+          .then(text => {
+            const markdown = sheetMarkdown(text);
+            if (!markdown) throw new Error("No table came back.");
+            patchRun({ sheet: { status: "done", markdown } });
+            setStep("sheet", "done");
+          })
+          .catch(err => {
+            if (err.name === "AbortError") throw err;
+            patchRun({ sheet: { status: "failed", error: err.message } });
+            setStep("sheet", "failed");
+          }));
+      }
+      await Promise.all(jobs);
+      setStep("files", "done");
+      patchRun({ status: "done" });
+      patchTask(taskId, t => ({ ...t, status: "completed", messages: t.messages.map(m => m.id === messageId ? { ...m, finishedAt: Date.now() } : m) }));
+    } catch (error) {
+      const stopped = error.name === "AbortError";
+      patchMessage(taskId, messageId, m => ({ ...m, finishedAt: Date.now(), run: { ...m.run, status: m.run?.report ? "done" : "failed", research: settleResearch(m.run?.research, "failed"), error: stopped ? "Stopped." : error.message } }));
+      patchTask(taskId, t => ({ ...t, status: stopped ? "stopped" : "failed", steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s) }));
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  const runFolderAction = (id) => {
+    const action = FOLDER_ACTIONS.find(a => a.id === id);
+    if (action) startFolderTask(action.prompt, id);
+  };
+
+  const findFolderMessage = (taskId, messageId) => tasks.find(t => t.id === taskId)?.messages.find(m => m.id === messageId);
+
+  const applyFolderPlan = async (taskId, messageId) => {
+    const message = findFolderMessage(taskId, messageId);
+    const f = message?.folder;
+    if (!f || !workspace?.handle || workspace.name !== f.folderName) return;
+    const ops = f.ops.filter((_, i) => f.selected[i]);
+    patchTask(taskId, { status: "running" });
+    patchFolder(taskId, messageId, { status: "applying", progress: { n: 0, total: ops.length } });
+    const result = await applyPlan(workspace.handle, ops, { onProgress: (n, total) => patchFolder(taskId, messageId, { progress: { n, total } }) });
+    patchFolder(taskId, messageId, { status: "applied", result, progress: null });
+    patchTask(taskId, t => ({ ...t, status: "completed", steps: t.steps.map(s => ({ ...s, status: "done" })) }));
+    refreshWorkspace();
+  };
+
+  const undoFolderPlan = async (taskId, messageId) => {
+    const f = findFolderMessage(taskId, messageId)?.folder;
+    if (!f?.result || !workspace?.handle || workspace.name !== f.folderName) return;
+    patchFolder(taskId, messageId, { status: "undoing", progress: { n: 0, total: f.result.done.length } });
+    await undoPlan(workspace.handle, f.result.done, f.result.createdDirs, { onProgress: (n, total) => patchFolder(taskId, messageId, { progress: { n, total } }) });
+    patchFolder(taskId, messageId, { status: "undone", progress: null });
+    refreshWorkspace();
+  };
+
+  const downloadReport = async (message) => {
+    const r = message.report;
+    if (!r?.rows) return;
+    const url = URL.createObjectURL(await xlsxBlob(r.rows, "Documents"));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = r.file;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
   const deleteWorkspaceFile = async () => {
     if (!deleteTarget || !workspace?.handle) return;
     try {
@@ -1091,11 +1528,17 @@ export default function ComputerUI({ onClose }) {
             <Plus size={16} /> New task
           </button>
         </div>
+        <div className="px-3 pb-1">
+          <button onClick={() => setView("scheduled")} className={`cw-sched-nav${view === "scheduled" ? " is-on" : ""}`}>
+            <CalendarClock size={16} /> <span>Scheduled</span>
+            {scheduledUnread > 0 && <em>{scheduledUnread}</em>}
+          </button>
+        </div>
         <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Your tasks</div>
         <div className="flex-1 overflow-y-auto px-2 space-y-1">
           {tasks.map(task => (
             <div key={task.id} className={`group flex items-center rounded-xl ${task.id === activeId ? "bg-white shadow-sm" : "hover:bg-stone-200/70"}`}>
-              <button onClick={() => setActiveId(task.id)} className="flex-1 min-w-0 text-left px-3 py-2.5">
+              <button onClick={() => { setActiveId(task.id); setView("tasks"); }} className="flex-1 min-w-0 text-left px-3 py-2.5">
                 <div className="truncate text-sm font-medium">{task.title}</div>
                 <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mt-1">
                   {task.status === "running" ? <Loader2 size={11} className="animate-spin" /> : <Clock3 size={11} />}
@@ -1116,9 +1559,10 @@ export default function ComputerUI({ onClose }) {
           <button onClick={() => setSidebarOpen(v => !v)} className="hidden md:block p-2 rounded-lg hover:bg-stone-100"><Monitor size={18} /></button>
           <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100"><ArrowLeft size={18} /></button>
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-sm truncate">{activeTask?.title || "VetroAI Computer"}</div>
+            <div className="font-semibold text-sm truncate">{view === "scheduled" ? "Scheduled tasks" : activeTask?.title || "VetroAI Computer"}</div>
             <div className="cw-header-status">
-              {running
+              {view === "scheduled" ? "Runs on its own, even when the app is closed"
+                : running
                 ? <><span className="cw-pulse-dot" /> Working{activeTask.messages[activeTask.messages.length - 1]?.startedAt ? <> · <Elapsed since={activeTask.messages[activeTask.messages.length - 1].startedAt} /></> : null}</>
                 : activeTask?.status === "completed" ? <><CheckCircle2 size={12} /> Done — ready for your review</>
                 : activeTask?.status === "failed" ? "Needs attention"
@@ -1130,6 +1574,11 @@ export default function ComputerUI({ onClose }) {
               <button onClick={togglePause} className="p-2 rounded-lg hover:bg-stone-100" title={running ? "Pause" : "Resume"}>{running ? <Pause size={17} /> : <Play size={17} />}</button>
               <button onClick={stopTask} disabled={!running} className="p-2 rounded-lg hover:bg-red-50 text-red-600 disabled:opacity-30" title="Stop"><Square size={16} /></button>
             </div>
+          )}
+          {allowance?.plan === "free" && allowance.limit > 0 && (
+            <button type="button" className={`cw-allowance${allowance.used >= allowance.limit ? " is-out" : ""}`} data-short={`${Math.max(0, allowance.limit - allowance.used)}/${allowance.limit} free`} onClick={() => onUpgrade?.()} title="Free accounts get a few Computer tasks a week. Pro has many more.">
+              <Zap size={13} /> {Math.max(0, allowance.limit - allowance.used)} of {allowance.limit} free tasks left
+            </button>
           )}
           <div className="relative">
             <select value={permission} onChange={e => setPermission(e.target.value)} className="appearance-none bg-white border border-stone-200 rounded-xl pl-3 pr-8 py-2 text-xs font-medium outline-none">
@@ -1148,7 +1597,9 @@ export default function ComputerUI({ onClose }) {
           </div>
         )}
 
-        {!activeTask || activeTask.messages.length === 0 ? (
+        {view === "scheduled" ? (
+          <ScheduledPanel api={API} draft={scheduleDraft} onDraftUsed={() => setScheduleDraft("")} onUnread={setScheduledUnread} />
+        ) : !activeTask || activeTask.messages.length === 0 ? (
           <section className="cowork-home-scroll">
             <div className="cowork-home">
               <div className="cowork-hero-icon"><Bot size={24} /></div>
@@ -1161,6 +1612,7 @@ export default function ComputerUI({ onClose }) {
                 </button>
                 <span>Read/write access is requested by your browser and stays limited to the folder you choose.</span>
               </div>
+              {workspace && <FolderActions folderName={workspace.name} onAction={runFolderAction} disabled={running} />}
               <div className="cowork-starter-grid">
                 {starterTasks.map(({ icon: Icon, title, prompt }) => (
                   <button key={title} onClick={e => submit(e, prompt)} className="cowork-starter-card">
@@ -1189,7 +1641,21 @@ export default function ComputerUI({ onClose }) {
                       <div className={message.role === "user"
                         ? "max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 text-white px-4 py-3 text-sm"
                         : "min-w-0 flex-1 prose prose-sm max-w-none text-stone-800 leading-7"}>
-                        {message.role === "assistant"
+                        {message.role === "assistant" && message.folder
+                          ? <FolderPlanCard
+                              message={message}
+                              workspaceName={workspace?.name}
+                              onToggle={(i) => patchFolder(activeTask.id, message.id, f => ({ selected: f.selected.map((v, j) => j === i ? !v : v) }))}
+                              onToggleAll={(on) => patchFolder(activeTask.id, message.id, f => ({ selected: f.selected.map(() => on) }))}
+                              onApply={() => applyFolderPlan(activeTask.id, message.id)}
+                              onUndo={() => undoFolderPlan(activeTask.id, message.id)}
+                              onReconnect={openWorkspace}
+                            />
+                          : message.role === "assistant" && message.report
+                          ? <FolderReportCard message={message} onDownload={() => downloadReport(message)} />
+                          : message.role === "assistant" && message.run
+                          ? <ResearchRun message={message} live={running && message.id === activeTask.messages[activeTask.messages.length - 1]?.id} renderReport={(md) => <TaskReply content={md} />} />
+                          : message.role === "assistant"
                           ? <AssistantTurn
                               message={message}
                               task={activeTask}
@@ -1197,8 +1663,10 @@ export default function ComputerUI({ onClose }) {
                               latest={message.id === activeTask.messages[activeTask.messages.length - 1]?.id}
                               disabled={running}
                               onFix={requestWebsiteFix}
+                              onEdit={requestWebsiteEdit}
+                              onPublish={(html) => publishWebsite(activeTask.id, message.id, html)}
                             />
-                          : message.content}
+                          : message.display || message.content}
                       </div>
                     </div>
                   ))}
@@ -1297,6 +1765,7 @@ export default function ComputerUI({ onClose }) {
                   )}
                   {activeTask.status === "completed" && <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-2 text-xs text-emerald-700"><Check size={15} /> Ready for your review</div>}
                   <WorkspaceFiles entries={workspaceFiles} workspace={workspace} busy={workspaceBusy} openWorkspace={openWorkspace} attachFile={attachWorkspaceFile} requestDelete={setDeleteTarget} />
+                  {workspace && <FolderActions folderName={workspace.name} onAction={runFolderAction} disabled={running} compact />}
                 </aside>
               </div>
             </section>
@@ -1324,6 +1793,27 @@ export default function ComputerUI({ onClose }) {
         </div>
       )}
 
+      {proGate && (
+        <div className="fixed inset-0 z-[210] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setProGate(null)}>
+          <div className="cw-pro-modal" role="dialog" aria-label="VetroAI Pro">
+            <div className="cw-pro-badge"><Sparkles size={18} /></div>
+            <h2>{proGate.plan === "free" ? "You've used this week's free Computer tasks" : "This week's Computer tasks are used up"}</h2>
+            <p>{proGate.message}</p>
+            {proGate.plan === "free" && (
+              <ul className="cw-pro-list">
+                <li><Check size={15} /> 100 Computer tasks a week — folder tools, research → files, websites</li>
+                <li><Check size={15} /> 10 scheduled tasks running while you're away</li>
+                <li><Check size={15} /> 10× higher chat limits and the most capable models</li>
+              </ul>
+            )}
+            <div className="cw-pro-actions">
+              <button type="button" className="is-ghost" onClick={() => setProGate(null)}>Maybe later</button>
+              {proGate.plan === "free" && <button type="button" className="is-primary" onClick={() => { setProGate(null); onUpgrade?.(); }}><Sparkles size={15} /> Upgrade to Pro</button>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCapabilities && <CapabilitiesModal close={() => setShowCapabilities(false)} workspaceReady={Boolean(workspace)} />}
       {deleteTarget && (
         <div className="fixed inset-0 z-[210] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1342,7 +1832,35 @@ export default function ComputerUI({ onClose }) {
 // The reply while a task runs and once it is done: a live working card, a
 // website being built in front of you, or the finished answer with its
 // preview and downloads.
-function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
+function PublishBar({ published, hasSite, disabled, onPublish }) {
+  const [copied, setCopied] = useState(false);
+  if (published?.status === "done") {
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(published.url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
+    };
+    const share = () => navigator.share?.({ title: "My website", url: published.url }).catch(() => {});
+    return (
+      <div className="cw-published">
+        <span className="cw-published-dot" />
+        <span className="cw-published-text"><strong>Live</strong><a href={published.url} target="_blank" rel="noopener noreferrer">{published.url.replace(/^https?:\/\//, "")}</a></span>
+        <button type="button" onClick={copy}><CopyIcon size={14} /> {copied ? "Copied" : "Copy link"}</button>
+        {typeof navigator !== "undefined" && navigator.share && <button type="button" onClick={share}><Share2 size={14} /> Share</button>}
+        <a className="cw-published-open" href={published.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> Open</a>
+      </div>
+    );
+  }
+  return (
+    <>
+      <button type="button" className="is-primary" onClick={onPublish} disabled={disabled || published?.status === "publishing"}>
+        {published?.status === "publishing" ? <Loader2 size={15} className="animate-spin" /> : <Globe2 size={15} />}
+        {published?.status === "publishing" ? "Publishing…" : hasSite ? "Update the live site" : "Publish — get a link"}
+      </button>
+      {published?.status === "failed" && <span className="cw-publish-error">{published.error}</span>}
+    </>
+  );
+}
+
+function AssistantTurn({ message, task, live, latest, disabled, onFix, onEdit, onPublish }) {
   const activeIndex = task.steps.findIndex(s => s.status === "active");
   if (!message.content) {
     if (!live) return null;
@@ -1372,7 +1890,7 @@ function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
           {html && (
             <>
               <button type="button" onClick={() => downloadBlob(html, "text/html;charset=utf-8", safeFilename(task.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
-              <button type="button" onClick={() => window.open("https://dash.cloudflare.com/?to=/:account/pages/new/upload", "_blank", "noopener,noreferrer")}><Globe2 size={15} /> Open Cloudflare Pages to deploy</button>
+              <PublishBar published={message.published} hasSite={!!task.siteId} disabled={disabled} onPublish={() => onPublish(html)} />
             </>
           )}
         </div>
@@ -1384,6 +1902,7 @@ function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
           title={task.title}
           disabled={disabled}
           onFix={(errors) => onFix(extractHtmlDocument(message.content), errors)}
+          onEdit={(pick, instruction) => onEdit(extractHtmlDocument(message.content), pick, instruction)}
         />
       )}
     </>
@@ -1531,8 +2050,36 @@ const DESKTOP_WIDTH = 1280;
 // Desktop view draws the page at a real desktop width and scales it to fit,
 // so the whole layout is visible even on a phone; Phone view shows it at
 // phone width; Full screen gives it the whole display.
-function WebsitePreview({ html, title, disabled, onFix }) {
+const PART_NAMES = { a: "link", button: "button", img: "image", picture: "image", svg: "icon", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading", p: "text", span: "text", li: "list item", ul: "list", ol: "list", nav: "menu", header: "header", footer: "footer", form: "form", input: "field", textarea: "field", select: "field", table: "table", section: "section", div: "section", main: "section", article: "section", label: "label" };
+const partName = (tag) => PART_NAMES[tag] || "part";
+
+function WebsitePreview({ html, title, disabled, onFix, onEdit }) {
   const [errors, setErrors] = useState([]);
+  const [editing, setEditing] = useState(false);
+  const [pick, setPick] = useState(null);
+  const [instruction, setInstruction] = useState("");
+  const boxRef = useRef(null);
+  // Tells every preview frame (inline and full screen) whether clicks pick parts.
+  const sendEditMode = (on) => boxRef.current?.querySelectorAll("iframe").forEach(f => f.contentWindow?.postMessage({ source: "vetroai-parent", type: "edit-mode", on }, "*"));
+  useEffect(() => { sendEditMode(editing); }, [editing]);
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.data?.source !== "vetroai-preview" || event.data?.type !== "pick") return;
+      setPick({ tag: String(event.data.tag || "element"), text: String(event.data.text || ""), html: String(event.data.html || "") });
+      setInstruction("");
+      // One part at a time: picking stops until this change is sent or cancelled.
+      setEditing(false);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+  const submitEdit = (e) => {
+    e.preventDefault();
+    if (!pick || !instruction.trim()) return;
+    onEdit?.(pick, instruction);
+    setPick(null);
+    setEditing(false);
+  };
   const [device, setDevice] = useState(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "phone" : "desktop"));
   const [full, setFull] = useState(false);
   const srcDoc = useMemo(() => withPreviewErrorCapture(html), [html]);
@@ -1560,24 +2107,41 @@ function WebsitePreview({ html, title, disabled, onFix }) {
         <button type="button" className={device === "desktop" ? "is-on" : ""} onClick={() => setDevice("desktop")} aria-pressed={device === "desktop"} title="Desktop view"><Monitor size={14} /><span>Desktop</span></button>
         <button type="button" className={device === "phone" ? "is-on" : ""} onClick={() => setDevice("phone")} aria-pressed={device === "phone"} title="Phone view"><Smartphone size={14} /><span>Phone</span></button>
       </div>
+      {onEdit && (
+        <button type="button" className={`cw-edit-toggle${editing ? " is-on" : ""}`} onClick={() => { setEditing(v => !v); setPick(null); }} disabled={disabled} aria-pressed={editing} title="Click any part of the page, then say what to change">
+          <MousePointerClick size={14} /><span>{editing ? "Click a part…" : "Click to edit"}</span>
+        </button>
+      )}
       <button type="button" className="cw-icon-btn" onClick={() => setFull(v => !v)} title={full ? "Exit full screen" : "Full screen"} aria-label={full ? "Exit full screen" : "Full screen"}>
         {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
       </button>
     </div>
   );
 
+  const editPanel = pick && (
+    <form className="cw-edit-panel" onSubmit={submitEdit}>
+      <div className="cw-edit-target"><MousePointerClick size={14} /> Editing the <strong>{partName(pick.tag)}</strong>{pick.text ? <> “{pick.text.slice(0, 60)}{pick.text.length > 60 ? "…" : ""}”</> : null}</div>
+      <div className="cw-edit-row">
+        <input autoFocus value={instruction} onChange={e => setInstruction(e.target.value)} placeholder="What should change? e.g. make it green and bigger, say ‘Shop the sale’" />
+        <button type="submit" disabled={!instruction.trim() || disabled}><Send size={14} /> Change it</button>
+        <button type="button" className="is-ghost" onClick={() => setPick(null)} aria-label="Cancel"><X size={14} /></button>
+      </div>
+    </form>
+  );
+
   return (
-    <div className="cowork-website-preview">
+    <div className="cowork-website-preview" ref={boxRef}>
       <div className="cowork-website-preview-header">
         <span className="cw-dots"><i /><i /><i /></span>
         <span className="cw-preview-title"><Globe2 size={13} /> {title || "Live preview"}</span>
         {errors.length > 0 && <span className="cowork-website-preview-badge">{errors.length} error{errors.length > 1 ? "s" : ""}</span>}
         {toolbar}
       </div>
+      {editPanel}
       {full ? (
         <div className="cw-preview-placeholder"><Maximize2 size={16} /> Showing in full screen</div>
       ) : (
-        <PreviewFrame srcDoc={srcDoc} device={device} height="inline" />
+        <PreviewFrame srcDoc={srcDoc} device={device} height="inline" onLoad={() => sendEditMode(editing)} />
       )}
       {full && (
         <div className="cw-fullscreen" role="dialog" aria-label="Website preview">
@@ -1585,7 +2149,8 @@ function WebsitePreview({ html, title, disabled, onFix }) {
             <span className="cw-preview-title"><Globe2 size={14} /> {title || "Live preview"}</span>
             {toolbar}
           </div>
-          <PreviewFrame srcDoc={srcDoc} device={device} height="fill" />
+          {editPanel}
+          <PreviewFrame srcDoc={srcDoc} device={device} height="fill" onLoad={() => sendEditMode(editing)} />
         </div>
       )}
       {errors.length > 0 && (
@@ -1601,7 +2166,7 @@ function WebsitePreview({ html, title, disabled, onFix }) {
   );
 }
 
-function PreviewFrame({ srcDoc, device, height }) {
+function PreviewFrame({ srcDoc, device, height, onLoad }) {
   const boxRef = useRef(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
   useEffect(() => {
@@ -1626,6 +2191,7 @@ function PreviewFrame({ srcDoc, device, height }) {
         title="Website preview"
         sandbox="allow-scripts allow-forms allow-popups allow-modals"
         srcDoc={srcDoc}
+        onLoad={onLoad}
         className="cowork-website-preview-frame"
         style={frameStyle}
       />
@@ -1651,7 +2217,7 @@ function CapabilitiesModal({ close, workspaceReady }) {
     [Globe2, "Web research", "Ready", "Runs through the chat backend"],
     [LockKeyhole, "Delete protection", "Ready", "Manual confirmation required"],
     [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Download the desktop app — one file, no setup", COMPANION_DOWNLOAD_URL],
-    [CalendarClock, "Background and scheduled jobs", "Cloud service required", "Needs a durable job runner"],
+    [CalendarClock, "Scheduled tasks", "Ready", "Daily updates and watches that run while you're away"],
     [Zap, "Connectors and parallel sub-agents", "Backend required", "Needs authenticated tool adapters"]
   ];
   return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail, href]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline">{detail}</a> : detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;

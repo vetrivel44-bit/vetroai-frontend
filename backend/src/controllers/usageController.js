@@ -1,5 +1,5 @@
 const usage = require("../services/usageService");
-const { MODEL_TIERS, SESSION_MS, WEEK_MS } = require("../config/usageLimits");
+const { MODEL_TIERS, PLAN_LIMITS, SESSION_MS, WEEK_MS } = require("../config/usageLimits");
 
 const modelOf = (value) => String(value || "Auto").trim().slice(0, 60) || "Auto";
 
@@ -56,4 +56,21 @@ async function recordModel(req, res) {
   res.json({ success: true, data: describe(id, summary) });
 }
 
-module.exports = { getUsage, consume, checkModel, recordModel, modelOf };
+// POST /api/usage/computer — VetroAI Computer starts a run (folder tools,
+// research → files, a website build, screen control). Free accounts get a
+// few a week; when they are used up the app offers Pro.
+async function computer(req, res) {
+  const id = usage.identityOf(req);
+  const result = await usage.consumeComputer(id.key, id.plan);
+  if (!result.allowed) {
+    const { limit } = result.summary.computer;
+    const wait = usage.relative(result.block.resetsAt - Date.now());
+    const message = id.plan === "free"
+      ? `You've used your ${limit} free VetroAI Computer tasks this week. They come back in ${wait} — or upgrade to Pro for ${PLAN_LIMITS.pro.computerWeekly} a week.`
+      : `You've used this week's ${limit} VetroAI Computer tasks. They come back in ${wait}.`;
+    return res.status(429).json({ success: false, code: "COMPUTER_LIMIT", message, block: result.block, data: describe(id, result.summary) });
+  }
+  res.json({ success: true, data: describe(id, result.summary) });
+}
+
+module.exports = { getUsage, consume, checkModel, recordModel, computer, modelOf };

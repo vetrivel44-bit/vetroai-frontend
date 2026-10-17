@@ -11,11 +11,17 @@ const HOUR = 60 * 60 * 1000;
 const SESSION_MS = 5 * HOUR;
 const WEEK_MS = 7 * 24 * HOUR;
 
+// computerWeekly: VetroAI Computer runs (folder tools, research → files,
+// website builds, screen control) per week. scheduledActive: scheduled tasks
+// that can be running at once. Free accounts get a taste of each.
 const PLAN_LIMITS = {
-  free: { session: 40, weekly: 300, premiumWeekly: 40 },
-  pro: { session: 400, weekly: 3000, premiumWeekly: 600 },
-  team: { session: 600, weekly: 4500, premiumWeekly: 900 },
+  free: { session: 40, weekly: 300, premiumWeekly: 40, computerWeekly: 3, scheduledActive: 1 },
+  pro: { session: 400, weekly: 3000, premiumWeekly: 600, computerWeekly: 100, scheduledActive: 10 },
+  team: { session: 600, weekly: 4500, premiumWeekly: 900, computerWeekly: 200, scheduledActive: 20 },
 };
+
+// The model name a Computer run is recorded under.
+const COMPUTER_MODEL = "VetroAI Computer";
 
 // First match wins. "premium" models also count towards premiumWeekly.
 const MODEL_TIERS = [
@@ -32,4 +38,4 @@ function limitsFor(plan) {
   return PLAN_LIMITS[plan] || PLAN_LIMITS.free;
 }
 
-module.exports = { SESSION_MS, WEEK_MS, PLAN_LIMITS, MODEL_TIERS, tierFor, limitsFor };
+module.exports = { SESSION_MS, WEEK_MS, PLAN_LIMITS, MODEL_TIERS, COMPUTER_MODEL, tierFor, limitsFor };

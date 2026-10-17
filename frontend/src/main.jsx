@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import PublishedSite from './components/PublishedSite.jsx'
+import { siteIdFromPath } from './lib/sitePublish.js'
 import { installPuterOverlayGuard } from './lib/puterOverlayGuard.js'
 import VoiceCoverLauncher from './components/screens/VoiceCoverLauncher.jsx'
 import CallAssistantLauncher from './components/screens/CallAssistantLauncher.jsx'
@@ -25,7 +27,10 @@ import './universalDownloads.js'
 
 installPuterOverlayGuard()
 
-createRoot(document.getElementById('root')).render(
+// /s/{id}: a website published from VetroAI Computer, shown on its own.
+const publishedSiteId = siteIdFromPath(window.location.pathname)
+
+createRoot(document.getElementById('root')).render(publishedSiteId ? <PublishedSite id={publishedSiteId} /> :
   <StrictMode>
     <ErrorBoundary fallback={(error) => (
       <div role="alert" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, textAlign: 'center', background: 'var(--bg, #111)', color: 'var(--ink, #eee)' }}>

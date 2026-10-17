@@ -734,16 +734,49 @@ function loadXlsx() {
   return xlsxLoading;
 }
 
-export async function exportXlsx(markdown) {
-  const XLSX = await loadXlsx();
+function workbookOf(XLSX, markdown, names = []) {
   const workbook = XLSX.utils.book_new();
+  const used = new Set();
   spreadsheetTables(markdown).forEach((rows, index) => {
     const sheet = XLSX.utils.aoa_to_sheet(rows.map((row, r) => (r === 0 ? row : row.map(numeric))));
     const widths = rows[0]?.map((_, c) => ({ wch: Math.min(60, Math.max(10, ...rows.map((row) => String(row[c] ?? "").length + 2))) }));
     if (widths) sheet["!cols"] = widths;
-    XLSX.utils.book_append_sheet(workbook, sheet, `Sheet${index + 1}`);
+    let name = String(names[index] || `Sheet${index + 1}`).replace(/[\\/?*[\]:]/g, " ").trim().slice(0, 31) || `Sheet${index + 1}`;
+    while (used.has(name.toLowerCase())) name = `${name.slice(0, 28)} ${index + 1}`;
+    used.add(name.toLowerCase());
+    XLSX.utils.book_append_sheet(workbook, sheet, name);
   });
-  XLSX.writeFile(workbook, safeFileName(documentTitle(markdown), "xlsx"));
+  return workbook;
+}
+
+export async function exportXlsx(markdown) {
+  const XLSX = await loadXlsx();
+  XLSX.writeFile(workbookOf(XLSX, markdown), safeFileName(documentTitle(markdown), "xlsx"));
+}
+
+/** Every Markdown table as a sheet (named by the "###" heading above it), as an .xlsx Blob. */
+export async function xlsxBlobFromMarkdown(markdown) {
+  const XLSX = await loadXlsx();
+  const names = [];
+  const blocks = String(markdown || "").split(/\n(?=#{1,4}\s)/);
+  for (const block of blocks) {
+    const title = /^#{1,4}\s+(.+)/.exec(block)?.[1]?.replace(/[*_`]/g, "").trim() || "";
+    const tables = (block.match(/(^|\n)\s*\|.*\|\s*\n\s*\|?\s*:?-{2,}/g) || []).length;
+    for (let i = 0; i < tables; i++) names.push(i ? `${title} ${i + 1}` : title);
+  }
+  const data = XLSX.write(workbookOf(XLSX, markdown, names), { type: "array", bookType: "xlsx" });
+  return new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+/** An .xlsx file (as a Blob) with one sheet of rows; the first row is the header. */
+export async function xlsxBlob(rows, sheetName = "Sheet1") {
+  const XLSX = await loadXlsx();
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet(rows.map((row, r) => (r === 0 ? row : row.map(numeric))));
+  sheet["!cols"] = (rows[0] || []).map((_, c) => ({ wch: Math.min(60, Math.max(10, ...rows.map((row) => String(row[c] ?? "").length + 2))) }));
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName.slice(0, 31));
+  const data = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+  return new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 export function exportCsv(markdown) {
