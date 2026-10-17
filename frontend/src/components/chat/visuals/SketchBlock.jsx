@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState, useEffect } from "react";
-import { Maximize2, PenLine } from "lucide-react";
+import { Loader2, Maximize2, PenLine, RotateCw, Sparkles } from "lucide-react";
 import rough from "roughjs";
 import "@fontsource/kalam/400.css";
 import "@fontsource/kalam/700.css";
@@ -9,6 +9,7 @@ import { useDocumentTheme } from "./useDocumentTheme";
 import { useBornLive } from "../../../lib/streamReveal";
 import { isInkColor, parseSketch } from "../../../lib/sketchSvg";
 import { createPen, penSession as getPenSession, planSketch } from "../diagramPen";
+import { generateImageViaPuter } from "../../../lib/puterImage";
 
 // A ```sketch block: a hand-drawn picture of whatever was asked for — a house,
 // the heart, a plant cell. Each shape the model wrote is redrawn in pencil
@@ -123,6 +124,63 @@ function buildSvg({ viewBox, title, items }, theme) {
   return svg;
 }
 
+// The detailed pencil illustration of a drawing: things too intricate for
+// plain shapes (a face, an animal, the brain, a skeleton) still come out
+// right. Kept for the visit, so the finished copy of a reply doesn't redo it.
+const DETAILS = new Map();
+// When each one started appearing, so a re-created card carries on drawing it.
+const REVEALED_AT = new Map();
+const detailPrompt = (subject) => `A clear hand-drawn pencil illustration of ${subject}, drawn like a neat, accurate labelled diagram in a good student's notebook or a textbook: correct shapes, proportions and parts, clean graphite outlines with soft coloured-pencil shading, neat handwritten labels in English with straight leader lines, on plain white paper, nothing else in the picture.`;
+
+function detailFor(subject) {
+  if (!DETAILS.has(subject)) {
+    const job = generateImageViaPuter(detailPrompt(subject));
+    DETAILS.set(subject, job);
+    job.catch(() => DETAILS.delete(subject));
+  }
+  return DETAILS.get(subject);
+}
+
+function DetailedDrawing({ subject, auto }) {
+  const [state, setState] = useState(() => ({ status: auto ? "working" : "idle" }));
+  const start = () => {
+    setState({ status: "working" });
+    detailFor(subject)
+      .then((src) => setState({ status: "done", src }))
+      .catch((err) => setState({ status: "failed", error: err?.message || String(err) }));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (auto) start(); }, [auto, subject]);
+  if (state.status === "idle") {
+    return <button type="button" className="vsk-detail-btn" onClick={start}><Sparkles size={14} /> Draw in detail</button>;
+  }
+  if (state.status === "working") {
+    return <div className="vsk-detail vsk-detail-wait"><Loader2 size={15} className="animate-spin" /> Drawing it in detail…</div>;
+  }
+  if (state.status === "failed") {
+    return <div className="vsk-detail vsk-detail-wait">Couldn't make the detailed drawing ({state.error}). <button type="button" className="vsk-detail-btn" onClick={start}><RotateCw size={13} /> Try again</button></div>;
+  }
+  return <DetailReveal subject={subject} src={state.src} />;
+}
+
+function DetailReveal({ subject, src }) {
+  const [since] = useState(() => {
+    if (!REVEALED_AT.has(subject)) REVEALED_AT.set(subject, Date.now());
+    return Date.now() - REVEALED_AT.get(subject);
+  });
+  const done = since > 8000;
+  const carryOn = since ? { animationDelay: `-${since}ms` } : undefined;
+  return (
+    <figure className={`vsk-detail${done ? "" : " is-drawing"}`}>
+      <div className="vsk-detail-frame">
+        <img src={src} alt={`Detailed drawing: ${subject}`} style={carryOn} />
+        {!done && <span className="vsk-detail-pen" aria-hidden="true" style={carryOn} />}
+      </div>
+      <figcaption>Detailed drawing</figcaption>
+    </figure>
+  );
+}
+
 export default function SketchBlock({ code, fallback }) {
   const theme = useDocumentTheme();
   const sketch = useMemo(() => parseSketch(code), [code]);
@@ -179,6 +237,9 @@ export default function SketchBlock({ code, fallback }) {
           </button>
         )}
       </div>
+      {sketch.complete && (
+        <DetailedDrawing key={sketch.detail || sketch.title} subject={sketch.detail || sketch.title || "the drawing"} auto={Boolean(sketch.detail) && (bornLive || Boolean(session))} />
+      )}
       {expanded && svgText && <DiagramViewer svg={svgText} title={title} onClose={() => setExpanded(false)} />}
     </VisualCard>
   );

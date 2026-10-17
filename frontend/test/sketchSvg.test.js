@@ -52,3 +52,11 @@ test("groups, rotations, arrows and multi-part labels — what textbook diagrams
   assert.equal(rect.attrs.transform, undefined, "anything but plain numbers is dropped");
   assert.equal(dot.attrs.opacity, 0.4);
 });
+
+test("a drawing can ask for a detailed version, once it is finished", () => {
+  const live = parseSketch('<svg viewBox="0 0 400 300" detail="the human skull, side view"><title>Skull</title><circle cx="1" cy="1" r="1"/>');
+  assert.equal(live.detail, "the human skull, side view");
+  assert.equal(live.complete, false);
+  assert.equal(parseSketch(`${'<svg detail="x<script>">'}</svg>`).detail, "");
+  assert.equal(parseSketch('<svg viewBox="0 0 10 10"></svg>').complete, true);
+});

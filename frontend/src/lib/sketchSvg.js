@@ -56,6 +56,9 @@ export function parseSketch(code) {
   const text = String(code || "");
   const viewBox = text.match(/<svg\b[^>]*\bviewBox\s*=\s*["']\s*([\d.\-\s,]+)["']/i)?.[1].trim().split(/[\s,]+/).map(Number);
   const title = decode(text.match(/<title>([^<]{1,80})<\/title>/i)?.[1] || "").trim();
+  // detail="…" on the <svg>: the subject is too intricate for plain shapes,
+  // so a detailed pencil illustration of it is made as well.
+  const detail = decode(text.match(/<svg\b[^>]*\bdetail\s*=\s*"([^"<>]{3,300})"/i)?.[1] || "").trim();
   const items = [];
   // Groups pass their transform and colours on to the shapes inside them.
   const groups = [];
@@ -86,6 +89,8 @@ export function parseSketch(code) {
   return {
     viewBox: viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0 ? viewBox : [0, 0, 400, 300],
     title,
+    detail,
+    complete: /<\/svg\s*>/i.test(text),
     items: items.filter(drawable).slice(0, 400),
   };
 }
