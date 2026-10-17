@@ -16,6 +16,7 @@ import { askModel } from "../../lib/computerChat";
 import { xlsxBlob } from "../../lib/documentExport";
 import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
 import ResearchRun from "./ResearchRun";
+import { settleInterruptedTasks } from "../../lib/computerTasks";
 import { publishSite } from "../../lib/sitePublish";
 import ScheduledPanel from "./ScheduledPanel";
 import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
@@ -400,7 +401,7 @@ function StepIcon({ status }) {
 function safeLoadTasks() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? settleInterruptedTasks(parsed) : [];
   } catch {
     return [];
   }
