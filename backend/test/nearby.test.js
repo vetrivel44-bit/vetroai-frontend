@@ -248,7 +248,7 @@ test("'metro station near me' finds metro stations — not police stations or st
   let overpassBody = "";
   await withFetch(async (url, opts) => {
     if (String(url).includes("photon")) {
-      photonUrl = decodeURIComponent(String(url));
+      photonUrl ||= decodeURIComponent(String(url));
       return json({ features: [
         { geometry: { coordinates: [77.566, 13.032] }, properties: { name: "HAL Police Station", osm_key: "amenity", osm_value: "police", osm_type: "N", osm_id: 1 } },
         { geometry: { coordinates: [77.567, 13.033] }, properties: { name: "Stationery shop", osm_key: "shop", osm_value: "stationery", osm_type: "N", osm_id: 2 } },
@@ -262,7 +262,8 @@ test("'metro station near me' finds metro stations — not police stations or st
     assert.deepEqual(result.places.map((p) => p.name), ["Baiyappanahalli"]);
     assert.equal(result.places[0].category, "Metro station");
   });
-  assert.match(photonUrl, /q=Metro station&/i);
+  // Asked for by type (railway stations), not by the words in a name.
+  assert.match(photonUrl, /osm_tag=railway:station/);
   assert.match(overpassBody, /\["station"~"\^\(subway\|light_rail\|monorail\)\$"\]/);
 });
 
@@ -318,4 +319,28 @@ test("the text fallback keeps only the kind asked for, for every kind", async ()
       assert.equal(result.failed, false, q);
     }
   });
+});
+
+test("in a small town, a kind of place is found by its type when Overpass can't help", async () => {
+  // "veg restaurant": no place has those words in its name, but the
+  // restaurant you are standing in is tagged amenity=restaurant.
+  const urls = [];
+  await withFetch(async (url) => {
+    const u = decodeURIComponent(String(url));
+    urls.push(u);
+    if (u.includes("photon") && u.includes("osm_tag=amenity:restaurant")) {
+      return json({ features: [
+        { geometry: { coordinates: [77.5652, 13.0309] }, properties: { name: "Sri Annapoorna", osm_key: "amenity", osm_value: "restaurant", osm_type: "N", osm_id: 9 } },
+        { geometry: { coordinates: [77.58, 13.05] }, properties: { name: "Hotel Saravana Veg", osm_key: "amenity", osm_value: "restaurant", osm_type: "N", osm_id: 10 } },
+      ] });
+    }
+    if (u.includes("photon") || u.includes("nominatim")) return json(u.includes("photon") ? { features: [] } : []);
+    return json({}, 504);
+  }, async () => {
+    const result = await nearby.findNearby("veg restaurant", HOME);
+    assert.equal(result.failed, false);
+    assert.deepEqual(result.places.map((p) => p.name), ["Hotel Saravana Veg", "Sri Annapoorna"], "a veg place first, then the rest nearest first");
+    assert.equal(result.places[1].category, "Restaurant");
+  });
+  assert.ok(urls.some((u) => /photon.*q=restaurant&.*osm_tag=amenity:restaurant&osm_tag=amenity:fast_food/.test(u)));
 });
