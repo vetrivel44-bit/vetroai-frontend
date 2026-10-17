@@ -29,6 +29,7 @@ import { isFirebaseConfigured } from "./firebase";
 import FileCard from "./components/chat/FileCard";
 import ModeSwitch from "./components/ModeSwitch";
 import { generateImageViaPuter, wantsDrawing } from "./lib/puterImage";
+import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
 const AttachmentViewer = React.lazy(() => import("./components/chat/AttachmentViewer"));
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
@@ -6161,6 +6162,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     if (requestedFiles.length) {
       finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
     }
+    // "Draw the brain": a picture of the brain, never a flowchart of its parts.
+    const drawingAsked = isDrawingRequest(userQuery);
+    if (drawingAsked) {
+      finalSystemPrompt = `${drawingInstruction(userQuery)}\n\n${finalSystemPrompt}`;
+    }
     if (finalSystemPrompt.trim()) {
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
@@ -6173,7 +6179,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const rememberedDocs = [...hist].reverse().map((m) => localDocMemory.get(m)).find(Boolean) || null;
     const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
-    const medicalDetected = !maybeLocal && isMedicalQuery(userQuery);
+    // Drawing the heart or a kidney is a picture, not a medical question.
+    const medicalDetected = !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
     const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
