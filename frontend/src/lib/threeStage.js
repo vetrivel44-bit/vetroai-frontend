@@ -144,6 +144,37 @@ const RUNTIME = String.raw`(function () {
       var curve = new THREE.CatmullRomCurve3(points.map(toVector), !!closed);
       return view.mesh(new THREE.TubeGeometry(curve, Math.max(32, points.length * 8), radius || 0.05, 10, !!closed), color);
     },
+    // Parts placed by where they are, so nothing ends up facing the wrong way
+    // (a bare CylinderGeometry stands upright). Each adds itself and is returned.
+    // A cylinder from one point to another; radiusTo makes it a cone or taper:
+    // view.cylinder([-3, 0, 0], [3, 0, 0], 0.5, "#e8ecf2") is a body lying along X.
+    cylinder: function (from, to, radius, color, radiusTo, opts) {
+      var a = toVector(from), b = toVector(to);
+      var axis = new THREE.Vector3().subVectors(b, a);
+      var r = radius == null ? 0.1 : radius;
+      var m = view.mesh(new THREE.CylinderGeometry(radiusTo == null ? r : radiusTo, r, Math.max(axis.length(), 1e-4), 32), color, opts);
+      m.position.copy(a).addScaledVector(axis, 0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.lengthSq() ? axis.clone().normalize() : new THREE.Vector3(0, 1, 0));
+      inner.add(m);
+      return m;
+    },
+    // A box centred at a point, [width (x), height (y), depth (z)], optionally turned [rx, ry, rz] in radians.
+    box: function (center, size, color, rotation, opts) {
+      var s = size || [1, 1, 1];
+      var m = view.mesh(new THREE.BoxGeometry(s[0], s[1], s[2]), color, opts);
+      m.position.copy(toVector(center));
+      if (rotation) m.rotation.set(rotation[0] || 0, rotation[1] || 0, rotation[2] || 0);
+      inner.add(m);
+      return m;
+    },
+    // A sphere at a point; scale [sx, sy, sz] stretches it into an egg or a lens.
+    sphere: function (center, radius, color, scale, opts) {
+      var m = view.mesh(new THREE.SphereGeometry(radius == null ? 0.5 : radius, 32, 20), color, opts);
+      m.position.copy(toVector(center));
+      if (scale) m.scale.set(scale[0], scale[1], scale[2]);
+      inner.add(m);
+      return m;
+    },
     // A text label pinned to a point or object: view.label("Roof", [0, 2, 0]) or view.label("Sun", sunMesh).
     label: function (text, at) {
       var el = document.createElement("div");

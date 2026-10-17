@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Code2, Copy, Download, Maximize2, Network, PenLine, Shapes } from "lucide-react";
 import { OpenBlockContext, isStillStreaming } from "../../lib/visualStream";
 import "./mermaidDiagram.css";
@@ -10,7 +10,8 @@ import { PendingSketch } from "./visuals/VisualCard";
 import { useBornLive } from "../../lib/streamReveal";
 import DiagramViewer from "./DiagramViewer";
 import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
-import { alignSubgraphs, stripModelStyling, wantsHandDrawn } from "../../lib/mermaidCode";
+import { alignSubgraphs, drawablePrefix, stripModelStyling, wantsHandDrawn } from "../../lib/mermaidCode";
+import { createPen } from "./diagramPen";
 
 // ─── draw-in reveal ─────────────────────────────────────────────────────────
 // A diagram that arrives during a reply is revealed the way it would be
@@ -378,10 +379,22 @@ function useDocumentTheme() {
 }
 
 
+// Diagrams the pen is drawing (or drew) in this visit, by their first lines.
+const PEN_SESSIONS = new Map();
+// Known once two whole lines are written, so the live and finished copies agree.
+const penKey = (code) => {
+  const lines = String(code || "").split("\n");
+  const whole = lines.slice(0, -1).map((l) => l.trim()).filter(Boolean);
+  return whole.length >= 2 ? whole.slice(0, 2).join("\n").slice(0, 200) : "";
+};
+
 export default function MermaidDiagram({ code, fallback = null, sketch: sketchByDefault = false }) {
   const theme = useDocumentTheme();
   // Hand-drawn when the block asked for it; either look can be switched to.
-  const [sketch, setSketch] = useState(() => sketchByDefault || wantsHandDrawn(code));
+  // (Follows the block until switched: while it streams, the "sketch" tag can
+  // arrive after the first render.)
+  const [chosenLook, setSketch] = useState(null);
+  const sketch = chosenLook ?? (sketchByDefault || wantsHandDrawn(code));
   // Still streaming: this block's closing ``` hasn't arrived yet.
   const pending = isStillStreaming(useContext(OpenBlockContext), code);
   const [state, setState] = useState({ status: "idle", svg: "", error: "" });
@@ -395,6 +408,32 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
   // full-screen viewer.
   const [tooSmall, setTooSmall] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // The pen that draws a flowchart in front of the user, and what it has drawn.
+  const stageRef = useRef(null);
+  const penRef = useRef(null);
+  // The chat swaps its live copy of a reply for the finished one when it ends,
+  // so what the pen has drawn is kept by diagram, not by this component.
+  const sessionKey = penKey(code);
+  const penSession = useMemo(() => {
+    if (!sessionKey) return null;
+    if (bornLive && !PEN_SESSIONS.has(sessionKey)) PEN_SESSIONS.set(sessionKey, new Set());
+    return PEN_SESSIONS.get(sessionKey) || null;
+  }, [sessionKey, bornLive]);
+  useEffect(() => () => penRef.current?.destroy(), []);
+
+  // While the block streams, draw what is written so far: the flowchart grows
+  // box by box instead of waiting for the whole block.
+  const partial = pending && penSession ? drawablePrefix(code) : "";
+  useEffect(() => {
+    if (!partial) return undefined;
+    let alive = true;
+    const timer = setTimeout(() => {
+      renderDiagram(partial, theme, sketch)
+        .then((svg) => { if (alive) setState({ status: "ready", svg, error: "" }); })
+        .catch(() => { /* half-written: wait for the next line */ });
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [partial, theme, sketch]);
 
   useEffect(() => {
     if (pending || !code.trim()) return undefined;
@@ -414,9 +453,18 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
     const host = svgRef.current;
     if (!host || !state.svg) return;
     host.innerHTML = state.svg;
-    if (bornLive && !revealed.current) {
-      revealed.current = true;
-      revealDiagram(host);
+    if (penSession) {
+      const stage = stageRef.current;
+      if (stage && penRef.current?.stage !== stage) {
+        penRef.current?.destroy();
+        penRef.current = createPen(stage, penSession);
+      }
+      // A flowchart is drawn by the pen; other diagrams get the quick draw-in.
+      const penned = penRef.current?.update(host);
+      if (!penned && bornLive && !revealed.current) {
+        revealed.current = true;
+        revealDiagram(host);
+      }
     }
     // Mermaid draws labels at 15px; below ~0.72 scale they are unreadable.
     const measure = () => {
@@ -429,7 +477,7 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(host);
     return () => ro?.disconnect();
-  }, [bornLive, state.svg, showCode]);
+  }, [bornLive, penSession, state.svg, showCode]);
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
@@ -444,8 +492,8 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  // Mid-stream: the closing ``` hasn't arrived, so the syntax is incomplete.
-  if (pending) {
+  // Mid-stream with nothing drawable yet (the closing ``` hasn't arrived).
+  if (pending && !state.svg) {
     return (
       <div className="vetro-diagram vetro-pending not-prose vetro-born-live">
         <div className="vetro-diagram-pending">
@@ -469,9 +517,9 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
   return (
     <div className={`vetro-diagram not-prose${bornLive ? " vetro-born-live" : ""}${sketch ? " is-sketch" : ""}`}>
       <div className="vetro-diagram-head">
-        <span className="vetro-diagram-title">{sketch ? <PenLine size={14} /> : <Network size={14} />} {diagramName(code)}{sketch ? " · hand-drawn" : ""}</span>
+        <span className="vetro-diagram-title">{sketch ? <PenLine size={14} /> : <Network size={14} />} {pending ? <>Drawing<span className="vetro-dots" aria-hidden="true" /></> : <>{diagramName(code)}{sketch ? " · hand-drawn" : ""}</>}</span>
         <span className="vetro-diagram-actions">
-          <button type="button" onClick={() => setSketch((v) => !v)} title={sketch ? "Clean diagram" : "Hand-drawn diagram"} aria-label={sketch ? "Show as a clean diagram" : "Show as a hand-drawn diagram"} aria-pressed={sketch}>
+          <button type="button" onClick={() => setSketch(!sketch)} title={sketch ? "Clean diagram" : "Hand-drawn diagram"} aria-label={sketch ? "Show as a clean diagram" : "Show as a hand-drawn diagram"} aria-pressed={sketch}>
             {sketch ? <><Shapes size={14} /><span className="vetro-diagram-btn-label">Clean</span></> : <><PenLine size={14} /><span className="vetro-diagram-btn-label">Sketch</span></>}
           </button>
           <button type="button" onClick={() => setShowCode((v) => !v)} title={showCode ? "Show diagram" : "Show Mermaid code"} aria-label={showCode ? "Show diagram" : "Show Mermaid code"}>
@@ -491,7 +539,7 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
       {showCode ? (
         <pre className="vetro-diagram-code"><code>{code}</code></pre>
       ) : state.svg ? (
-        <div className="vetro-diagram-stage">
+        <div className="vetro-diagram-stage" ref={stageRef}>
           <div
             ref={svgRef}
             className={`vetro-diagram-svg${bornLive ? " vd-live" : ""}${tooSmall ? " is-too-small" : ""}`}

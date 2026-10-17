@@ -302,3 +302,12 @@
 /* If a label still measures narrower than it draws (a font that failed to
    load), let it spill past the box rather than be cut off mid-word. */
 .vetro-diagram.is-sketch .vetro-diagram-svg foreignObject { overflow: visible; }
+
+/* The pen that draws a flowchart while the user watches (diagramPen.js). */
+.vd-pen {
+  position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none;
+  opacity: 0; transition: opacity .25s ease;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .35));
+}
+.vd-pen.is-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .vd-pen { display: none; } }
