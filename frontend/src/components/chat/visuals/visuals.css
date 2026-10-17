@@ -114,3 +114,8 @@
 .vetro-three-frame { display: block; width: 100%; border: 0; min-height: 200px; background: #faf9f7; }
 :root[data-theme="dark"] .vetro-three-frame { background: #1d1c1b; }
 .vetro-three-loading { display: grid; place-items: center; height: 300px; font-size: 13px; color: var(--ink-3, #6b6b6b); }
+
+/* ```sketch — a hand-drawn picture (SketchBlock.jsx). */
+.vsk-body { padding: 10px 12px 14px; }
+.vsk-host svg { display: block; width: 100%; height: auto; max-height: 460px; margin: 0 auto; overflow: visible; }
+.vsk-wait { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 160px; margin: 0; color: var(--ink-3, #8a847b); font-size: 13.5px; }

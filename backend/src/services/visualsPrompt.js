@@ -9,7 +9,8 @@ const VISUALS_PROMPT = `
 ### INLINE VISUALS
 When a user's request would benefit from a visual, respond with the appropriate code block instead of only describing it in prose:
 - Flowcharts, architecture/structural diagrams, UML (use case/class/sequence): use Mermaid.js syntax in a \`\`\`mermaid code block.
-- Hand-drawn diagrams: open the block with \`\`\`mermaid sketch instead when a hand-drawn look helps the user understand or remember — study notes, revision, exam answers a student will copy into their notebook, explaining a concept to a learner, or whenever they ask for a hand-drawn, sketch, notebook or exam-style diagram. The chat draws it in handwriting with highlighter colours; the user can switch any diagram between hand-drawn and clean.
+- Hand-drawn pictures: when they ask for a hand-drawn diagram, drawing, sketch or picture of something (a house, the human heart, a plant cell, a bicycle, a circuit, a volcano), draw that thing itself as a labelled picture in a \`\`\`sketch block (see Sketch rules) — never turn it into a flowchart. The chat draws it in pencil while the user watches.
+- Hand-drawn flowcharts: open the block with \`\`\`mermaid sketch only for a process, steps, cause and effect or a mind map that should look hand-drawn — study notes, revision, exam answers a student will copy into their notebook, or when they ask for a hand-drawn flowchart. The chat draws it in handwriting with highlighter colours; the user can switch any diagram between hand-drawn and clean.
 - ER diagrams / database schemas: use Mermaid's \`erDiagram\` syntax in a \`\`\`mermaid code block.
 - Data charts (bar, line, scatter, pie): output a \`\`\`chartjs code block containing valid Chart.js config JSON.
 - Interactive widgets, mockups, calculators, small tools: output a code block opened with \`\`\`html widget containing self-contained HTML/CSS/JS (no external dependencies).
@@ -30,7 +31,7 @@ Mermaid rules (parsed by Mermaid 11 — invalid syntax shows as raw code):
 - One statement per line. No HTML, no click handlers, no %%{init}%% directives, and no style, classDef, class, linkStyle or :::class colouring — the chat colours every diagram itself to suit light and dark mode.
 
 Hand-drawn (\`\`\`mermaid sketch) rules — draw it the way a good student would in an exam:
-- Always draw it as a flowchart (\`flowchart TD\`), even for a thing rather than a process (a home, a plant cell, a computer): its parts as boxes, connected by arrows that say how they relate or what leads to what. Steps and parts are rectangles \`A["…"]\`, questions are {"…"} diamonds, and only the start or end is a (["…"]) stadium. No emoji in labels. The chat draws it box by box with a pen while the user watches, so write the boxes in the order they should be drawn.
+- Steps are rectangles \`A["…"]\`, questions are {"…"} diamonds, and only the start or end is a (["…"]) stadium. No emoji in labels. The chat draws it box by box with a pen while the user watches, so write the boxes in the order they should be drawn.
 - Same Mermaid syntax and rules as above. Keep it small and clear: about 4–12 boxes, short labels (a few words, a second line with <br/> for a detail), arrows that show the real order or cause, and a top-down layout (\`flowchart TD\`) unless the idea is naturally left-to-right.
 - Label every arrow that isn't obvious ("Yes"/"No", "causes", "produces"). Use a {"decision"} diamond for questions and (["…"]) for the start or end.
 - Follow it with a few short points the student can write beside the diagram.
@@ -49,6 +50,33 @@ flowchart LR
   UC1 -. "«include»" .-> UC2
   UC1 -. "«extend»" .-> UC3
   UC2 --- Payment
+\`\`\`
+
+Sketch rules (\`\`\`sketch) — a labelled drawing of the thing itself, like a good student's diagram in an exam:
+- One <svg viewBox="0 0 400 300"> (choose the size to fit the subject) with a <title>Short name</title>, then plain shapes, one per line: <rect x y width height rx>, <circle cx cy r>, <ellipse cx cy rx ry>, <line x1 y1 x2 y2>, <polyline points>, <polygon points>, <path d> (M L H V C Q A Z), and <text x y font-size text-anchor>label</text>. Attributes: fill, stroke, stroke-width, stroke-dasharray. No <g>, transform, style, gradients, url(), images or scripts — anything else is ignored.
+- Draw in the order a person would: the big outline first, then the main parts, then the details, then the labels. The chat redraws every shape in pencil and a pen draws them one by one while the user watches.
+- Make it look like the real thing, in proportion and recognisable, with all its main parts — a house has walls, a roof, a door with a knob, windows with panes, a chimney and the ground; the heart has four chambers, valves and the big vessels. Usually 20–60 shapes.
+- Fill parts with soft real colours (the pencil shades them); outlines in dark ink, stroke "#222" (the chat turns it into light ink in dark mode).
+- Label the important parts: a <text> (font-size 13–16) beside each part with a <line> pointing to it, inside the viewBox and not overlapping the drawing or each other.
+- After the block, a few short points about the parts.
+Example:
+\`\`\`sketch
+<svg viewBox="0 0 400 300"><title>A house</title>
+<line x1="20" y1="270" x2="380" y2="270" stroke="#222"/>
+<rect x="90" y="140" width="200" height="130" fill="#f3d9a4" stroke="#222"/>
+<polygon points="75,140 190,60 305,140" fill="#c8553d" stroke="#222"/>
+<rect x="240" y="72" width="22" height="40" fill="#9c6b4e" stroke="#222"/>
+<rect x="170" y="200" width="40" height="70" fill="#8b5a3c" stroke="#222"/>
+<circle cx="202" cy="236" r="3" fill="#222"/>
+<rect x="110" y="165" width="40" height="35" fill="#bfe3f2" stroke="#222"/>
+<line x1="130" y1="165" x2="130" y2="200" stroke="#222"/>
+<text x="330" y="100" font-size="14">Roof</text>
+<line x1="328" y1="96" x2="270" y2="110" stroke="#222"/>
+<text x="20" y="215" font-size="14">Window</text>
+<line x1="72" y1="211" x2="108" y2="190" stroke="#222"/>
+<text x="250" y="292" font-size="14">Door</text>
+<line x1="248" y1="288" x2="212" y2="262" stroke="#222"/>
+</svg>
 \`\`\`
 
 Chart rules (\`\`\`chartjs):

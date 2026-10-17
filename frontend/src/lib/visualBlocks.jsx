@@ -7,6 +7,7 @@ import QuizBlock from "../components/chat/visuals/QuizBlock";
 import ChoiceBlock from "../components/chat/visuals/ChoiceBlock";
 import ThreeBlock from "../components/chat/visuals/ThreeBlock";
 import SlidesBlock from "../components/chat/visuals/SlidesBlock";
+import SketchBlock from "../components/chat/visuals/SketchBlock";
 
 // Which fenced code blocks are drawn as visuals instead of shown as code.
 // Only these exact tags — ordinary code the user asked for (a Python script,
@@ -20,6 +21,7 @@ import SlidesBlock from "../components/chat/visuals/SlidesBlock";
 //   ```choices        clarifying question with tappable answers (lib/choices.js)
 //   ```3d             interactive Three.js model (lib/threeStage.js)
 //   ```slides         presentation, previewed and downloaded as .pptx (lib/slides.js)
+//   ```sketch         a hand-drawn picture of the thing asked for (lib/sketchSvg.js)
 export function renderVisualBlock({ lang, meta, code, fallback }) {
   const language = String(lang || "").toLowerCase();
   const tags = String(meta || "").toLowerCase().split(/\s+/);
@@ -30,6 +32,7 @@ export function renderVisualBlock({ lang, meta, code, fallback }) {
   if (language === "choices") return <ChoiceBlock code={code} fallback={fallback} />;
   if (language === "quiz") return <QuizBlock code={code} fallback={fallback} />;
   if (language === "3d" || language === "threejs") return <ThreeBlock code={code} fallback={fallback} />;
+  if (language === "sketch" || (language === "svg" && tags.includes("sketch"))) return <SketchBlock code={code} fallback={fallback} />;
   if (language === "slides" || language === "pptx" || language === "presentation") return <SlidesBlock code={code} fallback={fallback} />;
   return null;
 }

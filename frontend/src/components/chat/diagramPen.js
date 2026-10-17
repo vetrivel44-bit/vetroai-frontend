@@ -45,7 +45,22 @@ function planOf(svg) {
   return items;
 }
 
-export function createPen(stage, drawn) {
+// A pencil sketch (SketchBlock): its shapes in the order they were written.
+export function planSketch(svg) {
+  const items = [...svg.querySelectorAll("g[data-pen]")].map((g) => ({ key: `s:${g.getAttribute("data-pen")}`, el: g, kind: "shape" }));
+  return items.length ? items : null;
+}
+
+// What the pen has drawn, by drawing, for this visit: the chat swaps its live
+// copy of a reply for the finished one when it ends, and the drawing carries on.
+const SESSIONS = new Map();
+export function penSession(key, create) {
+  if (!key) return null;
+  if (create && !SESSIONS.has(key)) SESSIONS.set(key, new Set());
+  return SESSIONS.get(key) || null;
+}
+
+export function createPen(stage, drawn, plan = planOf) {
   const pen = document.createElement("div");
   pen.className = "vd-pen";
   pen.innerHTML = PEN_SVG;
@@ -119,7 +134,7 @@ export function createPen(stage, drawn) {
     // Takes the freshly rendered diagram; false when it isn't a flowchart.
     update(host) {
       const svg = host.querySelector("svg");
-      const items = svg && planOf(svg);
+      const items = svg && plan(svg);
       if (!items) return false;
       cancelAnimationFrame(raf);
       clearTimeout(timer);

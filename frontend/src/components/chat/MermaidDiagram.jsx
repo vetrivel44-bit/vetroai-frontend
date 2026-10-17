@@ -11,7 +11,7 @@ import { useBornLive } from "../../lib/streamReveal";
 import DiagramViewer from "./DiagramViewer";
 import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
 import { alignSubgraphs, drawablePrefix, stripModelStyling, wantsHandDrawn } from "../../lib/mermaidCode";
-import { createPen } from "./diagramPen";
+import { createPen, penSession as getPenSession } from "./diagramPen";
 
 // ─── draw-in reveal ─────────────────────────────────────────────────────────
 // A diagram that arrives during a reply is revealed the way it would be
@@ -379,9 +379,6 @@ function useDocumentTheme() {
 }
 
 
-// Diagrams the pen is drawing (or drew) in this visit, by their first lines.
-const PEN_SESSIONS = new Map();
-// Known once two whole lines are written, so the live and finished copies agree.
 const penKey = (code) => {
   const lines = String(code || "").split("\n");
   const whole = lines.slice(0, -1).map((l) => l.trim()).filter(Boolean);
@@ -414,12 +411,8 @@ export default function MermaidDiagram({ code, fallback = null, sketch: sketchBy
   // The chat swaps its live copy of a reply for the finished one when it ends,
   // so what the pen has drawn is kept by diagram, not by this component.
   const sessionKey = penKey(code);
-  const penSession = useMemo(() => {
-    if (!sessionKey) return null;
-    if (bornLive && !PEN_SESSIONS.has(sessionKey)) PEN_SESSIONS.set(sessionKey, new Set());
-    return PEN_SESSIONS.get(sessionKey) || null;
-  }, [sessionKey, bornLive]);
-  useEffect(() => () => penRef.current?.destroy(), []);
+  const penSession = useMemo(() => getPenSession(sessionKey, bornLive), [sessionKey, bornLive]);
+  useEffect(() => () => { penRef.current?.destroy(); penRef.current = null; }, []);
 
   // While the block streams, draw what is written so far: the flowchart grows
   // box by box instead of waiting for the whole block.
