@@ -935,4 +935,32 @@ aside .cw-folder-tool { padding: 9px 10px; }
 .cw-pro-actions button { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: 12px; border: 0; font-size: 13.5px; font-weight: 600; }
 .cw-pro-actions .is-primary { background: var(--cw-text, #25231f); color: var(--cw-bg, #fff); }
 .cw-pro-actions .is-ghost { background: transparent; color: var(--cw-muted, #746f66); }
-@media (max-width: 640px) { .cw-allowance { font-size: 0; padding: 0 9px; gap: 0; } .cw-allowance::after { content: attr(data-short); font-size: 12px; } }
+.cw-allowance-short { display: none; }
+@media (max-width: 720px) {
+  .cw-allowance { padding: 0 9px; flex: none; }
+  .cw-allowance-long { display: none; }
+  .cw-allowance-short { display: inline; }
+  .cw-permission { display: none; }
+  .cowork-header { gap: 6px; }
+}
+
+/* ── New chat, and the task list on phones ────────────────────────────────── */
+.cw-new-chat { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--cw-line); background: var(--cw-surface); color: var(--cw-text); font-size: 12.5px; font-weight: 600; white-space: nowrap; flex: none; transition: background .15s, transform .15s; }
+.cw-new-chat:hover { background: var(--cw-panel); }
+.cw-new-chat:active { transform: scale(.97); }
+.cw-mobile-only { display: none; position: relative; }
+.cw-dot-badge { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--cw-accent); box-shadow: 0 0 0 2px var(--cw-bg); }
+.cw-drawer-scrim { display: none; }
+@media (max-width: 720px) {
+  .cw-mobile-only { display: inline-flex; align-items: center; justify-content: center; }
+  .cw-new-chat { width: 36px; padding: 0; justify-content: center; }
+  .cw-new-chat span { display: none; }
+  .cowork-tasks-sidebar.is-drawer {
+    display: flex !important; position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
+    width: min(300px, 84vw) !important; min-width: 0; flex-basis: auto !important;
+    box-shadow: 18px 0 50px rgba(0,0,0,.35); animation: cwDrawerIn .26s cubic-bezier(.22,1,.36,1) both;
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .cw-drawer-scrim { display: block; position: fixed; inset: 0; z-index: 59; background: rgba(0,0,0,.42); animation: cwFolderIn .2s ease both; }
+}
+@keyframes cwDrawerIn { from { transform: translateX(-100%); } to { transform: none; } }

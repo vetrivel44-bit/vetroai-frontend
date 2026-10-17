@@ -25,7 +25,7 @@ import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheet
 import { settleResearch } from "../../lib/research";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
-  ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
+  ArrowLeft, Bot, CalendarClock, History, SquarePen, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
   Download, File, FolderOpen, Globe2, HardDrive, Image as ImageIcon, LayoutTemplate, Loader2, LockKeyhole, MapPin,
   Maximize2, Mic, Minimize2, Monitor, MoreHorizontal, Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
   Smartphone, Sparkles, Square, Trash2, X, Zap
@@ -414,6 +414,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   const [files, setFiles] = useState([]);
   const [permission, setPermission] = useState("ask");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Phones: the task list opens as a drawer over the page.
+  const [drawer, setDrawer] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [dictating, setDictating] = useState(false);
   const [locationNotice, setLocationNotice] = useState("");
@@ -500,6 +502,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
 
   const newTask = () => {
     setView("tasks");
+    setDrawer(false);
     const task = makeTask();
     setTasks(prev => [task, ...prev]);
     setActiveId(task.id);
@@ -1518,7 +1521,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
 
   return (
     <div className="cowork-shell">
-      <aside className={`cowork-tasks-sidebar ${sidebarOpen ? "is-open" : "is-closed"}`}>
+      {drawer && <div className="cw-drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
+      <aside className={`cowork-tasks-sidebar ${sidebarOpen ? "is-open" : "is-closed"}${drawer ? " is-drawer" : ""}`}>
         <div className="p-3 flex items-center gap-2">
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-stone-200" title="Back to chat"><ArrowLeft size={18} /></button>
           <span className="font-semibold text-sm flex-1">Computer</span>
@@ -1530,7 +1534,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           </button>
         </div>
         <div className="px-3 pb-1">
-          <button onClick={() => setView("scheduled")} className={`cw-sched-nav${view === "scheduled" ? " is-on" : ""}`}>
+          <button onClick={() => { setView("scheduled"); setDrawer(false); }} className={`cw-sched-nav${view === "scheduled" ? " is-on" : ""}`}>
             <CalendarClock size={16} /> <span>Scheduled</span>
             {scheduledUnread > 0 && <em>{scheduledUnread}</em>}
           </button>
@@ -1539,7 +1543,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         <div className="flex-1 overflow-y-auto px-2 space-y-1">
           {tasks.map(task => (
             <div key={task.id} className={`group flex items-center rounded-xl ${task.id === activeId ? "bg-white shadow-sm" : "hover:bg-stone-200/70"}`}>
-              <button onClick={() => { setActiveId(task.id); setView("tasks"); }} className="flex-1 min-w-0 text-left px-3 py-2.5">
+              <button onClick={() => { setActiveId(task.id); setView("tasks"); setDrawer(false); }} className="flex-1 min-w-0 text-left px-3 py-2.5">
                 <div className="truncate text-sm font-medium">{task.title}</div>
                 <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mt-1">
                   {task.status === "running" ? <Loader2 size={11} className="animate-spin" /> : <Clock3 size={11} />}
@@ -1558,7 +1562,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       <main className="cowork-main">
         <header className="cowork-header">
           <button onClick={() => setSidebarOpen(v => !v)} className="hidden md:block p-2 rounded-lg hover:bg-stone-100"><Monitor size={18} /></button>
-          <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100"><ArrowLeft size={18} /></button>
+          <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100" aria-label="Back to chat"><ArrowLeft size={18} /></button>
+          <button onClick={() => setDrawer(true)} className="cw-mobile-only p-2 rounded-lg hover:bg-stone-100" aria-label="Your tasks" title="Your tasks">
+            <History size={18} />{scheduledUnread > 0 && <span className="cw-dot-badge" />}
+          </button>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm truncate">{view === "scheduled" ? "Scheduled tasks" : activeTask?.title || "VetroAI Computer"}</div>
             <div className="cw-header-status">
@@ -1570,6 +1577,11 @@ export default function ComputerUI({ onClose, onUpgrade }) {
                 : "Plans, builds and checks the work for you"}
             </div>
           </div>
+          {(activeTask?.messages.length > 0 || view !== "tasks") && (
+            <button onClick={newTask} className="cw-new-chat" aria-label="New chat" title="New chat">
+              <SquarePen size={17} /><span>New chat</span>
+            </button>
+          )}
           {activeTask && (running || paused) && (
             <div className="flex items-center gap-1">
               <button onClick={togglePause} className="p-2 rounded-lg hover:bg-stone-100" title={running ? "Pause" : "Resume"}>{running ? <Pause size={17} /> : <Play size={17} />}</button>
@@ -1577,11 +1589,11 @@ export default function ComputerUI({ onClose, onUpgrade }) {
             </div>
           )}
           {allowance?.plan === "free" && allowance.limit > 0 && (
-            <button type="button" className={`cw-allowance${allowance.used >= allowance.limit ? " is-out" : ""}`} data-short={`${Math.max(0, allowance.limit - allowance.used)}/${allowance.limit} free`} onClick={() => onUpgrade?.()} title="Free accounts get a few Computer tasks a week. Pro has many more.">
-              <Zap size={13} /> {Math.max(0, allowance.limit - allowance.used)} of {allowance.limit} free tasks left
+            <button type="button" className={`cw-allowance${allowance.used >= allowance.limit ? " is-out" : ""}`} onClick={() => onUpgrade?.()} title="Free accounts get a few Computer tasks a week. Pro has many more.">
+              <Zap size={13} /><span className="cw-allowance-long">{Math.max(0, allowance.limit - allowance.used)} of {allowance.limit} free tasks left</span><span className="cw-allowance-short">{Math.max(0, allowance.limit - allowance.used)}/{allowance.limit}</span>
             </button>
           )}
-          <div className="relative">
+          <div className="relative cw-permission">
             <select value={permission} onChange={e => setPermission(e.target.value)} className="appearance-none bg-white border border-stone-200 rounded-xl pl-3 pr-8 py-2 text-xs font-medium outline-none">
               <option value="ask">Ask before actions</option>
               <option value="plan">Plan only</option>
