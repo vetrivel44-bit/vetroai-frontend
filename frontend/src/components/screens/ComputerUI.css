@@ -968,5 +968,5 @@ aside .cw-folder-tool { padding: 9px 10px; }
 .cw-mode-switch { margin-right: 4px; }
 @media (max-width: 720px) {
   .cw-header-title { display: none; }
-  .cw-mode-switch { margin-right: auto; }
+  .cw-mode-switch { margin: 0 auto; }
 }

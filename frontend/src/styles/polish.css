@@ -194,39 +194,58 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 7%, transparent); }
 }
 
-/* Chat | Computer at the top (components/ModeSwitch.jsx). */
+/* Chat | Computer at the top (components/ModeSwitch.jsx) — Perplexity's
+   Search | Computer: a soft pill, the chosen side raised and outlined. */
 .vetro-mode-switch {
-  position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; align-items: center;
-  height: 36px; padding: 3px; border-radius: 999px; flex: none;
-  background: color-mix(in srgb, var(--ink) 7%, transparent); border: 1px solid var(--border);
+  position: relative; display: inline-grid; grid-template-columns: auto auto; align-items: center;
+  height: 44px; padding: 3px; border-radius: 999px; flex: none;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
 .vetro-mode-switch button {
-  position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  height: 28px; padding: 0 13px; border: 0; border-radius: 999px; background: transparent;
-  color: var(--ink-3); font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: color .2s ease;
+  position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 38px; padding: 0 18px; border: 1px solid transparent; border-radius: 999px; background: transparent;
+  color: var(--ink-3); font-size: 15px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  transition: color .2s ease, background .2s ease, border-color .2s ease;
 }
-.vetro-mode-switch button.is-on { color: var(--ink); }
-.vetro-mode-switch button.is-on svg { color: var(--accent); }
+.vetro-mode-switch button svg { width: 18px; height: 18px; }
+.vetro-mode-switch button.is-on {
+  color: var(--ink); background: var(--bg-elevated);
+  border-color: color-mix(in srgb, var(--ink) 14%, transparent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+}
 .vetro-mode-switch button:not(.is-on):hover { color: var(--ink-2); }
-.vetro-mode-thumb {
-  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px;
-  background: var(--bg-elevated); box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 0 0 1px var(--border);
-  transition: transform .28s var(--ease-out);
-}
-.vetro-mode-switch.is-computer .vetro-mode-thumb { transform: translateX(100%); }
+.vetro-mode-thumb { display: none; }
 
-/* Phones: room for the switch next to the chat toolbar icons. */
-@media (max-width: 480px) {
+/* The switch sits in the middle of the chat's top bar. */
+.chat-header { position: relative; }
+.chat-header .ch-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; }
+/* Chat's tools (Jobs, News, web search) as round buttons, like Perplexity's. */
+.chat-header .ch-right .claude-sb-icon-btn {
+  width: 40px !important; min-width: 40px !important; height: 40px !important; border-radius: 999px !important;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.chat-header .ch-right .claude-sb-icon-btn:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+
+/* Phones: the switch takes the middle and the tools tuck in beside it. */
+@media (max-width: 760px) {
   .chat-header { padding-left: 10px !important; padding-right: 10px !important; gap: 6px !important; }
   .chat-header .ch-left { flex: none; gap: 4px !important; }
-  .chat-header .ch-right { gap: 0 !important; }
-  .chat-header .ch-right .claude-sb-icon-btn { width: 34px !important; min-width: 34px !important; }
-  .vetro-mode-switch { height: 34px; }
-  /* Chat's tools on a phone: Jobs, News and web search (and Share); private chat stays on larger screens. */
+  .chat-header .ch-left .active-space-pill { display: none !important; }
+  .chat-header .ch-center { position: static; transform: none; flex: 1; min-width: 0; justify-content: center; }
+  .chat-header .ch-right { gap: 4px !important; flex: none; }
+  .chat-header .ch-right .claude-sb-icon-btn { width: 36px !important; min-width: 36px !important; height: 36px !important; }
   .chat-header .ch-incognito { display: none !important; }
-  .vetro-mode-switch button { padding: 0 10px; font-size: 12.5px; gap: 5px; height: 26px; }
+  .chat-header .share-btn span { display: none; }
+  .vetro-mode-switch { height: 40px; }
+  .vetro-mode-switch button { height: 34px; padding: 0 12px; font-size: 14px; gap: 6px; }
+  .vetro-mode-switch button svg { width: 16px; height: 16px; }
 }
-@media (max-width: 430px) {
+@media (max-width: 400px) {
+  .chat-header .ch-right { gap: 2px !important; }
+  .chat-header .ch-right .claude-sb-icon-btn { width: 32px !important; min-width: 32px !important; height: 32px !important; }
+  .vetro-mode-switch button { padding: 0 10px; font-size: 13.5px; }
+}
+@media (max-width: 370px) {
   .vetro-mode-switch button svg { display: none; }
-  .vetro-mode-switch button { padding: 0 9px; }
 }

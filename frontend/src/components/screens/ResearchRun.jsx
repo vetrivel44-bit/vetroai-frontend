@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Check, ChevronDown, FileSpreadsheet, FileText, Loader2, Presentation, TriangleAlert, Download } from "lucide-react";
 import ResearchActivity from "../ResearchActivity";
+import LiveBrowser from "./LiveBrowser";
 import SlidesBlock from "../chat/visuals/SlidesBlock";
 import { parseDeck, buildPptx, deckFileName } from "../../lib/slides";
 import { exportDocx, exportPdf, xlsxBlobFromMarkdown } from "../../lib/documentExport";
@@ -89,6 +90,9 @@ export default function ResearchRun({ message, live, renderReport }) {
         <Phase state={done ? "done" : making ? "active" : "pending"} label="Prepare Word and PDF" />
       </ol>
 
+      {(run.research || run.sources?.length || (live && run.status === "researching")) && (
+        <LiveBrowser research={run.research} sources={run.sources} query={run.title} live={live && run.status === "researching"} />
+      )}
       {run.research && <ResearchActivity research={run.research} live={live && run.status === "researching"} answering={!!run.report} />}
       {run.status === "failed" && <p className="cw-folder-note"><TriangleAlert size={14} /> {run.error}</p>}
 

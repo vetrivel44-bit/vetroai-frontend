@@ -16,6 +16,7 @@ import { askModel } from "../../lib/computerChat";
 import { xlsxBlob } from "../../lib/documentExport";
 import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
 import ResearchRun from "./ResearchRun";
+import LiveBrowser from "./LiveBrowser";
 import ModeSwitch from "../ModeSwitch";
 import { settleInterruptedTasks } from "../../lib/computerTasks";
 import { publishSite } from "../../lib/sitePublish";
@@ -557,6 +558,11 @@ export default function ComputerUI({ onClose, onUpgrade }) {
             patchTask(taskId, t => ({
               ...t,
               messages: t.messages.map(m => m.id === assistantId ? { ...m, content: prefix } : m)
+            }));
+          } else if (type === "sources" && Array.isArray(data)) {
+            patchTask(taskId, t => ({
+              ...t,
+              messages: t.messages.map(m => m.id === assistantId ? { ...m, sources: data } : m)
             }));
           } else if (type === "status" && data) {
             patchTask(taskId, t => {
@@ -1410,6 +1416,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
             research = data;
             patchRun({ research: data });
             if (data.phase === "writing") { setStep("research", "done"); setStep("write", "active"); }
+          } else if (type === "sources" && Array.isArray(data)) {
+            patchRun({ sources: data });
           }
         },
       });
@@ -1875,7 +1883,19 @@ function PublishBar({ published, hasSite, disabled, onPublish }) {
   );
 }
 
-function AssistantTurn({ message, task, live, latest, disabled, onFix, onEdit, onPublish }) {
+function AssistantTurn(props) {
+  const { message, task, live } = props;
+  // The pages it searched and read on the web, played back in a small browser.
+  if (!message.sources?.length || message.website) return <AssistantTurnBody {...props} />;
+  return (
+    <>
+      <LiveBrowser sources={message.sources} query={task.title} live={live && !message.content} />
+      <AssistantTurnBody {...props} />
+    </>
+  );
+}
+
+function AssistantTurnBody({ message, task, live, latest, disabled, onFix, onEdit, onPublish }) {
   const activeIndex = task.steps.findIndex(s => s.status === "active");
   if (!message.content) {
     if (!live) return null;
