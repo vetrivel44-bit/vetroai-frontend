@@ -746,6 +746,17 @@ export async function exportXlsx(markdown) {
   XLSX.writeFile(workbook, safeFileName(documentTitle(markdown), "xlsx"));
 }
 
+/** An .xlsx file (as a Blob) with one sheet of rows; the first row is the header. */
+export async function xlsxBlob(rows, sheetName = "Sheet1") {
+  const XLSX = await loadXlsx();
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet(rows.map((row, r) => (r === 0 ? row : row.map(numeric))));
+  sheet["!cols"] = (rows[0] || []).map((_, c) => ({ wch: Math.min(60, Math.max(10, ...rows.map((row) => String(row[c] ?? "").length + 2))) }));
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName.slice(0, 31));
+  const data = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+  return new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
 export function exportCsv(markdown) {
   const [rows] = spreadsheetTables(markdown);
   const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");

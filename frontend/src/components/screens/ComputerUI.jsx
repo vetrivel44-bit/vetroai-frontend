@@ -8,6 +8,15 @@ import { resolveApiBase } from "../../lib/apiBase";
 import { resolveSiteImages } from "../../lib/siteImages";
 import { partialHtml, buildStage, buildSteps, analyzeSite } from "../../lib/siteBuild";
 import {
+  AI_PLAN_INSTRUCTIONS, SUMMARY_COLUMNS, SUMMARY_INSTRUCTIONS, applyPlan, exifDate, formatStamp, groupDuplicates, hashFile, isImage,
+  manifest, parseAiPlan, parseSummaryRows, planDuplicates, planOrganizeByType, planRenameByDate, scanFolder, undoPlan, validatePlan, writeFile,
+} from "../../lib/folderOps";
+import { READABLE_DOC, extractFileText } from "../../lib/fileText";
+import { askModel } from "../../lib/computerChat";
+import { xlsxBlob } from "../../lib/documentExport";
+import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
+import { FOLDER_ACTIONS } from "../../lib/folderActions";
+import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
   Download, File, FolderOpen, Globe2, HardDrive, Image as ImageIcon, LayoutTemplate, Loader2, LockKeyhole, MapPin,
   Maximize2, Mic, Minimize2, Monitor, MoreHorizontal, Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
@@ -99,6 +108,11 @@ const LIVE_BROWSE_REQUEST = /\b(?:redbus|irctc|makemytrip|goibibo|ixigo|abhibus|
 // sentence starts with "open" — these must not be diverted to the desktop app.
 const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
 const HTML_BLOCK = /```html\s*([\s\S]*?)```/i;
+// With a folder open: requests to reorganise its files, or to summarise its documents.
+const FOLDER_REORGANIZE_REQUEST = /\b(rename|organi[sz]e|sort|tidy|clean ?up|arrange|group|categori[sz]e|move|put)\b[\s\S]{0,80}\b(files?|folders?|photos?|pictures?|images?|documents?|pdfs?|downloads?|videos?|songs?|music|invoices?|receipts?|everything|them|it)\b|\bduplicates?\b/i;
+const FOLDER_SUMMARY_REQUEST = /\b(summari[sz]e|summary|summaries|spreadsheet|table|extract|list)\b[\s\S]{0,60}\b(documents?|docs|pdfs?|files?|invoices?|receipts?|bills?|letters?|statements?|resumes?|cvs?)\b/i;
+const SUMMARY_MAX_DOCS = 25;
+const SUMMARY_DOC_CHARS = 2500;
 // A long reply the model stopped mid-code is continued at most this often.
 const MAX_CONTINUATIONS = 2;
 const CONTINUE_PROMPT = "Your previous message was cut off in the middle of the code. Continue EXACTLY from the last character you wrote — no greeting, no explanation, do not repeat anything already written, and do not open a new code block; just write the rest, then close the code block with ``` and finish.";
@@ -962,6 +976,10 @@ export default function ComputerUI({ onClose }) {
       explainDesktopRequired(prompt);
       return;
     }
+    if (workspace?.handle && !files.length) {
+      if (FOLDER_SUMMARY_REQUEST.test(prompt)) { startFolderTask(prompt, "summarize"); return; }
+      if (FOLDER_REORGANIZE_REQUEST.test(prompt)) { startFolderTask(prompt, "ai"); return; }
+    }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
       setPendingAction(prompt);
       return;
@@ -1063,6 +1081,206 @@ export default function ComputerUI({ onClose }) {
     }
   };
 
+  // ── Folder tools ──────────────────────────────────────────────────────────
+  // Plans are made from a fresh read of the folder, shown as a card of
+  // changes with tick boxes, and applied only when the user says so.
+  const patchMessage = (taskId, messageId, fn) => patchTask(taskId, t => ({
+    ...t,
+    messages: t.messages.map(m => m.id === messageId ? fn(m) : m),
+  }));
+  const patchFolder = (taskId, messageId, update) => patchMessage(taskId, messageId, m => ({ ...m, folder: { ...m.folder, ...(typeof update === "function" ? update(m.folder) : update) } }));
+
+  const refreshWorkspace = async () => {
+    if (!workspace?.handle) return;
+    try { setWorkspaceFiles(await scanDirectory(workspace.handle)); } catch { /* keep the old list */ }
+  };
+
+  const startFolderTask = async (prompt, kind) => {
+    if (!workspace?.handle || running) return;
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(prompt.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    const taskId = task.id;
+    const messageId = `a-${Date.now()}`;
+    const root = workspace.handle;
+    const folderName = workspace.name;
+    const summarize = kind === "summarize";
+    const steps = summarize
+      ? [{ id: "read", label: "Read the documents", status: "active" }, { id: "work", label: "Summarise each one", status: "pending" }, { id: "save", label: "Save the spreadsheet in your folder", status: "pending" }]
+      : [{ id: "read", label: "Read the folder", status: "active" }, { id: "work", label: "Plan the changes", status: "pending" }, { id: "review", label: "Wait for your approval", status: "pending" }];
+    const setStep = (index) => patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => ({ ...s, status: i < index ? "done" : i === index ? "active" : "pending" })) }));
+    patchTask(taskId, t => ({
+      ...t,
+      title: t.messages.length ? t.title : prompt.slice(0, 54),
+      status: "running",
+      steps,
+      messages: [...t.messages, { id: `u-${Date.now()}`, role: "user", content: prompt },
+        summarize
+          ? { id: messageId, role: "assistant", content: "", startedAt: Date.now(), report: { status: "working", folderName, progress: { label: "Reading the folder…" } } }
+          : { id: messageId, role: "assistant", content: "", startedAt: Date.now(), folder: { status: "planning", folderName, progress: { label: "Reading the folder…" } } }],
+    }));
+    setQuery("");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const progress = (label, n = 0, total = 0) => summarize
+      ? patchMessage(taskId, messageId, m => ({ ...m, report: { ...m.report, progress: { label, n, total } } }))
+      : patchFolder(taskId, messageId, { progress: { label, n, total } });
+
+    try {
+      const entries = await scanFolder(root, { signal: controller.signal });
+      if (!entries.length) throw new Error("This folder has no files to work on.");
+
+      if (summarize) {
+        const docs = entries.filter(e => READABLE_DOC.test(e.name) && e.size < 40 * 1024 * 1024).slice(0, SUMMARY_MAX_DOCS);
+        if (!docs.length) throw new Error("There are no PDFs, Word, PowerPoint, Excel or text files in this folder to summarise.");
+        const texts = [];
+        for (let i = 0; i < docs.length; i++) {
+          if (controller.signal.aborted) throw Object.assign(new Error("stopped"), { name: "AbortError" });
+          progress(`Reading ${docs[i].name}`, i, docs.length);
+          let text = "";
+          try { text = await extractFileText(await docs[i].handle.getFile(), SUMMARY_DOC_CHARS); } catch { /* unreadable: summarised from its name */ }
+          texts.push({ path: docs[i].path, text });
+        }
+        setStep(1);
+        progress(`Summarising ${docs.length} document${docs.length === 1 ? "" : "s"}…`);
+        const input = texts.map(({ path, text }, i) => `### Document ${i + 1}: ${path}\n${text.trim() || "(no readable text — a scan or an image; describe it from its file name only)"}`).join("\n\n");
+        const reply = await askModel(API, { input, systemPrompt: SUMMARY_INSTRUCTIONS, maxTokens: 8192, signal: controller.signal });
+        const rows = [SUMMARY_COLUMNS, ...parseSummaryRows(reply, texts.map(t => t.path))];
+        setStep(2);
+        const file = `VetroAI summary ${formatStamp(new Date()).slice(0, 10)}.xlsx`;
+        let savedToFolder = false;
+        try {
+          await writeFile(root, file, await xlsxBlob(rows, "Documents"));
+          savedToFolder = true;
+          refreshWorkspace();
+        } catch { /* offered as a download instead */ }
+        patchTask(taskId, t => ({
+          ...t,
+          status: "completed",
+          steps: t.steps.map(s => ({ ...s, status: "done" })),
+          messages: t.messages.map(m => m.id === messageId ? { ...m, finishedAt: Date.now(), report: { status: "done", folderName, file, rows, savedToFolder } } : m),
+        }));
+        return;
+      }
+
+      let ops = [];
+      let title = "";
+      let summary = "";
+      if (kind === "organize") {
+        ops = planOrganizeByType(entries);
+        title = "Sort files into folders by kind";
+      } else if (kind === "photos") {
+        const photos = entries.filter(e => isImage(e.name));
+        if (!photos.length) throw new Error("There are no photos in this folder.");
+        let exifCount = 0;
+        for (let i = 0; i < photos.length; i++) {
+          if (controller.signal.aborted) throw Object.assign(new Error("stopped"), { name: "AbortError" });
+          if (i % 10 === 0) progress("Reading when each photo was taken", i, photos.length);
+          const e = photos[i];
+          let date = null;
+          if (/\.jpe?g$/i.test(e.name)) {
+            try { date = exifDate(await (await e.handle.getFile()).slice(0, 262144).arrayBuffer()); } catch { /* no EXIF */ }
+          }
+          if (date) exifCount++;
+          e.date = date || new Date(e.lastModified);
+          e.dateSource = date ? "exif" : "modified";
+        }
+        ops = planRenameByDate(photos);
+        title = "Rename photos to the date they were taken";
+        summary = exifCount === photos.length ? "" : `${photos.length - exifCount} photo${photos.length - exifCount === 1 ? " has" : "s have"} no camera date, so the date the file was last changed is used for ${photos.length - exifCount === 1 ? "it" : "them"}.`;
+      } else if (kind === "duplicates") {
+        const bySize = new Map();
+        for (const e of entries) if (e.size > 0) bySize.set(e.size, [...(bySize.get(e.size) || []), e]);
+        const candidates = [...bySize.values()].filter(g => g.length > 1).flat();
+        for (let i = 0; i < candidates.length; i++) {
+          if (controller.signal.aborted) throw Object.assign(new Error("stopped"), { name: "AbortError" });
+          progress("Comparing file contents", i, candidates.length);
+          try { candidates[i].hash = await hashFile(await candidates[i].handle.getFile()); } catch { /* unreadable */ }
+        }
+        const groups = groupDuplicates(candidates);
+        ops = planDuplicates(groups);
+        title = groups.length ? `${groups.length} set${groups.length === 1 ? "" : "s"} of identical files` : "No duplicates found";
+        summary = groups.length ? "The first copy of each stays where it is; the extra copies move to a Duplicates folder so you can check them and delete them yourself." : "";
+      } else {
+        setStep(1);
+        progress("Planning the changes…");
+        const input = `Folder: ${folderName}\nFiles (path | size | modified):\n${manifest(entries)}\n\nWhat the user wants: ${prompt}`;
+        const reply = await askModel(API, { input, systemPrompt: AI_PLAN_INSTRUCTIONS, maxTokens: 12000, signal: controller.signal });
+        const parsed = parseAiPlan(reply);
+        ops = parsed.ops;
+        summary = parsed.summary;
+        title = prompt.length > 70 ? `${prompt.slice(0, 67)}…` : prompt;
+      }
+      const checked = validatePlan(ops, entries);
+      patchTask(taskId, t => ({
+        ...t,
+        status: "review",
+        steps: t.steps.map((s, i) => ({ ...s, status: i < 2 ? "done" : "active" })),
+        messages: t.messages.map(m => m.id === messageId ? {
+          ...m,
+          finishedAt: Date.now(),
+          folder: { ...m.folder, status: "ready", title, summary, ops: checked.ops, selected: checked.ops.map(() => true), skipped: checked.skipped.length, progress: null },
+        } : m),
+      }));
+    } catch (error) {
+      const stopped = error.name === "AbortError";
+      const text = stopped ? "Stopped." : error.message;
+      patchTask(taskId, t => ({
+        ...t,
+        status: stopped ? "stopped" : "failed",
+        steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s),
+        messages: t.messages.map(m => m.id !== messageId ? m : summarize
+          ? { ...m, finishedAt: Date.now(), report: { ...m.report, status: "failed", error: text } }
+          : { ...m, finishedAt: Date.now(), folder: { ...m.folder, status: "failed", error: text } }),
+      }));
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  const runFolderAction = (id) => {
+    const action = FOLDER_ACTIONS.find(a => a.id === id);
+    if (action) startFolderTask(action.prompt, id);
+  };
+
+  const findFolderMessage = (taskId, messageId) => tasks.find(t => t.id === taskId)?.messages.find(m => m.id === messageId);
+
+  const applyFolderPlan = async (taskId, messageId) => {
+    const message = findFolderMessage(taskId, messageId);
+    const f = message?.folder;
+    if (!f || !workspace?.handle || workspace.name !== f.folderName) return;
+    const ops = f.ops.filter((_, i) => f.selected[i]);
+    patchTask(taskId, { status: "running" });
+    patchFolder(taskId, messageId, { status: "applying", progress: { n: 0, total: ops.length } });
+    const result = await applyPlan(workspace.handle, ops, { onProgress: (n, total) => patchFolder(taskId, messageId, { progress: { n, total } }) });
+    patchFolder(taskId, messageId, { status: "applied", result, progress: null });
+    patchTask(taskId, t => ({ ...t, status: "completed", steps: t.steps.map(s => ({ ...s, status: "done" })) }));
+    refreshWorkspace();
+  };
+
+  const undoFolderPlan = async (taskId, messageId) => {
+    const f = findFolderMessage(taskId, messageId)?.folder;
+    if (!f?.result || !workspace?.handle || workspace.name !== f.folderName) return;
+    patchFolder(taskId, messageId, { status: "undoing", progress: { n: 0, total: f.result.done.length } });
+    await undoPlan(workspace.handle, f.result.done, f.result.createdDirs, { onProgress: (n, total) => patchFolder(taskId, messageId, { progress: { n, total } }) });
+    patchFolder(taskId, messageId, { status: "undone", progress: null });
+    refreshWorkspace();
+  };
+
+  const downloadReport = async (message) => {
+    const r = message.report;
+    if (!r?.rows) return;
+    const url = URL.createObjectURL(await xlsxBlob(r.rows, "Documents"));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = r.file;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
   const deleteWorkspaceFile = async () => {
     if (!deleteTarget || !workspace?.handle) return;
     try {
@@ -1161,6 +1379,7 @@ export default function ComputerUI({ onClose }) {
                 </button>
                 <span>Read/write access is requested by your browser and stays limited to the folder you choose.</span>
               </div>
+              {workspace && <FolderActions folderName={workspace.name} onAction={runFolderAction} disabled={running} />}
               <div className="cowork-starter-grid">
                 {starterTasks.map(({ icon: Icon, title, prompt }) => (
                   <button key={title} onClick={e => submit(e, prompt)} className="cowork-starter-card">
@@ -1189,7 +1408,19 @@ export default function ComputerUI({ onClose }) {
                       <div className={message.role === "user"
                         ? "max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 text-white px-4 py-3 text-sm"
                         : "min-w-0 flex-1 prose prose-sm max-w-none text-stone-800 leading-7"}>
-                        {message.role === "assistant"
+                        {message.role === "assistant" && message.folder
+                          ? <FolderPlanCard
+                              message={message}
+                              workspaceName={workspace?.name}
+                              onToggle={(i) => patchFolder(activeTask.id, message.id, f => ({ selected: f.selected.map((v, j) => j === i ? !v : v) }))}
+                              onToggleAll={(on) => patchFolder(activeTask.id, message.id, f => ({ selected: f.selected.map(() => on) }))}
+                              onApply={() => applyFolderPlan(activeTask.id, message.id)}
+                              onUndo={() => undoFolderPlan(activeTask.id, message.id)}
+                              onReconnect={openWorkspace}
+                            />
+                          : message.role === "assistant" && message.report
+                          ? <FolderReportCard message={message} onDownload={() => downloadReport(message)} />
+                          : message.role === "assistant"
                           ? <AssistantTurn
                               message={message}
                               task={activeTask}
@@ -1297,6 +1528,7 @@ export default function ComputerUI({ onClose }) {
                   )}
                   {activeTask.status === "completed" && <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-2 text-xs text-emerald-700"><Check size={15} /> Ready for your review</div>}
                   <WorkspaceFiles entries={workspaceFiles} workspace={workspace} busy={workspaceBusy} openWorkspace={openWorkspace} attachFile={attachWorkspaceFile} requestDelete={setDeleteTarget} />
+                  {workspace && <FolderActions folderName={workspace.name} onAction={runFolderAction} disabled={running} compact />}
                 </aside>
               </div>
             </section>
