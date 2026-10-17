@@ -967,6 +967,9 @@ aside .cw-folder-tool { padding: 9px 10px; }
 /* Chat | Computer in Computer's header too. */
 .cw-mode-switch { margin-right: 4px; }
 @media (max-width: 720px) {
-  .cw-header-title { display: none; }
-  .cw-mode-switch { margin: 0 auto; }
+  .cw-header-title { visibility: hidden; }
+  /* Same spot as in the chat's top bar — right after the left button — so switching modes doesn't jump. */
+  .cowork-header { height: 60px !important; min-height: 60px !important; padding: 0 10px !important; gap: 6px !important; }
+  .cw-mode-switch { margin: 0; }
+  .cowork-header > .cw-mobile-only { width: 34px; flex: none; display: inline-flex; justify-content: center; padding-left: 0; padding-right: 0; }
 }

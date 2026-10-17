@@ -62,7 +62,10 @@ const GlobalSearch = React.lazy(() => import("./components/screens/GlobalSearch"
 const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"));
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
-const ComputerUI = React.lazy(() => import("./components/screens/ComputerUI"));
+const loadComputerUI = () => import("./components/screens/ComputerUI");
+const ComputerUI = React.lazy(loadComputerUI);
+// Fetch Computer in the background once the page is idle, so the switch opens it at once.
+if (typeof window !== "undefined") (window.requestIdleCallback || ((f) => setTimeout(f, 2500)))(() => { loadComputerUI().catch(() => {}); });
 const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
 const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
@@ -8094,7 +8097,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   // ── MAIN UI ────────────────────────────────────────────────────────────────────
   return (
-    <div className={`vetro-app-shell flex h-screen w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+    <div className={`vetro-app-shell flex w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
       {showGlobalSearch && <Suspense fallback={<ScreenLoader />}><GlobalSearch onClose={() => setShowGlobalSearch(false)} /></Suspense>}
       {viewer && <Suspense fallback={null}><AttachmentViewer items={viewer.items} index={viewer.index} onClose={() => setViewer(null)} /></Suspense>}
@@ -8387,8 +8390,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col relative h-full w-full overflow-hidden" style={{ backgroundColor: "var(--bg)" }}>
         {showComputer && (
-          <div className="fixed inset-0 z-[120] flex bg-[#fbfaf7]">
-            <Suspense fallback={<ScreenLoader />}>
+          <div className="fixed inset-0 z-[120] flex" style={{ background: "var(--bg)" }}>
+            {/* While Computer loads, its top bar is already there, so the switch doesn't jump. */}
+            <Suspense fallback={<header className="chat-header" style={{ position: "absolute", top: 0, left: 0, right: 0, height: 60, borderBottom: 0 }}><div className="ch-left"><span style={{ width: 34, height: 30 }} /></div><div className="ch-center"><ModeSwitch mode="computer" /></div></header>}>
               <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} onUpgrade={() => setShowUpgrade(true)} />
             </Suspense>
           </div>
