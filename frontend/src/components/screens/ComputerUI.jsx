@@ -16,11 +16,12 @@ import { askModel } from "../../lib/computerChat";
 import { xlsxBlob } from "../../lib/documentExport";
 import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
 import ResearchRun from "./ResearchRun";
+import { publishSite } from "../../lib/sitePublish";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
-  ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
+  ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
   Download, File, FolderOpen, Globe2, HardDrive, Image as ImageIcon, LayoutTemplate, Loader2, LockKeyhole, MapPin,
   Maximize2, Mic, Minimize2, Monitor, MoreHorizontal, Paperclip, Pause, Play, Plus, RotateCcw, Search, Send, ShieldCheck,
   Smartphone, Sparkles, Square, Trash2, X, Zap
@@ -228,6 +229,27 @@ const PREVIEW_ERROR_CAPTURE = `<script>(function(){
   window.addEventListener("unhandledrejection", function(e){ report("Unhandled promise rejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
   var origError = console.error;
   console.error = function(){ report(Array.prototype.slice.call(arguments).map(String).join(" ")); origError.apply(console, arguments); };
+  // "Click to edit": while the parent turns it on, hovering outlines an
+  // element and a click picks it (instead of following links or buttons).
+  var editing = false, hovered = null;
+  var style = document.createElement("style");
+  style.textContent = ".__vetro-hover{outline:2px solid #D97757 !important;outline-offset:2px !important;cursor:crosshair !important;}";
+  function setHover(el){ if (hovered) hovered.classList.remove("__vetro-hover"); hovered = el; if (el) el.classList.add("__vetro-hover"); }
+  window.addEventListener("message", function(e){
+    if (!e.data || e.data.source !== "vetroai-parent" || e.data.type !== "edit-mode") return;
+    editing = !!e.data.on;
+    if (editing && !style.parentNode) (document.head || document.documentElement).appendChild(style);
+    if (!editing) setHover(null);
+  });
+  document.addEventListener("mouseover", function(e){ if (editing && e.target !== document.body && e.target !== document.documentElement) setHover(e.target); }, true);
+  document.addEventListener("click", function(e){
+    if (!editing) return;
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target;
+    setHover(null);
+    var clone = el.cloneNode(true);
+    try { window.parent.postMessage({ source: "vetroai-preview", type: "pick", tag: el.tagName.toLowerCase(), text: (el.innerText || el.getAttribute("alt") || "").trim().slice(0, 160), html: clone.outerHTML.slice(0, 1800) }, "*"); } catch (err) {}
+  }, true);
 })();</script>`;
 
 function withPreviewErrorCapture(html) {
@@ -511,7 +533,7 @@ export default function ComputerUI({ onClose }) {
     return content;
   };
 
-  const execute = async (prompt) => {
+  const execute = async (prompt, display = "") => {
     let task = activeTask;
     if (!task) {
       task = makeTask(prompt.slice(0, 54));
@@ -520,7 +542,7 @@ export default function ComputerUI({ onClose }) {
     }
     const taskId = task.id;
     const assistantId = `a-${Date.now()}`;
-    const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt };
+    const userMessage = { id: `u-${Date.now()}`, role: "user", content: prompt, ...(display ? { display } : {}) };
     const contextMessages = [...task.messages, userMessage].map(({ role, content }) => ({ role, content }));
     // Once a task has produced a website, keep routing follow-ups (e.g. "fix
     // these errors") through Design mode even if the fix prompt itself
@@ -541,7 +563,7 @@ export default function ComputerUI({ onClose }) {
 
     patchTask(taskId, t => ({
       ...t,
-      title: t.messages.length ? t.title : prompt.slice(0, 54),
+      title: t.messages.length ? t.title : (display || prompt).slice(0, 54),
       status: "running",
       files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
       steps: plan,
@@ -747,7 +769,44 @@ export default function ComputerUI({ onClose }) {
       html,
       "```"
     ].join("\n");
-    execute(prompt);
+    execute(prompt, `Fix the ${errors.length} error${errors.length === 1 ? "" : "s"} in the preview`);
+  };
+
+  // "Click to edit": the user clicked part of the preview and said what to change.
+  const requestWebsiteEdit = (html, pick, instruction) => {
+    if (running || !instruction.trim()) return;
+    const prompt = [
+      `Change this part of the website: ${instruction.trim()}`,
+      "",
+      `The part I clicked (a <${pick.tag}>${pick.text ? ` showing "${pick.text}"` : ""}), as it is now:`,
+      "```html",
+      pick.html,
+      "```",
+      "",
+      "Make this change (and only what it needs to stay consistent), keep everything else exactly as it is, and output the full updated HTML document in a single ```html code block.",
+      "",
+      "Current HTML:",
+      "```html",
+      html,
+      "```",
+    ].join("\n");
+    execute(prompt, `${instruction.trim()} — on the ${pick.text ? `“${pick.text.slice(0, 40)}${pick.text.length > 40 ? "…" : ""}”` : pick.tag} I clicked`);
+  };
+
+  // One live link per task: publishing a newer version updates the same site.
+  const publishWebsite = async (taskId, messageId, html) => {
+    const task = tasks.find(t => t.id === taskId);
+    patchMessage(taskId, messageId, m => ({ ...m, published: { ...m.published, status: "publishing", error: "" } }));
+    try {
+      const { id, url } = await publishSite({ html, title: task?.title || "Website", id: task?.siteId });
+      patchTask(taskId, t => ({
+        ...t,
+        siteId: id,
+        messages: t.messages.map(m => m.id === messageId ? { ...m, published: { status: "done", id, url, at: Date.now() } } : m),
+      }));
+    } catch (error) {
+      patchMessage(taskId, messageId, m => ({ ...m, published: { ...m.published, status: "failed", error: error.message } }));
+    }
   };
 
   // Drives the real mouse/keyboard through the VetroAI desktop companion:
@@ -1541,8 +1600,10 @@ export default function ComputerUI({ onClose }) {
                               latest={message.id === activeTask.messages[activeTask.messages.length - 1]?.id}
                               disabled={running}
                               onFix={requestWebsiteFix}
+                              onEdit={requestWebsiteEdit}
+                              onPublish={(html) => publishWebsite(activeTask.id, message.id, html)}
                             />
-                          : message.content}
+                          : message.display || message.content}
                       </div>
                     </div>
                   ))}
@@ -1687,7 +1748,35 @@ export default function ComputerUI({ onClose }) {
 // The reply while a task runs and once it is done: a live working card, a
 // website being built in front of you, or the finished answer with its
 // preview and downloads.
-function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
+function PublishBar({ published, hasSite, disabled, onPublish }) {
+  const [copied, setCopied] = useState(false);
+  if (published?.status === "done") {
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(published.url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
+    };
+    const share = () => navigator.share?.({ title: "My website", url: published.url }).catch(() => {});
+    return (
+      <div className="cw-published">
+        <span className="cw-published-dot" />
+        <span className="cw-published-text"><strong>Live</strong><a href={published.url} target="_blank" rel="noopener noreferrer">{published.url.replace(/^https?:\/\//, "")}</a></span>
+        <button type="button" onClick={copy}><CopyIcon size={14} /> {copied ? "Copied" : "Copy link"}</button>
+        {typeof navigator !== "undefined" && navigator.share && <button type="button" onClick={share}><Share2 size={14} /> Share</button>}
+        <a className="cw-published-open" href={published.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> Open</a>
+      </div>
+    );
+  }
+  return (
+    <>
+      <button type="button" className="is-primary" onClick={onPublish} disabled={disabled || published?.status === "publishing"}>
+        {published?.status === "publishing" ? <Loader2 size={15} className="animate-spin" /> : <Globe2 size={15} />}
+        {published?.status === "publishing" ? "Publishing…" : hasSite ? "Update the live site" : "Publish — get a link"}
+      </button>
+      {published?.status === "failed" && <span className="cw-publish-error">{published.error}</span>}
+    </>
+  );
+}
+
+function AssistantTurn({ message, task, live, latest, disabled, onFix, onEdit, onPublish }) {
   const activeIndex = task.steps.findIndex(s => s.status === "active");
   if (!message.content) {
     if (!live) return null;
@@ -1717,7 +1806,7 @@ function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
           {html && (
             <>
               <button type="button" onClick={() => downloadBlob(html, "text/html;charset=utf-8", safeFilename(task.title, "vetroai-site") + ".html")}><Download size={15} /> Download website (.html)</button>
-              <button type="button" onClick={() => window.open("https://dash.cloudflare.com/?to=/:account/pages/new/upload", "_blank", "noopener,noreferrer")}><Globe2 size={15} /> Open Cloudflare Pages to deploy</button>
+              <PublishBar published={message.published} hasSite={!!task.siteId} disabled={disabled} onPublish={() => onPublish(html)} />
             </>
           )}
         </div>
@@ -1729,6 +1818,7 @@ function AssistantTurn({ message, task, live, latest, disabled, onFix }) {
           title={task.title}
           disabled={disabled}
           onFix={(errors) => onFix(extractHtmlDocument(message.content), errors)}
+          onEdit={(pick, instruction) => onEdit(extractHtmlDocument(message.content), pick, instruction)}
         />
       )}
     </>
@@ -1876,8 +1966,36 @@ const DESKTOP_WIDTH = 1280;
 // Desktop view draws the page at a real desktop width and scales it to fit,
 // so the whole layout is visible even on a phone; Phone view shows it at
 // phone width; Full screen gives it the whole display.
-function WebsitePreview({ html, title, disabled, onFix }) {
+const PART_NAMES = { a: "link", button: "button", img: "image", picture: "image", svg: "icon", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading", p: "text", span: "text", li: "list item", ul: "list", ol: "list", nav: "menu", header: "header", footer: "footer", form: "form", input: "field", textarea: "field", select: "field", table: "table", section: "section", div: "section", main: "section", article: "section", label: "label" };
+const partName = (tag) => PART_NAMES[tag] || "part";
+
+function WebsitePreview({ html, title, disabled, onFix, onEdit }) {
   const [errors, setErrors] = useState([]);
+  const [editing, setEditing] = useState(false);
+  const [pick, setPick] = useState(null);
+  const [instruction, setInstruction] = useState("");
+  const boxRef = useRef(null);
+  // Tells every preview frame (inline and full screen) whether clicks pick parts.
+  const sendEditMode = (on) => boxRef.current?.querySelectorAll("iframe").forEach(f => f.contentWindow?.postMessage({ source: "vetroai-parent", type: "edit-mode", on }, "*"));
+  useEffect(() => { sendEditMode(editing); }, [editing]);
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.data?.source !== "vetroai-preview" || event.data?.type !== "pick") return;
+      setPick({ tag: String(event.data.tag || "element"), text: String(event.data.text || ""), html: String(event.data.html || "") });
+      setInstruction("");
+      // One part at a time: picking stops until this change is sent or cancelled.
+      setEditing(false);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+  const submitEdit = (e) => {
+    e.preventDefault();
+    if (!pick || !instruction.trim()) return;
+    onEdit?.(pick, instruction);
+    setPick(null);
+    setEditing(false);
+  };
   const [device, setDevice] = useState(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "phone" : "desktop"));
   const [full, setFull] = useState(false);
   const srcDoc = useMemo(() => withPreviewErrorCapture(html), [html]);
@@ -1905,24 +2023,41 @@ function WebsitePreview({ html, title, disabled, onFix }) {
         <button type="button" className={device === "desktop" ? "is-on" : ""} onClick={() => setDevice("desktop")} aria-pressed={device === "desktop"} title="Desktop view"><Monitor size={14} /><span>Desktop</span></button>
         <button type="button" className={device === "phone" ? "is-on" : ""} onClick={() => setDevice("phone")} aria-pressed={device === "phone"} title="Phone view"><Smartphone size={14} /><span>Phone</span></button>
       </div>
+      {onEdit && (
+        <button type="button" className={`cw-edit-toggle${editing ? " is-on" : ""}`} onClick={() => { setEditing(v => !v); setPick(null); }} disabled={disabled} aria-pressed={editing} title="Click any part of the page, then say what to change">
+          <MousePointerClick size={14} /><span>{editing ? "Click a part…" : "Click to edit"}</span>
+        </button>
+      )}
       <button type="button" className="cw-icon-btn" onClick={() => setFull(v => !v)} title={full ? "Exit full screen" : "Full screen"} aria-label={full ? "Exit full screen" : "Full screen"}>
         {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
       </button>
     </div>
   );
 
+  const editPanel = pick && (
+    <form className="cw-edit-panel" onSubmit={submitEdit}>
+      <div className="cw-edit-target"><MousePointerClick size={14} /> Editing the <strong>{partName(pick.tag)}</strong>{pick.text ? <> “{pick.text.slice(0, 60)}{pick.text.length > 60 ? "…" : ""}”</> : null}</div>
+      <div className="cw-edit-row">
+        <input autoFocus value={instruction} onChange={e => setInstruction(e.target.value)} placeholder="What should change? e.g. make it green and bigger, say ‘Shop the sale’" />
+        <button type="submit" disabled={!instruction.trim() || disabled}><Send size={14} /> Change it</button>
+        <button type="button" className="is-ghost" onClick={() => setPick(null)} aria-label="Cancel"><X size={14} /></button>
+      </div>
+    </form>
+  );
+
   return (
-    <div className="cowork-website-preview">
+    <div className="cowork-website-preview" ref={boxRef}>
       <div className="cowork-website-preview-header">
         <span className="cw-dots"><i /><i /><i /></span>
         <span className="cw-preview-title"><Globe2 size={13} /> {title || "Live preview"}</span>
         {errors.length > 0 && <span className="cowork-website-preview-badge">{errors.length} error{errors.length > 1 ? "s" : ""}</span>}
         {toolbar}
       </div>
+      {editPanel}
       {full ? (
         <div className="cw-preview-placeholder"><Maximize2 size={16} /> Showing in full screen</div>
       ) : (
-        <PreviewFrame srcDoc={srcDoc} device={device} height="inline" />
+        <PreviewFrame srcDoc={srcDoc} device={device} height="inline" onLoad={() => sendEditMode(editing)} />
       )}
       {full && (
         <div className="cw-fullscreen" role="dialog" aria-label="Website preview">
@@ -1930,7 +2065,8 @@ function WebsitePreview({ html, title, disabled, onFix }) {
             <span className="cw-preview-title"><Globe2 size={14} /> {title || "Live preview"}</span>
             {toolbar}
           </div>
-          <PreviewFrame srcDoc={srcDoc} device={device} height="fill" />
+          {editPanel}
+          <PreviewFrame srcDoc={srcDoc} device={device} height="fill" onLoad={() => sendEditMode(editing)} />
         </div>
       )}
       {errors.length > 0 && (
@@ -1946,7 +2082,7 @@ function WebsitePreview({ html, title, disabled, onFix }) {
   );
 }
 
-function PreviewFrame({ srcDoc, device, height }) {
+function PreviewFrame({ srcDoc, device, height, onLoad }) {
   const boxRef = useRef(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
   useEffect(() => {
@@ -1971,6 +2107,7 @@ function PreviewFrame({ srcDoc, device, height }) {
         title="Website preview"
         sandbox="allow-scripts allow-forms allow-popups allow-modals"
         srcDoc={srcDoc}
+        onLoad={onLoad}
         className="cowork-website-preview-frame"
         style={frameStyle}
       />
