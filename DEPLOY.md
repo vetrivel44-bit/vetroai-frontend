@@ -76,3 +76,19 @@ npx firebase-tools deploy --only firestore:rules --project vetroai
 ```
 
 Until then, Publish says publishing isn't switched on yet.
+
+## Scheduled tasks (Computer → Scheduled)
+
+"Every morning at 8, send me today's top news", "Tell me when the iPhone 17 drops
+below ₹70,000": each run searches the web, a model writes the update (or checks
+the condition), and the result waits in the user's Scheduled inbox — and in their
+email when email is set up. A watched condition stops once it comes true.
+
+| Setting | Where | What it does |
+| --- | --- | --- |
+| `MONGO_URI` | Render | **Required** for scheduled tasks to survive restarts and a sleeping free instance. Without it they are kept in memory only, and the app says so. |
+| `CRON_SECRET` | Render **and** GitHub repository secret | A long random string. `.github/workflows/scheduled-tasks.yml` calls `POST /api/schedules/run-due` with it every 15 minutes, which wakes the backend and runs what is due. |
+| `BACKEND_URL` | GitHub repository secret (optional) | The backend's address, if it isn't `https://ai-chatbot-backend-gvvz.onrender.com`. |
+| `RESEND_API_KEY`, `MAIL_FROM` | Render (optional) | Email each result (resend.com; `MAIL_FROM` must be on a domain verified there, e.g. `VetroAI <tasks@yourdomain.com>`). |
+
+A user can have 10 scheduled tasks running at once; the shortest interval is one hour.

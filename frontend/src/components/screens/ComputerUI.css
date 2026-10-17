@@ -851,3 +851,70 @@ aside .cw-folder-tool { padding: 9px 10px; }
 [data-theme="dark"] .cw-published-dot { background: #5cc98e; }
 [data-theme="dark"] .cw-published-text strong { color: #5cc98e; }
 @media (max-width: 640px) { .cw-edit-toggle span { display: none; } }
+
+/* ── Scheduled ────────────────────────────────────────────────────────────── */
+.cw-sched-nav { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-radius: 12px; border: 0; background: transparent; color: var(--cw-text); font-size: 13.5px; font-weight: 600; transition: background .15s; }
+.cw-sched-nav:hover { background: color-mix(in srgb, var(--cw-text) 6%, transparent); }
+.cw-sched-nav.is-on { background: var(--cw-surface); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.cw-sched-nav svg { color: var(--cw-accent); }
+.cw-sched-nav span { flex: 1; text-align: left; }
+.cw-sched-nav em { font-style: normal; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--cw-accent); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.cw-sched { width: min(760px, 100%); margin: 0 auto; padding: 36px 20px 120px; display: flex; flex-direction: column; gap: 14px; }
+.cw-sched-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.cw-sched-new-btn, .cw-sched-close { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 15px; border-radius: 11px; border: 0; background: var(--cw-text); color: var(--cw-bg); font-weight: 600; font-size: 13px; }
+.cw-sched-close { align-self: flex-start; background: transparent; color: var(--cw-text); border: 1px solid var(--cw-line); }
+.cw-sched-banner { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; background: color-mix(in srgb, #c27a1a 10%, var(--cw-surface)); border: 1px solid color-mix(in srgb, #c27a1a 30%, var(--cw-line)); color: var(--cw-text); }
+.cw-sched-banner svg { flex: none; margin-top: 2px; color: #c27a1a; }
+.cw-sched-banner.is-ok { background: color-mix(in srgb, #2e9e62 8%, var(--cw-surface)); border-color: color-mix(in srgb, #2e9e62 30%, var(--cw-line)); }
+.cw-sched-banner.is-ok svg { color: #2e9e62; }
+.cw-sched-form { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 16px; border: 1px solid var(--cw-line); background: var(--cw-surface); animation: cwFolderIn .3s cubic-bezier(.22,1,.36,1) both; }
+.cw-sched-label { font-size: 12px; font-weight: 700; color: var(--cw-muted); text-transform: uppercase; letter-spacing: .05em; }
+.cw-sched-form textarea, .cw-sched-input, .cw-sched-when select, .cw-sched-when input { width: 100%; border: 1px solid var(--cw-line); border-radius: 11px; background: var(--cw-bg); color: var(--cw-text); font: inherit; font-size: 14px; padding: 10px 12px; outline: none; resize: vertical; }
+.cw-sched-form textarea:focus, .cw-sched-input:focus, .cw-sched-when select:focus, .cw-sched-when input:focus { border-color: var(--cw-accent); }
+.cw-sched-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+.cw-sched-kinds button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--cw-line); background: transparent; color: var(--cw-text); font-size: 13px; font-weight: 600; }
+.cw-sched-kinds button.is-on { background: color-mix(in srgb, var(--cw-accent) 12%, transparent); border-color: color-mix(in srgb, var(--cw-accent) 55%, var(--cw-line)); color: var(--cw-accent); }
+.cw-sched-when { display: flex; gap: 8px; flex-wrap: wrap; }
+.cw-sched-when > * { flex: 1 1 140px; width: auto; }
+.cw-sched-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cw-sched-actions button { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; border-radius: 11px; border: 0; font-size: 13px; font-weight: 600; }
+.cw-sched-actions .is-primary { background: var(--cw-text); color: var(--cw-bg); }
+.cw-sched-actions .is-primary:disabled { opacity: .4; }
+.cw-sched-actions .is-ghost { background: transparent; color: var(--cw-muted); }
+.cw-sched-error { display: flex; gap: 6px; align-items: flex-start; margin: 0; font-size: 13px; color: #c0392b; }
+.cw-sched-muted { display: flex; gap: 8px; align-items: center; color: var(--cw-muted); font-size: 13px; }
+.cw-sched-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 30px 16px; text-align: center; color: var(--cw-muted); border: 1px dashed var(--cw-line); border-radius: 16px; }
+.cw-sched-empty > svg { color: var(--cw-accent); }
+.cw-sched-empty strong { color: var(--cw-text); font-size: 15px; }
+.cw-sched-examples { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; width: min(520px, 100%); }
+.cw-sched-examples button { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--cw-line); background: var(--cw-surface); color: var(--cw-text); font-size: 13px; text-align: left; transition: border-color .15s, transform .15s; }
+.cw-sched-examples button:hover { border-color: color-mix(in srgb, var(--cw-accent) 45%, var(--cw-line)); transform: translateY(-1px); }
+.cw-sched-list { display: flex; flex-direction: column; gap: 10px; }
+.cw-sched-card { border: 1px solid var(--cw-line); border-radius: 16px; background: var(--cw-surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; animation: cwFolderIn .3s cubic-bezier(.22,1,.36,1) both; }
+.cw-sched-card.is-paused { opacity: .7; }
+.cw-sched-card-head { display: flex; align-items: center; gap: 10px; }
+.cw-sched-icon { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--cw-accent) 12%, transparent); color: var(--cw-accent); }
+.cw-sched-icon.is-watch { background: color-mix(in srgb, #3e9c8f 14%, transparent); color: #3e9c8f; }
+.cw-sched-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cw-sched-card-text strong { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cw-sched-card-text small { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--cw-muted); flex-wrap: wrap; }
+.cw-sched-new { flex: none; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--cw-accent); color: #fff; }
+.cw-sched-card-actions { display: flex; gap: 2px; flex: none; }
+.cw-sched-card-actions button { width: 32px; height: 32px; border-radius: 9px; border: 0; background: transparent; color: var(--cw-muted); display: grid; place-items: center; }
+.cw-sched-card-actions button:hover { background: color-mix(in srgb, var(--cw-text) 7%, transparent); color: var(--cw-text); }
+.cw-sched-card-actions button.is-danger:hover { color: #c0392b; }
+.cw-sched-condition { margin: 0; font-size: 12.5px; color: var(--cw-muted); }
+.cw-sched-last { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border-radius: 11px; border: 1px solid var(--cw-line); background: var(--cw-bg); color: var(--cw-text); text-align: left; font-size: 13px; }
+.cw-sched-last-text { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cw-sched-last-text em { font-style: normal; font-size: 11.5px; color: var(--cw-muted); }
+.cw-sched-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cw-muted); }
+.cw-sched-dot.is-ok, .cw-sched-dot.is-met { background: #2e9e62; }
+.cw-sched-dot.is-wait { background: #c27a1a; }
+.cw-sched-dot.is-fail { background: #c0392b; }
+.cw-sched-runs { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 2px; }
+.cw-sched-run { border-left: 2px solid var(--cw-line); padding-left: 12px; }
+.cw-sched-run-when { font-size: 11.5px; font-weight: 600; color: var(--cw-muted); margin-bottom: 4px; }
+.cw-sched-run-body { font-size: 13.5px; line-height: 1.6; }
+.cw-sched-run-body p { margin: 0 0 6px; }
+.cw-sched-run-body ul { margin: 0 0 6px; padding-left: 18px; list-style: disc; }
+.cw-sched-run-body ol { margin: 0 0 6px; padding-left: 18px; list-style: decimal; }

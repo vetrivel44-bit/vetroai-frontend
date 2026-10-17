@@ -17,6 +17,8 @@ import { xlsxBlob } from "../../lib/documentExport";
 import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
 import ResearchRun from "./ResearchRun";
 import { publishSite } from "../../lib/sitePublish";
+import ScheduledPanel from "./ScheduledPanel";
+import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
@@ -369,7 +371,7 @@ const makeTask = (title = "New task") => ({
 const starterTasks = [
   { icon: Search, title: "Research → slide deck + spreadsheet", prompt: "Research the best electric scooters in India under ₹1.5 lakh and make a slide deck and a comparison spreadsheet." },
   { icon: FolderOpen, title: "Work with files", prompt: "Review the files I attach, summarize the important information, and produce a clear action plan." },
-  { icon: Globe2, title: "Plan from the web", prompt: "Plan a five-day trip with a practical itinerary, budget, and useful links." },
+  { icon: CalendarClock, title: "Runs while you're away", prompt: "Every morning at 8, send me today's top news in India and the cricket scores" },
   { icon: LayoutTemplate, title: "Build a website", prompt: "Build a modern online store for a sneaker brand: product grid with prices and ratings, a working cart, customer reviews, and a newsletter signup. It must look great on phones." }
 ];
 
@@ -417,6 +419,10 @@ export default function ComputerUI({ onClose }) {
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
+  // "tasks" (the thread) or "scheduled" (Computer → Scheduled).
+  const [view, setView] = useState("tasks");
+  const [scheduleDraft, setScheduleDraft] = useState("");
+  const [scheduledUnread, setScheduledUnread] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [screenControl, setScreenControl] = useState(false);
   const [narrate, setNarrate] = useState(() => {
@@ -454,6 +460,15 @@ export default function ComputerUI({ onClose }) {
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 170)}px`;
   }, [query]);
 
+  useEffect(() => {
+    if (view === "scheduled") return undefined;
+    const api = schedulesApi(API);
+    const check = () => api.list().then(d => setScheduledUnread(d.unread || 0)).catch(() => {});
+    check();
+    const id = setInterval(check, 120000);
+    return () => clearInterval(id);
+  }, [view]);
+
   const patchTask = (id, updater) => {
     setTasks(prev => prev.map(t => t.id === id
       ? { ...(typeof updater === "function" ? updater(t) : { ...t, ...updater }), updatedAt: Date.now() }
@@ -461,6 +476,7 @@ export default function ComputerUI({ onClose }) {
   };
 
   const newTask = () => {
+    setView("tasks");
     const task = makeTask();
     setTasks(prev => [task, ...prev]);
     setActiveId(task.id);
@@ -1042,6 +1058,12 @@ export default function ComputerUI({ onClose }) {
       if (FOLDER_SUMMARY_REQUEST.test(prompt)) { startFolderTask(prompt, "summarize"); return; }
       if (FOLDER_REORGANIZE_REQUEST.test(prompt)) { startFolderTask(prompt, "ai"); return; }
     }
+    if (!files.length && SCHEDULE_REQUEST.test(prompt)) {
+      setView("scheduled");
+      setScheduleDraft(prompt);
+      setQuery("");
+      return;
+    }
     if (!files.length && !WEBSITE_REQUEST.test(prompt) && isResearchFileRequest(prompt)) {
       startResearchTask(prompt);
       return;
@@ -1479,11 +1501,17 @@ export default function ComputerUI({ onClose }) {
             <Plus size={16} /> New task
           </button>
         </div>
+        <div className="px-3 pb-1">
+          <button onClick={() => setView("scheduled")} className={`cw-sched-nav${view === "scheduled" ? " is-on" : ""}`}>
+            <CalendarClock size={16} /> <span>Scheduled</span>
+            {scheduledUnread > 0 && <em>{scheduledUnread}</em>}
+          </button>
+        </div>
         <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Your tasks</div>
         <div className="flex-1 overflow-y-auto px-2 space-y-1">
           {tasks.map(task => (
             <div key={task.id} className={`group flex items-center rounded-xl ${task.id === activeId ? "bg-white shadow-sm" : "hover:bg-stone-200/70"}`}>
-              <button onClick={() => setActiveId(task.id)} className="flex-1 min-w-0 text-left px-3 py-2.5">
+              <button onClick={() => { setActiveId(task.id); setView("tasks"); }} className="flex-1 min-w-0 text-left px-3 py-2.5">
                 <div className="truncate text-sm font-medium">{task.title}</div>
                 <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mt-1">
                   {task.status === "running" ? <Loader2 size={11} className="animate-spin" /> : <Clock3 size={11} />}
@@ -1504,9 +1532,10 @@ export default function ComputerUI({ onClose }) {
           <button onClick={() => setSidebarOpen(v => !v)} className="hidden md:block p-2 rounded-lg hover:bg-stone-100"><Monitor size={18} /></button>
           <button onClick={onClose} className="md:hidden p-2 rounded-lg hover:bg-stone-100"><ArrowLeft size={18} /></button>
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-sm truncate">{activeTask?.title || "VetroAI Computer"}</div>
+            <div className="font-semibold text-sm truncate">{view === "scheduled" ? "Scheduled tasks" : activeTask?.title || "VetroAI Computer"}</div>
             <div className="cw-header-status">
-              {running
+              {view === "scheduled" ? "Runs on its own, even when the app is closed"
+                : running
                 ? <><span className="cw-pulse-dot" /> Working{activeTask.messages[activeTask.messages.length - 1]?.startedAt ? <> · <Elapsed since={activeTask.messages[activeTask.messages.length - 1].startedAt} /></> : null}</>
                 : activeTask?.status === "completed" ? <><CheckCircle2 size={12} /> Done — ready for your review</>
                 : activeTask?.status === "failed" ? "Needs attention"
@@ -1536,7 +1565,9 @@ export default function ComputerUI({ onClose }) {
           </div>
         )}
 
-        {!activeTask || activeTask.messages.length === 0 ? (
+        {view === "scheduled" ? (
+          <ScheduledPanel api={API} draft={scheduleDraft} onDraftUsed={() => setScheduleDraft("")} onUnread={setScheduledUnread} />
+        ) : !activeTask || activeTask.messages.length === 0 ? (
           <section className="cowork-home-scroll">
             <div className="cowork-home">
               <div className="cowork-hero-icon"><Bot size={24} /></div>
@@ -2133,7 +2164,7 @@ function CapabilitiesModal({ close, workspaceReady }) {
     [Globe2, "Web research", "Ready", "Runs through the chat backend"],
     [LockKeyhole, "Delete protection", "Ready", "Manual confirmation required"],
     [Monitor, "Mouse, keyboard, and app control", "Desktop required", "Download the desktop app — one file, no setup", COMPANION_DOWNLOAD_URL],
-    [CalendarClock, "Background and scheduled jobs", "Cloud service required", "Needs a durable job runner"],
+    [CalendarClock, "Scheduled tasks", "Ready", "Daily updates and watches that run while you're away"],
     [Zap, "Connectors and parallel sub-agents", "Backend required", "Needs authenticated tool adapters"]
   ];
   return <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"><div className="cowork-capabilities-modal"><div className="cowork-capabilities-header"><div><h2>Computer capabilities</h2><p>Only connected, verifiable tools are marked ready.</p></div><button onClick={close}><X size={18} /></button></div><div className="cowork-capability-list">{rows.map(([Icon, name, status, detail, href]) => <div key={name}><Icon size={18} /><span><strong>{name}</strong><small>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline">{detail}</a> : detail}</small></span><em className={status === "Ready" ? "is-ready" : ""}>{status}</em></div>)}</div></div></div>;

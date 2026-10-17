@@ -1,0 +1,39 @@
+name: Scheduled tasks
+
+# Runs VetroAI Computer's scheduled tasks ("every morning at 8…", "tell me
+# when the price drops…"). Render's free instance sleeps when idle, so this
+# calls the backend every 15 minutes: the request wakes it, and it runs every
+# task that is due. Needs the same CRON_SECRET set as a repository secret here
+# and as an environment variable on Render. BACKEND_URL is optional.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-tasks
+  cancel-in-progress: false
+
+jobs:
+  run-due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run due tasks
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET is not set, so scheduled tasks only run while the backend happens to be awake. See DEPLOY.md → Scheduled tasks."
+            exit 0
+          fi
+          url="${BACKEND_URL:-https://ai-chatbot-backend-gvvz.onrender.com}/api/schedules/run-due"
+          # A sleeping free instance can take a minute to wake: retry a few times.
+          for attempt in 1 2 3 4; do
+            code=$(curl -sS -o response.json -w '%{http_code}' -X POST -H "x-cron-secret: $CRON_SECRET" --max-time 240 "$url" || echo 000)
+            if [ "$code" = "200" ]; then cat response.json; echo; exit 0; fi
+            echo "Attempt $attempt: HTTP $code"; sleep 20
+          done
+          echo "::error::The backend didn't run the due tasks (last HTTP $code)."
+          exit 1

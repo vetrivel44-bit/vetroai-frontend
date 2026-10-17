@@ -750,6 +750,7 @@ function dedupeResults(existing, incoming) {
 
 module.exports = {
   performAgenticSearch,
+  defaultThinker,
   DEFAULTS,
   // exported for tests
   parsePlan,

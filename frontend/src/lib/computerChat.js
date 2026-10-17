@@ -1,4 +1,4 @@
-import { authHeaders } from "./usageClient";
+import { authHeaders } from "./usageClient.js";
 
 // One request to VetroAI's chat endpoint whose whole answer is wanted at once
 // (a plan as JSON, a table of summaries) rather than streamed into the page.
