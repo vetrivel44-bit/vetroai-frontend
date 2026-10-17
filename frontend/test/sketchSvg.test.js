@@ -30,3 +30,25 @@ test("dark ink follows the theme", () => {
   assert.ok(isInkColor("#222") && isInkColor("#1a1a1a") && isInkColor("black") && isInkColor(undefined));
   assert.ok(!isInkColor("#c0504d") && !isInkColor("#f4d7a1") && !isInkColor("tomato"));
 });
+
+test("groups, rotations, arrows and multi-part labels — what textbook diagrams use", () => {
+  const s = parseSketch(`<svg viewBox="0 0 300 200">
+<g transform="translate(150 100)" fill="#f7a8c4" stroke="#222">
+  <ellipse cx="0" cy="-40" rx="14" ry="34" transform="rotate(72)"/>
+  <g transform="rotate(144)"><ellipse cx="0" cy="-40" rx="14" ry="34"/></g>
+</g>
+<line x1="20" y1="180" x2="120" y2="180" marker-end="url(#arrow)"/>
+<path d="M 10 10 Q 50 50 90 10" class="ray arrow"/>
+<text x="5" y="20">H<tspan baseline-shift="sub">2</tspan>O</text>
+<rect x="0" y="0" width="10" height="10" transform="rotate(45) javascript:x"/>
+<circle cx="1" cy="1" r="1" opacity="0.4"/>`);
+  const [p1, p2, line, path, label, rect, dot] = s.items;
+  assert.equal(p1.attrs.transform, "translate(150 100) rotate(72)");
+  assert.equal(p1.attrs.fill, "#f7a8c4", "colour from the group");
+  assert.equal(p2.attrs.transform, "translate(150 100) rotate(144)");
+  assert.equal(line.attrs["marker-end"], "arrow");
+  assert.equal(path.attrs["marker-end"], "arrow");
+  assert.equal(label.text, "H2O");
+  assert.equal(rect.attrs.transform, undefined, "anything but plain numbers is dropped");
+  assert.equal(dot.attrs.opacity, 0.4);
+});

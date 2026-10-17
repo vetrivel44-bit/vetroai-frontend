@@ -119,3 +119,10 @@
 .vsk-body { padding: 10px 12px 14px; }
 .vsk-host svg { display: block; width: 100%; height: auto; max-height: 460px; margin: 0 auto; overflow: visible; }
 .vsk-wait { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 160px; margin: 0; color: var(--ink-3, #8a847b); font-size: 13.5px; }
+/* Expand sits under the drawing, never over a label. */
+.vsk-stage { display: flex; flex-direction: column; align-items: stretch; }
+.vsk-stage .vetro-diagram-zoom-pill { position: static; align-self: flex-end; margin-top: 8px; transform: none; }
+/* Labels keep a thin outline of the card's colour, so one written over
+   shading or a line still reads. */
+.vsk-host text { paint-order: stroke; stroke: var(--bg-2, #fff); stroke-width: 4px; stroke-linejoin: round; }
+:root[data-theme="dark"] .vsk-host text { stroke: #262422; }

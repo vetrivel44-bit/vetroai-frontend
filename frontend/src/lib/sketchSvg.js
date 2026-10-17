@@ -7,10 +7,13 @@
 // elements only: while the block streams, the shapes written so far are drawn.
 
 const SHAPES = "rect|circle|ellipse|line|polyline|polygon|path";
-const ELEMENT_RE = new RegExp(`<(${SHAPES})\\b([^<>]*?)\\/?>|<text\\b([^<>]*)>([^<]*)<\\/text>`, "gi");
+// A shape, a text (its <tspan>s read as plain words), or a group opening or closing.
+const ELEMENT_RE = new RegExp(`<(${SHAPES})\\b([^<>]*?)\\/?>|<text\\b([^<>]*)>([\\s\\S]*?)<\\/text>|<g\\b([^<>]*?)(\\/?)>|<\\/g\\s*>`, "gi");
 const ATTR_RE = /([a-zA-Z][\w-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
 
-const NUMBER_ATTRS = ["x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "x1", "y1", "x2", "y2", "stroke-width", "font-size"];
+const NUMBER_ATTRS = ["x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "x1", "y1", "x2", "y2", "stroke-width", "font-size", "opacity", "fill-opacity"];
+// translate(…) rotate(…) scale(…) with plain numbers only.
+const TRANSFORM_RE = /^(\s*(translate|rotate|scale)\(\s*-?[\d.]+(e-?\d+)?(\s*[\s,]\s*-?[\d.]+(e-?\d+)?){0,2}\s*\)\s*)+$/i;
 const COLOR_RE = /^(#[0-9a-f]{3,8}|[a-z]{3,20}|rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*[\d.]+\s*)?\))$/i;
 const POINTS_RE = /^[\d\s.,eE+-]+$/;
 const PATH_RE = /^[MmLlHhVvCcSsQqTtAaZz\d\s.,eE+-]+$/;
@@ -35,6 +38,13 @@ function attrsOf(source) {
       out["font-weight"] = value;
     } else if (name === "stroke-dasharray" && /^[\d\s.,]+$/.test(value)) {
       out["stroke-dasharray"] = value;
+    } else if (name === "transform" && TRANSFORM_RE.test(value)) {
+      out.transform = value;
+    } else if ((name === "marker-end" || name === "marker-start") && /arrow/i.test(value)) {
+      // An arrowhead on that end of a line: marker-end="arrow".
+      out[name] = "arrow";
+    } else if (name === "class" && /\barrow\b/.test(value)) {
+      out["marker-end"] = "arrow";
     }
   }
   return out;
@@ -47,9 +57,31 @@ export function parseSketch(code) {
   const viewBox = text.match(/<svg\b[^>]*\bviewBox\s*=\s*["']\s*([\d.\-\s,]+)["']/i)?.[1].trim().split(/[\s,]+/).map(Number);
   const title = decode(text.match(/<title>([^<]{1,80})<\/title>/i)?.[1] || "").trim();
   const items = [];
+  // Groups pass their transform and colours on to the shapes inside them.
+  const groups = [];
+  const inherited = () => {
+    const out = {};
+    const transforms = [];
+    for (const g of groups) {
+      for (const k of ["fill", "stroke", "stroke-width", "font-size", "opacity"]) if (k in g) out[k] = g[k];
+      if (g.transform) transforms.push(g.transform);
+    }
+    if (transforms.length) out.transform = transforms.join(" ");
+    return out;
+  };
+  const withGroups = (attrs) => {
+    const base = inherited();
+    const transform = [base.transform, attrs.transform].filter(Boolean).join(" ");
+    return { ...base, ...attrs, ...(transform ? { transform } : {}) };
+  };
   for (const m of text.matchAll(ELEMENT_RE)) {
-    if (m[1]) items.push({ tag: m[1].toLowerCase(), attrs: attrsOf(m[2]) });
-    else if (m[4]?.trim()) items.push({ tag: "text", attrs: attrsOf(m[3]), text: decode(m[4]).trim().slice(0, 120) });
+    if (m[1]) items.push({ tag: m[1].toLowerCase(), attrs: withGroups(attrsOf(m[2])) });
+    else if (m[3] !== undefined) {
+      const words = decode(m[4].replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim().slice(0, 120);
+      if (words) items.push({ tag: "text", attrs: withGroups(attrsOf(m[3])), text: words });
+    } else if (m[5] !== undefined) {
+      if (!m[6]) groups.push(attrsOf(m[5]));
+    } else groups.pop();
   }
   return {
     viewBox: viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0 ? viewBox : [0, 0, 400, 300],
