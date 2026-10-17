@@ -918,3 +918,21 @@ aside .cw-folder-tool { padding: 9px 10px; }
 .cw-sched-run-body p { margin: 0 0 6px; }
 .cw-sched-run-body ul { margin: 0 0 6px; padding-left: 18px; list-style: disc; }
 .cw-sched-run-body ol { margin: 0 0 6px; padding-left: 18px; list-style: decimal; }
+
+/* ── Free allowance and Pro ───────────────────────────────────────────────── */
+.cw-allowance { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--cw-accent) 35%, var(--cw-line)); background: color-mix(in srgb, var(--cw-accent) 8%, var(--cw-surface)); color: var(--cw-text); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.cw-allowance svg { color: var(--cw-accent); }
+.cw-allowance.is-out { border-color: var(--cw-accent); background: var(--cw-accent); color: #fff; }
+.cw-allowance.is-out svg { color: #fff; }
+.cw-pro-modal { width: min(440px, 100%); padding: 26px 24px 20px; border-radius: 24px; background: var(--cw-surface, #fff); color: var(--cw-text, #25231f); box-shadow: 0 30px 80px rgba(0,0,0,.3); animation: cwFolderIn .3s cubic-bezier(.22,1,.36,1) both; }
+.cw-pro-badge { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, #D97757, #c2410c); color: #fff; margin-bottom: 14px; box-shadow: 0 10px 24px -10px rgba(217,119,87,.8); }
+.cw-pro-modal h2 { margin: 0 0 8px; font-size: 19px; font-weight: 700; letter-spacing: -.2px; }
+.cw-pro-modal p { margin: 0 0 14px; font-size: 13.5px; line-height: 1.55; color: var(--cw-muted, #746f66); }
+.cw-pro-list { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cw-pro-list li { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+.cw-pro-list svg { flex: none; margin-top: 2px; color: #2e9e62; }
+.cw-pro-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cw-pro-actions button { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: 12px; border: 0; font-size: 13.5px; font-weight: 600; }
+.cw-pro-actions .is-primary { background: var(--cw-text, #25231f); color: var(--cw-bg, #fff); }
+.cw-pro-actions .is-ghost { background: transparent; color: var(--cw-muted, #746f66); }
+@media (max-width: 640px) { .cw-allowance { font-size: 0; padding: 0 9px; gap: 0; } .cw-allowance::after { content: attr(data-short); font-size: 12px; } }

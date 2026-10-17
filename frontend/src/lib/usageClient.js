@@ -83,3 +83,22 @@ export const WINDOW_TITLES = {
   weekly: "Weekly limit",
   premium: "Weekly limit · most capable models",
 };
+
+/**
+ * Starts a VetroAI Computer run against this week's allowance:
+ * { allowed, computer: {used, limit, resetsAt}, plan, message }. If the
+ * server can't be reached the run goes ahead.
+ */
+export async function startComputerRun(api, { fetchImpl = globalThis.fetch } = {}) {
+  let res;
+  try {
+    res = await fetchImpl(`${api}/usage/computer`, { method: "POST", headers: { ...authHeaders() } });
+  } catch {
+    return { allowed: true, computer: null, plan: null };
+  }
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 429 && body.code === "COMPUTER_LIMIT") {
+    return { allowed: false, computer: body.data?.computer || null, plan: body.data?.plan || "free", message: body.message || "You've used this week's VetroAI Computer tasks.", resetsAt: body.block?.resetsAt || null };
+  }
+  return { allowed: true, computer: body.data?.computer || null, plan: body.data?.plan || null };
+}

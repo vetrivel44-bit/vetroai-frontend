@@ -10,5 +10,6 @@ router.get("/", optionalAuth, asyncHandler(usageController.getUsage));
 router.post("/consume", chatLimiter, optionalAuth, asyncHandler(usageController.consume));
 router.post("/check", chatLimiter, optionalAuth, asyncHandler(usageController.checkModel));
 router.post("/record", chatLimiter, optionalAuth, asyncHandler(usageController.recordModel));
+router.post("/computer", chatLimiter, optionalAuth, asyncHandler(usageController.computer));
 
 module.exports = router;

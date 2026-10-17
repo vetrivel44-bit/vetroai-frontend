@@ -244,3 +244,36 @@ test("an unreachable Firestore never blocks or slows every message", async () =>
     global.fetch = original;
   }
 });
+
+test("VetroAI Computer: a few free runs a week, then an offer of Pro", async () => {
+  const k = key();
+  for (let i = 0; i < 3; i++) assert.equal((await usage.consumeComputer(k, "free", T0 + i)).allowed, true);
+  const refused = await usage.consumeComputer(k, "free", T0 + 10);
+  assert.equal(refused.allowed, false);
+  assert.equal(refused.block.window, "computer");
+  assert.equal(refused.block.resetsAt, T0 + WEEK_MS);
+  assert.equal(refused.summary.computer.used, 3);
+  assert.equal(refused.summary.models.find((m) => m.model === "VetroAI Computer").messages, 3);
+  // Next week they are back.
+  assert.equal((await usage.consumeComputer(k, "free", T0 + WEEK_MS + 1)).allowed, true);
+  // Pro has many more.
+  const p = key();
+  for (let i = 0; i < 10; i++) assert.equal((await usage.consumeComputer(p, "pro", T0 + i)).allowed, true);
+});
+
+test("POST /api/usage/computer says how many are left, then refuses with COMPUTER_LIMIT", async (t) => {
+  const base = await startServer(t);
+  const ip = `198.51.100.${(process.pid % 200) + 1}`;
+  const headers = { "Content-Type": "application/json", "X-Forwarded-For": ip };
+  usage._memory.delete(`ip:${ip}`);
+  const first = await (await fetch(`${base}/api/usage/computer`, { method: "POST", headers })).json();
+  assert.equal(first.data.computer.used, 1);
+  assert.equal(first.data.computer.limit, 3);
+  await fetch(`${base}/api/usage/computer`, { method: "POST", headers });
+  await fetch(`${base}/api/usage/computer`, { method: "POST", headers });
+  const refused = await fetch(`${base}/api/usage/computer`, { method: "POST", headers });
+  assert.equal(refused.status, 429);
+  const body = await refused.json();
+  assert.equal(body.code, "COMPUTER_LIMIT");
+  assert.match(body.message, /used your 3 free VetroAI Computer tasks this week\. They come back in 7 days — or upgrade to Pro for 100 a week\./);
+});

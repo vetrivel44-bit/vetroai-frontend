@@ -19,6 +19,7 @@ import ResearchRun from "./ResearchRun";
 import { publishSite } from "../../lib/sitePublish";
 import ScheduledPanel from "./ScheduledPanel";
 import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
+import { authHeaders, startComputerRun } from "../../lib/usageClient";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
@@ -405,7 +406,7 @@ function safeLoadTasks() {
   }
 }
 
-export default function ComputerUI({ onClose }) {
+export default function ComputerUI({ onClose, onUpgrade }) {
   const [tasks, setTasks] = useState(safeLoadTasks);
   const [activeId, setActiveId] = useState(() => safeLoadTasks()[0]?.id || null);
   const [query, setQuery] = useState("");
@@ -423,6 +424,9 @@ export default function ComputerUI({ onClose }) {
   const [view, setView] = useState("tasks");
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduledUnread, setScheduledUnread] = useState(0);
+  // This week's Computer runs ({ used, limit, plan }) and the Pro offer when they run out.
+  const [allowance, setAllowance] = useState(null);
+  const [proGate, setProGate] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [screenControl, setScreenControl] = useState(false);
   const [narrate, setNarrate] = useState(() => {
@@ -468,6 +472,24 @@ export default function ComputerUI({ onClose }) {
     const id = setInterval(check, 120000);
     return () => clearInterval(id);
   }, [view]);
+
+  useEffect(() => {
+    fetch(`${API}/usage`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(b => { if (b?.data?.computer) setAllowance({ ...b.data.computer, plan: b.data.plan }); })
+      .catch(() => {});
+  }, []);
+
+  /** Takes one run from this week's allowance, or offers Pro and says no. */
+  const allowRun = async () => {
+    const result = await startComputerRun(API);
+    if (result.computer) setAllowance({ ...result.computer, plan: result.plan });
+    if (!result.allowed) {
+      setProGate({ message: result.message, plan: result.plan, resetsAt: result.resetsAt });
+      return false;
+    }
+    return true;
+  };
 
   const patchTask = (id, updater) => {
     setTasks(prev => prev.map(t => t.id === id
@@ -550,6 +572,8 @@ export default function ComputerUI({ onClose }) {
   };
 
   const execute = async (prompt, display = "") => {
+    // A fix or an edit of something already built continues that run.
+    if (!display && !(await allowRun())) return;
     let task = activeTask;
     if (!task) {
       task = makeTask(prompt.slice(0, 54));
@@ -831,6 +855,7 @@ export default function ComputerUI({ onClose }) {
   // gate — approving it there is what lets any of computer:* IPC calls succeed at
   // all, and Ctrl+Shift+X always stops it immediately regardless of this loop.
   const runComputerAgent = async (goal) => {
+    if (!(await allowRun())) return;
     const desktop = window.vetroDesktop;
     let task = activeTask;
     if (!task) {
@@ -1185,6 +1210,7 @@ export default function ComputerUI({ onClose }) {
 
   const startFolderTask = async (prompt, kind) => {
     if (!workspace?.handle || running) return;
+    if (!(await allowRun())) return;
     let task = activeTask;
     if (!task) {
       task = makeTask(prompt.slice(0, 54));
@@ -1334,6 +1360,7 @@ export default function ComputerUI({ onClose }) {
   // the files that were asked for: a deck, a spreadsheet, Word and PDF.
   const startResearchTask = async (prompt) => {
     if (running) return;
+    if (!(await allowRun())) return;
     let task = activeTask;
     if (!task) {
       task = makeTask(prompt.slice(0, 54));
@@ -1548,6 +1575,11 @@ export default function ComputerUI({ onClose }) {
               <button onClick={stopTask} disabled={!running} className="p-2 rounded-lg hover:bg-red-50 text-red-600 disabled:opacity-30" title="Stop"><Square size={16} /></button>
             </div>
           )}
+          {allowance?.plan === "free" && allowance.limit > 0 && (
+            <button type="button" className={`cw-allowance${allowance.used >= allowance.limit ? " is-out" : ""}`} data-short={`${Math.max(0, allowance.limit - allowance.used)}/${allowance.limit} free`} onClick={() => onUpgrade?.()} title="Free accounts get a few Computer tasks a week. Pro has many more.">
+              <Zap size={13} /> {Math.max(0, allowance.limit - allowance.used)} of {allowance.limit} free tasks left
+            </button>
+          )}
           <div className="relative">
             <select value={permission} onChange={e => setPermission(e.target.value)} className="appearance-none bg-white border border-stone-200 rounded-xl pl-3 pr-8 py-2 text-xs font-medium outline-none">
               <option value="ask">Ask before actions</option>
@@ -1756,6 +1788,27 @@ export default function ComputerUI({ onClose }) {
             <div className="flex justify-end gap-2">
               <button onClick={() => setPendingAction(null)} className="px-4 py-2 rounded-xl text-sm hover:bg-stone-100">Cancel</button>
               <button onClick={() => { const prompt = pendingAction; setPendingAction(null); execute(prompt); }} className="px-4 py-2 rounded-xl text-sm bg-stone-900 text-white">Continue safely</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {proGate && (
+        <div className="fixed inset-0 z-[210] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setProGate(null)}>
+          <div className="cw-pro-modal" role="dialog" aria-label="VetroAI Pro">
+            <div className="cw-pro-badge"><Sparkles size={18} /></div>
+            <h2>{proGate.plan === "free" ? "You've used this week's free Computer tasks" : "This week's Computer tasks are used up"}</h2>
+            <p>{proGate.message}</p>
+            {proGate.plan === "free" && (
+              <ul className="cw-pro-list">
+                <li><Check size={15} /> 100 Computer tasks a week — folder tools, research → files, websites</li>
+                <li><Check size={15} /> 10 scheduled tasks running while you're away</li>
+                <li><Check size={15} /> 10× higher chat limits and the most capable models</li>
+              </ul>
+            )}
+            <div className="cw-pro-actions">
+              <button type="button" className="is-ghost" onClick={() => setProGate(null)}>Maybe later</button>
+              {proGate.plan === "free" && <button type="button" className="is-primary" onClick={() => { setProGate(null); onUpgrade?.(); }}><Sparkles size={15} /> Upgrade to Pro</button>}
             </div>
           </div>
         </div>

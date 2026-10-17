@@ -134,3 +134,17 @@ test("the outside scheduler needs the secret", async () => {
   const denied = await call(controller.runDue, { headers: { "x-cron-secret": "nope" } });
   assert.equal(denied.status, 403);
 });
+
+test("free accounts can have one scheduled task running; Pro has more", async () => {
+  schedules.store._memory.clear();
+  const free = { id: "freeUser", isFirebase: true };
+  const body = { prompt: "Top tech news", schedule: { every: "day", time: "08:00", tz: IST } };
+  assert.equal((await call(controller.create, { user: free, body })).status, 201);
+  const second = await call(controller.create, { user: free, body });
+  assert.equal(second.status, 429);
+  assert.equal(second.body.code, "SCHEDULE_LIMIT");
+  assert.match(second.body.message, /upgrade to Pro for 10/);
+  const pro = { id: "proUser", isFirebase: true, plan: "pro" };
+  for (let i = 0; i < 3; i++) assert.equal((await call(controller.create, { user: pro, body })).status, 201);
+  assert.equal((await call(controller.list, { user: pro })).body.data.activeLimit, 10);
+});

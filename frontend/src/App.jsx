@@ -8092,7 +8092,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     <div className={`vetro-app-shell flex h-screen w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
       {showGlobalSearch && <Suspense fallback={<ScreenLoader />}><GlobalSearch onClose={() => setShowGlobalSearch(false)} /></Suspense>}
-      {showUpgrade && <Suspense fallback={<ScreenLoader />}><UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} /></Suspense>}
+      {/* Above full-screen products too (Computer offers Pro from inside). */}
+      {showUpgrade && <div style={{ position: "relative", zIndex: 200 }}><Suspense fallback={<ScreenLoader />}><UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} /></Suspense></div>}
       {showPlugins && (
         <Suspense fallback={<ScreenLoader />}>
           <PluginHub
@@ -8382,7 +8383,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {showComputer && (
           <div className="fixed inset-0 z-[120] flex bg-[#fbfaf7]">
             <Suspense fallback={<ScreenLoader />}>
-              <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} />
+              <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} onUpgrade={() => setShowUpgrade(true)} />
             </Suspense>
           </div>
         )}
