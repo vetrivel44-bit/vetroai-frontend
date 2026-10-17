@@ -15,6 +15,9 @@ import { READABLE_DOC, extractFileText } from "../../lib/fileText";
 import { askModel } from "../../lib/computerChat";
 import { xlsxBlob } from "../../lib/documentExport";
 import { FolderActions, FolderPlanCard, FolderReportCard } from "./FolderTools";
+import ResearchRun from "./ResearchRun";
+import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
+import { settleResearch } from "../../lib/research";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
   ArrowLeft, Bot, CalendarClock, Check, CheckCircle2, ChevronDown, Circle, Clock3,
@@ -342,7 +345,7 @@ const makeTask = (title = "New task") => ({
 });
 
 const starterTasks = [
-  { icon: Search, title: "Research a topic", prompt: "Research the latest developments in AI agents. Compare the most important options and create a concise report with sources." },
+  { icon: Search, title: "Research → slide deck + spreadsheet", prompt: "Research the best electric scooters in India under ₹1.5 lakh and make a slide deck and a comparison spreadsheet." },
   { icon: FolderOpen, title: "Work with files", prompt: "Review the files I attach, summarize the important information, and produce a clear action plan." },
   { icon: Globe2, title: "Plan from the web", prompt: "Plan a five-day trip with a practical itinerary, budget, and useful links." },
   { icon: LayoutTemplate, title: "Build a website", prompt: "Build a modern online store for a sneaker brand: product grid with prices and ratings, a working cart, customer reviews, and a newsletter signup. It must look great on phones." }
@@ -980,6 +983,10 @@ export default function ComputerUI({ onClose }) {
       if (FOLDER_SUMMARY_REQUEST.test(prompt)) { startFolderTask(prompt, "summarize"); return; }
       if (FOLDER_REORGANIZE_REQUEST.test(prompt)) { startFolderTask(prompt, "ai"); return; }
     }
+    if (!files.length && !WEBSITE_REQUEST.test(prompt) && isResearchFileRequest(prompt)) {
+      startResearchTask(prompt);
+      return;
+    }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
       setPendingAction(prompt);
       return;
@@ -1241,6 +1248,110 @@ export default function ComputerUI({ onClose }) {
     }
   };
 
+  // ── Research → finished files ─────────────────────────────────────────────
+  // A full DeepSearch (its log streamed live), then the report turned into
+  // the files that were asked for: a deck, a spreadsheet, Word and PDF.
+  const startResearchTask = async (prompt) => {
+    if (running) return;
+    let task = activeTask;
+    if (!task) {
+      task = makeTask(prompt.slice(0, 54));
+      setTasks(prev => [task, ...prev]);
+      setActiveId(task.id);
+    }
+    const taskId = task.id;
+    const messageId = `a-${Date.now()}`;
+    const want = wantedFiles(prompt);
+    const title = topicTitle(prompt);
+    const patchRun = (update) => patchMessage(taskId, messageId, m => ({ ...m, run: { ...m.run, ...(typeof update === "function" ? update(m.run) : update) } }));
+    const steps = [
+      { id: "research", label: "Research the web", status: "active" },
+      { id: "write", label: "Write the report", status: "pending" },
+      ...(want.slides ? [{ id: "slides", label: "Design the slide deck", status: "pending" }] : []),
+      ...(want.sheet ? [{ id: "sheet", label: "Build the spreadsheet", status: "pending" }] : []),
+      { id: "files", label: "Prepare Word and PDF", status: "pending" },
+    ];
+    const setStep = (id, status) => patchTask(taskId, t => ({ ...t, steps: t.steps.map(s => s.id === id ? { ...s, status } : s) }));
+    patchTask(taskId, t => ({
+      ...t,
+      title: t.messages.length ? t.title : title,
+      status: "running",
+      steps,
+      messages: [...t.messages, { id: `u-${Date.now()}`, role: "user", content: prompt },
+        { id: messageId, role: "assistant", content: "", startedAt: Date.now(), run: { status: "researching", title, want } }],
+    }));
+    setQuery("");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      let research = null;
+      const report = await askModel(API, {
+        input: prompt,
+        mode: "deep_search",
+        provider: "auto",
+        webSearch: true,
+        maxTokens: 12000,
+        signal: controller.signal,
+        onEvent: (type, data) => {
+          if (type === "research" && data) {
+            research = data;
+            patchRun({ research: data });
+            if (data.phase === "writing") { setStep("research", "done"); setStep("write", "active"); }
+          }
+        },
+      });
+      if (!report.trim()) throw new Error("The research didn't produce a report. Try again in a moment.");
+      setStep("research", "done");
+      setStep("write", "done");
+      patchRun({ report, research: settleResearch(research, "done"), status: "making" });
+
+      // The files, side by side.
+      const jobs = [];
+      if (want.slides) {
+        setStep("slides", "active");
+        patchRun({ slides: { status: "working" } });
+        jobs.push(askModel(API, { input: deckInput(prompt, report), mode: "normal", provider: "auto", maxTokens: 12000, signal: controller.signal })
+          .then(text => {
+            const code = slidesCode(text);
+            if (!code) throw new Error("No slides came back.");
+            patchRun({ slides: { status: "done", code } });
+            setStep("slides", "done");
+          })
+          .catch(err => {
+            if (err.name === "AbortError") throw err;
+            patchRun({ slides: { status: "failed", error: err.message } });
+            setStep("slides", "failed");
+          }));
+      }
+      if (want.sheet) {
+        setStep("sheet", "active");
+        patchRun({ sheet: { status: "working" } });
+        jobs.push(askModel(API, { input: sheetInput(prompt, report), systemPrompt: SHEET_INSTRUCTIONS, maxTokens: 8192, signal: controller.signal })
+          .then(text => {
+            const markdown = sheetMarkdown(text);
+            if (!markdown) throw new Error("No table came back.");
+            patchRun({ sheet: { status: "done", markdown } });
+            setStep("sheet", "done");
+          })
+          .catch(err => {
+            if (err.name === "AbortError") throw err;
+            patchRun({ sheet: { status: "failed", error: err.message } });
+            setStep("sheet", "failed");
+          }));
+      }
+      await Promise.all(jobs);
+      setStep("files", "done");
+      patchRun({ status: "done" });
+      patchTask(taskId, t => ({ ...t, status: "completed", messages: t.messages.map(m => m.id === messageId ? { ...m, finishedAt: Date.now() } : m) }));
+    } catch (error) {
+      const stopped = error.name === "AbortError";
+      patchMessage(taskId, messageId, m => ({ ...m, finishedAt: Date.now(), run: { ...m.run, status: m.run?.report ? "done" : "failed", research: settleResearch(m.run?.research, "failed"), error: stopped ? "Stopped." : error.message } }));
+      patchTask(taskId, t => ({ ...t, status: stopped ? "stopped" : "failed", steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s) }));
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
   const runFolderAction = (id) => {
     const action = FOLDER_ACTIONS.find(a => a.id === id);
     if (action) startFolderTask(action.prompt, id);
@@ -1420,6 +1531,8 @@ export default function ComputerUI({ onClose }) {
                             />
                           : message.role === "assistant" && message.report
                           ? <FolderReportCard message={message} onDownload={() => downloadReport(message)} />
+                          : message.role === "assistant" && message.run
+                          ? <ResearchRun message={message} live={running && message.id === activeTask.messages[activeTask.messages.length - 1]?.id} renderReport={(md) => <TaskReply content={md} />} />
                           : message.role === "assistant"
                           ? <AssistantTurn
                               message={message}

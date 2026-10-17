@@ -4,7 +4,7 @@ import { authHeaders } from "./usageClient";
 // (a plan as JSON, a table of summaries) rather than streamed into the page.
 
 /** Reads a /chat server-sent-event stream to the end and returns the text. */
-export async function readChatStream(response, onText) {
+export async function readChatStream(response, onText, onEvent) {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("The server did not return a stream.");
   const decoder = new TextDecoder();
@@ -27,27 +27,28 @@ export async function readChatStream(response, onText) {
       if (type === "content" && data) { text += data; onText?.(text); }
       else if (type === "clear") text = "";
       else if (type === "error" && data) throw new Error(String(data));
+      else if (type && data != null) onEvent?.(type, data);
     }
   }
   return text;
 }
 
-export async function askModel(api, { input, systemPrompt, maxTokens = 8192, signal, webSearch = false, fetchImpl = globalThis.fetch, onText }) {
+export async function askModel(api, { input, systemPrompt = "", mode = "code_exec", provider = "gemini", maxTokens = 8192, signal, webSearch = false, fetchImpl = globalThis.fetch, onText, onEvent }) {
   const body = new FormData();
-  body.append("provider", "gemini");
-  body.append("mode", "code_exec");
+  body.append("provider", provider);
+  body.append("mode", mode);
   body.append("route", "backend");
   body.append("input", input);
   body.append("messages", JSON.stringify([{ role: "user", content: input }]));
   body.append("maxTokens", String(maxTokens));
   body.append("webSearch", webSearch ? "true" : "false");
   body.append("safeMode", "true");
-  body.append("systemPrompt", systemPrompt);
+  if (systemPrompt) body.append("systemPrompt", systemPrompt);
   const response = await fetchImpl(`${api}/chat`, { method: "POST", body, headers: authHeaders(), signal });
   if (!response.ok) {
     let message = `Server error: ${response.status}`;
     try { const data = await response.json(); message = data.message || data.error || message; } catch { /* not JSON */ }
     throw new Error(message);
   }
-  return readChatStream(response, onText);
+  return readChatStream(response, onText, onEvent);
 }
