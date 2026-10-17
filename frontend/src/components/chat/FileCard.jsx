@@ -38,11 +38,15 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
-export default function FileCard({ name, size, onRemove, compact = false }) {
+export default function FileCard({ name, size, onRemove, onOpen, compact = false }) {
   const kind = fileKind(name);
   const meta = [kind.ext ? kind.ext.toUpperCase() : "File", formatBytes(size)].filter(Boolean).join(" · ");
   return (
-    <div className={`vetro-file-card${compact ? " is-compact" : ""}`} title={name}>
+    <div
+      className={`vetro-file-card${compact ? " is-compact" : ""}${onOpen ? " is-openable" : ""}`}
+      title={onOpen ? `Open ${name}` : name}
+      {...(onOpen ? { role: "button", tabIndex: 0, onClick: onOpen, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } } } : {})}
+    >
       <span className="vetro-file-badge" style={{ "--file-color": kind.color }} aria-hidden="true">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
@@ -55,7 +59,7 @@ export default function FileCard({ name, size, onRemove, compact = false }) {
         <span className="vetro-file-meta">{meta}</span>
       </span>
       {onRemove && (
-        <button type="button" className="vetro-file-remove" onClick={onRemove} aria-label={`Remove ${name}`} title="Remove">
+        <button type="button" className="vetro-file-remove" onClick={(e) => { e.stopPropagation(); onRemove(); }} aria-label={`Remove ${name}`} title="Remove">
           <X size={12} strokeWidth={2.5} />
         </button>
       )}

@@ -27,6 +27,7 @@ import {
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import FileCard from "./components/chat/FileCard";
+const AttachmentViewer = React.lazy(() => import("./components/chat/AttachmentViewer"));
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
 import { ReplyContext, findChoices } from "./lib/choices";
@@ -7563,15 +7564,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           <div className="multi-file-previews">
             {selFiles.map((f, idx) => {
               const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size);
+              const openSelected = () => setViewer({ items: selFiles.map(sf => ({ name: sf.name, size: sf.size, file: sf, src: filePreviews.find(fp => fp.name === sf.name && fp.size === sf.size)?.src || null })), index: idx });
               return preview ? (
                 <div key={idx} className="file-prev">
-                  <img src={preview.src} alt={f.name} />
+                  <img src={preview.src} alt={f.name} onClick={openSelected} />
                   <button type="button" onClick={() => removeFile(idx)}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                   </button>
                 </div>
               ) : (
-                <FileCard key={idx} name={f.name} size={f.size} onRemove={() => removeFile(idx)} />
+                <FileCard key={idx} name={f.name} size={f.size} onRemove={() => removeFile(idx)} onOpen={openSelected} />
               );
             })}
           </div>
@@ -7713,6 +7715,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [isAgenticMode, setIsAgenticMode] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  // An attachment opened full screen: { items: [{ name, size, src?, file? }], index }.
+  const [viewer, setViewer] = useState(null);
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
   const [showChess, setShowChess] = useState(false);
@@ -8092,6 +8096,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     <div className={`vetro-app-shell flex h-screen w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
       {showGlobalSearch && <Suspense fallback={<ScreenLoader />}><GlobalSearch onClose={() => setShowGlobalSearch(false)} /></Suspense>}
+      {viewer && <Suspense fallback={null}><AttachmentViewer items={viewer.items} index={viewer.index} onClose={() => setViewer(null)} /></Suspense>}
       {/* Above full-screen products too (Computer offers Pro from inside). */}
       {showUpgrade && <div style={{ position: "relative", zIndex: 200 }}><Suspense fallback={<ScreenLoader />}><UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} /></Suspense></div>}
       {showPlugins && (
@@ -8548,10 +8553,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <>
                                {m.files && m.files.length > 0 && (
                                  <div className="user-attached-files">
-                                   {m.files.map((f, fi) => f.preview
-                                     ? <img key={fi} src={f.preview} alt={f.name} className="user-att-img" />
-                                     : <FileCard key={fi} name={f.name} size={f.size} compact />
-                                   )}
+                                   {(() => {
+                                     // The sent File objects, while this page is open, so PDFs and documents can be shown too.
+                                     const sent = filesOfTurn(m) || [];
+                                     const items = m.files.map(f => ({ name: f.name, size: f.size, src: f.preview || null, file: sent.find(x => x.name === f.name && (!f.size || x.size === f.size)) || null }));
+                                     const open = (index) => setViewer({ items, index });
+                                     return m.files.map((f, fi) => f.preview
+                                       ? <img key={fi} src={f.preview} alt={f.name} className="user-att-img" role="button" tabIndex={0} onClick={() => open(fi)} onKeyDown={e => { if (e.key === "Enter") open(fi); }} />
+                                       : <FileCard key={fi} name={f.name} size={f.size} compact onOpen={() => open(fi)} />
+                                     );
+                                   })()}
                                  </div>
                                )}
                                <div className="chat-user-bubble">{m.content}</div>
