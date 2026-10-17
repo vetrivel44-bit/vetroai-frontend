@@ -89,16 +89,29 @@ export const WINDOW_TITLES = {
  * { allowed, computer: {used, limit, resetsAt}, plan, message }. If the
  * server can't be reached the run goes ahead.
  */
-export async function startComputerRun(api, { fetchImpl = globalThis.fetch } = {}) {
-  let res;
+export async function startComputerRun(api, { fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
+  // The server may be waking up (a free host sleeps when idle). Don't hold the
+  // task back waiting on it: no answer in a few seconds lets the run go ahead.
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timer;
+  const timedOut = new Promise((resolve) => { timer = setTimeout(() => { controller?.abort(); resolve(null); }, timeoutMs); });
   try {
-    res = await fetchImpl(`${api}/usage/computer`, { method: "POST", headers: { ...authHeaders() } });
+    const answer = await Promise.race([
+      (async () => {
+        const res = await fetchImpl(`${api}/usage/computer`, { method: "POST", headers: { ...authHeaders() }, signal: controller?.signal });
+        return { res, body: await res.json().catch(() => ({})) };
+      })(),
+      timedOut,
+    ]);
+    if (!answer) return { allowed: true, computer: null, plan: null };
+    const { res, body } = answer;
+    if (res.status === 429 && body.code === "COMPUTER_LIMIT") {
+      return { allowed: false, computer: body.data?.computer || null, plan: body.data?.plan || "free", message: body.message || "You've used this week's VetroAI Computer tasks.", resetsAt: body.block?.resetsAt || null };
+    }
+    return { allowed: true, computer: body.data?.computer || null, plan: body.data?.plan || null };
   } catch {
     return { allowed: true, computer: null, plan: null };
+  } finally {
+    clearTimeout(timer);
   }
-  const body = await res.json().catch(() => ({}));
-  if (res.status === 429 && body.code === "COMPUTER_LIMIT") {
-    return { allowed: false, computer: body.data?.computer || null, plan: body.data?.plan || "free", message: body.message || "You've used this week's VetroAI Computer tasks.", resetsAt: body.block?.resetsAt || null };
-  }
-  return { allowed: true, computer: body.data?.computer || null, plan: body.data?.plan || null };
 }

@@ -55,4 +55,7 @@ test("Computer runs: allowed, refused with an offer, or allowed when the server 
   assert.equal(no.allowed, false);
   assert.equal(no.resetsAt, 5);
   assert.equal((await startComputerRun("/api", { fetchImpl: async () => { throw new TypeError("offline"); } })).allowed, true);
+  // A server still waking up doesn't hold the task back.
+  const slow = await startComputerRun("/api", { timeoutMs: 30, fetchImpl: () => new Promise(() => {}) });
+  assert.equal(slow.allowed, true);
 });

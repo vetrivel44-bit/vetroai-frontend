@@ -453,6 +453,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
 
   const activeTask = useMemo(() => tasks.find(t => t.id === activeId) || null, [tasks, activeId]);
   const running = activeTask?.status === "running";
+  const [starting, setStarting] = useState(false);
   const paused = activeTask?.status === "paused";
 
   useEffect(() => {
@@ -487,7 +488,9 @@ export default function ComputerUI({ onClose, onUpgrade }) {
 
   /** Takes one run from this week's allowance, or offers Pro and says no. */
   const allowRun = async () => {
-    const result = await startComputerRun(API);
+    // Shown on the send button straight away, while the free-task count is checked.
+    setStarting(true);
+    const result = await startComputerRun(API).finally(() => setStarting(false));
     if (result.computer) setAllowance({ ...result.computer, plan: result.plan });
     if (!result.allowed) {
       setProGate({ message: result.message, plan: result.plan, resetsAt: result.resetsAt });
@@ -1073,7 +1076,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   const submit = (event, suggestion = "") => {
     event?.preventDefault();
     const prompt = (suggestion || query).trim();
-    if (!prompt || running) return;
+    if (!prompt || running || starting) return;
     if (screenControl && hasDesktop) {
       runComputerAgent(prompt);
       return;
@@ -1645,7 +1648,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
                   </button>
                 ))}
               </div>
-              <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} narrate={narrate} setNarrate={setNarrate} />
+              <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running || starting} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} narrate={narrate} setNarrate={setNarrate} />
               <p className="cowork-footnote">
                 {hasDesktop
                   ? "Screen control is available on this device — turn it on in the composer to let VetroAI use your mouse and keyboard."
@@ -1794,7 +1797,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
             </section>
             <div className="cowork-bottom-composer">
               <div className="max-w-4xl mx-auto">
-                <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} narrate={narrate} setNarrate={setNarrate} />
+                <Composer query={query} setQuery={setQuery} files={files} setFiles={setFiles} submit={submit} running={running || starting} textareaRef={textareaRef} fileRef={fileRef} onFiles={onFiles} dictating={dictating} toggleDictation={toggleDictation} hasDesktop={hasDesktop} screenControl={screenControl} setScreenControl={setScreenControl} narrate={narrate} setNarrate={setNarrate} />
               </div>
             </div>
           </>

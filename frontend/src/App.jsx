@@ -8231,10 +8231,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {/* Products section */}
         <div className="px-1 flex flex-col gap-0.5" style={{ marginTop: 12 }}>
           <p className="claude-sb-group-label text-[11.5px] font-medium px-3 py-1" style={{ color: 'var(--ink-4)' }}>Products</p>
-          <button onClick={() => { setActiveNav('computer'); setShowComputer(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'computer' ? 'active' : ''}`}>
-            <span className="flex items-center gap-3"><Monitor size={17} /> Computer</span>
-            <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
-          </button>
           <button onClick={() => { setActiveNav('code'); setShowPlayground(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'code' ? 'active' : ''}`}>
             <Code size={17} /> Code
           </button>
