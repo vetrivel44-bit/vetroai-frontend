@@ -8410,6 +8410,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
               </button>
             )}
+            {/* Computer, one tap from the top — the way ChatGPT and Perplexity put their agent mode. */}
+            <button type="button" className="vetro-computer-pill" onClick={() => { setActiveNav('computer'); setShowComputer(true); }} title="VetroAI Computer — works on your files, researches into finished decks and sheets, builds and publishes sites, runs tasks while you're away">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span>Computer</span>
+            </button>
             {currentSpaceId && (() => {
               const sp = spaces.find(s => s.id === currentSpaceId);
               if (!sp) return null;
