@@ -34,3 +34,13 @@ test("spots Mermaid's own hand-drawn setting", async () => {
   assert.equal(wantsHandDrawn("---\nconfig:\n  look: handDrawn\n---\nflowchart TD\n  A --> B"), true);
   assert.equal(wantsHandDrawn("flowchart TD\n  A[\"look: handDrawn\"] --> B"), false);
 });
+
+test("a streaming flowchart is drawn from its finished lines", async () => {
+  const { drawablePrefix } = await import("../src/lib/mermaidCode.js");
+  assert.equal(drawablePrefix("flowchart TD\n  A[\"Door\"] --> B[\"Hal"), "", "nothing finished yet");
+  assert.equal(drawablePrefix("flowchart TD\n  A[\"Door\"] --> B[\"Hall\"]\n  B --> C[\"Ki"), 'flowchart TD\n  A["Door"] --> B["Hall"]');
+  assert.equal(drawablePrefix("flowchart LR\n  subgraph G[\"Up\"]\n    D[\"Bed\"]\n    E"), 'flowchart LR\n  subgraph G["Up"]\n    D["Bed"]\n  end', "open group closed");
+  assert.equal(drawablePrefix("---\nlook: handDrawn\n---\nflowchart TD\n  A --> B\n"), "flowchart TD\n  A --> B");
+  assert.equal(drawablePrefix("---\nlook: handDrawn\nflowchart TD\n"), "");
+  assert.equal(drawablePrefix("sequenceDiagram\n  A->>B: hi\n"), "", "other kinds wait for the end");
+});

@@ -34,3 +34,31 @@ export function alignSubgraphs(code) {
 // Whether the source itself asks for the hand-drawn look (Mermaid's own
 // front-matter `look: handDrawn`).
 export const wantsHandDrawn = (code) => /^\s*look:\s*handDrawn\b/m.test(String(code || ""));
+
+// The part of a flowchart written so far that can already be drawn, so the
+// diagram grows while the reply streams: whole lines only, any group still
+// open is closed. Empty until there is a header and something to draw, and
+// for other kinds of diagram (they are drawn when the block is finished).
+export function drawablePrefix(code) {
+  const text = String(code || "");
+  const cut = text.lastIndexOf("\n");
+  if (cut < 0) return "";
+  let lines = text.slice(0, cut).split("\n");
+  // Front matter (---\nlook: handDrawn\n---) must be complete.
+  const first = lines.findIndex((l) => l.trim());
+  if (first >= 0 && lines[first].trim() === "---") {
+    const close = lines.findIndex((l, i) => i > first && l.trim() === "---");
+    if (close < 0) return "";
+    lines = lines.slice(close + 1);
+  }
+  const head = lines.findIndex((l) => l.trim());
+  if (head < 0 || !/^\s*(flowchart|graph)\s+(TD|TB|BT|LR|RL)\b/.test(lines[head])) return "";
+  const body = lines.slice(head + 1).filter((l) => l.trim() && !/^\s*%%/.test(l));
+  if (!body.some((l) => !/^\s*(subgraph|end|direction)\b/.test(l))) return "";
+  let open = 0;
+  for (const l of body) {
+    if (/^\s*subgraph\b/.test(l)) open++;
+    else if (/^\s*end\s*$/.test(l)) open = Math.max(0, open - 1);
+  }
+  return [lines[head], ...body, ...Array(open).fill("  end")].join("\n");
+}

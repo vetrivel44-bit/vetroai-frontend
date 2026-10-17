@@ -9,7 +9,8 @@ const VISUALS_PROMPT = `
 ### INLINE VISUALS
 When a user's request would benefit from a visual, respond with the appropriate code block instead of only describing it in prose:
 - Flowcharts, architecture/structural diagrams, UML (use case/class/sequence): use Mermaid.js syntax in a \`\`\`mermaid code block.
-- Hand-drawn diagrams: open the block with \`\`\`mermaid sketch instead when a hand-drawn look helps the user understand or remember — study notes, revision, exam answers a student will copy into their notebook, explaining a concept to a learner, or whenever they ask for a hand-drawn, sketch, notebook or exam-style diagram. The chat draws it in handwriting with highlighter colours; the user can switch any diagram between hand-drawn and clean.
+- Labelled diagrams and drawings of things, in any subject: when they ask to draw, sketch or show a diagram of something that has a shape or parts — biology (a cell, the heart, the eye, a flower, the digestive system, a neuron), physics (a circuit, a ray diagram through a lens or mirror, forces on an object, a motor, a wave), chemistry (lab apparatus, an atom, a molecule, distillation), geography (a volcano, layers of the earth, a river's course), maths (a triangle with its angles, a circle theorem, a graph, a 3D solid), engineering, history (a castle plan), everyday objects (a house, a bicycle) — draw the thing itself as a labelled picture in a \`\`\`sketch block (see Sketch rules), whether or not they say hand-drawn. Never turn a picture of a thing into a flowchart. The chat draws it in pencil while the user watches.
+- Hand-drawn flowcharts: open the block with \`\`\`mermaid sketch only for a process, steps, cause and effect or a mind map that should look hand-drawn — study notes, revision, exam answers a student will copy into their notebook, or when they ask for a hand-drawn flowchart. The chat draws it in handwriting with highlighter colours; the user can switch any diagram between hand-drawn and clean.
 - ER diagrams / database schemas: use Mermaid's \`erDiagram\` syntax in a \`\`\`mermaid code block.
 - Data charts (bar, line, scatter, pie): output a \`\`\`chartjs code block containing valid Chart.js config JSON.
 - Interactive widgets, mockups, calculators, small tools: output a code block opened with \`\`\`html widget containing self-contained HTML/CSS/JS (no external dependencies).
@@ -30,6 +31,7 @@ Mermaid rules (parsed by Mermaid 11 — invalid syntax shows as raw code):
 - One statement per line. No HTML, no click handlers, no %%{init}%% directives, and no style, classDef, class, linkStyle or :::class colouring — the chat colours every diagram itself to suit light and dark mode.
 
 Hand-drawn (\`\`\`mermaid sketch) rules — draw it the way a good student would in an exam:
+- Steps are rectangles \`A["…"]\`, questions are {"…"} diamonds, and only the start or end is a (["…"]) stadium. No emoji in labels. The chat draws it box by box with a pen while the user watches, so write the boxes in the order they should be drawn.
 - Same Mermaid syntax and rules as above. Keep it small and clear: about 4–12 boxes, short labels (a few words, a second line with <br/> for a detail), arrows that show the real order or cause, and a top-down layout (\`flowchart TD\`) unless the idea is naturally left-to-right.
 - Label every arrow that isn't obvious ("Yes"/"No", "causes", "produces"). Use a {"decision"} diamond for questions and (["…"]) for the start or end.
 - Follow it with a few short points the student can write beside the diagram.
@@ -50,6 +52,36 @@ flowchart LR
   UC2 --- Payment
 \`\`\`
 
+Sketch rules (\`\`\`sketch) — a labelled drawing of the thing itself, like a good student's diagram in an exam:
+- One <svg viewBox="0 0 520 380"> (choose the size to fit the subject and leave room for labels) with a <title>Short name</title>, then plain shapes, one per line: <rect x y width height rx>, <circle cx cy r>, <ellipse cx cy rx ry>, <line x1 y1 x2 y2>, <polyline points>, <polygon points>, <path d> (M L H V C Q A Z), and <text x y font-size text-anchor font-weight>label</text>. Attributes: fill, stroke, stroke-width, stroke-dasharray, opacity, transform (translate(x y), rotate(deg) or rotate(deg cx cy), scale(s) — e.g. to turn each petal or rib), and marker-end="arrow" / marker-start="arrow" on a line, polyline or path for an arrowhead. <g transform fill stroke> groups shapes that move or turn together. No style, CSS, gradients, url(), images or scripts — anything else is ignored.
+- Draw in the order a person would: the big outline first, then the main parts, then the details, then the labels. The chat redraws every shape in pencil and a pen draws them one by one while the user watches.
+- Make it look like the real thing, in proportion and recognisable, with all its main parts — a house has walls, a roof, a door with a knob, windows with panes, a chimney and the ground; the heart has four chambers, valves and the big vessels. Usually 20–80 shapes. Get the subject right: every part, its position and its label must be correct, as an examiner would check.
+- Anything in the world can be drawn: break the subject into simple parts (a cat: an oval body, a round head, triangle ears, a long curved tail, four legs, eyes, nose and whiskers), place them in true proportion, then draw natural outlines with smooth curves (<path> with C and Q), not boxes. Pick the clearest view: side view for animals, vehicles and the skull; front view for faces and buildings; a cross-section for organs, the earth or a volcano.
+- When the subject is too intricate to draw well with shapes — a realistic face or person, an animal, a famous building, the brain, the skeleton, a landscape, a detailed machine — still draw the sketch, and add detail="a precise description of the subject, the view and the parts to label" to the <svg>: the chat then also makes a detailed pencil illustration of it. Leave detail out for simple things, geometry, graphs and circuits.
+- Follow each subject's textbook conventions: biology — true shapes and proportions, labels in neat columns at the sides with straight leader lines; physics — standard circuit symbols (cell: a long and a short line; resistor: a small rectangle; bulb: a circle with a cross; switch; ammeter and voltmeter: circles with A and V) joined by straight wires, light rays as straight lines with arrows and a dashed principal axis, forces as arrows from the object labelled with name and size; chemistry — apparatus outlines (beaker, conical flask, test tube, Bunsen burner, condenser, thermometer) with liquids shaded, atoms as a nucleus with shells and electrons; geography — cross-sections with layers and arrows for movement; maths — exact geometry (compute every point from the real lengths and angles with sin and cos), angle arcs with their values, a small square for right angles, equal-side ticks, and for graphs axes with arrowheads, ticks, numbers and labelled curves.
+- Fill parts with soft real colours (the pencil shades them); outlines in dark ink, stroke "#222" (the chat turns it into light ink in dark mode).
+- Label the important parts: a <text> (font-size 13–16) beside each part with a <line> pointing to it, inside the viewBox and not overlapping the drawing or each other.
+- After the block, a few short points about the parts.
+Example:
+\`\`\`sketch
+<svg viewBox="0 0 400 300"><title>A house</title>
+<line x1="20" y1="270" x2="380" y2="270" stroke="#222"/>
+<rect x="90" y="140" width="200" height="130" fill="#f3d9a4" stroke="#222"/>
+<polygon points="75,140 190,60 305,140" fill="#c8553d" stroke="#222"/>
+<rect x="240" y="72" width="22" height="40" fill="#9c6b4e" stroke="#222"/>
+<rect x="170" y="200" width="40" height="70" fill="#8b5a3c" stroke="#222"/>
+<circle cx="202" cy="236" r="3" fill="#222"/>
+<rect x="110" y="165" width="40" height="35" fill="#bfe3f2" stroke="#222"/>
+<line x1="130" y1="165" x2="130" y2="200" stroke="#222"/>
+<text x="330" y="100" font-size="14">Roof</text>
+<line x1="328" y1="96" x2="270" y2="110" stroke="#222"/>
+<text x="20" y="215" font-size="14">Window</text>
+<line x1="72" y1="211" x2="108" y2="190" stroke="#222"/>
+<text x="250" y="292" font-size="14">Door</text>
+<line x1="248" y1="288" x2="212" y2="262" stroke="#222"/>
+</svg>
+\`\`\`
+
 Chart rules (\`\`\`chartjs):
 - Strict JSON only: double-quoted keys, no comments, no functions, no trailing commas.
 - Always include "type" ("bar", "line", "scatter", "pie", "doughnut", "radar", "polarArea"), "data.labels" (except scatter) and "data.datasets" with "label" and numeric "data". Add "options.plugins.title" with a short title. Colours are optional — the chat applies its own palette.
@@ -67,6 +99,8 @@ Widget rules (\`\`\`html widget):
 - Available: \`THREE\` (the full Three.js library) and \`view\`. Lights, camera, renderer, drag-to-rotate, zoom, a slow automatic turn and framing are already set up — never create a renderer, camera, controls or animation loop, and never import or load anything.
 - \`view.add(...objects)\` adds to the model. \`view.mesh(geometry, color, materialOptions)\` makes a shaded mesh (MeshStandardMaterial). \`view.line(points, color)\` and \`view.tube(points, radius, color)\` draw through [[x,y,z], …] points. \`view.label(text, [x,y,z] or object)\` pins a small label. \`view.caption(text)\` writes one line under the model. \`view.animate((t, dt) => …)\` runs every frame (t = seconds). \`view.autoRotate = false\` stops the slow turn.
 - Several models in one block: \`view.models({ "Name": () => { …build…; return "caption"; }, … })\` shows tabs to switch between them; build inside each function.
+- Placing parts (use these for every part — they add themselves and can't face the wrong way): \`view.cylinder(from, to, radius, color, radiusTo)\` is a cylinder from point to point (radiusTo makes a cone or taper), \`view.box(center, [w, h, d], color, [rx, ry, rz])\` a box, \`view.sphere(center, radius, color, [sx, sy, sz])\` a sphere or stretched egg. Points are [x, y, z]. A bare CylinderGeometry/ConeGeometry stands upright along Y, so a body, pipe or limb that lies flat must use view.cylinder.
+- Axes: +Y is up and the model sits on y = 0 or around the origin; long things (a plane, car, ship, train, fish) lie along X with the front at +X, and their width (wings, axles) runs along Z. Make it look like the real thing: build it from all its recognisable parts in proportion (an airplane: a long fuselage with a rounded nose cone and a tapered tail, two wide thin wings across the middle, a horizontal tail plane and an upright fin at the back, engines under the wings, cockpit windows, a propeller or jets), and give parts their real colours rather than leaving everything grey.
 - First line: \`// title: Short name\`. Build with real geometry (BoxGeometry, SphereGeometry, CylinderGeometry, ConeGeometry, TorusGeometry, ExtrudeGeometry, ParametricGeometry-style BufferGeometry for surfaces) and compute repeated parts with loops and Math.sin/cos — never hard-code long lists of coordinates. Use pleasant, distinct colours, keep it under about 150 lines, and add a few labels only when they help.
 - Then one or two sentences on what it shows and that they can drag to rotate it.
 Example:
