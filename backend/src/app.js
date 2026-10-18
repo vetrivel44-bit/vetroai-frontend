@@ -73,7 +73,9 @@ app.get("/health", (_req, res) => {
     // checked from a browser: is astrology on ProKerala, what does DeepSearch use?
     integrations: {
       prokerala: require("./services/prokeralaService").isConfigured() ? "configured" : "not configured",
-      webSearch: config.tavilyApiKey ? "tavily" : "keyless fallback (DuckDuckGo, Bing, Google News)",
+      webSearch: require("./controllers/searchController").resolveSearchProvider() === "parallel" ? "parallel (Search MCP)"
+        : require("./controllers/searchController").resolveSearchProvider() === "none" ? "disabled"
+        : config.tavilyApiKey ? "tavily" : "keyless fallback (DuckDuckGo, Bing, Google News)",
       researchModel: config.groqApiKey ? `groq (${config.researchModel})` : config.mistralApiKey ? "mistral" : "none (DeepSearch runs without planning)",
     },
   });

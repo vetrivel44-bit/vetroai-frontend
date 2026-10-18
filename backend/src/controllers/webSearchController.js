@@ -3,7 +3,7 @@ const { successResponse } = require("../utils/response");
 const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
-const { searchKeyless, tavilySearch } = require("./searchController");
+const { searchKeyless, tavilySearch, searchForResearch, resolveSearchProvider } = require("./searchController");
 
 function normalizeResults(results) {
   return (results || []).slice(0, 10).map((r) => ({
@@ -26,6 +26,25 @@ async function performStructuredSearch(req, res) {
   if (!query) throw new ApiError(400, "Query is required");
 
   const started = Date.now();
+  const selected = resolveSearchProvider();
+  if (selected === "none") throw new ApiError(503, "Web search is disabled");
+  if (selected === "parallel") {
+    const cancel = new AbortController();
+    const onClose = () => { if (!res.writableEnded) cancel.abort(); };
+    res.on("close", onClose);
+    try {
+      const results = await searchForResearch(query, { signal: cancel.signal });
+      return successResponse(res, "Search successful", {
+        provider: "parallel", query, answer: "", results: normalizeResults(results),
+        tookMs: Date.now() - started,
+      });
+    } catch (err) {
+      logger.warn("web-search.parallel.error", { message: err.message });
+      throw new ApiError(502, "Parallel web search is unavailable right now");
+    } finally {
+      res.removeListener("close", onClose);
+    }
+  }
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
   if (apiKey) {
     try {
@@ -67,6 +86,7 @@ async function performStructuredSearch(req, res) {
 
 // Optional companion endpoint: image results for the same query (Tavily only).
 async function performStructuredImageSearch(req, res) {
+  if (resolveSearchProvider() === "none") throw new ApiError(503, "Web search is disabled");
   const raw = req.body?.query || req.query?.query;
   const query = String(raw || "").trim();
   if (!query) throw new ApiError(400, "Query is required");
