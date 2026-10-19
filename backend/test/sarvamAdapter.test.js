@@ -147,3 +147,42 @@ test("a chat with Sarvam 105B picked is answered by Sarvam, end to end", async (
   assert.match(text, /வணக்கம்! நான் VetroAI\./);
   assert.ok(events.some((e) => e.type === "model" && /Sarvam/.test(JSON.stringify(e.data))), "the answering model is reported as Sarvam");
 });
+
+test("picked again after failing or timing out, Sarvam is tried first again", () => {
+  const saved = config.sarvamApiKey;
+  config.sarvamApiKey = "test-key";
+  const sarvamState = providerManager.providers.sarvam;
+  try {
+    // A model or key problem parks a provider for a long time…
+    providerManager.suspendProvider("sarvam", "Configuration problem: bad_model", 30 * 60 * 1000);
+    assert.equal(sarvamState.isSuspended, true);
+    // …but a message sent with Sarvam picked still starts with Sarvam.
+    assert.equal(providerManager.getBestProvider("chat", "Sarvam 105B"), "sarvam");
+    assert.equal(sarvamState.isSuspended, false);
+
+    // Five timeouts in a row suspend it too; the next pick still tries it.
+    for (let i = 0; i < 5; i++) providerManager.updateMetrics("sarvam", false, 30000);
+    assert.equal(sarvamState.isSuspended, true);
+    assert.equal(providerManager.getBestProvider("chat", "Sarvam 105B"), "sarvam");
+  } finally {
+    config.sarvamApiKey = saved;
+    sarvamState.isSuspended = false;
+    sarvamState.consecutiveErrors = 0;
+  }
+});
+
+test("Auto still skips a Sarvam that is failing", () => {
+  const saved = { sarvam: config.sarvamApiKey, cohere: config.cohereApiKey };
+  config.sarvamApiKey = "test-key";
+  config.cohereApiKey = "test-key";
+  const sarvamState = providerManager.providers.sarvam;
+  try {
+    providerManager.suspendProvider("sarvam", "Configuration problem: bad_model", 30 * 60 * 1000);
+    assert.notEqual(providerManager.getBestProvider("chat", "Auto"), "sarvam");
+  } finally {
+    config.sarvamApiKey = saved.sarvam;
+    config.cohereApiKey = saved.cohere;
+    sarvamState.isSuspended = false;
+    sarvamState.consecutiveErrors = 0;
+  }
+});
