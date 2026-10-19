@@ -21,6 +21,10 @@ import ModeSwitch from "../ModeSwitch";
 import { settleInterruptedTasks } from "../../lib/computerTasks";
 import { publishSite } from "../../lib/sitePublish";
 import ScheduledPanel from "./ScheduledPanel";
+import DispatchPanel from "./DispatchPanel";
+import { claimDispatch, dispatchReady, getDeviceId, heartbeat, updateDispatch, watchDispatches } from "../../lib/dispatch";
+import { FINISHED, HEARTBEAT_MS, deviceLabel, nextQueued, orphanedRuns, toDispatchUpdate } from "../../lib/dispatchCore";
+import { watchAuthState } from "../../lib/firebaseAuth";
 import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
 import { authHeaders, startComputerRun } from "../../lib/usageClient";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
@@ -361,6 +365,8 @@ async function requestCurrentLocation() {
 const READABLE_FILE = /\.(txt|md|csv|json|js|jsx|ts|tsx|py|java|cpp|c|html|css|xml|ya?ml)$/i;
 const MAX_WORKSPACE_FILES = 200;
 
+const DISPATCH_ACCEPT_KEY = "vetroai_dispatch_accept";
+
 const makeTask = (title = "New task") => ({
   id: crypto.randomUUID?.() || String(Date.now()),
   title,
@@ -585,10 +591,14 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     return content;
   };
 
-  const execute = async (prompt, display = "") => {
+  // `opts.task` / `opts.files` let a Dispatch request run in a task of its own,
+  // without the composer's attachments; `opts.preApproved` means its run was
+  // already taken from the allowance.
+  const execute = async (prompt, display = "", opts = {}) => {
     // A fix or an edit of something already built continues that run.
-    if (!display && !(await allowRun())) return;
-    let task = activeTask;
+    if (!display && !opts.preApproved && !(await allowRun())) return;
+    const runFiles = opts.files ?? files;
+    let task = opts.task || activeTask;
     if (!task) {
       task = makeTask(prompt.slice(0, 54));
       setTasks(prev => [task, ...prev]);
@@ -608,7 +618,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     // section, scripts); other tasks move to "working" once the answer starts.
     const plan = isWebsiteRequest
       ? buildSteps("")
-      : buildPlan(prompt, files).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
+      : buildPlan(prompt, runFiles).map((s, i) => ({ ...s, status: i === 0 ? "active" : "pending" }));
     const workIndex = plan.findIndex(s => s.id === "work");
     const stepsFor = isWebsiteRequest
       ? (content) => buildSteps(content)
@@ -619,7 +629,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       ...t,
       title: t.messages.length ? t.title : (display || prompt).slice(0, 54),
       status: "running",
-      files: files.map(f => ({ name: f.name, size: f.size, type: f.type })),
+      files: runFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
       steps: plan,
       messages: [...t.messages, userMessage, { id: assistantId, role: "assistant", content: "", startedAt, website: isWebsiteRequest }]
     }));
@@ -737,7 +747,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           "For actions unavailable in this browser workspace, provide the exact next action for the user.",
           "Prefer concise progress, source-aware research, and a final review checklist."
         ].join(" "));
-        if (first) files.forEach(file => body.append("files", file));
+        if (first) runFiles.forEach(file => body.append("files", file));
         const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
         if (!response.ok) {
           let message = `Server error: ${response.status}`;
@@ -789,7 +799,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           ]
         } : message)
       }));
-      setFiles([]);
+      if (!opts.files) setFiles([]);
     } catch (error) {
       const stopped = error.name === "AbortError";
       patchTask(taskId, t => ({
@@ -868,10 +878,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   // The companion's own permission dialog (desktop/main.cjs) is the actual consent
   // gate — approving it there is what lets any of computer:* IPC calls succeed at
   // all, and Ctrl+Shift+X always stops it immediately regardless of this loop.
-  const runComputerAgent = async (goal) => {
-    if (!(await allowRun())) return;
+  const runComputerAgent = async (goal, opts = {}) => {
+    if (!opts.preApproved && !(await allowRun())) return;
     const desktop = window.vetroDesktop;
-    let task = activeTask;
+    let task = opts.task || activeTask;
     if (!task) {
       task = makeTask(goal.slice(0, 54));
       setTasks(prev => [task, ...prev]);
@@ -1115,6 +1125,119 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   };
 
   const stopTask = () => abortRef.current?.abort();
+
+  // --- Dispatch: tasks sent from your phone run here (Computer → Dispatch) ---
+  // With "Accept tasks" on, this computer says it is online, takes queued
+  // requests one at a time, runs each as an ordinary task in this list, and
+  // writes its progress and result back for the phone to see.
+  const [uid, setUid] = useState(null);
+  useEffect(() => watchAuthState(user => setUid(user?.uid || null)), []);
+  const deviceId = useMemo(getDeviceId, []);
+  const isComputer = hasDesktop || !/Android|iPhone|iPad|Mobile/i.test(typeof navigator === "undefined" ? "" : navigator.userAgent);
+  const [accepting, setAccepting] = useState(() => {
+    try { return localStorage.getItem(DISPATCH_ACCEPT_KEY) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(DISPATCH_ACCEPT_KEY, accepting ? "1" : "0"); } catch { /* storage unavailable */ }
+  }, [accepting]);
+  const hosting = accepting && isComputer && Boolean(uid) && dispatchReady();
+  const [remote, setRemote] = useState(null);
+  const [dispatchPending, setDispatchPending] = useState(0);
+  // { id, taskId } of the request running here. A ref, so a second snapshot
+  // arriving mid-start can't start a second run.
+  const hostRun = useRef(null);
+  const mirrored = useRef("");
+  const orphansSettled = useRef(false);
+  const releaseHostRun = () => { hostRun.current = null; mirrored.current = ""; };
+  const anyRunning = tasks.some(t => t.status === "running");
+
+  useEffect(() => {
+    if (!hosting) return undefined;
+    const device = { id: deviceId, name: deviceLabel(window.vetroDesktop?.platform || navigator.platform, hasDesktop), desktopApp: hasDesktop, accepting: true };
+    const beat = () => heartbeat(uid, { ...device, busy: Boolean(hostRun.current) }).catch(() => {});
+    beat();
+    const id = setInterval(beat, HEARTBEAT_MS);
+    return () => { clearInterval(id); heartbeat(uid, { ...device, accepting: false, busy: false }).catch(() => {}); };
+  }, [hosting, uid, deviceId, hasDesktop]);
+
+  useEffect(() => {
+    orphansSettled.current = false;
+    if (!hosting) { setRemote(null); return undefined; }
+    return watchDispatches(uid, setRemote, () => setRemote(null));
+  }, [hosting, uid]);
+
+  const startDispatch = async (d) => {
+    const fail = (error) => { releaseHostRun(); return updateDispatch(uid, d.id, { status: "failed", error }).catch(() => {}); };
+    const claimed = await claimDispatch(uid, d.id, deviceId).catch(() => null);
+    if (!claimed) { releaseHostRun(); return; }
+    const prompt = claimed.text;
+    // The same "Ask before actions" gate as typing it here, except the person
+    // who has to say yes is holding the phone, not sitting at this computer.
+    if (permission === "ask" && RISKY_ACTION.test(prompt) && !claimed.approved) {
+      releaseHostRun();
+      await updateDispatch(uid, d.id, { status: "awaiting_approval", approvalReason: "This may open, send, post, buy, delete or change something for you." }).catch(() => {});
+      return;
+    }
+    const wantsScreen = DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt);
+    // Never pops the "allow control?" dialog: nobody may be here to answer it,
+    // and the run would sit waiting on it. Control has to be on already.
+    const control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;
+    if (DESKTOP_CONTROL_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt)) {
+      if (!hasDesktop) return fail("This needs mouse and keyboard control, which only the VetroAI desktop app can do — not a browser tab. Turn on Accept tasks in the desktop app, then send it again.");
+      if (!control?.enabled) return fail("Screen control is off on your computer, so VetroAI didn't touch the mouse or keyboard. In the desktop app, allow screen control in Computer, then send this again.");
+    }
+    if (!(await allowRun())) return fail("This week's Computer tasks are used up, so your computer didn't run this. VetroAI Pro has many more.");
+    const task = { ...makeTask(prompt.slice(0, 54)), dispatchId: d.id };
+    setTasks(prev => [task, ...prev]);
+    setActiveId(task.id);
+    hostRun.current = { id: d.id, taskId: task.id };
+    await updateDispatch(uid, d.id, { status: "running", taskId: task.id, progress: "Starting…" }).catch(() => {});
+    if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) await runComputerAgent(prompt, { task, preApproved: true });
+    else await execute(prompt, "", { task, files: [], preApproved: true });
+  };
+
+  useEffect(() => {
+    if (!hosting || !remote) return;
+    if (!orphansSettled.current) {
+      orphansSettled.current = true;
+      for (const d of orphanedRuns(remote, deviceId, hostRun.current?.id)) {
+        updateDispatch(uid, d.id, { status: "failed", error: "Stopped — VetroAI was closed on your computer while this was running. Send it again to retry." }).catch(() => {});
+      }
+    }
+    if (hostRun.current) {
+      // Cancel pressed on the phone.
+      const mine = remote.find(x => x.id === hostRun.current.id);
+      if (mine?.cancelRequested && hostRun.current.taskId) abortRef.current?.abort();
+      return;
+    }
+    if (anyRunning || starting) return;
+    const next = nextQueued(remote, deviceId);
+    if (!next) return;
+    hostRun.current = { id: next.id, taskId: null };
+    startDispatch(next).catch((err) => {
+      releaseHostRun();
+      updateDispatch(uid, next.id, { status: "failed", error: err.message }).catch(() => {});
+    });
+  }, [hosting, remote, anyRunning, starting]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mirrors the running request's task back to the phone as it changes.
+  useEffect(() => {
+    const run = hostRun.current;
+    if (!run?.taskId || !uid) return;
+    const task = tasks.find(t => t.id === run.taskId);
+    if (!task) {
+      updateDispatch(uid, run.id, { status: "cancelled", error: "Removed on your computer." }).catch(() => {});
+      releaseHostRun();
+      return;
+    }
+    const update = toDispatchUpdate(task);
+    if (!update) return;
+    const key = JSON.stringify(update);
+    if (key === mirrored.current) return;
+    mirrored.current = key;
+    updateDispatch(uid, run.id, update).catch(() => {});
+    if (FINISHED.has(update.status)) releaseHostRun();
+  }, [tasks, uid]);
 
   // Rewinds the agent's *context*, not the real desktop — a click already
   // happened on the actual screen and nothing here can un-happen it. What
@@ -1550,6 +1673,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
             <CalendarClock size={16} /> <span>Scheduled</span>
             {scheduledUnread > 0 && <em>{scheduledUnread}</em>}
           </button>
+          <button onClick={() => { setView("dispatch"); setDrawer(false); }} className={`cw-sched-nav${view === "dispatch" ? " is-on" : ""}`}>
+            <Smartphone size={16} /> <span>Dispatch</span>
+            {hosting ? <i className="cw-dsp-live" title="Accepting tasks on this computer" /> : dispatchPending > 0 && <em>{dispatchPending}</em>}
+          </button>
         </div>
         <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Your tasks</div>
         <div className="flex-1 overflow-y-auto px-2 space-y-1">
@@ -1580,9 +1707,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           </button>
           <ModeSwitch mode="computer" onChat={onClose} className="cw-mode-switch" />
           <div className="flex-1 min-w-0 cw-header-title">
-            <div className="font-semibold text-sm truncate">{view === "scheduled" ? "Scheduled tasks" : activeTask?.title || "VetroAI Computer"}</div>
+            <div className="font-semibold text-sm truncate">{view === "scheduled" ? "Scheduled tasks" : view === "dispatch" ? "Dispatch" : activeTask?.title || "VetroAI Computer"}</div>
             <div className="cw-header-status">
               {view === "scheduled" ? "Runs on its own, even when the app is closed"
+                : view === "dispatch" ? (hosting ? <><span className="cw-pulse-dot" /> This computer is accepting tasks</> : "Send tasks from your phone to your computer")
                 : running
                 ? <><span className="cw-pulse-dot" /> Working{activeTask.messages[activeTask.messages.length - 1]?.startedAt ? <> · <Elapsed since={activeTask.messages[activeTask.messages.length - 1].startedAt} /></> : null}</>
                 : activeTask?.status === "completed" ? <><CheckCircle2 size={12} /> Done — ready for your review</>
@@ -1625,6 +1753,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
 
         {view === "scheduled" ? (
           <ScheduledPanel api={API} draft={scheduleDraft} onDraftUsed={() => setScheduleDraft("")} onUnread={setScheduledUnread} />
+        ) : view === "dispatch" ? (
+          <DispatchPanel uid={uid} deviceId={deviceId} accepting={accepting} onAcceptingChange={setAccepting} isComputer={isComputer} onBusy={setDispatchPending} />
         ) : !activeTask || activeTask.messages.length === 0 ? (
           <section className="cowork-home-scroll">
             <div className="cowork-home">
