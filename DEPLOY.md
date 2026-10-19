@@ -77,6 +77,22 @@ npx firebase-tools deploy --only firestore:rules --project vetroai
 
 Until then, Publish says publishing isn't switched on yet.
 
+## Dispatch (Computer → Dispatch)
+
+Send a task from your phone, and VetroAI does it on your computer. The phone
+writes the request to Firestore (`users/{uid}/dispatch`); a computer with VetroAI
+open in Computer and **Accept tasks** on (the desktop app, or any desktop
+browser for tasks that don't need the mouse and keyboard) says it's online
+(`users/{uid}/devices`), takes requests one at a time, runs each as a normal
+Computer task, and writes its progress and result back. Tasks that may send,
+buy, post or open something ask for an OK on the phone first, and mouse and
+keyboard tasks run only while screen control is already allowed on the
+computer — Dispatch never pops the "allow control?" dialog with nobody there.
+
+Nothing goes through the backend, but it needs the `dispatch` and `devices`
+rules in `firestore.rules` — deploy them as for Publish above. Until then,
+Dispatch says it isn't switched on yet.
+
 ## Scheduled tasks (Computer → Scheduled)
 
 "Every morning at 8, send me today's top news", "Tell me when the iPhone 17 drops

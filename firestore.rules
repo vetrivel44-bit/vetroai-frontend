@@ -53,6 +53,24 @@ rules_version = '2';
 //   - source: string (optional) - "manual" | "chat"
 //   - updatedAt: timestamp (server-set)
 //
+// Collection: users/{uid}/dispatch  (Computer → Dispatch)
+// Document ID: client-generated `d_${Date.now()}_${random}`
+// Fields:
+//   - id: string (required, must match the document id)
+//   - text: string (required, 1-4000 chars, fixed once sent) - the task
+//   - status: string (required) - queued | awaiting_approval | claimed |
+//             running | done | failed | cancelled
+//   - target: string (optional) - a device id, or "any"
+//   - claimedBy / progress / result / error: written back by the computer
+//   - createdAt / updatedAt: number (client epoch ms)
+//
+// Collection: users/{uid}/devices  (computers that accept Dispatch tasks)
+// Document ID: client-generated device id
+// Fields:
+//   - id: string (required, must match the document id)
+//   - name: string (required, <= 60 chars)
+//   - accepting: bool, busy: bool, lastSeen: number (client epoch ms)
+//
 // Collection: users/{uid}/prefs
 // Document ID: "app"
 // Fields:
@@ -173,6 +191,41 @@ service cloud.firestore {
                               && incoming().text.size() > 0
                               && incoming().text.size() <= 2000
                               && (!('source' in incoming()) || incoming().source is string)
+                              && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
+      // --- Dispatch: tasks sent from the phone to the user's computer ---
+      // Both ends are the same signed-in user, so ownership is the whole
+      // check; the rest keeps the documents to the shape the app reads.
+      function isValidDispatch() {
+        return incoming().text is string
+          && incoming().text.size() > 0
+          && incoming().text.size() <= 4000
+          && incoming().status in ['queued', 'awaiting_approval', 'claimed', 'running', 'done', 'failed', 'cancelled']
+          && (!('result' in incoming()) || (incoming().result is string && incoming().result.size() <= 20000))
+          && (!('error' in incoming())  || (incoming().error is string && incoming().error.size() <= 2000));
+      }
+      match /dispatch/{dispatchId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && idMatchesPath(dispatchId)
+                      && isValidDispatch()
+                      && withinSizeLimit();
+        allow update: if isOwner(userId)
+                      && idMatchesPath(dispatchId)
+                      && isValidDispatch()
+                      && incoming().text == resource.data.text
+                      && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
+      match /devices/{deviceId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+                              && idMatchesPath(deviceId)
+                              && incoming().name is string
+                              && incoming().name.size() <= 60
                               && withinSizeLimit();
         allow delete: if isOwner(userId);
       }
