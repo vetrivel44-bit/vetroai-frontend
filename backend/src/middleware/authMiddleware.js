@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const asyncHandler = require("./asyncHandler");
@@ -9,6 +10,9 @@ const { verifyAccessToken } = require("../utils/token");
 const { verifyFirebaseIdToken, isFirebaseIdToken } = require("../utils/firebaseToken");
 
 const googleClient = new OAuth2Client(config.googleClientId);
+
+// The account lookups below are only worth making with a database to ask.
+const dbReady = () => mongoose.connection.readyState === 1;
 
 // Reads a JWT's payload WITHOUT validating it. Only ever used to decide which
 // verifier a token should be handed to — never to trust anything it says.
@@ -65,7 +69,7 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
     // sessions resolve to the same user the /api/auth/google exchange creates.
     let user = null;
     try {
-      if (payload.email) user = await User.findOne({ email: payload.email }).select("-password");
+      if (payload.email && dbReady()) user = await User.findOne({ email: payload.email }).select("-password");
     } catch (err) { logger.warn("auth.google.lookup_failed", { message: err.message }); }
 
     req.user = user || {
@@ -103,7 +107,7 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
     // request. Firebase's uid is the identity of record when it does not.
     let user = null;
     try {
-      if (payload.email) user = await User.findOne({ email: payload.email }).select("-password");
+      if (payload.email && dbReady()) user = await User.findOne({ email: payload.email }).select("-password");
     } catch (err) { logger.warn("auth.firebase.lookup_failed", { message: err.message }); }
 
     req.user = user || {
@@ -134,6 +138,7 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
   }
 
   try {
+    if (!dbReady()) throw new Error("no database");
     const user = await User.findById(decoded.userId).select("-password");
     if (!user) {
       throw new ApiError(401, "User not found for token");
