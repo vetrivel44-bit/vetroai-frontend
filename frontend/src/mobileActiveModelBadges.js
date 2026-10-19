@@ -18,6 +18,7 @@ const MODEL_ICON_RULES = [
   [/sonar|perplexity/i, '/model-icons/perplexity.svg'],
   [/gemini|google/i, '/model-icons/gemini.svg'],
   [/mistral/i, '/model-icons/mistral.svg'],
+  [/sarvam/i, '/model-icons/sarvam.svg'],
   [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/^groq$/i, '/model-icons/groq.svg'],
