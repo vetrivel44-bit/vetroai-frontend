@@ -13,6 +13,7 @@ function withFetch(responses, fn) {
     const saved = { key: config.sarvamApiKey, model: config.sarvamModel };
     config.sarvamApiKey = "test-key";
     config.sarvamModel = "sarvam-105b";
+    sarvam.resetReplacements();
     global.fetch = async (url, init) => {
       calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
       const next = responses.shift();
@@ -29,7 +30,8 @@ function withFetch(responses, fn) {
 }
 
 test("the picker's names choose the Sarvam model", () => {
-  assert.equal(sarvam.modelFor("Sarvam 30B"), "sarvam-30b");
+  // Sarvam retired sarvam-30b; a tab still showing "Sarvam 30B" gets 105B.
+  assert.equal(sarvam.modelFor("Sarvam 30B"), "sarvam-105b");
   assert.equal(sarvam.modelFor("Sarvam 105B"), "sarvam-105b");
   assert.equal(sarvam.modelFor("sarvam"), config.sarvamModel || "sarvam-105b");
   // Any other model leaves the field unset, so no other provider gets it.
@@ -41,7 +43,6 @@ test("picking Sarvam routes to the sarvam provider once its key is set", () => {
   const saved = config.sarvamApiKey;
   config.sarvamApiKey = "test-key";
   try {
-    assert.equal(providerManager.getBestProvider("chat", "Sarvam 30B"), "sarvam");
     assert.equal(providerManager.getBestProvider("chat", "Sarvam 105B"), "sarvam");
   } finally {
     config.sarvamApiKey = saved;
@@ -65,10 +66,10 @@ test("history is folded into alternating turns with one system message first", (
 });
 
 test("a chat streams from Sarvam with the chosen model and the key in its header", withFetch([{ status: 200, body: "data: [DONE]\n\n" }], async (calls) => {
-  assert.ok(await sarvam.generateStream([{ role: "user", content: "vanakkam" }], { sarvamModel: "sarvam-30b", maxTokens: 999999 }));
+  assert.ok(await sarvam.generateStream([{ role: "user", content: "vanakkam" }], { sarvamModel: "sarvam-105b", maxTokens: 999999 }));
   assert.equal(calls[0].url, "https://api.sarvam.ai/v1/chat/completions");
   assert.equal(calls[0].headers["api-subscription-key"], "test-key");
-  assert.equal(calls[0].body.model, "sarvam-30b");
+  assert.equal(calls[0].body.model, "sarvam-105b");
   assert.equal(calls[0].body.stream, true);
   assert.equal(calls[0].body.max_tokens, 16384);
 }));
@@ -92,12 +93,28 @@ test("no key, no request", async () => {
   }
 });
 
-test("Sarvam 105B counts as a balanced model, 30B as a fast one", () => {
+test("Sarvam 105B counts as a balanced model", () => {
   assert.equal(tierFor("Sarvam 105B").tier, "standard");
-  assert.equal(tierFor("Sarvam 30B").tier, "light");
 });
 
-test("a chat with Sarvam 30B picked is answered by Sarvam, end to end", async (t) => {
+// Sarvam's real reply when sarvam-30b was retired (Render logs, 19 Oct 2026).
+const RETIRED_30B = { status: 400, body: '{"error":{"message":"Model \'sarvam-30b\' has been deprecated. Please use one of the available models instead: sarvam-105b, sarvam-105b-conversations.","code":"invalid_request_error","request_id":"20261019_1a31c3cb"}}' };
+const OK = { status: 200, body: "data: [DONE]\n\n" };
+
+test("a retired model is swapped for the one Sarvam names, and remembered", withFetch([RETIRED_30B, OK, OK], async (calls) => {
+  assert.ok(await sarvam.generateStream([{ role: "user", content: "hi" }], { sarvamModel: "sarvam-30b" }));
+  assert.deepEqual(calls.map((c) => c.body.model), ["sarvam-30b", "sarvam-105b"]);
+  // The next chat goes straight to the replacement.
+  await sarvam.generateStream([{ role: "user", content: "hi again" }], { sarvamModel: "sarvam-30b" });
+  assert.deepEqual(calls.map((c) => c.body.model), ["sarvam-30b", "sarvam-105b", "sarvam-105b"]);
+}));
+
+test("other 400s are not mistaken for a retired model", withFetch([{ status: 400, body: '{"error":{"message":"messages: first message must be from the user"}}' }], async (calls) => {
+  await assert.rejects(sarvam.generateStream([{ role: "user", content: "hi" }]), /400/);
+  assert.equal(calls.length, 1);
+}));
+
+test("a chat with Sarvam 105B picked is answered by Sarvam, end to end", async (t) => {
   const app = require("../src/app");
   const server = app.listen(0, "127.0.0.1");
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -119,14 +136,14 @@ test("a chat with Sarvam 30B picked is answered by Sarvam, end to end", async (t
   const res = await realFetch(`${baseUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input: "Say hello in Tamil", provider: "Sarvam 30B", modelLabel: "Sarvam 30B", mode: "normal" }),
+    body: JSON.stringify({ input: "Say hello in Tamil", provider: "Sarvam 105B", modelLabel: "Sarvam 105B", mode: "normal" }),
   });
   const body = await res.text();
   const events = body.split("\n").filter((l) => l.startsWith("data:")).map((l) => { try { return JSON.parse(l.slice(5)); } catch { return null; } }).filter(Boolean);
   const text = events.filter((e) => e.type === "content").map((e) => e.data).join("");
 
   assert.ok(sent.length >= 1, "Sarvam was called");
-  assert.equal(sent[0].model, "sarvam-30b");
+  assert.equal(sent[0].model, "sarvam-105b");
   assert.match(text, /வணக்கம்! நான் VetroAI\./);
   assert.ok(events.some((e) => e.type === "model" && /Sarvam/.test(JSON.stringify(e.data))), "the answering model is reported as Sarvam");
 });
