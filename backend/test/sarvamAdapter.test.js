@@ -186,3 +186,88 @@ test("Auto still skips a Sarvam that is failing", () => {
     sarvamState.consecutiveErrors = 0;
   }
 });
+
+// /api/chat with Sarvam picked, Sarvam's replies scripted one per call. Cohere
+// is configured too, so a test can see that no other model was asked.
+async function chatWithSarvam(t, replies) {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  orchestrator.setPickedAloneRetryDelay(1);
+  const app = require("../src/app");
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const saved = { sarvam: config.sarvamApiKey, cohere: config.cohereApiKey };
+  const realFetch = global.fetch;
+  const calls = { sarvam: 0, other: [] };
+  config.sarvamApiKey = "test-key";
+  config.cohereApiKey = "test-key";
+  sarvam.resetReplacements();
+  global.fetch = async (url, init) => {
+    const href = String(url);
+    if (href.startsWith("http://127.0.0.1")) return realFetch(url, init);
+    if (!href.startsWith("https://api.sarvam.ai/")) { calls.other.push(href); throw new Error("no other model should be asked"); }
+    const reply = replies[calls.sarvam++];
+    return reply();
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    config.sarvamApiKey = saved.sarvam;
+    config.cohereApiKey = saved.cohere;
+    orchestrator.setPickedAloneRetryDelay(1000);
+    const s = providerManager.providers.sarvam;
+    s.isSuspended = false;
+    s.consecutiveErrors = 0;
+  });
+
+  const res = await realFetch(`${baseUrl}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: "Hi", provider: "Sarvam 105B", modelLabel: "Sarvam 105B", mode: "normal" }),
+  });
+  const events = (await res.text()).split("\n").filter((l) => l.startsWith("data:"))
+    .map((l) => { try { return JSON.parse(l.slice(5)); } catch { return null; } }).filter(Boolean);
+  return {
+    calls,
+    text: events.filter((e) => e.type === "content").map((e) => e.data).join(""),
+    statuses: events.filter((e) => e.type === "status").map((e) => String(e.data)),
+    error: events.find((e) => e.type === "error")?.data || "",
+  };
+}
+
+const sarvamSays = (text) => () => new Response(
+  `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`,
+  { status: 200, headers: { "content-type": "text/event-stream" } },
+);
+const timesOut = () => { throw new TypeError("fetch failed: Connect Timeout Error"); };
+const busy = () => new Response('{"error":{"message":"Too many requests"}}', { status: 429 });
+
+test("picked, a Sarvam timeout is retried on Sarvam — no other model", async (t) => {
+  const r = await chatWithSarvam(t, [timesOut, sarvamSays("வணக்கம்!")]);
+  assert.equal(r.calls.sarvam, 2);
+  assert.deepEqual(r.calls.other, []);
+  assert.equal(r.text, "வணக்கம்!");
+  assert.ok(r.statuses.some((s) => /Sarvam timed out\. Trying Sarvam again/.test(s)), r.statuses.join(" | "));
+});
+
+test("picked, a busy Sarvam is retried on Sarvam too", async (t) => {
+  const r = await chatWithSarvam(t, [busy, timesOut, sarvamSays("Hello!")]);
+  assert.equal(r.calls.sarvam, 3);
+  assert.deepEqual(r.calls.other, []);
+  assert.equal(r.text, "Hello!");
+});
+
+test("picked, after three failed tries the user is told — still no other model", async (t) => {
+  const r = await chatWithSarvam(t, [timesOut, timesOut, timesOut]);
+  assert.equal(r.calls.sarvam, 3);
+  assert.deepEqual(r.calls.other, []);
+  assert.match(r.error, /Sarvam didn't answer after 3 tries/);
+});
+
+test("picked, a key problem is reported at once instead of retried", async (t) => {
+  const r = await chatWithSarvam(t, [() => new Response('{"error":{"message":"Invalid API key"}}', { status: 401 })]);
+  assert.equal(r.calls.sarvam, 1);
+  assert.deepEqual(r.calls.other, []);
+  assert.ok(r.error, "an error is shown");
+});

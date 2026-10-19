@@ -144,9 +144,11 @@ class ProviderManager {
         // Below the general-purpose providers, so Auto keeps its current
         // picks; it answers when chosen in the picker.
         weight: 60,
-        // Picked in the model picker, every message starts with Sarvam even
-        // if an earlier one failed or timed out; the fallback chain still
-        // answers a message Sarvam can't. Auto keeps skipping it meanwhile.
+        // Picked in the model picker, Sarvam answers alone: every message
+        // starts with Sarvam even if an earlier one failed, and a timeout or
+        // busy moment is retried on Sarvam rather than handed to another
+        // model (AIOrchestrator, pickedAlone). Auto keeps skipping a failing
+        // Sarvam and falls back as usual.
         retryWhenPicked: true,
         score: 60,
         latency: 0,
@@ -220,6 +222,16 @@ class ProviderManager {
       p.isSuspended = false;
       p.consecutiveErrors = 0;
     }
+  }
+
+  /**
+   * The provider the user picked, when it is one that answers alone once
+   * picked (retryWhenPicked) and is configured; otherwise null.
+   */
+  pickedAlone(preferredProvider) {
+    const name = resolveProviderName(preferredProvider);
+    const p = this.providers[name];
+    return p?.retryWhenPicked && this.isConfigured(name) ? name : null;
   }
 
   getBestProvider(mode, preferredProvider) {

@@ -20,6 +20,10 @@ const VISION_PROVIDERS = ["gemini", "cohere"];
 // Ceiling on provider hops for one request. See where it's used for why it
 // isn't simply the configured-provider count.
 const MAX_FALLBACK_ATTEMPTS = 5;
+// Tries for a provider that answers alone once picked (Sarvam), and the pause
+// before each retry, grown per try (1 s, then 2 s).
+const PICKED_ALONE_TRIES = 3;
+let pickedAloneRetryDelayMs = 1000;
 // A screenshot is a much bigger, slower request than a text turn, so a vision
 // attempt gets a longer budget before it's called a timeout. This has to stay
 // >= the vision adapters' own fetch timeouts, or their ceiling is unreachable
@@ -645,6 +649,12 @@ Choose the single best-fitting visualization block(s) from the formats below:
       : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
+    // Sarvam, picked in the model picker, answers alone: a timeout, a busy
+    // moment or an empty reply is tried again on Sarvam, never handed to
+    // another model. Auto still walks the fallback chain.
+    const pickedAlone = !needsVision && currentProviderName
+      && providerManager.pickedAlone(preferredProvider) === currentProviderName
+      ? currentProviderName : null;
     // Bounded, but not at the old 3: Cohere is every provider's last-resort
     // fallback, and a request has to be able to reach it once the others are
     // out of credits. Walking all 8 unbounded meant a full outage could hold
@@ -652,7 +662,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // backoff) before showing anything, so the tail is capped here and
     // `nextFallback` spends the final attempt on Cohere — bounded latency
     // without giving up the "always answers" property.
-    const maxAttempts = needsVision
+    const maxAttempts = pickedAlone ? PICKED_ALONE_TRIES
+      : needsVision
       ? VISION_PROVIDERS.filter((name) => providerManager.isConfigured(name)).length
       : Math.min(MAX_FALLBACK_ATTEMPTS, providerManager.getAvailableProviders({ includeSuspended: true }).length);
     let success = false;
@@ -891,7 +902,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
         continue;
       }
 
-      this.sendVetroEvent(res, "status", attempts === 1 ? `Consulting ${currentProviderName}...` : `Re-routing to ${currentProviderName}...`);
+      if (attempts === 1 || !pickedAlone) {
+        this.sendVetroEvent(res, "status", attempts === 1 ? `Consulting ${currentProviderName}...` : `Re-routing to ${currentProviderName}...`);
+      }
       logger.info(`AIOrchestrator: Attempt ${attempts} using ${currentProviderName}`, { reqId });
 
       const startTime = Date.now();
@@ -952,7 +965,27 @@ Choose the single best-fitting visualization block(s) from the formats below:
         } else if (isTimeout) {
           logger.warn(`Connection timeout for ${currentProviderName}`, { reqId });
         }
-        
+
+        if (pickedAlone) {
+          const label = this.providerLabel(pickedAlone);
+          // A key, billing or model-name problem fails the same way every
+          // time: say so now instead of retrying.
+          const worthRetrying = !["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind);
+          if (worthRetrying && attempts < maxAttempts && !params.signal?.aborted) {
+            this.sendVetroEvent(res, "clear", "");
+            this.sendVetroEvent(res, "status", isTimeout
+              ? `${label} timed out. Trying ${label} again (${attempts + 1} of ${maxAttempts})…`
+              : `${label} didn't answer. Trying ${label} again (${attempts + 1} of ${maxAttempts})…`);
+            await new Promise((resolve) => setTimeout(resolve, pickedAloneRetryDelayMs * attempts));
+            continue;
+          }
+          finishResearch("failed");
+          this.sendVetroEvent(res, "error", worthRetrying
+            ? `${label} didn't answer after ${attempts} tries. Please send your message again in a moment.`
+            : this.describeFinalFailure(lastFailure, attemptedProviders));
+          break;
+        }
+
         if (attempts < maxAttempts) {
           // attempts is already incremented for the current hop, so this is
           // true while choosing the provider for the final allowed attempt.
@@ -1497,3 +1530,5 @@ module.exports = new AIOrchestrator();
 module.exports.RESEARCH_REPORT_PROMPT = RESEARCH_REPORT_PROMPT;
 module.exports.RESEARCH_DEADLINE_MS = RESEARCH_DEADLINE_MS;
 module.exports.historyWithinBudget = historyWithinBudget;
+// Tests shorten the pause between Sarvam retries.
+module.exports.setPickedAloneRetryDelay = (ms) => { pickedAloneRetryDelayMs = ms; };
