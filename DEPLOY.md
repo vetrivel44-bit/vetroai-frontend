@@ -109,10 +109,12 @@ email when email is set up. A watched condition stops once it comes true.
 
 A user can have 10 scheduled tasks running at once; the shortest interval is one hour.
 
-## Sarvam AI models (Sarvam 105B / Sarvam 30B)
+## Sarvam AI (Sarvam 105B)
 
-Two models from [Sarvam AI](https://www.sarvam.ai), strong in Hindi, Tamil and the
-other Indian languages, appear in the model picker. They run on the backend
+[Sarvam AI](https://www.sarvam.ai)'s model, strong in Hindi, Tamil and the other
+Indian languages, appears in the model picker as **Sarvam 105B**. (Sarvam retired
+`sarvam-30b` in October 2026; if Sarvam retires a model, the adapter switches to
+the replacement Sarvam names in its error.) They run on the backend
 (`backend/src/providers/sarvamAdapter.js`), so the key never reaches the browser.
 
 | Variable | Where | Value |

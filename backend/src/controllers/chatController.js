@@ -281,7 +281,7 @@ async function chat(req, res) {
       activePlugins,
       effort,
       signal: cancel.signal,
-      // Which Sarvam model ("Sarvam 30B" / "Sarvam 105B"), in a field of its
+      // Which Sarvam model ("Sarvam 105B"), in a field of its
       // own so a fallback provider never receives a Sarvam model name.
       options: { temperature, maxTokens, sarvamModel: sarvamModelFor(req.body?.modelLabel || provider) || undefined }
     }, res) === true;
