@@ -144,6 +144,10 @@ class ProviderManager {
         // Below the general-purpose providers, so Auto keeps its current
         // picks; it answers when chosen in the picker.
         weight: 60,
+        // Picked in the model picker, every message starts with Sarvam even
+        // if an earlier one failed or timed out; the fallback chain still
+        // answers a message Sarvam can't. Auto keeps skipping it meanwhile.
+        retryWhenPicked: true,
         score: 60,
         latency: 0,
         successRate: 1,
@@ -223,9 +227,10 @@ class ProviderManager {
     if (preferredProvider && !["undefined", "auto"].includes(preferredProvider.toLowerCase())) {
       const pref = resolveProviderName(preferredProvider);
       if (this.providers[pref] && this.isConfigured(pref)) {
-        // Unsuspend if cooldown has passed
+        // Unsuspend if cooldown has passed, or straight away for a provider
+        // that is always retried when picked.
         const p = this.providers[pref];
-        if (p.isSuspended && this.cooledDown(p)) {
+        if (p.isSuspended && (p.retryWhenPicked || this.cooledDown(p))) {
           p.isSuspended = false;
           p.consecutiveErrors = 0;
         }
