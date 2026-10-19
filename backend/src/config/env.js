@@ -42,6 +42,9 @@ module.exports = {
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
     geminiModel:         getEnv("GEMINI_MODEL",          "gemini-3.6-flash"),
     sambanovaApiKey:     getEnv("SAMBANOVA_API_KEY",     ""),
+    // Sarvam AI — Indian-language models (sarvam-30b, sarvam-105b).
+    sarvamApiKey:        getEnv("SARVAM_API_KEY",        ""),
+    sarvamModel:         getEnv("SARVAM_MODEL",          "sarvam-105b"),
     // Cohere — universal last-resort fallback (see ProviderManager fallbacks).
     // Uses Cohere's OpenAI-compatible endpoint so it streams standard SSE chunks.
     cohereApiKey:        getEnv("COHERE_API_KEY",        ""),

@@ -9,6 +9,7 @@ const chatgptAdapter = require("../providers/chatgptAdapter");
 const fableAdapter = require("../providers/fableAdapter");
 const vercelAdapter = require("../providers/vercelAdapter");
 const cohereAdapter = require("../providers/cohereAdapter");
+const sarvamAdapter = require("../providers/sarvamAdapter");
 
 // The picker's model names (most of which run in the browser) mapped to the
 // backend provider of the same family. Without this, an unknown name such as
@@ -24,6 +25,7 @@ const PROVIDER_ALIASES = [
   [/agnes/i, "agnes"],
   [/vercel/i, "vercel"],
   [/cohere/i, "cohere"],
+  [/sarvam/i, "sarvam"],
 ];
 
 function resolveProviderName(label) {
@@ -137,6 +139,20 @@ class ProviderManager {
         cooldown: 20000,
         fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "cohere"],
       },
+      sarvam: {
+        adapter: sarvamAdapter,
+        // Below the general-purpose providers, so Auto keeps its current
+        // picks; it answers when chosen in the picker.
+        weight: 60,
+        score: 60,
+        latency: 0,
+        successRate: 1,
+        consecutiveErrors: 0,
+        isSuspended: false,
+        lastFailure: 0,
+        cooldown: 20000,
+        fallbacks: ["vercel", "mistral", "groq", "agnes", "gemini", "cohere"],
+      },
       cohere: {
         adapter: cohereAdapter,
         // Deliberately the lowest weight so it's never auto-picked as the
@@ -172,6 +188,7 @@ class ProviderManager {
       sambanova: Boolean(config.sambanovaApiKey),
       gemini: Boolean(config.geminiApiKey),
       cohere: Boolean(config.cohereApiKey),
+      sarvam: Boolean(config.sarvamApiKey),
     };
     return configured[providerName] === true;
   }
