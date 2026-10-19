@@ -23,6 +23,7 @@ const usage = require("../services/usageService");
 const { modelOf } = require("./usageController");
 const { withGroqModel } = require("../utils/groqModel");
 const mistralAdapter = require("../providers/mistralAdapter");
+const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
 const { clientClock } = require("../services/clockService");
@@ -280,7 +281,9 @@ async function chat(req, res) {
       activePlugins,
       effort,
       signal: cancel.signal,
-      options: { temperature, maxTokens }
+      // Which Sarvam model ("Sarvam 30B" / "Sarvam 105B"), in a field of its
+      // own so a fallback provider never receives a Sarvam model name.
+      options: { temperature, maxTokens, sarvamModel: sarvamModelFor(req.body?.modelLabel || provider) || undefined }
     }, res) === true;
   } catch (err) {
     logger.error("chat.request.failed", { reqId, error: err.message });

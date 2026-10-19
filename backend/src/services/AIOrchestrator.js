@@ -1137,7 +1137,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
   providerLabel(name) {
     const labels = {
       chatgpt: "ChatGPT", fable: "Claude Fable 5", vercel: "Vercel AI", groq: "Groq",
-      mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini", cohere: "Cohere",
+      mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini", cohere: "Cohere", sarvam: "Sarvam",
     };
     return labels[name] || name || "The AI model";
   }
@@ -1484,7 +1484,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     }
 
     // If using SSE provider, ignore comments or heartbeats that carry no data frame
-    if (["groq", "mistral", "sambanova", "agnes", "vercel"].includes(provider)) {
+    if (["groq", "mistral", "sambanova", "agnes", "vercel", "sarvam"].includes(provider)) {
       return empty;
     }
 

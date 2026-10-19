@@ -108,3 +108,14 @@ email when email is set up. A watched condition stops once it comes true.
 | `RESEND_API_KEY`, `MAIL_FROM` | Render (optional) | Email each result (resend.com; `MAIL_FROM` must be on a domain verified there, e.g. `VetroAI <tasks@yourdomain.com>`). |
 
 A user can have 10 scheduled tasks running at once; the shortest interval is one hour.
+
+## Sarvam AI models (Sarvam 105B / Sarvam 30B)
+
+Two models from [Sarvam AI](https://www.sarvam.ai), strong in Hindi, Tamil and the
+other Indian languages, appear in the model picker. They run on the backend
+(`backend/src/providers/sarvamAdapter.js`), so the key never reaches the browser.
+
+| Variable | Where | Value |
+|---|---|---|
+| `SARVAM_API_KEY` | Render | The API subscription key from the Sarvam dashboard. Without it, picking a Sarvam model is answered by the next available provider. |
+| `SARVAM_MODEL` | Render (optional) | Model used when Sarvam is reached without a size chosen. Default `sarvam-105b`. |
