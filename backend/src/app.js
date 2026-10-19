@@ -1,4 +1,12 @@
 const express = require("express");
+const mongoose = require("mongoose");
+// The production entry point (index.js at the repo root) never connects to
+// MongoDB. Mongoose's default is to hold every query until a connection
+// arrives and give up after 10 s — which made every signed-in request (the
+// account lookup in authMiddleware) wait 10 s before anything else ran.
+// Without a connection a query now fails at once, and its caller's existing
+// fallback takes over.
+mongoose.set("bufferCommands", false);
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
