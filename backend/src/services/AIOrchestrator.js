@@ -76,6 +76,26 @@ const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
 // A research report runs long; this is the least room the writer gets.
 const RESEARCH_MIN_TOKENS = 8192;
 
+/**
+ * The history with this turn's live search results opening the user's latest
+ * message, dated, and with a plain instruction that they beat the model's own
+ * memory. For writers that gave results in the system prompt less weight than
+ * their training (see searchResultsWithQuestion on an adapter).
+ */
+function withSearchInQuestion(history, webContext, clock) {
+  const at = history.map((m) => m.role).lastIndexOf("user");
+  if (at < 0 || typeof history[at].content !== "string") return history;
+  const turn = [
+    `LIVE SEARCH RESULTS — fetched just now for my question below. ${clockLine(clock || {})}`,
+    webContext,
+    "",
+    "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. Where they don't cover it, say that what you know may be out of date. If they are unrelated to my question, ignore them.",
+    "",
+    `My question: ${history[at].content}`,
+  ].join("\n");
+  return history.map((m, i) => (i === at ? { ...m, content: turn } : m));
+}
+
 class AIOrchestrator {
   constructor() {
     this.VISUALIZATION_TRIGGERS = [
@@ -842,6 +862,13 @@ Choose the single best-fitting visualization block(s) from the formats below:
     }
     promptExtras += buildPluginPrompt(params.activePlugins);
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
+    // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)
+    // gets the search results with the question instead: inside the system
+    // prompt they sit ~14% into ~8K tokens of rules, and Sarvam 105B answered
+    // from its own out-of-date training instead of them.
+    const sysPromptWithoutSearch = webContext
+      ? await this.buildSystemPrompt(mode, { userQuery, webContext: null, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras
+      : null;
     // Groq's free tier refuses any request over ~12k tokens, and a full
     // research context alone is about that. Its writer gets the compact
     // evidence (same sources and numbers, one short passage each) and a lean
@@ -884,7 +911,14 @@ Choose the single best-fitting visualization block(s) from the formats below:
       return true;
     });
     const messagesFor = (providerName) => {
-      const thinking = providerManager.getAdapter(providerName)?.reasonsNatively?.() ? "" : thinkingPrompt;
+      const adapter = providerManager.getAdapter(providerName);
+      const thinking = adapter?.reasonsNatively?.() ? "" : thinkingPrompt;
+      if (sysPromptWithoutSearch && adapter?.searchResultsWithQuestion?.()) {
+        return [
+          { role: "system", content: sysPromptWithoutSearch + thinking + astrologyPrompt },
+          ...withSearchInQuestion(history, webContext, params.clock),
+        ];
+      }
       const base = compactSysPrompt && TIGHT_BUDGET_PROVIDERS.has(providerName) ? compactSysPrompt : finalSysPrompt;
       return [{ role: "system", content: base + thinking + astrologyPrompt }, ...history];
     };
@@ -1530,5 +1564,6 @@ module.exports = new AIOrchestrator();
 module.exports.RESEARCH_REPORT_PROMPT = RESEARCH_REPORT_PROMPT;
 module.exports.RESEARCH_DEADLINE_MS = RESEARCH_DEADLINE_MS;
 module.exports.historyWithinBudget = historyWithinBudget;
+module.exports.withSearchInQuestion = withSearchInQuestion;
 // Tests shorten the pause between Sarvam retries.
 module.exports.setPickedAloneRetryDelay = (ms) => { pickedAloneRetryDelayMs = ms; };
