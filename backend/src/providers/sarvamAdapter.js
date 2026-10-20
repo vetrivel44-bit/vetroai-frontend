@@ -120,6 +120,9 @@ async function complete(messages, { temperature = 0.4, maxTokens = 120 } = {}) {
 
 module.exports = {
   generateStream,
+  // Live search results go with the question, not deep in the system prompt:
+  // there Sarvam answered from its own out-of-date training (AIOrchestrator).
+  searchResultsWithQuestion: () => true,
   complete,
   modelFor,
   shapeMessages,
