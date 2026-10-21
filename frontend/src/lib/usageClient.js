@@ -85,9 +85,9 @@ export const WINDOW_TITLES = {
 };
 
 /**
- * Starts a VetroAI Computer run against this week's allowance:
- * { allowed, computer: {used, limit, resetsAt}, plan, message }. If the
- * server can't be reached the run goes ahead.
+ * Counts a VetroAI Computer run against the usage limits:
+ * { allowed, plan, message, resetsAt }. If the server can't be reached the
+ * run goes ahead.
  */
 export async function startComputerRun(api, { fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
   // The server may be waking up (a free host sleeps when idle). Don't hold the
@@ -103,14 +103,14 @@ export async function startComputerRun(api, { fetchImpl = globalThis.fetch, time
       })(),
       timedOut,
     ]);
-    if (!answer) return { allowed: true, computer: null, plan: null };
+    if (!answer) return { allowed: true, plan: null };
     const { res, body } = answer;
     if (res.status === 429 && body.code === "COMPUTER_LIMIT") {
-      return { allowed: false, computer: body.data?.computer || null, plan: body.data?.plan || "free", message: body.message || "You've used this week's VetroAI Computer tasks.", resetsAt: body.block?.resetsAt || null };
+      return { allowed: false, plan: body.data?.plan || "free", message: body.message || "You've reached your usage limit.", resetsAt: body.block?.resetsAt || null };
     }
-    return { allowed: true, computer: body.data?.computer || null, plan: body.data?.plan || null };
+    return { allowed: true, plan: body.data?.plan || null };
   } catch {
-    return { allowed: true, computer: null, plan: null };
+    return { allowed: true, plan: null };
   } finally {
     clearTimeout(timer);
   }
