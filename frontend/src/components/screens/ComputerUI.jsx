@@ -26,7 +26,7 @@ import { claimDispatch, dispatchReady, getDeviceId, heartbeat, updateDispatch, w
 import { FINISHED, HEARTBEAT_MS, deviceLabel, nextQueued, orphanedRuns, toDispatchUpdate } from "../../lib/dispatchCore";
 import { watchAuthState } from "../../lib/firebaseAuth";
 import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
-import { authHeaders, startComputerRun } from "../../lib/usageClient";
+import { startComputerRun } from "../../lib/usageClient";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
@@ -435,8 +435,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   const [view, setView] = useState("tasks");
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduledUnread, setScheduledUnread] = useState(0);
-  // This week's Computer runs ({ used, limit, plan }) and the Pro offer when they run out.
-  const [allowance, setAllowance] = useState(null);
+  // The Pro offer when the usage limits run out.
   const [proGate, setProGate] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [screenControl, setScreenControl] = useState(false);
@@ -485,19 +484,11 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     return () => clearInterval(id);
   }, [view]);
 
-  useEffect(() => {
-    fetch(`${API}/usage`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then(b => { if (b?.data?.computer) setAllowance({ ...b.data.computer, plan: b.data.plan }); })
-      .catch(() => {});
-  }, []);
-
-  /** Takes one run from this week's allowance, or offers Pro and says no. */
+  /** Counts one run against the usage limits, or offers Pro and says no. */
   const allowRun = async () => {
-    // Shown on the send button straight away, while the free-task count is checked.
+    // Shown on the send button straight away, while the usage limits are checked.
     setStarting(true);
     const result = await startComputerRun(API).finally(() => setStarting(false));
-    if (result.computer) setAllowance({ ...result.computer, plan: result.plan });
     if (!result.allowed) {
       setProGate({ message: result.message, plan: result.plan, resetsAt: result.resetsAt });
       return false;
@@ -593,7 +584,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
 
   // `opts.task` / `opts.files` let a Dispatch request run in a task of its own,
   // without the composer's attachments; `opts.preApproved` means its run was
-  // already taken from the allowance.
+  // already been counted against the usage limits.
   const execute = async (prompt, display = "", opts = {}) => {
     // A fix or an edit of something already built continues that run.
     if (!display && !opts.preApproved && !(await allowRun())) return;
@@ -1728,11 +1719,6 @@ export default function ComputerUI({ onClose, onUpgrade }) {
               <button onClick={togglePause} className="p-2 rounded-lg hover:bg-stone-100" title={running ? "Pause" : "Resume"}>{running ? <Pause size={17} /> : <Play size={17} />}</button>
               <button onClick={stopTask} disabled={!running} className="p-2 rounded-lg hover:bg-red-50 text-red-600 disabled:opacity-30" title="Stop"><Square size={16} /></button>
             </div>
-          )}
-          {allowance?.plan === "free" && allowance.limit > 0 && (
-            <button type="button" className={`cw-allowance${allowance.used >= allowance.limit ? " is-out" : ""}`} onClick={() => onUpgrade?.()} title="Free accounts get a few Computer tasks a week. Pro has many more.">
-              <Zap size={13} /><span className="cw-allowance-long">{Math.max(0, allowance.limit - allowance.used)} of {allowance.limit} free tasks left</span><span className="cw-allowance-short">{Math.max(0, allowance.limit - allowance.used)}/{allowance.limit}</span>
-            </button>
           )}
           <div className="relative cw-permission">
             <select value={permission} onChange={e => setPermission(e.target.value)} className="appearance-none bg-white border border-stone-200 rounded-xl pl-3 pr-8 py-2 text-xs font-medium outline-none">

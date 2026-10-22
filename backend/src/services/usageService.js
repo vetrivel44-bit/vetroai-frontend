@@ -161,10 +161,6 @@ function summarize(doc, plan, now = Date.now()) {
   const session = window(doc, events, "sessionStart", SESSION_MS, limits.session, now);
   const weekly = window(doc, events, "weekStart", WEEK_MS, limits.weekly, now);
   const premium = window(doc, events, "weekStart", WEEK_MS, limits.premiumWeekly, now, (e) => tierFor(e.m).tier === "premium");
-  // Computer runs are counted, one each, against their own weekly allowance.
-  const computer = window(doc, events, "weekStart", WEEK_MS, limits.computerWeekly, now, (e) => e.m === COMPUTER_MODEL);
-  computer.used = active(doc.weekStart, WEEK_MS, now) ? events.filter((e) => e.t >= doc.weekStart && e.m === COMPUTER_MODEL).length : 0;
-  computer.percent = Math.min(100, Math.round((computer.used / limits.computerWeekly) * 100));
   const inWeek = active(doc.weekStart, WEEK_MS, now) ? events.filter((e) => e.t >= doc.weekStart) : [];
   const byModel = new Map();
   for (const e of inWeek) {
@@ -178,7 +174,7 @@ function summarize(doc, plan, now = Date.now()) {
   const models = [...byModel.values()]
     .map((r) => ({ ...r, share: weekly.used ? Math.round((r.units / weekly.used) * 100) : 0 }))
     .sort((a, b) => b.units - a.units);
-  return { plan, limits, session, weekly, premium, computer, models, serverTime: now };
+  return { plan, limits, session, weekly, premium, models, serverTime: now };
 }
 
 // Which limit a message to `model` would run into, if any. A limit is hit
@@ -235,24 +231,23 @@ function consume(key, plan, model, now = Date.now(), cloud = null) {
 }
 
 /**
- * One VetroAI Computer run, if this week's allowance has one left:
- * { allowed, summary, block }. Recorded as a light message, so it also
- * counts (by one unit) towards the general limits like any message.
+ * One VetroAI Computer run: { allowed, summary, block }. There is no weekly
+ * cap on runs; each is recorded as a light message, so it counts (by one
+ * unit) towards the general limits like any message.
  */
 function consumeComputer(key, plan, now = Date.now()) {
   return serialize(key, async () => {
     const doc = await load(key);
     const summary = summarize(doc, plan, now);
-    if (summary.computer.used >= summary.computer.limit) {
-      return { allowed: false, summary, block: { window: "computer", resetsAt: summary.computer.resetsAt } };
-    }
+    const block = blockedBy(summary, COMPUTER_MODEL);
+    if (block) return { allowed: false, summary, block };
     const next = withMessage(doc, COMPUTER_MODEL, now);
     await save(key, next);
     return { allowed: true, summary: summarize(next, plan, now), block: null };
   });
 }
 
-const WINDOW_NAMES = { session: "5-hour usage limit", weekly: "weekly usage limit", premium: "weekly limit for the most capable models", computer: "free VetroAI Computer tasks for this week" };
+const WINDOW_NAMES = { session: "5-hour usage limit", weekly: "weekly usage limit", premium: "weekly limit for the most capable models" };
 
 function relative(ms) {
   const mins = Math.max(1, Math.ceil(ms / 60000));

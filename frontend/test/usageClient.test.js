@@ -49,9 +49,9 @@ test("reset times", () => {
 
 test("Computer runs: allowed, refused with an offer, or allowed when the server is down", async () => {
   const { startComputerRun } = await import("../src/lib/usageClient.js");
-  const ok = await startComputerRun("/api", { fetchImpl: async () => ({ status: 200, json: async () => ({ success: true, data: { plan: "free", computer: { used: 1, limit: 3 } } }) }) });
-  assert.deepEqual(ok, { allowed: true, computer: { used: 1, limit: 3 }, plan: "free" });
-  const no = await startComputerRun("/api", { fetchImpl: async () => ({ status: 429, json: async () => ({ code: "COMPUTER_LIMIT", message: "You've used your 3 free…", block: { resetsAt: 5 }, data: { plan: "free", computer: { used: 3, limit: 3 } } }) }) });
+  const ok = await startComputerRun("/api", { fetchImpl: async () => ({ status: 200, json: async () => ({ success: true, data: { plan: "free" } }) }) });
+  assert.deepEqual(ok, { allowed: true, plan: "free" });
+  const no = await startComputerRun("/api", { fetchImpl: async () => ({ status: 429, json: async () => ({ code: "COMPUTER_LIMIT", message: "You've reached your 5-hour usage limit.", block: { resetsAt: 5 }, data: { plan: "free" } }) }) });
   assert.equal(no.allowed, false);
   assert.equal(no.resetsAt, 5);
   assert.equal((await startComputerRun("/api", { fetchImpl: async () => { throw new TypeError("offline"); } })).allowed, true);
