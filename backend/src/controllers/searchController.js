@@ -14,6 +14,25 @@ const {
 // day → week → month → year one after another made searches very slow.
 const WIDER = { day: "month", week: "year", month: null, year: null };
 
+function resolveSearchProvider(provider = config.webSearchProvider) {
+  const selected = String(provider || "auto").trim().toLowerCase();
+  if (!["auto", "parallel", "none"].includes(selected)) {
+    throw new Error("WEB_SEARCH_PROVIDER must be auto, parallel or none");
+  }
+  return selected;
+}
+
+async function selectedSearch(query, options) {
+  const provider = resolveSearchProvider(options.provider);
+  if (provider === "none") return [];
+  if (provider === "parallel") {
+    // An explicit selection never falls through to a different service on error.
+    const { searchParallel } = require("../services/parallelSearchService");
+    return searchParallel(query, options);
+  }
+  return null; // Keep the established auto routing below.
+}
+
 /**
  * One Tavily search that respects how recent the query needs its results.
  * A time-sensitive query is searched inside its window (and as news when it
@@ -165,6 +184,7 @@ async function searchKeyless(query) {
 
 // ── Image search (Tavily only — DDG fallback has no reliable image API) ───────
 async function searchImages(query, limit = 4) {
+  if (resolveSearchProvider() === "none") return [];
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
   if (!apiKey || !query) return [];
 
@@ -197,8 +217,9 @@ function datedLabel(r) {
   return ` (published ${new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })})`;
 }
 
-async function searchWeb(query, { clock } = {}) {
+async function searchWeb(query, options = {}) {
   if (!query) throw new Error("Query is required");
+  const { clock } = options;
 
   // The user's date, not the server's (UTC) — see clockService.
   const todayStr = describeClock(clock || {}).date;
@@ -207,6 +228,18 @@ async function searchWeb(query, { clock } = {}) {
   snippets.push(`**Search Date**: ${todayStr} | **Query**: "${query}"`);
   if (detectFreshness(query).recent) {
     snippets.push("This question is time-sensitive: rely on the most recently published sources below and say when information is dated.");
+  }
+
+  const selected = await selectedSearch(query, options);
+  if (selected !== null) {
+    if (selected.length) {
+      snippets.push(selected.map((r, i) =>
+        `[${i + 1}] **${r.title}**${datedLabel(r)}\n${r.snippet}\n${r.url}`
+      ).join("\n\n"));
+    } else {
+      snippets.push("No live web results available. Do not present training knowledge as current information.");
+    }
+    return { context: snippets.join("\n\n---\n\n"), results: selected };
   }
 
   // ── Try Tavily first ──────────────────────────────────────────────────────
@@ -256,8 +289,10 @@ async function searchWeb(query, { clock } = {}) {
 // the provider has it, instead of a prompt-ready context string. Tavily
 // returns page text at no extra credit cost; the keyless fallbacks give
 // snippets only, and DeepSearch fetches those pages itself (pageReader.js).
-async function searchForResearch(query) {
+async function searchForResearch(query, options = {}) {
   if (!query) return [];
+  const selected = await selectedSearch(query, options);
+  if (selected !== null) return selected;
   try {
     const res = await tavilySearch(query, {
       searchDepth: "basic",
@@ -302,4 +337,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchForResearch, searchImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems };
+module.exports = { performSearch, searchWeb, searchForResearch, searchImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems, resolveSearchProvider };

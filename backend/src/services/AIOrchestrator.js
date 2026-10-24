@@ -820,7 +820,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
             "Search timeout",
           );
         } else {
-          searchRes = await withTimeout(searchWeb(userQuery, { clock: params.clock }), 10000, "Search timeout");
+          searchRes = await withTimeout(searchWeb(userQuery, { clock: params.clock, signal: params.signal }), 10000, "Search timeout");
         }
         webContext = searchRes.context;
         compactContext = searchRes.compactContext || null;

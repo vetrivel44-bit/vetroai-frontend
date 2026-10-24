@@ -97,6 +97,9 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
+    // auto preserves Tavily and the existing keyless chain; parallel opts in
+    // to anonymous Parallel Search MCP; none disables web/image search.
+    webSearchProvider:   getEnv("WEB_SEARCH_PROVIDER",   "auto"),
     // Scheduled tasks (VetroAI Computer): a scheduler outside the server
     // (.github/workflows/scheduled-tasks.yml) calls POST /api/schedules/run-due
     // with this secret, which also wakes a sleeping free instance.

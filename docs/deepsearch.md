@@ -59,7 +59,17 @@ inside IPv6 ones, like `[::ffff:127.0.0.1]`, are checked as the IPv4 address.
   Mistral. With neither key set, DeepSearch searches the question as asked
   and still reads the pages.
 - **Search:** Tavily (`TAVILY_API_KEY`), falling back to DuckDuckGo, Bing
-  and Google News.
+  and Google News by default. Set `WEB_SEARCH_PROVIDER=parallel` in the backend
+  environment to use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+  for DeepSearch and Web Search instead. It provides free search using Fast mode
+  without a Parallel account or API key. Source URLs, excerpts and publication
+  dates feed the same evidence and citation pipeline; pages are still read by
+  the existing public-host-only reader. Search requests time out after at most
+  12 seconds and stop when research is cancelled. The anonymous service has
+  usage limits; errors leave partial research rather than switching providers.
+  `WEB_SEARCH_PROVIDER=auto` restores the existing routing and honors
+  `TAVILY_API_KEY`; `none` disables web and image search. Parallel does not
+  replace Tavily's image search or its advanced search/answer features.
 - **Writer:** the usual provider chain. Groq's free tier caps each request at
   about 12k tokens, so a Groq writer gets a compact version of the evidence:
   the same sources and numbers, one short passage each. Every other writer
