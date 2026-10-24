@@ -73,3 +73,32 @@ jobs:
             exit 1
           fi
           echo "Render deploy triggered."
+
+  # Dispatch (users/{uid}/dispatch, /devices) and Publish (sites/) only work
+  # once firestore.rules is live. Deploys it whenever main changes, using a
+  # service account key saved as the FIREBASE_SERVICE_ACCOUNT secret (the
+  # JSON from Firebase console → Project settings → Service accounts, with the
+  # "Firebase Rules Admin" role). Skips with a notice until that is set.
+  deploy-firestore-rules:
+    name: Deploy Firestore rules
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy firestore.rules
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "::notice::FIREBASE_SERVICE_ACCOUNT is not set — skipping the Firestore rules deploy. Deploy them by hand: npx firebase-tools deploy --only firestore:rules --project vetroai"
+            exit 0
+          fi
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools@14 deploy --only firestore:rules --project vetroai --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

@@ -70,6 +70,8 @@ rules_version = '2';
 //   - id: string (required, must match the document id)
 //   - name: string (required, <= 60 chars)
 //   - accepting: bool, busy: bool, lastSeen: number (client epoch ms)
+//   - kind: "phone" (optional) - a phone that opened this computer's pairing
+//     QR code; pairedWith: the computer's id, pairedAt: number
 //
 // Collection: users/{uid}/prefs
 // Document ID: "app"

@@ -2,10 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Ban, Check, CheckCircle2, Clock3, Laptop, Loader2, Monitor, RotateCw, Send, ShieldAlert, Smartphone, Trash2, TriangleAlert, X,
+  Ban, Check, CheckCircle2, Clock3, Copy, Laptop, Link2, Loader2, Monitor, QrCode, RotateCw, Send, ShieldAlert, Smartphone, Trash2, TriangleAlert, X,
 } from "lucide-react";
-import { removeDispatch, sendDispatch, updateDispatch, watchDevices, watchDispatches } from "../../lib/dispatch";
-import { FINISHED, MAX_DISPATCH_TEXT, describeDispatch, formatAgo, isOnline } from "../../lib/dispatchCore";
+import QRCode from "qrcode";
+import { announcePhone, forgetDevice, removeDispatch, sendDispatch, updateDispatch, watchDevices, watchDispatches } from "../../lib/dispatch";
+import { watchAuthState } from "../../lib/firebaseAuth";
+import {
+  FINISHED, MAX_DISPATCH_TEXT, clearPair, describeDispatch, formatAgo, isComputerDevice, isOnline, maskEmail, pairLink,
+  pairMatchesAccount, peekPair, phoneLabel,
+} from "../../lib/dispatchCore";
 
 // Computer → Dispatch: one ongoing thread with VetroAI on your computer. Send a
 // task from anywhere (usually your phone); the computer does it and the
@@ -22,6 +27,52 @@ function notify(title, body) {
     if (typeof Notification === "undefined" || Notification.permission !== "granted" || !document.hidden) return;
     new Notification(title, { body: body.slice(0, 140), icon: "/favicon.ico" });
   } catch { /* notifications unavailable */ }
+}
+
+const TARGET_KEY = "vetroai_dispatch_target";
+const readTarget = () => { try { return localStorage.getItem(TARGET_KEY) || "any"; } catch { return "any"; } };
+const saveTarget = (id) => { try { localStorage.setItem(TARGET_KEY, id); } catch { /* storage unavailable */ } };
+
+// On the computer: a QR code of a link that opens Dispatch on the phone, aimed
+// at this computer. Shows when the phone has opened it.
+function ConnectPhone({ uid, deviceId, devices, now, onClose }) {
+  const [email, setEmail] = useState("");
+  const [qr, setQr] = useState("");
+  const [copied, setCopied] = useState(false);
+  const openedAt = useRef(Date.now());
+  useEffect(() => watchAuthState((u) => setEmail(u?.email || "")), []);
+  const link = useMemo(() => pairLink(window.location.origin, { deviceId, uid, email }), [deviceId, uid, email]);
+  useEffect(() => {
+    let alive = true;
+    QRCode.toDataURL(link, { margin: 1, width: 240, errorCorrectionLevel: "M" })
+      .then((url) => { if (alive) setQr(url); })
+      .catch(() => { if (alive) setQr(""); });
+    return () => { alive = false; };
+  }, [link]);
+  const joined = devices.find((d) => d.kind === "phone" && d.pairedWith === deviceId && d.pairedAt >= openedAt.current - 5000);
+  const copy = () => {
+    navigator.clipboard?.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => {});
+  };
+  return (
+    <div className="cw-dsp-pair" role="dialog" aria-label="Connect your phone">
+      <button type="button" className="cw-dsp-pair-x" onClick={onClose} aria-label="Close"><X size={16} /></button>
+      <div className="cw-dsp-pair-qr">
+        {joined
+          ? <div className="cw-dsp-pair-ok"><CheckCircle2 size={40} /><strong>{joined.name} connected</strong><small>{formatAgo(joined.pairedAt, now)}</small></div>
+          : qr ? <img src={qr} alt="QR code to open Dispatch on your phone" width={200} height={200} /> : <Loader2 size={22} className="animate-spin" />}
+      </div>
+      <div className="cw-dsp-pair-text">
+        <strong>{joined ? "Your phone is connected" : "Connect your phone"}</strong>
+        <ol>
+          <li>Scan this code with your phone's camera.</li>
+          <li>Sign in{email ? <> as <b>{maskEmail(email)}</b></> : ""} if it asks — the same account as this computer.</li>
+          <li>Send a task. It runs here and the result comes back to your phone.</li>
+        </ol>
+        <small>Keep VetroAI open on this computer, in Computer. Tip: on the phone, "Add to Home Screen" makes it one tap next time.</small>
+        <button type="button" className="cw-dsp-pair-copy" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Link copied" : "Copy link instead"}</button>
+      </div>
+    </div>
+  );
 }
 
 function StatusIcon({ status }) {
@@ -81,7 +132,13 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
   const [devices, setDevices] = useState([]);
   const [error, setError] = useState("");
   const [text, setText] = useState("");
-  const [target, setTarget] = useState("any");
+  const [target, setTargetState] = useState(readTarget);
+  const setTarget = (id) => { setTargetState(id); saveTarget(id); };
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  const [showPair, setShowPair] = useState(false);
+  // Set when this phone opened a computer's pairing link: { ok, name } or { ok: false, as }.
+  const [paired, setPaired] = useState(null);
+  const pending0 = useRef(peekPair());
   const [sending, setSending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const seen = useRef(new Map());
@@ -106,12 +163,28 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
       }
       setDispatches(list);
     }, fail);
-    const offB = watchDevices(uid, setDevices, fail);
+    const offB = watchDevices(uid, (list) => { setDevices(list); setDevicesLoaded(true); }, fail);
     return () => { offA(); offB(); };
   }, [uid]);
 
   const thread = useMemo(() => [...(dispatches || [])].reverse(), [dispatches]);
-  const computers = useMemo(() => devices.filter((d) => d.id !== deviceId || accepting), [devices, deviceId, accepting]);
+  const computers = useMemo(() => devices.filter((d) => isComputerDevice(d) && (d.id !== deviceId || accepting)), [devices, deviceId, accepting]);
+  const phones = useMemo(() => devices.filter((d) => !isComputerDevice(d)), [devices]);
+
+  // This phone opened a computer's pairing link: aim at that computer and tell it.
+  useEffect(() => {
+    const pair = pending0.current;
+    if (!pair || !uid || !devicesLoaded) return;
+    pending0.current = null;
+    clearPair();
+    if (!pairMatchesAccount(pair, uid)) { setPaired({ ok: false, as: pair.as }); return; }
+    const computer = devices.find((d) => d.id === pair.deviceId);
+    setTargetState(pair.deviceId); saveTarget(pair.deviceId);
+    setPaired({ ok: true, name: computer?.name || "your computer" });
+    if (pair.deviceId !== deviceId) {
+      announcePhone(uid, { id: deviceId, name: phoneLabel(navigator.userAgent), pairedWith: pair.deviceId }).catch(() => {});
+    }
+  }, [uid, devicesLoaded, devices, deviceId]);
   const online = computers.filter((d) => isOnline(d, now));
   const pending = (dispatches || []).filter((d) => !FINISHED.has(d.status)).length;
   useEffect(() => { onBusy?.(pending); }, [pending, onBusy]);
@@ -119,7 +192,10 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
   const last = thread[thread.length - 1];
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [thread.length, last?.status]);
   // A computer picked earlier that has since been forgotten falls back to "any".
-  useEffect(() => { if (target !== "any" && !computers.some((d) => d.id === target)) setTarget("any"); }, [computers, target]);
+  // Waits for the device list, or a remembered computer would be dropped before it loads.
+  useEffect(() => {
+    if (devicesLoaded && target !== "any" && !computers.some((d) => d.id === target)) { setTargetState("any"); saveTarget("any"); }
+  }, [computers, target, devicesLoaded]);
 
   const send = async (e, value = text) => {
     e?.preventDefault();
@@ -146,7 +222,7 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
           <div className="cw-sched-empty">
             <Smartphone size={26} />
             <strong>Sign in to use Dispatch</strong>
-            <span>Dispatch links your phone and your computer through your VetroAI account. Sign in on both, with the same account.</span>
+            <span>Dispatch links your phone and your computer through your VetroAI account. Sign in on both, with the same account{pending0.current?.as ? <> — <b>{pending0.current.as}</b></> : ""}.</span>
           </div>
         </div>
       </section>
@@ -161,7 +237,24 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
             <h1 className="cowork-title" style={{ fontSize: 30, marginBottom: 4 }}>Dispatch</h1>
             <p className="cowork-subtitle" style={{ margin: 0 }}>Send a task from your phone. VetroAI does it on your computer and the finished work comes back here.</p>
           </div>
+          {isComputer && !showPair && (
+            <button type="button" className="cw-dsp-pair-btn" onClick={() => { onAcceptingChange(true); setShowPair(true); }}>
+              <QrCode size={15} /> Connect phone
+            </button>
+          )}
         </div>
+
+        {showPair && isComputer && <ConnectPhone uid={uid} deviceId={deviceId} devices={devices} now={now} onClose={() => setShowPair(false)} />}
+
+        {paired && (
+          <div className={`cw-dsp-paired${paired.ok ? "" : " is-bad"}`} role="status">
+            {paired.ok ? <Link2 size={16} /> : <TriangleAlert size={16} />}
+            <span>{paired.ok
+              ? <>Connected to <strong>{paired.name}</strong>. Tasks you send here run there.</>
+              : <>This code is for a different VetroAI account{paired.as ? <> (<strong>{paired.as}</strong>)</> : ""}. Sign out, sign in with that account and scan it again.</>}</span>
+            <button type="button" onClick={() => setPaired(null)} aria-label="Dismiss"><X size={14} /></button>
+          </div>
+        )}
 
         <div className="cw-dsp-devices">
           {isComputer && (
@@ -182,10 +275,18 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
               <small>{isOnline(d, now) ? "Online" : d.lastSeen ? `Last seen ${formatAgo(d.lastSeen, now)}` : "Offline"}</small>
             </div>
           ))}
+          {isComputer && phones.map((d) => (
+            <div key={d.id} className="cw-dsp-device">
+              <Smartphone size={16} />
+              <span>{d.name}</span>
+              <small>Connected {formatAgo(d.pairedAt, now)}</small>
+              <button type="button" className="cw-dsp-forget" onClick={() => act(() => forgetDevice(uid, d.id))} title="Forget this phone" aria-label={`Forget ${d.name}`}><X size={13} /></button>
+            </div>
+          ))}
           {!isComputer && computers.length === 0 && (
             <div className="cw-sched-banner">
               <TriangleAlert size={15} />
-              <span>No computer is set up yet. On your PC, open the <strong>VetroAI desktop app</strong> (or VetroAI in a browser), sign in with this account, go to <strong>Computer → Dispatch</strong> and turn on <strong>Accept tasks</strong>. You can send tasks now — they wait until it's on.</span>
+              <span>No computer is set up yet. On your PC, open the <strong>VetroAI desktop app</strong> (or VetroAI in a browser), sign in with this account, go to <strong>Computer → Dispatch</strong> and tap <strong>Connect phone</strong>, then scan the code with this phone. You can send tasks now — they wait until it's on.</span>
             </div>
           )}
         </div>

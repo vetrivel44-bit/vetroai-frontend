@@ -36,7 +36,9 @@ import { renderVisualBlock } from "./lib/visualBlocks";
 import { ReplyContext, findChoices } from "./lib/choices";
 import ChoicePanel from "./components/chat/visuals/ChoicePanel";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
-import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones } from "./lib/userStore";
+import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones, compactLocalSessions } from "./lib/userStore";
+import { makeThumbnail } from "./lib/chatCache";
+import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
@@ -4982,6 +4984,7 @@ export default function App() {
   // reconciles this with the server copy once the auth listener has a uid.
   useEffect(() => {
     if (!user || !userKey) return;
+    compactLocalSessions(userKey);
     const cachedSessions  = readLocalList(userKey, "sessions");
     const cachedSpaces    = readLocalList(userKey, "spaces");
     const cachedArtifacts = readLocalList(userKey, "artifacts");
@@ -7393,7 +7396,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const fileAttachments = selFiles.length ? await Promise.all(selFiles.map(async f => {
       const preview = filePreviews.find(fp => fp.name === f.name && fp.size === f.size)?.src
         || (f.type.startsWith("image/") ? await fileToDataUrl(f).catch(() => null) : null);
-      return { name: f.name, size: f.size, preview: preview || null };
+      // A small copy for the on-device chat cache, which drops big previews.
+      const thumb = preview ? await makeThumbnail(preview) : null;
+      return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}) };
     })) : null;
     const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
     rememberTurnFiles(userMsg, filesToSend);
@@ -7718,6 +7723,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
   const [showChess, setShowChess] = useState(false);
+  // A phone that scanned a computer's Dispatch QR code opens straight into
+  // Computer → Dispatch (ComputerUI picks the pairing up from the tab).
+  useEffect(() => {
+    const pair = readPairLink(window.location.search);
+    if (!pair) return;
+    stashPair(pair);
+    const params = new URLSearchParams(window.location.search);
+    for (const k of [PAIR_PARAM, "acct", "as"]) params.delete(k);
+    window.history.replaceState({}, "", window.location.pathname + (params.toString() ? `?${params}` : ""));
+    setActiveNav("computer");
+    setShowComputer(true);
+  }, []);
   const [pluginState, setPluginState] = useState(loadPluginState);
   const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);

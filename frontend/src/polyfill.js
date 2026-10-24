@@ -1,3 +1,5 @@
+import { installStorageGuard } from './lib/storageGuard.js';
+
 try {
   window.localStorage.getItem('test');
 } catch (e) {
@@ -24,3 +26,7 @@ try {
     configurable: true
   });
 }
+
+// Never let a full localStorage quota crash the app.
+
+try { installStorageGuard(); } catch { /* Storage unavailable */ }

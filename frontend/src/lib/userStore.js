@@ -4,6 +4,7 @@
 // app still works signed out or offline) and is mirrored to Firestore for the
 // signed-in user, debounced inside firestoreStore.
 import { syncList, savePrefs, recordDeletions, LIST_KINDS } from "./firestoreStore.js";
+import { trimSessionsForCache } from "./chatCache.js";
 
 // Firestore is keyed by uid; localStorage is keyed by email (`userKey`) so that
 // existing on-device data survives this migration. Holding the uid in module
@@ -19,7 +20,9 @@ const localKey = (kind, userKey) => `vetroai_${kind}_${userKey}`;
 export function persistList(userKey, kind, list) {
   if (userKey) {
     try {
-      localStorage.setItem(localKey(kind, userKey), JSON.stringify(list));
+      // Big inline images stay in memory and Firestore, not on the device.
+      const local = kind === "sessions" ? trimSessionsForCache(list) : list;
+      localStorage.setItem(localKey(kind, userKey), JSON.stringify(local));
     } catch {
       // Quota exceeded or storage disabled — Firestore below is still the
       // durable copy, so this is not fatal.
@@ -74,6 +77,19 @@ export function readLocalList(userKey, kind) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Rewrite the cached sessions without their big inline images. Chats saved
+ * before images were trimmed can fill the quota on their own, so this runs
+ * once on load to give the space back.
+ */
+export function compactLocalSessions(userKey) {
+  const list = readLocalList(userKey, "sessions");
+  if (!list) return;
+  const trimmed = trimSessionsForCache(list);
+  if (trimmed.every((s, i) => s === list[i])) return;
+  try { localStorage.setItem(localKey("sessions", userKey), JSON.stringify(trimmed)); } catch { /* see persistList */ }
 }
 
 /** Persist a small scalar preference (currently the selected space). */
