@@ -1030,3 +1030,29 @@ aside .cw-folder-tool { padding: 9px 10px; }
 .cw-dsp-to { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cw-muted); }
 .cw-dsp-composer-row button { flex: none; width: 38px; height: 38px; border-radius: 12px; border: 0; background: var(--cw-text); color: var(--cw-bg); display: grid; place-items: center; }
 .cw-dsp-composer-row button:disabled { opacity: .35; }
+
+/* Dispatch → Connect phone: a QR code that opens Dispatch on the phone. */
+.cw-dsp-pair-btn { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 11px; border: 1px solid var(--cw-line); background: var(--cw-surface); color: var(--cw-text); font-size: 13px; font-weight: 600; cursor: pointer; }
+.cw-dsp-pair-btn:hover { border-color: var(--cw-accent); }
+.cw-dsp-pair { position: relative; display: flex; gap: 20px; align-items: center; padding: 18px; border-radius: 18px; border: 1px solid var(--cw-line); background: var(--cw-surface); animation: cwFolderIn .3s cubic-bezier(.22,1,.36,1) both; }
+.cw-dsp-pair-x { position: absolute; top: 10px; right: 10px; display: inline-flex; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--cw-muted); cursor: pointer; }
+.cw-dsp-pair-qr { flex: none; width: 216px; height: 216px; display: grid; place-items: center; border-radius: 14px; background: #fff; padding: 8px; box-sizing: border-box; }
+.cw-dsp-pair-qr img { display: block; width: 200px; height: 200px; image-rendering: pixelated; }
+.cw-dsp-pair-ok { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; color: #1f2a24; }
+.cw-dsp-pair-ok svg { color: #2e9e62; }
+.cw-dsp-pair-ok small { color: #5d6b63; font-size: 12px; }
+.cw-dsp-pair-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cw-dsp-pair-text > strong { font-size: 16px; font-weight: 650; }
+.cw-dsp-pair-text ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.6; }
+.cw-dsp-pair-text > small { font-size: 12px; color: var(--cw-muted); line-height: 1.45; }
+.cw-dsp-pair-copy { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--cw-line); background: transparent; color: var(--cw-text); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cw-dsp-paired { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; border: 1px solid color-mix(in srgb, #2e9e62 40%, var(--cw-line)); background: color-mix(in srgb, #2e9e62 7%, var(--cw-surface)); font-size: 13.5px; line-height: 1.45; }
+.cw-dsp-paired.is-bad { border-color: color-mix(in srgb, #c27a1a 45%, var(--cw-line)); background: color-mix(in srgb, #c27a1a 7%, var(--cw-surface)); }
+.cw-dsp-paired > svg { flex: none; color: #2e9e62; }
+.cw-dsp-paired.is-bad > svg { color: #c27a1a; }
+.cw-dsp-paired > span { flex: 1; min-width: 0; }
+.cw-dsp-paired > button, .cw-dsp-forget { flex: none; display: inline-flex; padding: 5px; border: 0; border-radius: 7px; background: transparent; color: var(--cw-muted); cursor: pointer; }
+@media (max-width: 640px) {
+  .cw-dsp-pair { flex-direction: column; align-items: stretch; }
+  .cw-dsp-pair-qr { align-self: center; }
+}

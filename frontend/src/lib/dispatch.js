@@ -77,3 +77,11 @@ export function watchDevices(uid, onChange, onError) {
 
 export const heartbeat = (uid, device) => setDoc(deviceDoc(uid, device.id), { ...device, lastSeen: Date.now() }, { merge: true });
 export const forgetDevice = (uid, id) => deleteDoc(deviceDoc(uid, id));
+
+/**
+ * The phone says it opened this computer's pairing code, so the computer can
+ * show "phone connected". A phone never accepts tasks, so it is never online
+ * as a computer.
+ */
+export const announcePhone = (uid, { id, name, pairedWith }) =>
+  setDoc(deviceDoc(uid, id), { id, name, kind: "phone", accepting: false, pairedWith, pairedAt: Date.now(), lastSeen: Date.now() }, { merge: true });

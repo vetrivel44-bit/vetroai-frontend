@@ -117,3 +117,62 @@ export function describeDispatch(d, devices = [], now = Date.now()) {
     default: return "";
   }
 }
+
+// ─── Pairing a phone with a computer ──────────────────────────────────────
+// The computer shows a QR code of a link to this app. Opening it on the phone
+// goes straight to Dispatch, aimed at that computer. Both ends still sign in
+// with the same VetroAI account — that is what lets the phone reach it — so
+// the link carries a short account tag to catch a phone signed in as someone
+// else, and a masked email to say who to sign in as.
+
+export const PAIR_PARAM = "dispatch";
+
+/** "vel21873@gmail.com" → "ve•••@gmail.com" */
+export function maskEmail(email = "") {
+  const [name, domain] = String(email).split("@");
+  if (!name || !domain) return "";
+  return `${name.slice(0, 2)}•••@${domain}`;
+}
+
+const acctTag = (uid) => String(uid || "").slice(0, 10);
+
+export function pairLink(origin, { deviceId, uid, email }) {
+  const params = new URLSearchParams({ [PAIR_PARAM]: deviceId, acct: acctTag(uid) });
+  const hint = maskEmail(email);
+  if (hint) params.set("as", hint);
+  return `${String(origin).replace(/\/+$/, "")}/?${params}`;
+}
+
+/** The pairing in a URL's query string, or null. */
+export function readPairLink(search = "") {
+  const params = new URLSearchParams(search);
+  const deviceId = params.get(PAIR_PARAM);
+  if (!deviceId || !/^dev_[\w-]{1,80}$/.test(deviceId)) return null;
+  return { deviceId, acct: params.get("acct") || "", as: params.get("as") || "" };
+}
+
+/** Whether the phone's account is the one the computer showed the code for. */
+export const pairMatchesAccount = (pair, uid) => !pair?.acct || acctTag(uid) === pair.acct;
+
+export function phoneLabel(userAgent = "") {
+  if (/iPhone/i.test(userAgent)) return "iPhone";
+  if (/iPad/i.test(userAgent)) return "iPad";
+  if (/Android/i.test(userAgent)) return "Android phone";
+  return "Phone";
+}
+
+/** Computers only — a paired phone also has a device document. */
+export const isComputerDevice = (d) => d?.kind !== "phone";
+
+// The link is consumed on load (and removed from the address bar), then kept
+// for the tab until Dispatch opens — signing in first doesn't lose it.
+const PAIR_KEY = "vetroai_dispatch_pair";
+export function stashPair(pair) {
+  try { sessionStorage.setItem(PAIR_KEY, JSON.stringify(pair)); } catch { /* storage unavailable */ }
+}
+export function peekPair() {
+  try { return JSON.parse(sessionStorage.getItem(PAIR_KEY) || "null"); } catch { return null; }
+}
+export function clearPair() {
+  try { sessionStorage.removeItem(PAIR_KEY); } catch { /* storage unavailable */ }
+}

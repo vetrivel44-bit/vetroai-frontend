@@ -93,6 +93,19 @@ Nothing goes through the backend, but it needs the `dispatch` and `devices`
 rules in `firestore.rules` — deploy them as for Publish above. Until then,
 Dispatch says it isn't switched on yet.
 
+**Connecting a phone.** On the computer, open Computer → Dispatch and click
+**Connect phone**: it turns on Accept tasks and shows a QR code. Scanning it
+opens VetroAI on the phone straight in Dispatch, aimed at that computer (sign
+in with the same account if asked). The computer shows "phone connected" when
+it does, and lists the phone so it can be forgotten later.
+
+**Rules deploy from CI.** The Deploy workflow's *Deploy Firestore rules* job
+publishes `firestore.rules` on every push to `main` once the repository secret
+`FIREBASE_SERVICE_ACCOUNT` holds a service account key (Firebase console →
+Project settings → Service accounts → Generate new private key; the account
+needs the *Firebase Rules Admin* role). Without the secret the job skips with a
+notice and the manual command above still works.
+
 ## Scheduled tasks (Computer → Scheduled)
 
 "Every morning at 8, send me today's top news", "Tell me when the iPhone 17 drops

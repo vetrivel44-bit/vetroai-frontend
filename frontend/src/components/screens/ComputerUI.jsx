@@ -23,7 +23,7 @@ import { publishSite } from "../../lib/sitePublish";
 import ScheduledPanel from "./ScheduledPanel";
 import DispatchPanel from "./DispatchPanel";
 import { claimDispatch, dispatchReady, getDeviceId, heartbeat, updateDispatch, watchDispatches } from "../../lib/dispatch";
-import { FINISHED, HEARTBEAT_MS, deviceLabel, nextQueued, orphanedRuns, toDispatchUpdate } from "../../lib/dispatchCore";
+import { FINISHED, HEARTBEAT_MS, deviceLabel, nextQueued, orphanedRuns, peekPair, toDispatchUpdate } from "../../lib/dispatchCore";
 import { watchAuthState } from "../../lib/firebaseAuth";
 import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
 import { startComputerRun } from "../../lib/usageClient";
@@ -432,7 +432,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
   // "tasks" (the thread) or "scheduled" (Computer → Scheduled).
-  const [view, setView] = useState("tasks");
+  // Opened from a Dispatch pairing link → start on Dispatch.
+  const [view, setView] = useState(() => (peekPair() ? "dispatch" : "tasks"));
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduledUnread, setScheduledUnread] = useState(0);
   // The Pro offer when the usage limits run out.
