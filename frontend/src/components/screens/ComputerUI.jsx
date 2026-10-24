@@ -23,6 +23,7 @@ import { publishSite } from "../../lib/sitePublish";
 import ScheduledPanel from "./ScheduledPanel";
 import DispatchPanel from "./DispatchPanel";
 import { claimDispatch, dispatchReady, getDeviceId, heartbeat, updateDispatch, watchDispatches } from "../../lib/dispatch";
+import { isLiveSiteRequest } from "../../lib/liveSites";
 import { FINISHED, HEARTBEAT_MS, deviceLabel, nextQueued, orphanedRuns, peekPair, toDispatchUpdate } from "../../lib/dispatchCore";
 import { watchAuthState } from "../../lib/firebaseAuth";
 import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
@@ -1087,7 +1088,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     // diverting it to the desktop app would disable a feature that works here.
     // Attachments and file/document wording are excluded for the same reason.
     const needsDesktop = !hasDesktop
-      && (DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt))
+      && (DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || isLiveSiteRequest(prompt))
       && !YOUTUBE_REQUEST.test(prompt)
       && !FILE_CONTENT_REQUEST.test(prompt)
       && !files.length;
@@ -1170,11 +1171,13 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       await updateDispatch(uid, d.id, { status: "awaiting_approval", approvalReason: "This may open, send, post, buy, delete or change something for you." }).catch(() => {});
       return;
     }
-    const wantsScreen = DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt);
+    const wantsScreen = DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || isLiveSiteRequest(prompt) || YOUTUBE_REQUEST.test(prompt);
     // Never pops the "allow control?" dialog: nobody may be here to answer it,
     // and the run would sit waiting on it. Control has to be on already.
     const control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;
-    if (DESKTOP_CONTROL_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt)) {
+    // Shopping and food sites too: their prices, ratings and stock only exist
+    // on the live page, so a web-search answer would only pretend to have looked.
+    if (DESKTOP_CONTROL_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt) || isLiveSiteRequest(prompt)) {
       if (!hasDesktop) return fail("This needs mouse and keyboard control, which only the VetroAI desktop app can do — not a browser tab. Turn on Accept tasks in the desktop app, then send it again.");
       if (!control?.enabled) return fail("Screen control is off on your computer, so VetroAI didn't touch the mouse or keyboard. In the desktop app, allow screen control in Computer, then send this again.");
     }
