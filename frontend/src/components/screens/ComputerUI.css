@@ -1014,7 +1014,8 @@ aside .cw-folder-tool { padding: 9px 10px; }
 .cw-dsp-result ol { margin: 0 0 8px; padding-left: 18px; list-style: decimal; }
 .cw-dsp-result h1, .cw-dsp-result h2, .cw-dsp-result h3 { font-size: 15px; font-weight: 700; margin: 10px 0 6px; }
 .cw-dsp-result table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 12.5px; margin: 6px 0; }
-.cw-dsp-result th, .cw-dsp-result td { border: 1px solid var(--cw-line); padding: 5px 8px; text-align: left; }
+/* Whole words in cells: the table scrolls sideways on a phone instead of breaking "Samsung" into "Sams ung". */
+.cw-dsp-result th, .cw-dsp-result td { border: 1px solid var(--cw-line); padding: 5px 8px; text-align: left; overflow-wrap: normal; }
 .cw-dsp-result pre { overflow-x: auto; padding: 8px 10px; border-radius: 10px; background: var(--cw-bg); font-size: 12px; }
 .cw-dsp-result a { color: var(--cw-accent); text-decoration: underline; }
 .cw-dsp-actions { display: flex; gap: 4px; justify-content: flex-end; }

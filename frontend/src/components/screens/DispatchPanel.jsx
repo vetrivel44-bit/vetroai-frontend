@@ -188,9 +188,9 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
   const online = computers.filter((d) => isOnline(d, now));
   const pending = (dispatches || []).filter((d) => !FINISHED.has(d.status)).length;
   useEffect(() => { onBusy?.(pending); }, [pending, onBusy]);
-  // Keeps the newest card in view as it changes (an approval prompt, a result).
+  // Keeps the newest card in view as it changes (progress, an approval prompt, a result).
   const last = thread[thread.length - 1];
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [thread.length, last?.status]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [thread.length, last?.status, last?.progress]);
   // A computer picked earlier that has since been forgotten falls back to "any".
   // Waits for the device list, or a remembered computer would be dropped before it loads.
   useEffect(() => {
