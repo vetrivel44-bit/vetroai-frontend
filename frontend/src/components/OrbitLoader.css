@@ -1,0 +1,53 @@
+.vetro-orbit {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--orbit-size, 26px);
+  height: var(--orbit-size, 26px);
+}
+
+/* pulsing core */
+.vetro-orbit::before {
+  content: "";
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  background: var(--orbit-core, #3fd0c9);
+  box-shadow: 0 0 8px var(--orbit-core, #3fd0c9);
+  animation: vetro-core 1.2s ease-in-out infinite;
+}
+
+/* each <i> is a rotating track carrying one dot */
+.vetro-orbit i {
+  position: absolute;
+  inset: 0;
+  animation: vetro-spin 1.2s linear infinite;
+}
+.vetro-orbit i::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 23%;
+  height: 23%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--orbit-a, #9be8e4);
+}
+
+/* second dot: slower, opposite direction */
+.vetro-orbit i:nth-child(2) {
+  animation-duration: 1.8s;
+  animation-direction: reverse;
+}
+.vetro-orbit i:nth-child(2)::after {
+  background: var(--orbit-b, #b78bff);
+}
+
+@keyframes vetro-spin { to { transform: rotate(360deg); } }
+@keyframes vetro-core { 50% { transform: scale(0.6); opacity: 0.7; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .vetro-orbit i { animation-duration: 4s; }
+  .vetro-orbit::before { animation: none; }
+}
