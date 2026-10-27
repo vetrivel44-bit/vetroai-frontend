@@ -115,9 +115,10 @@ async function generateStream(messages, options = {}) {
       stream: true,
       // sarvam-105b reasons at "medium" by default, and on a drawing it reasoned
       // for minutes (shown as "Thinking…") and could spend max_tokens before
-      // drawing at all. Off entirely, it placed shapes badly and drew the wrong
-      // thing; "low" is a short plan of the parts, then the sketch.
-      ...(drawing ? { reasoning_effort: "low" } : {}),
+      // drawing at all — "low" did too. null switches reasoning off, so the
+      // sketch starts straight away; staying on the subject and finishing the
+      // sketch are handled by the drawing instruction and the orchestrator.
+      ...(drawing ? { reasoning_effort: null } : {}),
     }, { timeoutMs: 30000 });
     return res.body;
   } catch (err) {

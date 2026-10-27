@@ -294,13 +294,14 @@ test("picked, a Sarvam answer cut off part-way continues from where it stopped",
   }
 });
 
-test("a drawing asks Sarvam for only low reasoning; an ordinary chat leaves it alone", async (t) => {
+test("a drawing asks Sarvam to skip reasoning; an ordinary chat leaves it alone", async (t) => {
   const drawing = await chatWithSarvam(t, [sarvamSays("Here is the heart.")], {
     input: "draw a labelled diagram of the heart",
     systemPrompt: "[DRAWING REQUEST — FOLLOW EXACTLY]\nThe user asked: \"draw a labelled diagram of the heart\".",
   });
   assert.equal(drawing.text, "Here is the heart.");
-  assert.equal(drawing.calls.bodies[0].reasoning_effort, "low");
+  assert.ok("reasoning_effort" in drawing.calls.bodies[0], "reasoning_effort is sent");
+  assert.equal(drawing.calls.bodies[0].reasoning_effort, null);
 
   const chat = await chatWithSarvam(t, [sarvamSays("Hello!")]);
   assert.equal("reasoning_effort" in chat.calls.bodies[0], false);
