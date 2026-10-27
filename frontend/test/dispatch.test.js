@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ONLINE_WINDOW_MS, describeDispatch, deviceLabel, formatAgo, isOnline, nextQueued, orphanedRuns, summarizeForPhone, toDispatchUpdate,
+  DOC_TEXT_BYTES, ONLINE_WINDOW_MS, clipToBytes, describeDispatch, deviceLabel, formatAgo, isOnline, nextQueued, orphanedRuns, summarizeForPhone, toDispatchUpdate,
 } from "../src/lib/dispatchCore.js";
 
 const NOW = 1_800_000_000_000;
@@ -44,7 +44,7 @@ test("runs this computer lost track of are found, not the one it is doing", () =
   assert.deepEqual(orphanedRuns(list, "me", "2").map((d) => d.id), ["1"]);
 });
 
-test("a website or long code is described, not sent to the phone", () => {
+test("a website is described; everything else reaches the phone in full", () => {
   const site = summarizeForPhone("Here it is.\n\n```html\n<!doctype html><html>…</html>\n```\n\nEnjoy!");
   assert.equal(site.website, true);
   assert.match(site.text, /Website built/);
@@ -53,14 +53,20 @@ test("a website or long code is described, not sent to the phone", () => {
   const cut = summarizeForPhone("```html\n<html><body>still going");
   assert.equal(cut.website, true);
 
-  const longCode = summarizeForPhone(`Script:\n\`\`\`python\n${"print(1)\n".repeat(300)}\`\`\``);
-  assert.match(longCode.text, /python code \(\d+ lines\)/);
-  const shortCode = summarizeForPhone("```js\nconsole.log(1)\n```");
-  assert.match(shortCode.text, /console\.log/);
+  // No limit on code or length of our own.
+  const code = "print(1)\n".repeat(3000);
+  assert.ok(summarizeForPhone(`Script:\n\`\`\`python\n${code}\`\`\``).text.includes(code.trim()));
+  const long = "word ".repeat(30000).trim();
+  assert.equal(summarizeForPhone(long).text, long);
+});
 
-  const long = summarizeForPhone("word ".repeat(3000));
-  assert.ok(long.text.length < 6200);
-  assert.match(long.text, /full result is on your computer/);
+test("only Firestore's document cap can cut a result, and never mid-letter", () => {
+  const tamil = "வணக்கம் ".repeat(60000); // ~1.3 MB in UTF-8, over one document
+  const { text } = summarizeForPhone(tamil);
+  assert.ok(new TextEncoder().encode(text).length <= DOC_TEXT_BYTES);
+  assert.match(text, /The rest is on your computer/);
+  assert.doesNotMatch(text, /�/);
+  assert.equal(clipToBytes("short"), "short");
 });
 
 test("a task's progress and result become the phone's update", () => {
