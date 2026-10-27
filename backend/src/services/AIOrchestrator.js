@@ -75,6 +75,12 @@ function historyWithinBudget(messages, maxChars = HISTORY_CHAR_BUDGET) {
 }
 
 const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
+// A hand-drawn sketch is 20–80 shapes (~2-4K tokens) plus a few short notes.
+// The floor stops a low effort setting cutting the sketch off half-drawn (paid
+// for and useless); the ceiling stops a runaway reply burning credits. Only the
+// tokens actually written are billed.
+const DRAWING_MIN_TOKENS = 4096;
+const DRAWING_MAX_TOKENS = 6000;
 // A research report runs long; this is the least room the writer gets.
 const RESEARCH_MIN_TOKENS = 8192;
 
@@ -878,10 +884,22 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const compactSysPrompt = isAgentic && compactContext
       ? await this.buildSystemPrompt(mode, { userQuery, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
       : null;
+    // A drawing carries its own sketch rules (the app's drawing instruction), so
+    // it gets the lean prompt without the chart/diagram/table rules: about a
+    // third of the input tokens, on every try.
+    const drawing = Boolean(options?.drawing);
+    const drawingSysPrompt = drawing
+      ? await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
+      : null;
+    if (drawing) {
+      options = { ...options, maxTokens: Math.min(Math.max(Number(options.maxTokens) || 0, DRAWING_MIN_TOKENS), DRAWING_MAX_TOKENS) };
+    }
     // Only ask for an explicit <think> block when the turn is substantial enough
     // to warrant one. Models that reason natively stream their own and skip it
     // (see messagesFor) — asking them as well made them deliberate twice.
-    const wantsThinking = config.thinkingEnabled && !isGreeting && userQuery.trim().length > 12 && mode !== "computer_use";
+    // Not for a drawing either: it goes straight to the sketch, and a <think>
+    // block would be billed as output for nothing.
+    const wantsThinking = config.thinkingEnabled && !isGreeting && !drawing && userQuery.trim().length > 12 && mode !== "computer_use";
     const thinkingPrompt = wantsThinking ? this.buildThinkingPrompt(params.effort) : "";
     const astrologyPrompt = astrology.prompt || "";
     // The adapters that honour it map this to the model's own reasoning depth.
@@ -915,6 +933,9 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const messagesFor = (providerName) => {
       const adapter = providerManager.getAdapter(providerName);
       const thinking = adapter?.reasonsNatively?.() ? "" : thinkingPrompt;
+      if (drawingSysPrompt) {
+        return [{ role: "system", content: drawingSysPrompt + astrologyPrompt }, ...history];
+      }
       if (sysPromptWithoutSearch && adapter?.searchResultsWithQuestion?.()) {
         return [
           { role: "system", content: sysPromptWithoutSearch + thinking + astrologyPrompt },

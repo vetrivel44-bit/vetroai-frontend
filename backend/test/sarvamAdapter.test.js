@@ -307,6 +307,22 @@ test("a drawing asks Sarvam to skip reasoning; an ordinary chat leaves it alone"
   assert.equal("reasoning_effort" in chat.calls.bodies[0], false);
 });
 
+test("a drawing is sent lean: no chart rules, no <think> ask, a bounded reply", async (t) => {
+  const systemOf = (body) => body.messages.filter((m) => m.role === "system").map((m) => m.content).join("");
+  const sketch = { input: "draw the heart", systemPrompt: "[DRAWING REQUEST — FOLLOW EXACTLY]\nDraw the heart." };
+  const small = await chatWithSarvam(t, [sarvamSays("ok")], { ...sketch, maxTokens: 2048 });
+  const big = await chatWithSarvam(t, [sarvamSays("ok")], { ...sketch, maxTokens: 16000 });
+  const chat = await chatWithSarvam(t, [sarvamSays("ok")], { input: "tell me about the human heart in detail" });
+
+  const drawingPrompt = systemOf(small.calls.bodies[0]);
+  assert.ok(drawingPrompt.includes("[DRAWING REQUEST"), "the drawing instruction is kept");
+  assert.ok(drawingPrompt.length < systemOf(chat.calls.bodies[0]).length / 2, "well under half an ordinary prompt");
+  assert.doesNotMatch(drawingPrompt, /<think>/);
+  // Enough room for a whole sketch, never a runaway reply.
+  assert.equal(small.calls.bodies[0].max_tokens, 4096);
+  assert.equal(big.calls.bodies[0].max_tokens, 6000);
+});
+
 test("picked, a key problem is reported at once instead of retried", async (t) => {
   const r = await chatWithSarvam(t, [() => new Response('{"error":{"message":"Invalid API key"}}', { status: 401 })]);
   assert.equal(r.calls.sarvam, 1);
