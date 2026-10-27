@@ -113,10 +113,11 @@ async function generateStream(messages, options = {}) {
       temperature: temperature ?? 0.7,
       max_tokens: Math.min(maxTokens ?? 4096, MAX_TOKENS_CAP),
       stream: true,
-      // sarvam-105b reasons by default, and on a drawing it reasoned for minutes
-      // (shown as "Thinking…") and could spend max_tokens before drawing at
-      // all. null switches reasoning off, so the sketch starts straight away.
-      ...(drawing ? { reasoning_effort: null } : {}),
+      // sarvam-105b reasons at "medium" by default, and on a drawing it reasoned
+      // for minutes (shown as "Thinking…") and could spend max_tokens before
+      // drawing at all. Off entirely, it placed shapes badly and drew the wrong
+      // thing; "low" is a short plan of the parts, then the sketch.
+      ...(drawing ? { reasoning_effort: "low" } : {}),
     }, { timeoutMs: 30000 });
     return res.body;
   } catch (err) {

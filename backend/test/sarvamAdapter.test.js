@@ -294,17 +294,31 @@ test("picked, a Sarvam answer cut off part-way continues from where it stopped",
   }
 });
 
-test("a drawing asks Sarvam to skip reasoning; an ordinary chat leaves it alone", async (t) => {
+test("a drawing asks Sarvam for only low reasoning; an ordinary chat leaves it alone", async (t) => {
   const drawing = await chatWithSarvam(t, [sarvamSays("Here is the heart.")], {
     input: "draw a labelled diagram of the heart",
     systemPrompt: "[DRAWING REQUEST — FOLLOW EXACTLY]\nThe user asked: \"draw a labelled diagram of the heart\".",
   });
   assert.equal(drawing.text, "Here is the heart.");
-  assert.ok("reasoning_effort" in drawing.calls.bodies[0], "reasoning_effort is sent");
-  assert.equal(drawing.calls.bodies[0].reasoning_effort, null);
+  assert.equal(drawing.calls.bodies[0].reasoning_effort, "low");
 
   const chat = await chatWithSarvam(t, [sarvamSays("Hello!")]);
   assert.equal("reasoning_effort" in chat.calls.bodies[0], false);
+});
+
+test("a drawing that stops at its token limit mid-sketch is finished, not left half-drawn", async (t) => {
+  const firstHalf = `Here is the heart.\n\`\`\`sketch\n<svg viewBox="0 0 520 380"><title>The heart</title>\n${'<path d="M 100 100 C 120 80 140 80 160 100" fill="#e57373" stroke="#222"/>\n'.repeat(8)}`;
+  const secondHalf = '<text x="20" y="40" font-size="14">Left atrium</text>\n</svg>\n```\n- The heart has four chambers.';
+  const r = await chatWithSarvam(t, [sarvamSays(firstHalf), sarvamSays(secondHalf)], {
+    input: "draw the heart",
+    systemPrompt: "[DRAWING REQUEST — FOLLOW EXACTLY]\nDraw the heart.",
+  });
+  assert.equal(r.calls.sarvam, 2);
+  assert.equal(r.cleared, false);
+  assert.equal(r.text, firstHalf + secondHalf);
+  const [answerSoFar, ask] = r.calls.bodies[1].messages.slice(-2);
+  assert.equal(answerSoFar.content, firstHalf);
+  assert.match(ask.content, /Continue it exactly from where it stopped/);
 });
 
 test("a drawing is sent lean: no chart rules, no <think> ask, a bounded reply", async (t) => {

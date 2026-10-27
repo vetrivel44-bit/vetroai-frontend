@@ -994,6 +994,18 @@ Choose the single best-fitting visualization block(s) from the formats below:
         // A continuation that adds nothing means the earlier part was already the whole answer.
         if ((!answer || !answer.trim()) && !resumeText.trim()) throw new Error("Provider returned an empty response");
 
+        // Stopped at its token limit mid-way (an unclosed ```sketch or code
+        // block): a picked-alone provider carries on from there, so a drawing
+        // is finished instead of left half-drawn.
+        const soFar = resumeText + (answer || "");
+        if (pickedAlone && attempts < maxAttempts && !params.signal?.aborted && this.isLikelyTruncated(soFar)) {
+          resumeText = soFar;
+          const label = this.providerLabel(pickedAlone);
+          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, attempt: attempts });
+          this.sendVetroEvent(res, "status", `${label} stopped mid-way. Continuing from where it left off (${attempts + 1} of ${maxAttempts})…`);
+          continue;
+        }
+
         // Append a real-image gallery if this query warranted one — fetched in parallel
         // above, so it's typically already resolved by the time the text stream finishes.
         const images = await imagesPromise;
