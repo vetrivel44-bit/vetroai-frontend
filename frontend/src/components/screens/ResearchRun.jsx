@@ -36,11 +36,11 @@ function Phase({ state, label, detail }) {
   );
 }
 
-function FileTile({ icon: TileIcon, name, kind, ready, onDownload, busy }) {
+function FileTile({ icon: TileIcon, name, kind, ready, onDownload, busy, failed = false }) {
   return (
     <button type="button" className="cw-file-tile" disabled={!ready || busy} onClick={onDownload}>
       <span className={`cw-file-tile-icon is-${kind}`}>{React.createElement(TileIcon, { size: 18 })}</span>
-      <span className="cw-file-tile-text"><strong>{name}</strong><small>{busy ? "Preparing…" : ready ? `.${kind}` : "Not ready"}</small></span>
+      <span className="cw-file-tile-text"><strong>{name}</strong><small>{busy ? "Preparing…" : ready ? `.${kind}` : failed ? "Couldn't make it" : "Not ready"}</small></span>
       {ready && !busy && <Download size={15} className="cw-file-tile-dl" />}
     </button>
   );
@@ -85,9 +85,10 @@ export default function ResearchRun({ message, live, renderReport }) {
       <ol className="cw-run-phases">
         <Phase state={researchState} label="Research the web" detail={run.research?.sources ? `${run.research.sources} sources` : ""} />
         <Phase state={run.report ? "done" : researchState === "active" && run.research?.phase === "writing" ? "active" : researchState === "failed" ? "failed" : "pending"} label="Write the report" />
+        {/* Made from the report itself, so ready the moment it is. */}
+        <Phase state={run.report ? "done" : "pending"} label="Prepare Word and PDF" />
         {run.want?.slides && <Phase state={stateOf(run.slides)} label="Design the slide deck" detail={run.slides?.error} />}
         {run.want?.sheet && <Phase state={stateOf(run.sheet)} label="Build the spreadsheet" detail={run.sheet?.error} />}
-        <Phase state={done ? "done" : making ? "active" : "pending"} label="Prepare Word and PDF" />
       </ol>
 
       {(run.research || run.sources?.length || (live && run.status === "researching")) && (
@@ -100,8 +101,8 @@ export default function ResearchRun({ message, live, renderReport }) {
         <div className="cw-run-files">
           <div className="cw-run-files-head">Your files</div>
           <div className="cw-run-files-grid">
-            {run.want?.slides && <FileTile icon={Presentation} kind="pptx" name="Slide deck" ready={run.slides?.status === "done"} busy={busy === "pptx"} onDownload={() => save("pptx")} />}
-            {run.want?.sheet && <FileTile icon={FileSpreadsheet} kind="xlsx" name="Spreadsheet" ready={run.sheet?.status === "done"} busy={busy === "xlsx"} onDownload={() => save("xlsx")} />}
+            {run.want?.slides && <FileTile icon={Presentation} kind="pptx" name="Slide deck" ready={run.slides?.status === "done"} failed={run.slides?.status === "failed"} busy={busy === "pptx"} onDownload={() => save("pptx")} />}
+            {run.want?.sheet && <FileTile icon={FileSpreadsheet} kind="xlsx" name="Spreadsheet" ready={run.sheet?.status === "done"} failed={run.sheet?.status === "failed"} busy={busy === "xlsx"} onDownload={() => save("xlsx")} />}
             <FileTile icon={FileText} kind="docx" name="Report" ready={!!run.report} busy={busy === "docx"} onDownload={() => save("docx")} />
             <FileTile icon={FileText} kind="pdf" name="Report" ready={!!run.report} busy={busy === "pdf"} onDownload={() => save("pdf")} />
           </div>

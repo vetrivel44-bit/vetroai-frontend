@@ -1507,9 +1507,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     const steps = [
       { id: "research", label: "Research the web", status: "active" },
       { id: "write", label: "Write the report", status: "pending" },
+      // Word and PDF are made from the report itself, so they are ready with it.
+      { id: "files", label: "Prepare Word and PDF", status: "pending" },
       ...(want.slides ? [{ id: "slides", label: "Design the slide deck", status: "pending" }] : []),
       ...(want.sheet ? [{ id: "sheet", label: "Build the spreadsheet", status: "pending" }] : []),
-      { id: "files", label: "Prepare Word and PDF", status: "pending" },
     ];
     const setStep = (id, status) => patchTask(taskId, t => ({ ...t, steps: t.steps.map(s => s.id === id ? { ...s, status } : s) }));
     patchTask(taskId, t => ({
@@ -1545,17 +1546,23 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       if (!report.trim()) throw new Error("The research didn't produce a report. Try again in a moment.");
       setStep("research", "done");
       setStep("write", "done");
+      setStep("files", "done");
       patchRun({ report, research: settleResearch(research, "done"), status: "making" });
 
-      // The files, side by side.
+      // The files, side by side. Each gets one more try: a busy model or a
+      // reply without the expected block shouldn't cost the user the file.
+      const twice = (make) => make().catch(err => { if (err.name === "AbortError") throw err; return make(); });
       const jobs = [];
       if (want.slides) {
         setStep("slides", "active");
         patchRun({ slides: { status: "working" } });
-        jobs.push(askModel(API, { input: deckInput(prompt, report), mode: "normal", provider: "auto", maxTokens: 12000, signal: controller.signal })
+        jobs.push(twice(() => askModel(API, { input: deckInput(prompt, report), mode: "normal", provider: "auto", maxTokens: 12000, signal: controller.signal })
           .then(text => {
             const code = slidesCode(text);
             if (!code) throw new Error("No slides came back.");
+            return code;
+          }))
+          .then(code => {
             patchRun({ slides: { status: "done", code } });
             setStep("slides", "done");
           })
@@ -1568,10 +1575,15 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       if (want.sheet) {
         setStep("sheet", "active");
         patchRun({ sheet: { status: "working" } });
-        jobs.push(askModel(API, { input: sheetInput(prompt, report), systemPrompt: SHEET_INSTRUCTIONS, maxTokens: 8192, signal: controller.signal })
+        // mode "normal": askModel's default, code_exec, had the model answer
+        // with a script instead of the Markdown tables read here.
+        jobs.push(twice(() => askModel(API, { input: sheetInput(prompt, report), systemPrompt: SHEET_INSTRUCTIONS, mode: "normal", provider: "auto", maxTokens: 8192, signal: controller.signal })
           .then(text => {
             const markdown = sheetMarkdown(text);
             if (!markdown) throw new Error("No table came back.");
+            return markdown;
+          }))
+          .then(markdown => {
             patchRun({ sheet: { status: "done", markdown } });
             setStep("sheet", "done");
           })
@@ -1582,7 +1594,6 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           }));
       }
       await Promise.all(jobs);
-      setStep("files", "done");
       patchRun({ status: "done" });
       patchTask(taskId, t => ({ ...t, status: "completed", messages: t.messages.map(m => m.id === messageId ? { ...m, finishedAt: Date.now() } : m) }));
     } catch (error) {
