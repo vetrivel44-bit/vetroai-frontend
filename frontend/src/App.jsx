@@ -812,7 +812,9 @@ const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
 const GROK_PROVIDER = "Grok 4.6";
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VERCEL_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", SARVAM_105B_PROVIDER, "SambaNova", "Agnes"];
+// sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
+const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VERCEL_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "SambaNova", "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3073,6 +3075,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     Gemini: ["✦", "Google AI"],
     Mistral: ["M", "Efficient reasoning"],
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],
+    [SARVAM_105B_CHAT_PROVIDER]: ["स", "Sarvam AI · quick conversations"],
     SambaNova: ["S", "High-speed inference"],
     Agnes: ["A", "VetroAI creative model"],
   };

@@ -9,12 +9,15 @@ const DEFAULT_MODEL = "sarvam-105b";
 const MAX_TOKENS_CAP = 16384;
 
 /**
- * "Sarvam 105B" → sarvam-105b, else the configured default. Sarvam retired
- * sarvam-30b, so a "Sarvam 30B" still selected in an open tab gets 105B too.
+ * "Sarvam 105B Chat" → sarvam-105b-conversations (105B tuned for quick
+ * back-and-forth, 32K context), "Sarvam 105B" → sarvam-105b, else the
+ * configured default. Sarvam retired sarvam-30b, so a "Sarvam 30B" still
+ * selected in an open tab gets 105B too.
  */
 function modelFor(label) {
   const text = String(label || "");
   if (!/sarvam/i.test(text)) return null;
+  if (/\b105\s*b\b.*\b(chat|conversations?)\b/i.test(text)) return "sarvam-105b-conversations";
   if (/\b105\s*b\b/i.test(text)) return "sarvam-105b";
   return config.sarvamModel || DEFAULT_MODEL;
 }

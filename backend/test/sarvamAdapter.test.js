@@ -33,6 +33,7 @@ test("the picker's names choose the Sarvam model", () => {
   // Sarvam retired sarvam-30b; a tab still showing "Sarvam 30B" gets 105B.
   assert.equal(sarvam.modelFor("Sarvam 30B"), "sarvam-105b");
   assert.equal(sarvam.modelFor("Sarvam 105B"), "sarvam-105b");
+  assert.equal(sarvam.modelFor("Sarvam 105B Chat"), "sarvam-105b-conversations");
   assert.equal(sarvam.modelFor("sarvam"), config.sarvamModel || "sarvam-105b");
   // Any other model leaves the field unset, so no other provider gets it.
   assert.equal(sarvam.modelFor("Mistral"), null);
@@ -44,6 +45,7 @@ test("picking Sarvam routes to the sarvam provider once its key is set", () => {
   config.sarvamApiKey = "test-key";
   try {
     assert.equal(providerManager.getBestProvider("chat", "Sarvam 105B"), "sarvam");
+    assert.equal(providerManager.getBestProvider("chat", "Sarvam 105B Chat"), "sarvam");
   } finally {
     config.sarvamApiKey = saved;
   }
