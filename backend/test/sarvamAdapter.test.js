@@ -191,7 +191,7 @@ test("Auto still skips a Sarvam that is failing", () => {
 
 // /api/chat with Sarvam picked, Sarvam's replies scripted one per call. Cohere
 // is configured too, so a test can see that no other model was asked.
-async function chatWithSarvam(t, replies) {
+async function chatWithSarvam(t, replies, extraBody = {}) {
   const orchestrator = require("../src/services/AIOrchestrator");
   orchestrator.setPickedAloneRetryDelay(1);
   const app = require("../src/app");
@@ -227,7 +227,7 @@ async function chatWithSarvam(t, replies) {
   const res = await realFetch(`${baseUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input: "Hi", provider: "Sarvam 105B", modelLabel: "Sarvam 105B", mode: "normal" }),
+    body: JSON.stringify({ input: "Hi", provider: "Sarvam 105B", modelLabel: "Sarvam 105B", mode: "normal", ...extraBody }),
   });
   const events = (await res.text()).split("\n").filter((l) => l.startsWith("data:"))
     .map((l) => { try { return JSON.parse(l.slice(5)); } catch { return null; } }).filter(Boolean);
@@ -292,6 +292,19 @@ test("picked, a Sarvam answer cut off part-way continues from where it stopped",
     assert.equal(ask.role, "user");
     assert.match(ask.content, /Continue it exactly from where it stopped/);
   }
+});
+
+test("a drawing asks Sarvam to skip reasoning; an ordinary chat leaves it alone", async (t) => {
+  const drawing = await chatWithSarvam(t, [sarvamSays("Here is the heart.")], {
+    input: "draw a labelled diagram of the heart",
+    systemPrompt: "[DRAWING REQUEST — FOLLOW EXACTLY]\nThe user asked: \"draw a labelled diagram of the heart\".",
+  });
+  assert.equal(drawing.text, "Here is the heart.");
+  assert.ok("reasoning_effort" in drawing.calls.bodies[0], "reasoning_effort is sent");
+  assert.equal(drawing.calls.bodies[0].reasoning_effort, null);
+
+  const chat = await chatWithSarvam(t, [sarvamSays("Hello!")]);
+  assert.equal("reasoning_effort" in chat.calls.bodies[0], false);
 });
 
 test("picked, a key problem is reported at once instead of retried", async (t) => {

@@ -283,7 +283,14 @@ async function chat(req, res) {
       signal: cancel.signal,
       // Which Sarvam model ("Sarvam 105B"), in a field of its
       // own so a fallback provider never receives a Sarvam model name.
-      options: { temperature, maxTokens, sarvamModel: sarvamModelFor(req.body?.modelLabel || provider) || undefined }
+      // A drawing ("draw the heart", see frontend lib/drawingRequest.js) is
+      // flagged so Sarvam skips its long reasoning and goes straight to the sketch.
+      options: {
+        temperature,
+        maxTokens,
+        sarvamModel: sarvamModelFor(req.body?.modelLabel || provider) || undefined,
+        drawing: systemPrompt.includes("[DRAWING REQUEST"),
+      }
     }, res) === true;
   } catch (err) {
     logger.error("chat.request.failed", { reqId, error: err.message });

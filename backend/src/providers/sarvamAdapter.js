@@ -105,7 +105,7 @@ async function request(body, { timeoutMs }) {
 }
 
 async function generateStream(messages, options = {}) {
-  const { temperature, maxTokens, sarvamModel } = options;
+  const { temperature, maxTokens, sarvamModel, drawing } = options;
   try {
     const res = await request({
       model: sarvamModel || config.sarvamModel || DEFAULT_MODEL,
@@ -113,6 +113,10 @@ async function generateStream(messages, options = {}) {
       temperature: temperature ?? 0.7,
       max_tokens: Math.min(maxTokens ?? 4096, MAX_TOKENS_CAP),
       stream: true,
+      // sarvam-105b reasons by default, and on a drawing it reasoned for minutes
+      // (shown as "Thinking…") and could spend max_tokens before drawing at
+      // all. null switches reasoning off, so the sketch starts straight away.
+      ...(drawing ? { reasoning_effort: null } : {}),
     }, { timeoutMs: 30000 });
     return res.body;
   } catch (err) {
