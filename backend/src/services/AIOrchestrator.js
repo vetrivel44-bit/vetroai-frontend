@@ -21,8 +21,10 @@ const VISION_PROVIDERS = ["gemini", "cohere"];
 // isn't simply the configured-provider count.
 const MAX_FALLBACK_ATTEMPTS = 5;
 // Tries for a provider that answers alone once picked (Sarvam), and the pause
-// before each retry, grown per try (1 s, then 2 s).
-const PICKED_ALONE_TRIES = 3;
+// before each retry, grown per try (1 s, 2 s, 3 s, 4 s). A try that stopped
+// part-way continues from where the answer stopped instead of starting over.
+const PICKED_ALONE_TRIES = 5;
+const CONTINUE_PROMPT = "Your previous reply was cut off. Continue it exactly from where it stopped: do not repeat anything already written, do not restart or summarise, and keep any open code block or ```sketch block going.";
 let pickedAloneRetryDelayMs = 1000;
 // A screenshot is a much bigger, slower request than a text turn, so a vision
 // attempt gets a longer budget before it's called a timeout. This has to stay
@@ -923,6 +925,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
       return [{ role: "system", content: base + thinking + astrologyPrompt }, ...history];
     };
 
+    // A picked-alone provider's answer so far, kept across tries that broke off
+    // part-way: the user keeps it on screen and the next try continues it.
+    let resumeText = "";
+
     while (attempts < maxAttempts && !success) {
       attempts++;
       attemptedProviders.add(currentProviderName);
@@ -947,7 +953,10 @@ Choose the single best-fitting visualization block(s) from the formats below:
         // screenshot and takes longer than a text turn, so racing it against
         // the text budget would abort every slow vision call here while the
         // adapter's own request kept running.
-        const streamPromise = adapter.generateStream(messagesFor(currentProviderName), options);
+        const attemptMessages = resumeText
+          ? [...messagesFor(currentProviderName), { role: "assistant", content: resumeText }, { role: "user", content: CONTINUE_PROMPT }]
+          : messagesFor(currentProviderName);
+        const streamPromise = adapter.generateStream(attemptMessages, options);
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
         const stream = await withTimeout(streamPromise, attemptTimeout, "Stream generation timeout");
         
@@ -961,7 +970,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
         // unclosed <think> block. Counting that as success left the user with
         // an empty reply ("The AI model failed to respond"); treat it as a
         // provider failure so the fallback chain tries the next model.
-        if (!answer || !answer.trim()) throw new Error("Provider returned an empty response");
+        // A continuation that adds nothing means the earlier part was already the whole answer.
+        if ((!answer || !answer.trim()) && !resumeText.trim()) throw new Error("Provider returned an empty response");
 
         // Append a real-image gallery if this query warranted one — fetched in parallel
         // above, so it's typically already resolved by the time the text stream finishes.
@@ -1006,10 +1016,16 @@ Choose the single best-fitting visualization block(s) from the formats below:
           // time: say so now instead of retrying.
           const worthRetrying = !["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind);
           if (worthRetrying && attempts < maxAttempts && !params.signal?.aborted) {
-            this.sendVetroEvent(res, "clear", "");
-            this.sendVetroEvent(res, "status", isTimeout
-              ? `${label} timed out. Trying ${label} again (${attempts + 1} of ${maxAttempts})…`
-              : `${label} didn't answer. Trying ${label} again (${attempts + 1} of ${maxAttempts})…`);
+            if (err.partialContent && err.partialContent.trim()) resumeText += err.partialContent;
+            if (resumeText) {
+              // Keep what the user already has; the next try picks up from it.
+              this.sendVetroEvent(res, "status", `${label} ${isTimeout ? "timed out" : "stopped"}. Continuing from where it left off (${attempts + 1} of ${maxAttempts})…`);
+            } else {
+              this.sendVetroEvent(res, "clear", "");
+              this.sendVetroEvent(res, "status", isTimeout
+                ? `${label} timed out. Trying ${label} again (${attempts + 1} of ${maxAttempts})…`
+                : `${label} didn't answer. Trying ${label} again (${attempts + 1} of ${maxAttempts})…`);
+            }
             await new Promise((resolve) => setTimeout(resolve, pickedAloneRetryDelayMs * attempts));
             continue;
           }
@@ -1444,6 +1460,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
       emit(this.flushThinkingTags(think));
     } catch (err) {
       logger.error(`AIOrchestrator.pipeStream.error [${provider}]`, { error: err.message });
+      // What already reached the user, so a retry can continue from there.
+      err.partialContent = fullContent;
       throw err;
     } finally {
       clearInterval(watchdogInterval);

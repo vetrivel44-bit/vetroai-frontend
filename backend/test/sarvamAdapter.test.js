@@ -202,7 +202,7 @@ async function chatWithSarvam(t, replies) {
 
   const saved = { sarvam: config.sarvamApiKey, cohere: config.cohereApiKey };
   const realFetch = global.fetch;
-  const calls = { sarvam: 0, other: [] };
+  const calls = { sarvam: 0, other: [], bodies: [] };
   config.sarvamApiKey = "test-key";
   config.cohereApiKey = "test-key";
   sarvam.resetReplacements();
@@ -210,6 +210,7 @@ async function chatWithSarvam(t, replies) {
     const href = String(url);
     if (href.startsWith("http://127.0.0.1")) return realFetch(url, init);
     if (!href.startsWith("https://api.sarvam.ai/")) { calls.other.push(href); throw new Error("no other model should be asked"); }
+    calls.bodies.push(JSON.parse(init.body));
     const reply = replies[calls.sarvam++];
     return reply();
   };
@@ -233,6 +234,7 @@ async function chatWithSarvam(t, replies) {
   return {
     calls,
     text: events.filter((e) => e.type === "content").map((e) => e.data).join(""),
+    cleared: events.some((e) => e.type === "clear"),
     statuses: events.filter((e) => e.type === "status").map((e) => String(e.data)),
     error: events.find((e) => e.type === "error")?.data || "",
   };
@@ -243,6 +245,13 @@ const sarvamSays = (text) => () => new Response(
   { status: 200, headers: { "content-type": "text/event-stream" } },
 );
 const timesOut = () => { throw new TypeError("fetch failed: Connect Timeout Error"); };
+// Starts answering, then the connection drops part-way through.
+const breaksOffAfter = (text) => () => new Response(new ReadableStream({
+  start(controller) {
+    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+    setTimeout(() => controller.error(new Error("socket hang up")), 5);
+  },
+}), { status: 200, headers: { "content-type": "text/event-stream" } });
 const busy = () => new Response('{"error":{"message":"Too many requests"}}', { status: 429 });
 
 test("picked, a Sarvam timeout is retried on Sarvam — no other model", async (t) => {
@@ -260,11 +269,29 @@ test("picked, a busy Sarvam is retried on Sarvam too", async (t) => {
   assert.equal(r.text, "Hello!");
 });
 
-test("picked, after three failed tries the user is told — still no other model", async (t) => {
-  const r = await chatWithSarvam(t, [timesOut, timesOut, timesOut]);
+test("picked, after five failed tries the user is told — still no other model", async (t) => {
+  const r = await chatWithSarvam(t, [timesOut, timesOut, timesOut, timesOut, timesOut]);
+  assert.equal(r.calls.sarvam, 5);
+  assert.deepEqual(r.calls.other, []);
+  assert.match(r.error, /Sarvam didn't answer after 5 tries/);
+});
+
+test("picked, a Sarvam answer cut off part-way continues from where it stopped", async (t) => {
+  const r = await chatWithSarvam(t, [breaksOffAfter("The heart has four chambers: "), timesOut, sarvamSays("two atria and two ventricles.")]);
   assert.equal(r.calls.sarvam, 3);
   assert.deepEqual(r.calls.other, []);
-  assert.match(r.error, /Sarvam didn't answer after 3 tries/);
+  // Nothing is wiped and nothing is said twice.
+  assert.equal(r.cleared, false);
+  assert.equal(r.text, "The heart has four chambers: two atria and two ventricles.");
+  assert.ok(r.statuses.some((s) => /Continuing from where it left off/.test(s)), r.statuses.join(" | "));
+  // Each retry hands Sarvam the answer so far and asks it to carry on.
+  for (const body of r.calls.bodies.slice(1)) {
+    const [answerSoFar, ask] = body.messages.slice(-2);
+    assert.equal(answerSoFar.role, "assistant");
+    assert.equal(answerSoFar.content, "The heart has four chambers: ");
+    assert.equal(ask.role, "user");
+    assert.match(ask.content, /Continue it exactly from where it stopped/);
+  }
 });
 
 test("picked, a key problem is reported at once instead of retried", async (t) => {

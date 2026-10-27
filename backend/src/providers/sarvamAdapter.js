@@ -62,7 +62,7 @@ async function request(body, { timeoutMs }) {
   if (!config.sarvamApiKey) {
     throw new ApiError(500, "Sarvam API key not configured on the backend.");
   }
-  const send = (model) => fetch(ENDPOINT, {
+  const init = (model, signal) => ({
     method: "POST",
     headers: {
       // Sarvam's own header; Bearer is accepted too, for OpenAI-style clients.
@@ -71,8 +71,21 @@ async function request(body, { timeoutMs }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ ...body, model }),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal,
   });
+  const send = async (model) => {
+    if (!body.stream) return fetch(ENDPOINT, init(model, AbortSignal.timeout(timeoutMs)));
+    // A streamed reply is only timed until Sarvam starts answering. Timing the
+    // whole stream cut long answers (a detailed sketch) off mid-way; a stream
+    // that goes quiet is caught by the orchestrator's idle watchdog instead.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new Error(`Sarvam connect timeout after ${timeoutMs}ms`)), timeoutMs);
+    try {
+      return await fetch(ENDPOINT, init(model, ctrl.signal));
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   let model = replaced.get(body.model) || body.model;
   let res = await send(model);

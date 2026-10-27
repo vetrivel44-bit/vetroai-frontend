@@ -18,13 +18,13 @@ test("Claude Fable 5 is excluded from every Puter text model route", () => {
   // route, ahead of any other provider mapping in the same expression.
   assert.match(
     appSource,
-    /fd\.append\(\s*"provider",\s*selectedProvider === CLAUDE_FABLE_PROVIDER \? "fable"/
+    /fd\.append\(\s*"provider",\s*requestProvider === CLAUDE_FABLE_PROVIDER \? "fable"/
   );
 });
 
 test("Claude Fable 5 cannot fall through to Puter image analysis", () => {
   const fableGuard = appSource.indexOf(
-    "selectedProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0"
+    "requestProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0"
   );
   const puterImageRoute = appSource.indexOf("if (attachedImages.length > 0)", fableGuard + 1);
 
