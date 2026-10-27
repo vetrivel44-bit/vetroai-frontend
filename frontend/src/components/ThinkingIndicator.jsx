@@ -2,10 +2,8 @@ import React from 'react';
 import OrbitLoader from './OrbitLoader';
 import './ThinkingIndicator.css';
 
-// A plain bordered status card, matching Copilot's minimal "Searching the
-// web" / thinking card — the Orbit loader beside a bold status line. The card
-// itself barely announces itself; the motion lives in the entrance, the
-// orbit, and a soft shimmer sweep across the text.
+// A boxless status line — the Orbit loader beside a bold status label. The
+// motion lives in the entrance, the orbit, and a soft shimmer across the text.
 export default function ThinkingIndicator({ isVisible = false, status = "Thinking" }) {
   if (!isVisible) return null;
 
