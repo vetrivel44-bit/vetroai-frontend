@@ -33,3 +33,12 @@ test("the model answers the uncovered part from its own knowledge", () => {
   assert.match(GROUNDING_RULE, /never reply only that the sources don't say/);
   assert.match(GROUNDING_RULE, /visual_gallery/);
 });
+
+test("well-known reference data is charted, not refused", () => {
+  // "Show Tamil Nadu's monthly temperature and rainfall" was refused as
+  // "inventing numbers" when the search found no climate data.
+  const { VISUALS_PROMPT } = require("../src/services/visualsPrompt");
+  assert.match(GROUNDING_RULE, /climate averages/);
+  assert.match(VISUALS_PROMPT, /climate averages \(monthly temperature, rainfall\)/);
+  assert.match(VISUALS_PROMPT, /even when no search results cover it/);
+});

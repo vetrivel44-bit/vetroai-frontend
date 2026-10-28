@@ -2,7 +2,7 @@
 // Same rules as backend/src/services/searchGrounding.js (which explains the
 // follow-up and blank-picture bugs behind them); keep the two in step.
 
-export const GROUNDING_RULE = "Combine these results with what you reliably know. If they describe a change (someone took office, a product launched, a rule changed) and the question asks about a time before it, answer that earlier part from your own knowledge and say it comes from your own knowledge; never reply only that the sources don't say. Never write image galleries or visual_gallery blocks yourself: the app adds real pictures on its own.";
+export const GROUNDING_RULE = "Combine these results with what you reliably know. If they describe a change (someone took office, a product launched, a rule changed) and the question asks about a time before it, answer that earlier part from your own knowledge and say it comes from your own knowledge; never reply only that the sources don't say. Likewise, when the results lack stable reference data you know (climate averages, historical figures, census numbers, geography), give it from your own knowledge, labelled approximate, rather than refusing. Never write image galleries or visual_gallery blocks yourself: the app adds real pictures on its own.";
 
 const FOLLOW_UP_START = /^\s*(then|and|also|so|but|or|what about|how about|same (for|in|with)|(in|for|before|after) \d{4})\b/i;
 const LEANS_ON_CONTEXT = /\b(he|she|they|him|her|them|his|its|their|that one|this one|the same|then)\b/i;

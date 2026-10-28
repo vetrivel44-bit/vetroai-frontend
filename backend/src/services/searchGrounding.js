@@ -11,7 +11,7 @@
 // frontend/src/lib/searchGrounding.js carries the same rules for browser
 // models; keep the two in step.
 
-const GROUNDING_RULE = "Combine these results with what you reliably know. If they describe a change (someone took office, a product launched, a rule changed) and the question asks about a time before it, answer that earlier part from your own knowledge and say it comes from your own knowledge; never reply only that the sources don't say. Never write image galleries or visual_gallery blocks yourself: the app adds real pictures on its own.";
+const GROUNDING_RULE = "Combine these results with what you reliably know. If they describe a change (someone took office, a product launched, a rule changed) and the question asks about a time before it, answer that earlier part from your own knowledge and say it comes from your own knowledge; never reply only that the sources don't say. Likewise, when the results lack stable reference data you know (climate averages, historical figures, census numbers, geography), give it from your own knowledge, labelled approximate, rather than refusing. Never write image galleries or visual_gallery blocks yourself: the app adds real pictures on its own.";
 
 // Short messages that lean on the one before: "then in 2025?", "what about
 // him", "and the price?".
