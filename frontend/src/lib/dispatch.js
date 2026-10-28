@@ -6,10 +6,10 @@
 // Both sit under the user's own uid, so firestore.rules' "only your own
 // subtree" covers them; nothing goes through the backend.
 import {
-  collection, deleteDoc, doc, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc,
+  collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
-import { clipToBytes } from "./dispatchCore.js";
+import { MAX_DISPATCH_TEXT } from "./dispatchCore.js";
 
 export const dispatchReady = () => db != null;
 
@@ -36,7 +36,7 @@ export async function sendDispatch(uid, { text, target = "any", from = "" }) {
   const id = `d_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await setDoc(dispatchDoc(uid, id), {
     id,
-    text: clipToBytes(String(text).trim()),
+    text: String(text).trim().slice(0, MAX_DISPATCH_TEXT),
     target,
     from,
     status: "queued",
@@ -65,9 +65,9 @@ export async function claimDispatch(uid, id, deviceId) {
   });
 }
 
-/** Every request, newest first. Returns the unsubscribe function. */
+/** The latest requests, newest first. Returns the unsubscribe function. */
 export function watchDispatches(uid, onChange, onError) {
-  const q = query(dispatchCol(uid), orderBy("createdAt", "desc"));
+  const q = query(dispatchCol(uid), orderBy("createdAt", "desc"), limit(40));
   return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => ({ ...d.data(), id: d.id }))), onError);
 }
 

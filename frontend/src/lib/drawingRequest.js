@@ -28,7 +28,5 @@ export function drawingInstruction(text) {
     "Reply with one short line, then exactly one ```sketch block (the rules are below), then a few short points about the parts.",
     "Do NOT answer with a flowchart, a ```mermaid or ```mermaid sketch block, a mind map, boxes joined by arrows, or a list of parts instead of the drawing. A brain is drawn as a brain (its outline, the lobes, the cerebellum and the brainstem), a heart as a heart, a flower as a flower.",
     SKETCH_RULES,
-    // Smaller models copied the rules' example (a house) instead of the subject.
-    `The house above only shows the format. Draw what the user asked for — "${String(text || "").slice(0, 120)}" — and nothing else; never draw a house unless a house was asked for. Write the whole <svg> through to </svg> before the notes.`,
   ].filter(Boolean).join("\n");
 }

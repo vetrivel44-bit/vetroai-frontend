@@ -819,9 +819,7 @@ const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
 const GROK_PROVIDER = "Grok 4.6";
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
-// sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
-const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VERCEL_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "SambaNova", "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VERCEL_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", SARVAM_105B_PROVIDER, "SambaNova", "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3215,7 +3213,6 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     Gemini: ["✦", "Google AI"],
     Mistral: ["M", "Efficient reasoning"],
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],
-    [SARVAM_105B_CHAT_PROVIDER]: ["स", "Sarvam AI · quick conversations"],
     SambaNova: ["S", "High-speed inference"],
     Agnes: ["A", "VetroAI creative model"],
   };
@@ -6289,9 +6286,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
 
-    // Hand-drawn diagrams ("draw the heart") always go to Sarvam 105B, whatever
-    // model is picked; every other request uses the picked model.
-    const requestProvider = isDrawingRequest(userQuery) ? SARVAM_105B_PROVIDER : selectedProvider;
     const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
@@ -6308,12 +6302,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("mode", selectedMode);
     fd.append(
       "provider",
-      requestProvider === CLAUDE_FABLE_PROVIDER ? "fable"
-        : requestProvider === VERCEL_PROVIDER ? "vercel"
-        : requestProvider
+      selectedProvider === CLAUDE_FABLE_PROVIDER ? "fable"
+        : selectedProvider === VERCEL_PROVIDER ? "vercel"
+        : selectedProvider
     );
     // The model as the user knows it, for usage limits (Settings → Usage).
-    fd.append("modelLabel", requestProvider);
+    fd.append("modelLabel", selectedProvider);
     const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
     const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens, wantsSlides(userQuery) ? SLIDES_MAX_TOKENS : 0);
     fd.append("temperature", String(temperature));
@@ -6502,7 +6496,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       role: "assistant",
       content: "",
       timestamp: ts,
-      provider: requestProvider,
+      provider: selectedProvider,
       ytInfo: ytContext ? { title: ytContext.title, author: ytContext.author, videoId: ytContext.videoId } : null,
       liveScores: null,
       medicalData: null,
@@ -6530,13 +6524,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     try {
       const fileCount = [...fd.entries()].filter(([, v]) => v instanceof File).length;
-      addDebugLog("Fetch.start", { reqId, provider: requestProvider, mode: selectedMode, fileCount });
+      addDebugLog("Fetch.start", { reqId, provider: selectedProvider, mode: selectedMode, fileCount });
 
       // GPT and Codex models run directly in the browser using Puter's user-pays flow.
       // Claude Fable 5 is intentionally excluded and routed through the backend so
       // its RapidAPI credential never reaches the browser.
       // Auto always stays on the backend's provider chain, never a Puter model.
-      const effectivePuterProvider = requestProvider;
+      const effectivePuterProvider = selectedProvider;
       const attachedImages = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
         .filter((file) => file instanceof File && file.type.startsWith("image/"));
 
@@ -6644,7 +6638,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       })();
       if (localHandled) return;
 
-      if (requestProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0) {
+      if (selectedProvider === CLAUDE_FABLE_PROVIDER && attachedImages.length > 0) {
         throw new Error("Claude Fable 5 API currently supports text and text documents only. Remove the image attachment or choose an image-capable model.");
       }
 
@@ -6846,7 +6840,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         // skip straight to the backend instead of reopening Puter's dialog.
         if (puterCreditsExhaustedRef.current.has("GPT-5.6 Luna")) {
         puterOutOfCredits = true;
-        } else if (!PUTER_MODEL_IDS[requestProvider]) {
+        } else if (!PUTER_MODEL_IDS[selectedProvider]) {
           // Auto and backend models send images to the backend's vision providers.
         } else {
         try {
@@ -6939,7 +6933,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Web Search with "Auto": the user wants the web's answer, not a chat
       // model's — so answer straight from the search (its summary plus the
       // source cards). Only if that finds nothing does a model get the turn.
-      if (selectedMode === "web_search" && requestProvider === "Auto" && fileCount === 0) {
+      if (selectedMode === "web_search" && selectedProvider === "Auto" && fileCount === 0) {
         if (await answerWithDirectSearch({ requireSummary: true })) return;
         if (!isActive()) return;
         // No search summary: the backend searches (with its own fallbacks) and
@@ -7279,7 +7273,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           hasFiles: fileCount > 0 && (!newDocs || attachedImages.length > 0),
           // Only a turn that picked a browser model may fall back to one: Auto and
           // backend models stay off Puter, and a browser model can't search.
-          puterAvailable: Boolean(PUTER_MODEL_IDS[requestProvider]) && selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
+          puterAvailable: Boolean(PUTER_MODEL_IDS[selectedProvider]) && selectedMode !== "web_search" && Boolean(window.puter?.ai?.chat),
         });
 
         if (browserRetry) {

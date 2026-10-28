@@ -57,7 +57,7 @@ rules_version = '2';
 // Document ID: client-generated `d_${Date.now()}_${random}`
 // Fields:
 //   - id: string (required, must match the document id)
-//   - text: string (required, non-empty, fixed once sent) - the task
+//   - text: string (required, 1-4000 chars, fixed once sent) - the task
 //   - status: string (required) - queued | awaiting_approval | claimed |
 //             running | done | failed | cancelled
 //   - target: string (optional) - a device id, or "any"
@@ -199,15 +199,14 @@ service cloud.firestore {
 
       // --- Dispatch: tasks sent from the phone to the user's computer ---
       // Both ends are the same signed-in user, so ownership is the whole
-      // check; the rest keeps the documents to the shape the app reads. No
-      // length limits on the task, result or error: only Firestore's own 1 MiB
-      // per document (withinSizeLimit).
+      // check; the rest keeps the documents to the shape the app reads.
       function isValidDispatch() {
         return incoming().text is string
           && incoming().text.size() > 0
+          && incoming().text.size() <= 4000
           && incoming().status in ['queued', 'awaiting_approval', 'claimed', 'running', 'done', 'failed', 'cancelled']
-          && (!('result' in incoming()) || incoming().result is string)
-          && (!('error' in incoming())  || incoming().error is string);
+          && (!('result' in incoming()) || (incoming().result is string && incoming().result.size() <= 20000))
+          && (!('error' in incoming())  || (incoming().error is string && incoming().error.size() <= 2000));
       }
       match /dispatch/{dispatchId} {
         allow read: if isOwner(userId);

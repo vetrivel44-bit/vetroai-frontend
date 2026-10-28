@@ -6,8 +6,8 @@ import { summarizeReasoning } from "../utils/activityLabel";
 /**
  * Claude-style reasoning panel.
  *
- * Stays collapsed to a one-line label ("Thinking…", then "Thought for Ns") and
- * shows the model's chain of thought only when the user opens it. Reasoning arrives from the
+ * Shows the model's chain of thought as it streams, then collapses itself into a
+ * "Thought for Ns" summary once the answer starts. Reasoning arrives from the
  * backend as `reasoning` SSE events — either native reasoning tokens from the
  * provider or the contents of a <think> block stripped out of the answer.
  */
@@ -19,9 +19,11 @@ const ThinkingPanel = React.memo(function ThinkingPanel({
   isThinking = false,
   durationMs = null,
 }) {
-  // Closed until the user clicks the header; never opens on its own.
-  const [open, setOpen] = useState(false);
+  // null = follow the automatic open/close behaviour; true/false = user's choice.
+  const [userOpen, setUserOpen] = useState(null);
   const bodyRef = useRef(null);
+
+  const open = userOpen === null ? isThinking : userOpen;
   const hasReasoning = Boolean(reasoning && reasoning.trim());
 
   // Keep the newest reasoning in view while it streams.
@@ -49,7 +51,7 @@ const ThinkingPanel = React.memo(function ThinkingPanel({
       <button
         type="button"
         className="vai-tp-header"
-        onClick={() => setOpen(!open)}
+        onClick={() => setUserOpen(!open)}
         aria-expanded={open}
         aria-label={open ? "Hide thinking process" : "Show thinking process"}
       >

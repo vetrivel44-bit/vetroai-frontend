@@ -1,15 +1,15 @@
 import React from 'react';
-import OrbitLoader from './OrbitLoader';
 import './ThinkingIndicator.css';
 
-// A boxless status line — the Orbit loader beside a bold status label. The
-// motion lives in the entrance, the orbit, and a soft shimmer across the text.
+// A plain bordered status card, matching Copilot's minimal "Searching the
+// web" / thinking card — bold status line, no icons, no gradients, no
+// bouncing dots. The card itself barely announces itself; the motion lives
+// in the entrance and in a soft shimmer sweep across the text.
 export default function ThinkingIndicator({ isVisible = false, status = "Thinking" }) {
   if (!isVisible) return null;
 
   return (
     <div className="vai-thinking-card vai-enter">
-      <OrbitLoader size={18} label={status} />
       <span className="vai-thinking-label">{status}</span>
     </div>
   );
