@@ -1024,7 +1024,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         if (!stream) throw new Error("Provider returned empty stream");
 
         // Handle stream
-        const answer = await this.pipeStream(stream, res, currentProviderName);
+        const streamInfo = {};
+        const answer = await this.pipeStream(stream, res, currentProviderName, streamInfo);
 
         // A stream can end cleanly without a single word of answer — the
         // provider closed early, or the model spent the whole turn inside an
@@ -1032,13 +1033,24 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // an empty reply ("The AI model failed to respond"); treat it as a
         // provider failure so the fallback chain tries the next model.
         // A continuation that adds nothing means the earlier part was already the whole answer.
-        if ((!answer || !answer.trim()) && !resumeText.trim()) throw new Error("Provider returned an empty response");
+        if ((!answer || !answer.trim()) && !resumeText.trim()) {
+          // All thinking and no answer (Sarvam 105B spent its tokens
+          // reasoning): the next try goes without reasoning, so the whole
+          // budget is the answer's.
+          if (streamInfo.reasoningChars > 0 && !options?.light) {
+            logger.info("AIOrchestrator.retryWithoutReasoning", { reqId, provider: currentProviderName, finish: streamInfo.finishReason || null });
+            options = { ...options, light: true };
+          }
+          throw new Error("Provider returned an empty response");
+        }
 
         // Stopped at its token limit mid-way (an unclosed ```sketch or code
         // block): a picked-alone provider carries on from there, so a drawing
-        // is finished instead of left half-drawn.
+        // is finished instead of left half-drawn. A continuation that adds
+        // next to nothing means the reply was already whole: stop there.
         const soFar = resumeText + (answer || "");
-        if (pickedAlone && attempts < maxAttempts && !params.signal?.aborted && this.isLikelyTruncated(soFar)) {
+        const addedLittle = Boolean(resumeText) && (answer || "").trim().length < 40;
+        if (pickedAlone && attempts < maxAttempts && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
           resumeText = soFar;
           const label = this.providerLabel(pickedAlone);
           logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, attempt: attempts });
@@ -1373,7 +1385,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     return typeof value === "string" ? value : "";
   }
 
-  async pipeStream(stream, res, provider) {
+  // `info` gets the stream's finish reason ("stop", "length"…) when the
+  // provider sends one, and how much reasoning came before the answer.
+  async pipeStream(stream, res, provider, info = {}) {
     let fullContent = "";
     let fullReasoning = "";
     const decoder = new TextDecoder();
@@ -1408,6 +1422,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
     const emit = (parts) => {
       if (!parts) return;
+      if (parts.finish) info.finishReason = parts.finish;
       let { content = "", reasoning = "" } = parts;
       content = scrub(content);
       reasoning = scrub(reasoning);
@@ -1445,6 +1460,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         const parts = this.normalizeChunkParts(line, provider);
         merged.content += parts.content;
         merged.reasoning += parts.reasoning;
+        if (parts.finish) merged.finish = parts.finish;
       }
       return merged;
     };
@@ -1541,17 +1557,27 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       closeReasoning();
     }
 
+    info.reasoningChars = fullReasoning.length;
     if (fullReasoning) {
-      logger.info(`AIOrchestrator.pipeStream.reasoning [${provider}]`, { chars: fullReasoning.length });
+      logger.info(`AIOrchestrator.pipeStream.reasoning [${provider}]`, { chars: fullReasoning.length, finish: info.finishReason || null });
     }
 
-    // Check for truncation (simplistic check)
-    if (this.isLikelyTruncated(fullContent)) {
+    if (this.wasCutOff(fullContent, info.finishReason)) {
       logger.info("AIOrchestrator: Truncation detected");
       this.sendVetroEvent(res, "status", "Finishing long response...");
     }
 
     return fullContent;
+  }
+
+  // Did the reply stop because it ran out of tokens? The provider's finish
+  // reason says so exactly; the text heuristic is only for providers that
+  // send none. Trusting the heuristic over a "stop" sent Sarvam round four
+  // "continue from where you left off" tries on an answer that was finished
+  // (an odd count of ``` in it, say), two seconds each.
+  wasCutOff(text, finishReason) {
+    if (finishReason) return /^(length|max_tokens)$/i.test(finishReason);
+    return this.isLikelyTruncated(text);
   }
 
   isLikelyTruncated(text) {
@@ -1581,6 +1607,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     if (typeof chunk === "object") {
       const delta = chunk.choices?.[0]?.delta;
       const reasoning = this.reasoningFromDelta(delta) || this.reasoningFromDelta(chunk);
+      const finish = chunk.choices?.[0]?.finish_reason || null;
+      if (finish) return { content: delta?.content || "", reasoning, finish };
       if (delta?.content) return { content: delta.content, reasoning };
 
       const part = chunk.candidates?.[0]?.content?.parts?.[0];
@@ -1619,6 +1647,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       const lines = rawText.split("\n");
       let content = "";
       let reasoning = "";
+      let finish = null;
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -1634,11 +1663,12 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // Not logged: a synchronous log line per token slowed every stream.
           content += delta?.content || "";
           reasoning += this.reasoningFromDelta(delta);
+          if (json.choices?.[0]?.finish_reason) finish = json.choices[0].finish_reason;
         } catch {
           // Partial JSON or garbage
         }
       }
-      return { content, reasoning };
+      return { content, reasoning, finish };
     }
 
     // If using SSE provider, ignore comments or heartbeats that carry no data frame

@@ -373,3 +373,36 @@ test("Sarvam gets longer than other models to start answering", () => {
   const sarvam = require("../src/providers/sarvamAdapter");
   assert.ok(sarvam.startTimeoutMs() >= 60000);
 });
+
+// The Render log of 28 Oct: try 1 was all reasoning and no answer ("empty
+// response"), try 2 answered but was read as cut off, and tries 3-5 each
+// "continued" a finished answer.
+const sse = (...frames) => () => new Response(
+  frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join("") + "data: [DONE]\n\n",
+  { status: 200, headers: { "content-type": "text/event-stream" } },
+);
+const thinksOnly = sse({ choices: [{ delta: { reasoning_content: "Let me think about this at length… ".repeat(40) } }] }, { choices: [{ delta: {}, finish_reason: "length" }] });
+const longAnswer = "Chennai gets most of its rain from the northeast monsoon. ".repeat(12);
+
+test("all thinking and no answer: the retry goes without reasoning", async (t) => {
+  const r = await chatWithSarvam(t, [thinksOnly, sarvamSays("Here is the answer.")], { input: "Compare the rainfall of Chennai and Mumbai" });
+  assert.equal(r.calls.sarvam, 2);
+  assert.notEqual(r.calls.bodies[0].reasoning_effort, null, "the first try reasons");
+  assert.equal(r.calls.bodies[1].reasoning_effort, null, "the retry doesn't");
+  assert.equal(r.text, "Here is the answer.");
+});
+
+test("a finished answer is not continued, whatever its backticks", async (t) => {
+  // An odd count of ``` used to read as "cut off"; the finish reason says it isn't.
+  const finished = sse({ choices: [{ delta: { content: `${longAnswer} Use \`\`\` to open a code block.` } }] }, { choices: [{ delta: {}, finish_reason: "stop" }] });
+  const r = await chatWithSarvam(t, [finished], { input: "Compare the rainfall of Chennai and Mumbai" });
+  assert.equal(r.calls.sarvam, 1);
+  assert.ok(!r.statuses.some((s) => /Continuing from where it left off/.test(s)), r.statuses.join(" | "));
+});
+
+test("a reply that really ran out of tokens is continued, and stops once a try adds nothing", async (t) => {
+  const cut = sse({ choices: [{ delta: { content: `${longAnswer}\n\n\`\`\`chartjs\n{"type": "bar",` } }] }, { choices: [{ delta: {}, finish_reason: "length" }] });
+  const nothingMore = sse({ choices: [{ delta: { content: "." } }] }, { choices: [{ delta: {}, finish_reason: "length" }] });
+  const r = await chatWithSarvam(t, [cut, nothingMore, nothingMore, nothingMore, nothingMore], { input: "Compare the rainfall of Chennai and Mumbai" });
+  assert.equal(r.calls.sarvam, 2, "one continuation, then it stops");
+});
