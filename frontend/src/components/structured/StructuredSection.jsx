@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import React, { Suspense, useContext } from 'react';
 import { CitationLink } from '../CitationLink';
 import { TableCell } from '../chat/TableCell';
+import { renderVisualBlock } from '../../lib/visualBlocks';
 import { CitationContext } from '../../lib/citationContext';
 import { remarkCitations } from '../../lib/citations';
 
@@ -41,6 +42,13 @@ const StructuredSection = ({ title, content, children, delay = 0 }) => {
               td: TableCell,
               code({ node, inline, className, children, ...rest }) {
                 const match = /language-(\w+)/.exec(className || '');
+                const codeString = String(children).replace(/\n$/, '');
+                // Charts, diagrams, maps… in a structured answer are drawn too,
+                // not left as code.
+                if (!inline && (match || String(children).includes('\n'))) {
+                  const visual = renderVisualBlock({ lang: match?.[1], meta: node?.data?.meta, code: codeString, fallback: <pre className="syntax-highlighter" style={{ whiteSpace: 'pre-wrap' }}>{codeString}</pre> });
+                  if (visual) return visual;
+                }
                 return !inline && match ? (
                   <div className="code-block">
                     <div className="code-header">

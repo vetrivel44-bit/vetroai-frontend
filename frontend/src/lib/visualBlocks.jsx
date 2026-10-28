@@ -1,4 +1,8 @@
-import React from "react";
+import React, { Suspense, useContext, useMemo } from "react";
+import { Sparkles } from "lucide-react";
+import { VisualPending } from "../components/chat/visuals/VisualCard";
+import { OpenBlockContext, isStillStreaming } from "./visualStream";
+import { detectVisual, mightBeVisual } from "./visualDetect";
 import MermaidDiagram from "../components/chat/MermaidDiagram";
 import ChartBlock from "../components/chat/visuals/ChartBlock";
 import WidgetBlock from "../components/chat/visuals/WidgetBlock";
@@ -34,5 +38,29 @@ export function renderVisualBlock({ lang, meta, code, fallback }) {
   if (language === "3d" || language === "threejs") return <ThreeBlock code={code} fallback={fallback} />;
   if (language === "sketch" || (language === "svg" && tags.includes("sketch"))) return <SketchBlock code={code} fallback={fallback} />;
   if (language === "slides" || language === "pptx" || language === "presentation") return <SlidesBlock code={code} fallback={fallback} />;
+  // Any other tag (```chart, ```graph, untagged…): drawn when its content is
+  // a visual, so the user never sees a chart's or map's raw JSON.
+  if (mightBeVisual(language, code)) return <AutoVisual lang={language} code={code} fallback={fallback} />;
   return null;
+}
+
+// Loaded on first use: it renders blocks that themselves use this module.
+const StructuredResponseRenderer = React.lazy(() => import("../components/structured/StructuredResponseRenderer"));
+
+function AutoVisual({ lang, code, fallback }) {
+  const pending = isStillStreaming(useContext(OpenBlockContext), code);
+  const found = useMemo(() => (pending ? null : detectVisual(lang, code)), [lang, code, pending]);
+  if (pending) return <VisualPending icon={Sparkles} label="Preparing visual…" />;
+  if (!found) return fallback;
+  const json = found.data ? JSON.stringify(found.data, null, 2) : "";
+  switch (found.kind) {
+    case "structured":
+      return <Suspense fallback={null}><StructuredResponseRenderer response={"```json\n" + json + "\n```"} /></Suspense>;
+    case "chartjs": return <ChartBlock code={json} fallback={fallback} />;
+    case "map": return <MapBlock code={json} fallback={fallback} />;
+    case "quiz": return <QuizBlock code={json} fallback={fallback} />;
+    case "choices": return <ChoiceBlock code={json} fallback={fallback} />;
+    case "mermaid": return <MermaidDiagram code={found.code} fallback={fallback} />;
+    default: return fallback;
+  }
 }

@@ -1136,7 +1136,18 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
 });
 
 // Plain markdown — used where code blocks need no artifact affordances.
-const PLAIN_COMPONENTS = { td: TableCell };
+const PLAIN_COMPONENTS = {
+  td: TableCell,
+  // Visual blocks are drawn here too; everything else is react-markdown's own code.
+  code({ node, className, children }) {
+    const lang = /language-(\w+)/.exec(className || "");
+    const text = String(children);
+    if (!lang && !text.includes("\n")) return <code className={className}>{children}</code>;
+    const codeString = text.replace(/\n$/, "");
+    const plain = <code className={className}>{children}</code>;
+    return renderVisualBlock({ lang: lang ? lang[1] : "text", meta: node?.data?.meta, code: codeString, fallback: <pre>{plain}</pre> }) || plain;
+  },
+};
 const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
   return (
     <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={PLAIN_COMPONENTS}>{normalizeMathDelimiters(content)}</ReactMarkdown>
@@ -1150,7 +1161,7 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
     td: TableCell,
     code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
-      const langMatch = /language-(\w+)/.exec(className || "");
+      const langMatch = /language-(\w+)/.exec(className || "") || (String(children).includes("\n") ? [null, "text"] : null);
       if (inline || !langMatch) return <code className={className}>{children}</code>;
       const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
       if (visual) return visual;

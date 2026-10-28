@@ -38,7 +38,9 @@ const STRUCTURED_TYPE_HINT_RE = /(onboarding|editor|results|location|route|galle
 
 const extractKnownJsonBlocks = (text) => {
   const result = { sections: [], remaining: text };
-  const regex = /```(?:json)?\s*([\s\S]*?)```/gi;
+  // Any fence tag: models write ```chart or ```graph as often as ```json, and
+  // a tag left inside the captured text made the JSON unparseable (raw code).
+  const regex = /```[\w.+-]*[ \t]*\n?([\s\S]*?)```/gi;
   let match;
   // Each consumed block used to be cut with `cleaned.replace(match[0], '')`,
   // which rescans the whole answer from the start for every block — quadratic
@@ -96,7 +98,7 @@ const parseResponse = (text) => {
   const blocks = [];
   
   // Find backtick blocks
-  const backtickRegex = /```(?:json)?\s*([\s\S]*?)```/gi;
+  const backtickRegex = /```[\w.+-]*[ \t]*\n?([\s\S]*?)```/gi;
   let bMatch;
   while ((bMatch = backtickRegex.exec(remainingText)) !== null) {
     blocks.push({

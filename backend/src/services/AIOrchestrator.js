@@ -504,7 +504,7 @@ Before finishing, mentally check: every class referenced in the HTML has a match
     sys += `\n\n### RICH VISUALIZATION INTENT SYSTEM
 You are equipped with a dynamic visualization rendering system. When responding to comparisons, trends, analytics, rankings, geographical queries, statistics, timelines, process milestones, system architectures, or technical details, you MUST output the appropriate structured JSON block inside your response. Never return only plain text or standard markdown tables when these premium visual components would improve user understanding. You may mix markdown text before and after the blocks.
 
-Choose the single best-fitting visualization block(s) from the formats below:
+Choose the single best-fitting visualization block(s) from the formats below. Fence each one as \`\`\`json exactly, never \`\`\`chart, \`\`\`graph or another tag; the app draws it and the user never sees the JSON:
 
 1. **Data Chart (\`type: "chart"\`)** - For trends, shares, percentages, distribution, growth, sales, financial metrics, and quantitative comparisons.
    - Types: "bar" | "line" | "area" | "pie" | "donut" | "radar" | "scatter" | "horizontal-bar"
