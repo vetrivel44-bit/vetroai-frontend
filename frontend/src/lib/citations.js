@@ -47,3 +47,30 @@ function transform(node) {
 export function remarkCitations() {
   return (tree) => transform(tree);
 }
+
+// A reply with no sources can still carry "[1], [3]" copied from an earlier
+// searched answer: numbers that point nowhere. They are dropped from prose
+// (never from code or links), with a "Sources: [1], [2]" line left empty.
+// `arr[1]` keeps its index: only a [n] not glued to a word goes.
+const STRAY_CITATIONS = /(?<![\w\]])[ \t]*\[\d{1,3}\](?:\s*[,–-]?\s*\[\d{1,3}\])*/g;
+const EMPTY_SOURCES_LINE = /^\s*(sources?|references?|citations?)\s*:?\s*[.,;]*\s*$/i;
+
+/** `value` without stray [n] citations. */
+export function dropCitations(value) {
+  return String(value).replace(STRAY_CITATIONS, "");
+}
+
+const textOf = (node) => (node.type === "text" ? node.value : (node.children || []).map(textOf).join(""));
+
+function drop(node) {
+  if (!node || !Array.isArray(node.children) || SKIP.has(node.type)) return;
+  for (const child of node.children) {
+    if (child.type === "text") child.value = dropCitations(child.value);
+    else drop(child);
+  }
+  node.children = node.children.filter((c) => !(c.type === "paragraph" && EMPTY_SOURCES_LINE.test(textOf(c)) && textOf(c).trim()));
+}
+
+export function remarkDropCitations() {
+  return (tree) => drop(tree);
+}

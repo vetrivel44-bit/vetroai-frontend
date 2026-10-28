@@ -7,6 +7,8 @@
 // Kinds: "structured" (the app's own {"type": "chart" | "timeline" | …}
 // blocks), "chartjs", "map", "choices", "quiz", "mermaid".
 
+import { parseLooseJson } from "./looseJson.js";
+
 // The app's own visual blocks (lib/structuredSegments + the interactive ones).
 export const STRUCTURED_TYPES = new Set([
   "location", "route", "chart", "timeline", "comparison_table", "comparison", "metrics",
@@ -26,7 +28,7 @@ const MERMAID_START = /^\s*(graph\s+(TD|TB|BT|LR|RL)|flowchart\s+(TD|TB|BT|LR|RL
 
 function parseJson(code) {
   try {
-    return JSON.parse(String(code).trim().replace(/\/\*[\s\S]*?\*\//g, "").replace(/,\s*([}\]])/g, "$1"));
+    return parseLooseJson(code);
   } catch {
     return undefined;
   }

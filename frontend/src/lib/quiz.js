@@ -10,7 +10,9 @@
 //
 // "answer" may be a letter (A–D), a 0-based index, or the option's text.
 
-export const LETTERS = ["A", "B", "C", "D", "E", "F"];
+import { parseLooseJson } from "./looseJson.js";
+
+export const LETTERS =["A", "B", "C", "D", "E", "F"];
 
 function answerIndex(answer, options) {
   if (Number.isInteger(answer)) return answer;
@@ -24,7 +26,7 @@ function answerIndex(answer, options) {
 const text = (v) => (v == null ? "" : String(v).trim());
 
 export function parseQuiz(code) {
-  const data = JSON.parse(String(code).trim().replace(/,\s*([}\]])/g, "$1"));
+  const data = parseLooseJson(code);
   const list = Array.isArray(data) ? data : data?.questions;
   if (!Array.isArray(list) || !list.length) throw new Error("no questions");
   const questions = list.map((q, i) => {

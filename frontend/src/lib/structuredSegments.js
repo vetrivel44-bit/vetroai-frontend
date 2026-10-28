@@ -2,7 +2,9 @@
 // in the order they appear, so prose written between visuals stays where the
 // model put it. Blocks may be fenced (```json … ```) or bare {…} objects.
 
-export const VISUAL_BLOCK_TYPES = new Set([
+import { parseLooseJson } from "./looseJson.js";
+
+export const VISUAL_BLOCK_TYPES =new Set([
   "location", "route", "chart", "timeline", "comparison_table", "comparison", "metrics",
   "architecture", "gallery", "visual_gallery", "collapsible",
 ]);
@@ -13,7 +15,7 @@ function parseVisual(raw) {
   const m = TYPE_HINT.exec(raw);
   if (!m || !VISUAL_BLOCK_TYPES.has(m[1])) return null;
   try {
-    const data = JSON.parse(raw.trim().replace(/,\s*([}\]])/g, "$1"));
+    const data = parseLooseJson(raw);
     return data && typeof data === "object" && VISUAL_BLOCK_TYPES.has(data.type) ? data : null;
   } catch {
     return null;

@@ -62,7 +62,8 @@ import SourceFavicon from "./components/SourceFavicon";
 import { CitationLink } from "./components/CitationLink";
 import { TableCell } from "./components/chat/TableCell";
 import { CitationContext } from "./lib/citationContext";
-import { remarkCitations } from "./lib/citations";
+import { remarkCitations, remarkDropCitations } from "./lib/citations";
+import { normalizeFences } from "./lib/fences";
 import { useSmoothStream, rehypeStreamWords, ReplyLiveContext } from "./lib/streamReveal";
 // These screens are all behind a toggle — none of them is on screen when the app
 // opens, and between them they pull in three.js, chess.js and the map stacks.
@@ -1085,6 +1086,8 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
 // For answers with sources: [n] becomes a source chip (CitationLink).
 const REMARK_PLUGINS_CITED = [remarkGfm, remarkMath, remarkCitations];
+// Without sources, stray [n] citations (copied from an earlier answer) go.
+const REMARK_PLUGINS_UNCITED = [remarkGfm, remarkMath, remarkDropCitations];
 const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
 // While a reply is live, newly arrived words fade in (see lib/streamReveal).
 const REHYPE_PLUGINS_LIVE = [[rehypeKatex, KATEX_OPTIONS], rehypeStreamWords];
@@ -1126,7 +1129,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
     <div className={`vai-stream-body${isStreaming ? " is-live" : ""}`}>
       <ReplyLiveContext.Provider value={Boolean(isStreaming)}>
         <OpenBlockContext.Provider value={openBlock}>
-          <ReactMarkdown remarkPlugins={sources?.length ? REMARK_PLUGINS_CITED : REMARK_PLUGINS} rehypePlugins={isStreaming ? REHYPE_PLUGINS_LIVE : REHYPE_PLUGINS} components={components}>
+          <ReactMarkdown remarkPlugins={sources?.length ? REMARK_PLUGINS_CITED : REMARK_PLUGINS_UNCITED} rehypePlugins={isStreaming ? REHYPE_PLUGINS_LIVE : REHYPE_PLUGINS} components={components}>
             {normalizeMathDelimiters(content)}
           </ReactMarkdown>
         </OpenBlockContext.Provider>
@@ -1182,7 +1185,9 @@ const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content })
 const AssistantBody = React.memo(function AssistantBody({ content: received, autoOpen, onSaveArtifact, isStreaming: streaming, sources = null }) {
   // Paced reveal: text appears at a steady rate, whole words at a time, and
   // the reply counts as streaming until the visible text has caught up.
-  const { text: content, live: isStreaming } = useSmoothStream(received, streaming);
+  const { text: revealed, live: isStreaming } = useSmoothStream(received, streaming);
+  // "…September.```chartjs" — a fence glued to prose printed the chart as text.
+  const content = useMemo(() => normalizeFences(revealed), [revealed]);
   let body;
   if (hasStructuredContent(content)) body = <StructuredResponseRenderer response={content} />;
   else if (isWritingBlock(content)) body = <WritingBlockCard content={content} />;
@@ -1192,7 +1197,8 @@ const AssistantBody = React.memo(function AssistantBody({ content: received, aut
 
 // A multi-AI consensus/model answer: structured when the model emitted a
 // structured block, markdown otherwise.
-const MultiAiBody = React.memo(function MultiAiBody({ content, highlight }) {
+const MultiAiBody = React.memo(function MultiAiBody({ content: raw, highlight }) {
+  const content = normalizeFences(raw);
   if (hasStructuredContent(content)) return <StructuredResponseRenderer response={content} />;
   return highlight ? <HighlightedMarkdown content={content} /> : <PlainMarkdown content={content} />;
 });

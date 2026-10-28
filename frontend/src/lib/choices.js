@@ -1,4 +1,5 @@
 import { createContext } from "react";
+import { parseLooseJson } from "./looseJson.js";
 
 // A ```choices block: when a request is unclear, the assistant asks back with
 // tappable options instead of guessing. Tapping one sends it as the user's
@@ -10,7 +11,7 @@ import { createContext } from "react";
 const text = (v) => (v == null ? "" : String(v).trim());
 
 export function parseChoices(code) {
-  const data = JSON.parse(String(code).trim().replace(/,\s*([}\]])/g, "$1"));
+  const data = parseLooseJson(code);
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("expected a JSON object");
   const question = text(data.question);
   if (!question) throw new Error("missing \"question\"");

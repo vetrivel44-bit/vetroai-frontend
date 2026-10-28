@@ -8,7 +8,7 @@ import { CitationLink } from '../CitationLink';
 import { TableCell } from '../chat/TableCell';
 import { renderVisualBlock } from '../../lib/visualBlocks';
 import { CitationContext } from '../../lib/citationContext';
-import { remarkCitations } from '../../lib/citations';
+import { remarkCitations, remarkDropCitations } from '../../lib/citations';
 
 // Prism's grammars are only needed once a section actually contains code, so
 // they arrive with the first code block rather than with the app.
@@ -18,7 +18,8 @@ import '../../styles/StructuredResponse.css';
 
 const KATEX_OPTIONS = { strict: false };
 
-const PLAIN_PLUGINS = [remarkGfm, remarkMath];
+// Without sources, stray [n] citations (copied from an earlier answer) go.
+const PLAIN_PLUGINS = [remarkGfm, remarkMath, remarkDropCitations];
 // Answers with sources turn [n] into source chips (CitationLink).
 const CITED_PLUGINS = [remarkGfm, remarkMath, remarkCitations];
 

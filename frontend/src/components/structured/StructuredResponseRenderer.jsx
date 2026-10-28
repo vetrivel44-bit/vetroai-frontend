@@ -13,6 +13,7 @@ import { Copy, FileDown, Check } from 'lucide-react';
 import React, { useState, useMemo, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import '../../styles/StructuredResponse.css';
+import { parseLooseJson } from '../../lib/looseJson';
 
 // The four heavyweights. Between them these pull in recharts, chart.js,
 // apexcharts, echarts, the MapTiler SDK and four CodeMirror language modes —
@@ -55,7 +56,7 @@ const extractKnownJsonBlocks = (text) => {
     try {
       const rawContent = match[1].trim();
       const cleanedContent = rawContent.replace(/,\s*}/g, '}').replace(/,\s*\]/g, ']');
-      const parsed = JSON.parse(cleanedContent);
+      const parsed = parseLooseJson(cleanedContent);
       if (INTERACTIVE_BLOCK_TYPES.has(parsed.type)) {
         result.sections.push({
           type: parsed.type,
@@ -189,7 +190,7 @@ const parseResponse = (text) => {
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/,\s*}/g, '}')
         .replace(/,\s*\]/g, ']');
-      const data = JSON.parse(cleanedContent);
+      const data = parseLooseJson(cleanedContent);
       if (data.type === 'location' || data.type === 'route') {
         sections.push({ 
           place: data.place || data.destination, 

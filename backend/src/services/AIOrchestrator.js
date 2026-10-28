@@ -877,6 +877,11 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const researched = isAgentic && !!webContext;
     let promptExtras = "";
     if (clockNote) promptExtras += clockNote;
+    // Without results the model copied the [1]–[5] citations of an earlier
+    // searched reply, citing sources this answer doesn't have.
+    if (!webContext) {
+      promptExtras += `\n\n[NO SOURCES FOR THIS MESSAGE]\nNo web search results were given for this message. Write no [1]-style citation numbers and no "Sources:" line; the source numbers in earlier replies don't apply to this one.`;
+    }
     if (noRealtimeData) {
       promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, who is in a show or contest, who holds a role, a person's current party or affiliation, or an "as of today/now" claim) as if it were verified — you have no live data backing it. Never guess who a person is or what organisation they founded or lead; if you are not certain, say you are not sure. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current. This is only about live facts: stable reference data (climate averages, historical statistics, census figures, geography) is not real-time, so answer or chart it from what you know, labelled approximate, instead of refusing.`;
     }

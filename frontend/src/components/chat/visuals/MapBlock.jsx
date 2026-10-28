@@ -4,13 +4,14 @@ import VisualCard, { VisualFallback, VisualPending } from "./VisualCard";
 import { OpenBlockContext, isStillStreaming } from "../../../lib/visualStream";
 import { loadMapTiler, streetStyle } from "../../../lib/maptiler";
 import { useDocumentTheme } from "./useDocumentTheme";
+import { parseLooseJson } from "../../../lib/looseJson";
 
 // A ```json map block: [{ "name", "lat", "lng", "notes" }, …] shown on a
 // MapTiler map — the same provider as the app's other maps. The SDK loads the
 // first time a map appears.
 
 function parsePlaces(code) {
-  let data = JSON.parse(code);
+  let data = parseLooseJson(code);
   if (!Array.isArray(data)) data = data?.places || data?.locations || data?.results;
   if (!Array.isArray(data) || !data.length) throw new Error("expected an array of places");
   const places = data.map((p) => ({

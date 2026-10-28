@@ -24,6 +24,9 @@ const LIVE = [
   "have you heard of nano banana",
   "do you know about the pixel 11",
   "any info on the rtx 6090",
+  "What share of India's electricity comes from coal, solar, wind, hydro and nuclear? Show it as a chart",
+  "Rank the 10 most populous states of India in a chart",
+  "literacy rate of kerala",
 ];
 
 const NOT_LIVE = [

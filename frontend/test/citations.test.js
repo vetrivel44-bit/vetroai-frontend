@@ -4,7 +4,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 
-import { citationNumber, remarkCitations, splitCitations } from "../src/lib/citations.js";
+import { citationNumber, dropCitations, remarkCitations, remarkDropCitations, splitCitations } from "../src/lib/citations.js";
 import { siteName, sourceDomain } from "../src/lib/sources.js";
 
 // Runs the plugin the way the chat does and lists what it produced.
@@ -66,4 +66,27 @@ test("sites are named the way people say them", () => {
   assert.equal(siteName(""), "");
   assert.equal(sourceDomain({ url: "https://www.reuters.com/x" }), "reuters.com");
   assert.equal(sourceDomain({ url: "https://a.test", domain: "given.test" }), "given.test");
+});
+
+// A reply with no sources that still carries "[1], [3]" copied from an
+// earlier searched answer: the numbers point nowhere, so they go.
+function dropTree(markdown) {
+  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkDropCitations);
+  return processor.runSync(processor.parse(markdown));
+}
+const textOf = (node) => (node.type === "text" || node.type === "inlineCode" ? node.value : (node.children || []).map(textOf).join(" "));
+
+test("without sources, stray [n] citations and an empty Sources line are dropped", () => {
+  assert.equal(dropCitations("Still the backbone; [1], [3] note it powers most of the grid"), "Still the backbone; note it powers most of the grid");
+  assert.equal(dropCitations("Coal is about 71% [2]."), "Coal is about 71%.");
+  const tree = dropTree("| Source | Notes |\n|---|---|\n| Coal | Backbone [1] |\n\nCoal leads [4].\n\nSources: [1], [2], [3], [4], [5]");
+  const text = textOf(tree);
+  assert.doesNotMatch(text, /\[\d\]/);
+  assert.doesNotMatch(text, /Sources/);
+  assert.match(text, /Coal leads/);
+});
+
+test("indexes and code keep their brackets", () => {
+  assert.equal(dropCitations("arr[1] is the second item"), "arr[1] is the second item");
+  assert.match(textOf(dropTree("Use `x[1]` here")), /x\[1\]/);
 });

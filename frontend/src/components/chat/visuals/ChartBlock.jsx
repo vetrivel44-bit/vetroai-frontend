@@ -4,12 +4,13 @@ import VisualCard, { VisualFallback, VisualPending } from "./VisualCard";
 import { OpenBlockContext, isStillStreaming } from "../../../lib/visualStream";
 import { useDocumentTheme } from "./useDocumentTheme";
 import { styleConfig } from "../../../lib/chartStyle";
+import { parseLooseJson } from "../../../lib/looseJson";
 
 // A ```chartjs block: Chart.js config as JSON (bar, line, scatter, pie…).
 // Chart.js loads the first time a chart appears.
 
 function parseConfig(code) {
-  const config = JSON.parse(code);
+  const config = parseLooseJson(code);
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("expected a JSON object");
   if (typeof config.type !== "string") throw new Error("missing \"type\"");
   if (!config.data || !Array.isArray(config.data.datasets)) throw new Error("missing \"data.datasets\"");

@@ -95,12 +95,13 @@ export function VisualPending({ icon: Icon, label, sketch = "lines" }) {
   );
 }
 
-// Parse/render failure: a one-line note, then the block as ordinary code.
+// Parse/render failure: a one-line note, with the block's code folded away
+// behind "Show code" rather than spread over the reply as raw JSON.
 export function VisualFallback({ what, error, fallback }) {
   return (
-    <div className="vetro-diagram-fallback not-prose">
-      <div className="vetro-diagram-error">Couldn’t show this {what}{error ? ` (${error})` : ""}. Showing the code instead.</div>
+    <details className="vetro-diagram-fallback not-prose">
+      <summary className="vetro-diagram-error" title={error || undefined}>Couldn’t draw this {what}. Show code</summary>
       {fallback}
-    </div>
+    </details>
   );
 }

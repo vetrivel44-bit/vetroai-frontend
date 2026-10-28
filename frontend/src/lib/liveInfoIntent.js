@@ -28,6 +28,8 @@ export const LIVE_INFO_PATTERNS = [
   // "Tell me about X", "Have you heard of X": asking after something specific
   // the model may never have seen
   /\b(tell (me |us )?about|have you heard (of|about)|do you know (about|of|what|who)|what do you know about|(info|information|details|anything) (on|about))\b/i,
+  // Statistics and rankings: revised every year, and they need sources
+  /\b(share of|percentage of|percent of|statistics|stats|data on|gdp|inflation|unemployment|literacy rate|population of|populous|growth rate|market share|rank(ed|ing|ings)?|top \d+|largest|biggest|richest|highest|lowest)\b/i,
 ];
 
 export function needsLiveInfo(query) {
