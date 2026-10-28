@@ -85,6 +85,8 @@ import { pickBrowserVoice, describeTtsVoice } from "./utils/browserVoice";
 import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyTitle, isNearbyRequest } from "./utils/locationPermission";
 import LocationPermissionSheet from "./components/LocationPermissionSheet";
 import NearbyMapCard from "./components/chat/NearbyMapCard";
+import { isHumanizeRequest, humanizeSource, buildHumanizePrompt } from "./lib/humanizer";
+import { READABLE_DOC, extractFileText } from "./lib/fileText";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
   LOCAL_OLLAMA_PROVIDER, ollamaStatus, pickModel, rememberModel, imageForModel, latestSharedImage,
@@ -6247,11 +6249,42 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const willWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
     if (willWebSearch) setIsWebSearching(true);
 
-    const userQuery = hist[hist.length - 1]?.content || "";
+    let userQuery = hist[hist.length - 1]?.content || "";
+    // What the user typed; userQuery becomes the rewriting brief on a humanize turn.
+    const typedQuery = userQuery;
+    // What the model is sent; differs from hist only for a humanize turn.
+    let sendHist = hist;
+
+    // "Humanize this" (text pasted with it, an attached document, or the last
+    // answer): VetroAI rewrites the text itself. The model gets a rewriting
+    // brief with the text (lib/humanizer.js) in place of the short request,
+    // while the chat keeps showing what the user typed. The brief already
+    // holds the document's text, so the file isn't attached again, and its
+    // words mustn't set off web search, sports, medical or maps lookups.
+    let humanizing = false;
+    if (isHumanizeRequest(userQuery)) {
+      const docs = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : [])
+        .filter((file) => file instanceof Blob && READABLE_DOC.test(file.name || ""));
+      let docText = "";
+      for (const file of docs) {
+        try { docText += (docText ? "\n\n" : "") + await extractFileText(file); } catch (err) { swallowError(err); }
+      }
+      if (!isActive()) return;
+      const source = humanizeSource({ query: userQuery, docText, history: hist.slice(0, -1) });
+      if (source.text) {
+        humanizing = true;
+        userQuery = buildHumanizePrompt(source);
+        sendHist = [...hist.slice(0, -1), { ...hist[hist.length - 1], content: userQuery }];
+        if (source.from === "document") filesData = null;
+        setIsWebSearching(false);
+        setRequestActivity("Humanizing your text…");
+      }
+    }
+
     // Hand-drawn diagrams ("draw the heart") always go to Sarvam 105B, whatever
     // model is picked; every other request uses the picked model.
     const requestProvider = isDrawingRequest(userQuery) ? SARVAM_105B_PROVIDER : selectedProvider;
-    const requestPlugins = pluginsForPrompt(pluginState, userQuery);
+    const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
     const fd = new FormData();
@@ -6259,7 +6292,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // Was slice(-12) — only 6 exchanges of context, so anything said earlier
     // in a longer conversation silently dropped off and the model looked like
     // it forgot. 50 matches the backend's own window (chatController.js).
-    fd.append("messages", JSON.stringify(hist.slice(-50).map(m => {
+    fd.append("messages", JSON.stringify(sendHist.slice(-50).map(m => {
       if (!m.files) return m;
       const { files, ...rest } = m;
       return { ...rest, files: files.map(f => ({ name: f.name })) };
@@ -6315,7 +6348,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    const sportsDetected = isSportsQuery(userQuery);
+    const sportsDetected = !humanizing && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -6324,8 +6357,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
-    const medicalDetected = !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
+    const medicalDetected = !humanizing && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
+    const shouldWebSearch = !humanizing && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -6335,10 +6368,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // it needs live information. Otherwise every message ran a web search
     // first, and a failed search sent the turn to a backend model instead.
     const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
-    const browserSearch = explicitSearch || (autoWebSearchRef.current && needsLiveInfo(userQuery));
-    setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
+    const browserSearch = !humanizing && (explicitSearch || (autoWebSearchRef.current && needsLiveInfo(userQuery)));
+    if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
-    const nearbyMapsRequest = !maybeLocal && isNearbyRequest(userQuery);
+    const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
     // Shown above the reply: map, place cards and directions (NearbyMapCard).
     let nearbyCard = null;
     if (nearbyMapsRequest) {
@@ -6632,7 +6665,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
         }
 
-        const puterMessages = hist
+        const puterMessages = sendHist
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
           .slice(-50)
           .map(({ role, content }) => ({ role, content }));
@@ -6690,7 +6723,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setStreamStatus("idle");
         setStreamingContent("");
         if (voiceRef.current || autoSpeakRef.current) speak(answer);
-        if (isFirstMsg) updateSessionTitle(userQuery, answer);
+        if (isFirstMsg) updateSessionTitle(typedQuery, answer);
         notifyResponseReady(answer);
         generateFollowUps(answer, userQuery);
       };
@@ -6794,7 +6827,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setStreamStatus("idle");
         setStreamingContent("");
         if (voiceRef.current || autoSpeakRef.current) speak(bot);
-        if (isFirstMsg) updateSessionTitle(userQuery || "Image analysis", bot);
+        if (isFirstMsg) updateSessionTitle(typedQuery || "Image analysis", bot);
         notifyResponseReady(bot);
         generateFollowUps(bot, userQuery || "Analyze this image");
       };
@@ -7291,7 +7324,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (voiceRef.current || autoSpeakRef.current) speak(bot);
-      if (isFirstMsg) updateSessionTitle(userQuery, bot);
+      if (isFirstMsg) updateSessionTitle(typedQuery, bot);
       notifyResponseReady(bot);
       generateFollowUps(bot, userQuery);
 
