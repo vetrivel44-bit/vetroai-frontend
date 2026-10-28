@@ -903,7 +903,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const thinkingPrompt = wantsThinking ? this.buildThinkingPrompt(params.effort) : "";
     const astrologyPrompt = astrology.prompt || "";
     // The adapters that honour it map this to the model's own reasoning depth.
-    options = { ...options, effort: params.effort };
+    // A light turn (a greeting, "who are you", a few words) has nothing to
+    // reason about, so models that reason natively (Sarvam) skip it and reply
+    // at once.
+    const light = isGreeting || isIdentityQuestion || userQuery.trim().length <= 12;
+    options = { ...options, effort: params.effort, light };
     if (isAgentic && webContext) {
       options.maxTokens = Math.max(Number(options.maxTokens) || 0, RESEARCH_MIN_TOKENS);
     }

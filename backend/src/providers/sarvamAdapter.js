@@ -104,8 +104,24 @@ async function request(body, { timeoutMs }) {
   return res;
 }
 
+// sarvam-105b reasons before every answer, at "medium" when nothing is said —
+// so a plain "hi" sat behind seconds of silent reasoning. The user's effort
+// setting picks the depth (as vercelAdapter does for gpt-oss), the default
+// ("balanced") kept light, and null switches reasoning off.
+const REASONING_EFFORT = { quick: null, balanced: "low", deep: "medium", max: "high" };
+
+/**
+ * The reasoning_effort to send. Off for a drawing (it reasoned for minutes and
+ * could spend max_tokens before drawing at all, even at "low") and for a light
+ * turn — a greeting or a few words — which has nothing to reason about.
+ */
+function reasoningEffortFor({ drawing, light, effort } = {}) {
+  if (drawing || light) return null;
+  return Object.prototype.hasOwnProperty.call(REASONING_EFFORT, effort) ? REASONING_EFFORT[effort] : REASONING_EFFORT.balanced;
+}
+
 async function generateStream(messages, options = {}) {
-  const { temperature, maxTokens, sarvamModel, drawing } = options;
+  const { temperature, maxTokens, sarvamModel } = options;
   try {
     const res = await request({
       model: sarvamModel || config.sarvamModel || DEFAULT_MODEL,
@@ -113,12 +129,7 @@ async function generateStream(messages, options = {}) {
       temperature: temperature ?? 0.7,
       max_tokens: Math.min(maxTokens ?? 4096, MAX_TOKENS_CAP),
       stream: true,
-      // sarvam-105b reasons at "medium" by default, and on a drawing it reasoned
-      // for minutes (shown as "Thinking…") and could spend max_tokens before
-      // drawing at all — "low" did too. null switches reasoning off, so the
-      // sketch starts straight away; staying on the subject and finishing the
-      // sketch are handled by the drawing instruction and the orchestrator.
-      ...(drawing ? { reasoning_effort: null } : {}),
+      reasoning_effort: reasoningEffortFor(options),
     }, { timeoutMs: 30000 });
     return res.body;
   } catch (err) {
@@ -148,6 +159,7 @@ module.exports = {
   complete,
   modelFor,
   shapeMessages,
+  reasoningEffortFor,
   DEFAULT_MODEL,
   // Tests start from a clean slate.
   resetReplacements: () => replaced.clear(),
