@@ -18,6 +18,12 @@ const LIVE = [
   "upcoming movies on netflix",
   "petrol price of chennai",
   "what happened in 2027",
+  "tell about gemini argon",
+  "Tell me about Gemini Argon",
+  "what is gpt-5.6 sol",
+  "have you heard of nano banana",
+  "do you know about the pixel 11",
+  "any info on the rtx 6090",
 ];
 
 const NOT_LIVE = [
@@ -28,6 +34,8 @@ const NOT_LIVE = [
   "explain photosynthesis",
   "fix this python function",
   "plan a birthday party for my son",
+  "draw pixel art of a cat",
+  "write a story about a dragon",
 ];
 
 test("questions whose answer may have changed are sent to web search", () => {

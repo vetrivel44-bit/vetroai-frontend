@@ -28,6 +28,12 @@ const LIVE_INFO_PATTERNS = [
   // "Is X in / still / currently …", "Did X win …"
   /^\s*(is|are|was|were|did|does|has|have|will)\b.{2,80}\b(in|on|still|currently|now|joining|participating|playing|contesting|alive|married|retired|winner|won|win)\b/i,
   /\b(when (is|will|does|did)|upcoming|schedule|fixtures?|results?|winners?|price of|cost of|how much (is|does))\b/i,
+  // AI models, gadgets and products: new ones (and codenames) keep arriving
+  // after training, so "tell about gemini argon" got "I'm not aware of it"
+  /\b(gemini|gpt[- ]?\d[\w.]*|chatgpt|openai|claude|anthropic|llama|grok|deepseek|qwen|mistral|copilot|sora|veo|midjourney|perplexity|iphone|pixel \d+|galaxy [sza]\d+|ios \d+|android \d+|rtx ?\d+|playstation|ps[56]|xbox|nintendo|codename|announced|unveiled|leaked|launch(ed|es)?)\b/i,
+  // "Tell me about X", "Have you heard of X": asking after something specific
+  // the model may never have seen
+  /\b(tell (me |us )?about|have you heard (of|about)|do you know (about|of|what|who)|what do you know about|(info|information|details|anything) (on|about))\b/i,
 ];
 
 function needsLiveInfo(query) {

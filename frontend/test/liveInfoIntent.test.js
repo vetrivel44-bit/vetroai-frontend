@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const backend = require("../../backend/src/services/liveInfoIntent.js");
 
 test("current-events questions search; timeless ones don't", () => {
-  for (const q of ["is TTV Vasan in bigg boss season 10", "bigg boss tamil season 10 contestants", "who is the chief minister of tamil nadu", "when is the next ipl match"]) {
+  for (const q of ["is TTV Vasan in bigg boss season 10", "bigg boss tamil season 10 contestants", "who is the chief minister of tamil nadu", "when is the next ipl match", "tell about gemini argon", "have you heard of nano banana"]) {
     assert.equal(needsLiveInfo(q), true, q);
   }
   for (const q of ["hi", "what is DBMS", "write a poem about rain", "explain photosynthesis"]) {
