@@ -58,9 +58,5 @@
       "runAfterFinish": true,
       "perMachine": false
     }
-  },
-  "allowScripts": {
-    "electron@38.8.6": true,
-    "electron-winstaller@5.4.0": true
   }
 }

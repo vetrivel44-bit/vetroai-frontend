@@ -8,7 +8,7 @@ import QRCode from "qrcode";
 import { announcePhone, forgetDevice, removeDispatch, sendDispatch, updateDispatch, watchDevices, watchDispatches } from "../../lib/dispatch";
 import { watchAuthState } from "../../lib/firebaseAuth";
 import {
-  FINISHED, MAX_DISPATCH_TEXT, clearPair, describeDispatch, formatAgo, isComputerDevice, isOnline, maskEmail, pairLink,
+  FINISHED, clearPair, describeDispatch, formatAgo, isComputerDevice, isOnline, maskEmail, pairLink,
   pairMatchesAccount, peekPair, phoneLabel,
 } from "../../lib/dispatchCore";
 
@@ -327,7 +327,6 @@ export default function DispatchPanel({ uid, deviceId, accepting, onAcceptingCha
           <textarea
             rows={2}
             value={text}
-            maxLength={MAX_DISPATCH_TEXT}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }}
             placeholder={online.length ? "What should your computer do?" : "What should your computer do? It'll start once your computer is on."}

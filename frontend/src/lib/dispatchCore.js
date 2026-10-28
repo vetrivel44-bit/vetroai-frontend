@@ -10,8 +10,20 @@
 export const HEARTBEAT_MS = 25_000;
 /** A computer not heard from for this long counts as offline. */
 export const ONLINE_WINDOW_MS = 75_000;
-export const MAX_DISPATCH_TEXT = 4000;
-const MAX_RESULT = 6000;
+// No limits of our own on a task, its result or its progress. The one cap that
+// can't go is Firestore's: a document holds at most 1 MiB. Text is measured in
+// UTF-8 bytes (a Tamil or Hindi letter is 3), leaving room for the other fields.
+export const DOC_TEXT_BYTES = 900_000;
+
+/** `text`, cut only if it would not fit in a Firestore document. */
+export function clipToBytes(text = "", maxBytes = DOC_TEXT_BYTES, note = "") {
+  const s = String(text || "");
+  const bytes = new TextEncoder().encode(s);
+  if (bytes.length <= maxBytes) return s;
+  const room = maxBytes - new TextEncoder().encode(note).length;
+  // fatal: false drops a character split at the cut instead of throwing.
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, Math.max(0, room))).replace(/�$/, "").trimEnd() + note;
+}
 
 /** queued → (awaiting_approval →) claimed → running → done | failed | cancelled */
 export const DISPATCH_STATUSES = ["queued", "awaiting_approval", "claimed", "running", "done", "failed", "cancelled"];
@@ -45,8 +57,9 @@ export function orphanedRuns(dispatches, deviceId, currentId = null) {
 }
 
 /**
- * A phone screen can't show a whole website's HTML or a long code dump, and a
- * Firestore document has a size cap. Keep the words, say what was built.
+ * The whole result goes to the phone, code included. A website's raw HTML is
+ * the one thing left out: it can't be previewed on the phone, so the phone is
+ * told it was built instead.
  */
 export function summarizeForPhone(content = "") {
   let text = String(content || "");
@@ -55,10 +68,8 @@ export function summarizeForPhone(content = "") {
     website = true;
     return "\n_🌐 Website built — open it on your computer to preview or publish it._\n";
   });
-  text = text.replace(/```(\w*)\n([\s\S]*?)(?:```|$)/g, (block, lang, body) =>
-    body.length > 1500 ? `\n_📄 ${lang ? `${lang} ` : ""}code (${body.split("\n").length} lines) — on your computer._\n` : block);
   text = text.replace(/\n{3,}/g, "\n\n").trim();
-  if (text.length > MAX_RESULT) text = `${text.slice(0, MAX_RESULT).trimEnd()}…\n\n_The full result is on your computer._`;
+  text = clipToBytes(text, DOC_TEXT_BYTES, "…\n\n_The rest is on your computer (too large for one sync)._");
   return { text, website };
 }
 
@@ -75,7 +86,7 @@ export function toDispatchUpdate(task) {
   const done = (task.steps || []).filter((s) => s.status === "done").length;
   const update = {
     status,
-    progress: status === "running" && active ? [active.label, active.detail].filter(Boolean).join(" — ").slice(0, 240) : "",
+    progress: status === "running" && active ? [active.label, active.detail].filter(Boolean).join(" — ") : "",
     stepsDone: done,
     stepsTotal: (task.steps || []).length,
   };
