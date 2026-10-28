@@ -8308,7 +8308,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   return (
     <div className={`vetro-app-shell flex w-screen overflow-hidden font-sans${activeArtifact ? " artifact-workspace-open" : ""}`} style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <Toast toasts={toasts} />
-      {showGlobalSearch && <Suspense fallback={<ScreenLoader />}><GlobalSearch onClose={() => setShowGlobalSearch(false)} /></Suspense>}
+      {showGlobalSearch && (
+        <Suspense fallback={<ScreenLoader />}>
+          <GlobalSearch
+            sessions={sessions}
+            spaces={spaces}
+            artifacts={artifacts}
+            onOpenChat={(id) => { loadSession(id); setActiveNav("chats"); setSidebarMobileOpen(false); }}
+            onOpenSpace={(id) => { handleSwitchSpace(id); setSidebarMobileOpen(false); }}
+            onOpenArtifact={(artifact) => setActiveArtifact(artifact)}
+            onClose={() => setShowGlobalSearch(false)}
+          />
+        </Suspense>
+      )}
       {viewer && <Suspense fallback={null}><AttachmentViewer items={viewer.items} index={viewer.index} onClose={() => setViewer(null)} /></Suspense>}
       {/* Above full-screen products too (Computer offers Pro from inside). */}
       {showUpgrade && <div style={{ position: "relative", zIndex: 200 }}><Suspense fallback={<ScreenLoader />}><UpgradeModal onClose={() => setShowUpgrade(false)} currentPlan={userInfo?.plan || "free"} /></Suspense></div>}
