@@ -1033,7 +1033,7 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
   }, [autoOpen, onSaveArtifact]);
   const copy = () => { navigator.clipboard.writeText(codeString); setCp(true); setTimeout(() => setCp(false), 2000); };
   const download = () => {
-    const extMap = { javascript:'js', typescript:'ts', python:'py', java:'java', 'c++':'cpp', html:'html', css:'css', sql:'sql' };
+    const extMap = { javascript:'js', typescript:'ts', python:'py', java:'java', 'c++':'cpp', html:'html', css:'css', sql:'sql', text:'txt' };
     const ext = extMap[lang] ?? lang ?? 'txt';
     const blob = new Blob([codeString], { type: 'text/plain' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `code.${ext}`; a.click();
@@ -1095,8 +1095,13 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
     a: CitationLink,
     code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
-      const langMatch = /language-(\w+)/.exec(className || "");
-      if (inline || !langMatch) return <code className={className}>{children}</code>;
+      const fenced = /language-(\w+)/.exec(className || "");
+      // react-markdown 10 no longer passes `inline`. A fenced block's text ends
+      // in a newline and inline code never contains one, so a block without a
+      // language ("```" output, logs) still gets the code card, as "text".
+      const isBlock = inline === false || Boolean(fenced) || String(children).includes("\n");
+      if (!isBlock) return <code className={className}>{children}</code>;
+      const langMatch = fenced || [null, "text"];
       // Diagrams, charts, widgets and maps are drawn instead of shown as code.
       const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
       if (visual) return visual;
