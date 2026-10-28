@@ -1,0 +1,76 @@
+/* Pixel-mosaic night sky fills the hero panel; this deep blue shows only
+   while the photo loads. */
+.auth-hero-side.auth-hero-sky,
+[data-theme="light"] .auth-hero-side.auth-hero-sky {
+  background: linear-gradient(180deg, #0b1530 0%, #1a2e5c 60%, #2a3550 100%);
+  /* Card sits top-left on open starfield, leaving the stargazer and the
+     Milky Way band in view. */
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 40px;
+}
+.auth-hero-sky .auth-hero-orb { display: none; }
+
+.ahb-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
+  pointer-events: none; opacity: 0; transition: opacity 0.6s ease;
+}
+.ahb-canvas.ready { opacity: 1; }
+
+/* Soft shade at the bottom so the credit line stays readable. */
+.auth-hero-sky::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 45%; z-index: 0; pointer-events: none;
+  background: linear-gradient(to top, rgba(10, 18, 35, 0.45), transparent);
+}
+
+.ahb-credit {
+  position: absolute; left: 16px; bottom: 14px; z-index: 2;
+  font-size: 10.5px; color: rgba(255, 255, 255, 0.75); text-decoration: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.ahb-credit:hover { color: #fff; text-decoration: underline; }
+
+/* Compact white card. */
+.auth-hero-sky .auth-hero-content {
+  width: min(380px, 100%);
+  max-width: none;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 18px;
+  padding: 20px 22px;
+  box-shadow: 0 20px 50px rgba(8, 20, 45, 0.35);
+  animation: ahbCardIn 0.6s cubic-bezier(.2, .8, .2, 1) both;
+}
+.auth-hero-sky .auth-hero-logo { gap: 10px; margin-bottom: 12px; }
+.auth-hero-sky .auth-hero-logo .vetro-brand-logo { --ink: #1c1917; --bg-sidebar: #fff; }
+.auth-hero-sky .auth-hero-logo .logo-ver {
+  margin-top: 0 !important; font-size: 10px; font-weight: 600; color: #78716c;
+  background: #f0efed; border-radius: 999px; padding: 2px 7px;
+}
+.auth-hero-sky .auth-hero-headline {
+  font-size: 1.4rem; letter-spacing: -0.4px; line-height: 1.2; color: #1c1917; margin-bottom: 6px;
+}
+.auth-hero-sky .auth-hero-sub { font-size: 0.8rem; color: #57534e; line-height: 1.55; margin-bottom: 14px; max-width: none; }
+
+/* Features as single-line tags that wrap as a group, never mid-label. */
+.auth-hero-sky .auth-hero-features { display: flex; flex-wrap: wrap; gap: 6px; }
+.auth-hero-sky .auth-hero-feat {
+  white-space: nowrap; gap: 6px;
+  padding: 5px 10px; font-size: 0.72rem; font-weight: 500; border-radius: 999px;
+  background: #f3f6fa; border: 1px solid #e3e9f1; color: #27303d;
+  transition: background 0.2s, color 0.2s;
+}
+.auth-hero-sky .auth-hero-feat:hover { background: #e6f0ff; color: #0f4fa8; }
+.auth-hero-sky .auth-hero-feat span { display: inline-flex; color: #1f6fd6; font-size: 1em; }
+.auth-hero-sky .auth-hero-feat svg { width: 13px; height: 13px; }
+
+@keyframes ahbCardIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-hero-sky .auth-hero-content { animation: none; }
+}

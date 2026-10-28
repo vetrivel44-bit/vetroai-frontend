@@ -1,0 +1,122 @@
+/* Sign-in panel beside the pixel night-sky hero. It always uses this light
+   palette, whatever the app theme, so it pairs with the white hero card.
+   Selectors carry .auth-form-pro (and !important where polish.css forces
+   colours) so the rest of the app is untouched. */
+.auth-form-side.auth-form-pro {
+  --ink: #141722; --ink-2: #2a2f3c; --ink-3: #5a6172; --ink-4: #8a91a1; --ink-5: #b0b6c3;
+  --accent: #2f5fd0; --border: #e3e7ee; --bg: #f6f7fb; --bg-elevated: #fff;
+  color-scheme: light;
+  position: relative;
+  width: min(520px, 100%);
+  padding: 40px 48px;
+  background:
+    radial-gradient(520px 340px at 100% 0%, rgba(80, 125, 255, 0.13), transparent 70%),
+    radial-gradient(420px 320px at 0% 100%, rgba(150, 120, 255, 0.10), transparent 70%),
+    #f6f7fb;
+  overflow: hidden;
+}
+/* Faint pixel-dot texture, echoing the mosaic, fading out toward the form. */
+.auth-form-pro::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(#d5dbe7 1px, transparent 1.3px);
+  background-size: 18px 18px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 35%, #000 85%);
+          mask-image: radial-gradient(ellipse at 50% 50%, transparent 35%, #000 85%);
+  opacity: 0.8;
+}
+.auth-form-pro .auth-form-card { position: relative; max-width: 380px; gap: 18px; }
+
+.auth-form-pro .afp-brand { margin-bottom: 26px; }
+.auth-form-pro .afp-brand .vetro-brand-logo { --ink: #141722; --bg-sidebar: #f6f7fb; }
+.auth-form-pro .auth-form-title { font-size: 1.85rem; font-weight: 700; letter-spacing: -0.035em; color: var(--ink); margin-bottom: 6px; }
+.auth-form-pro .auth-form-sub { font-size: 0.9rem; color: var(--ink-3); }
+
+/* Sign in / Create account switch with a sliding pill. */
+.afp-tabs {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  padding: 4px; border-radius: 12px; background: #eaedf3;
+  box-shadow: inset 0 1px 2px rgba(20, 23, 34, 0.06);
+}
+.afp-tab-pill {
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px);
+  border-radius: 9px; background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 23, 34, 0.08), 0 4px 12px -4px rgba(20, 23, 34, 0.12);
+  transition: transform 0.28s cubic-bezier(.3, .7, .2, 1);
+}
+.afp-tabs[data-mode="signup"] .afp-tab-pill { transform: translateX(100%); }
+.afp-tab {
+  position: relative; z-index: 1; height: 36px; border: 0; background: none; cursor: pointer;
+  font-size: 0.86rem; font-weight: 600; color: var(--ink-3); transition: color 0.2s;
+}
+.afp-tab.on { color: var(--ink); }
+.afp-tab:hover:not(.on) { color: var(--ink-2); }
+
+.afp-google button {
+  border-radius: 12px !important; min-height: 46px !important;
+  border-color: #dfe3eb !important;
+  box-shadow: 0 1px 2px rgba(20, 23, 34, 0.05);
+  font-weight: 600 !important; font-size: 0.9rem !important;
+}
+.afp-google button:hover:not(:disabled) { background: #f9fafc !important; box-shadow: 0 2px 8px -2px rgba(20, 23, 34, 0.12); }
+
+.auth-form-pro .auth-divider-row span { background: #e3e7ee; }
+.auth-form-pro .auth-divider-row em { font-size: 0.74rem; color: var(--ink-4); }
+
+.afp-form { display: flex; flex-direction: column; gap: 14px; }
+.afp-field { display: flex; flex-direction: column; gap: 6px; }
+.afp-label { font-size: 0.78rem; font-weight: 600; color: var(--ink-2); }
+.afp-label-row { display: flex; align-items: center; justify-content: space-between; }
+.auth-form-pro .auth-forgot-link { margin: 0; padding: 0; font-size: 0.76rem; font-weight: 600; color: var(--accent); }
+.auth-form-pro .auth-forgot-link:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 2px; }
+
+.afp-control { position: relative; display: block; }
+.afp-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--ink-4); pointer-events: none; transition: color 0.18s;
+}
+.afp-control:focus-within .afp-icon { color: var(--accent); }
+.auth-form-pro .afp-control .auth-input {
+  width: 100%; height: 46px; padding: 0 44px 0 42px;
+  background: #fff; color: var(--ink);
+  border: 1px solid #dfe3eb; border-radius: 12px;
+  font-size: 0.92rem;
+  box-shadow: 0 1px 2px rgba(20, 23, 34, 0.04);
+}
+.auth-form-pro .afp-control .auth-input::placeholder { color: var(--ink-5); }
+.auth-form-pro .afp-control .auth-input:hover { border-color: #cfd5e0; }
+.auth-form-pro .afp-control .auth-input:focus {
+  outline: none; background: #fff;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px rgba(47, 95, 208, 0.14) !important;
+}
+.afp-eye {
+  position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 8px; background: none; color: var(--ink-4); cursor: pointer;
+}
+.afp-eye:hover { background: #eef1f6; color: var(--ink-2); }
+
+/* Primary button in the galaxy's night blues. */
+.auth-form-pro .auth-submit-btn {
+  height: 48px; margin-top: 4px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 0.95rem; font-weight: 600; letter-spacing: 0.01em;
+  background: linear-gradient(135deg, #18307a 0%, #2a55c8 55%, #5b7ff2 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 10px 24px -10px rgba(42, 85, 200, 0.65) !important;
+}
+.auth-form-pro .auth-submit-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 14px 30px -10px rgba(42, 85, 200, 0.75) !important;
+}
+.auth-form-pro .auth-submit-btn svg { transition: transform 0.2s; }
+.auth-form-pro .auth-submit-btn:hover:not(:disabled) svg { transform: translateX(3px); }
+
+.auth-form-pro .auth-notice { text-align: left; }
+.afp-legal { font-size: 0.72rem; color: var(--ink-4); text-align: center; margin-top: 2px; }
+
+@media (max-width: 768px) {
+  .auth-form-side.auth-form-pro { width: 100%; padding: 32px 22px; }
+  .auth-form-pro .afp-brand { display: flex; justify-content: center; margin-bottom: 20px; }
+  .auth-form-pro .auth-form-header { text-align: center; }
+}

@@ -19,6 +19,7 @@ const KATEX_OPTIONS = { strict: false };
 const CodeHighlighter = React.lazy(() => import("./components/CodeHighlighter"));
 import "./App.css";
 import GoogleLoginButton from "./components/auth/GoogleLoginButton";
+import "./components/auth/AuthFormPro.css";
 import {
   watchIdToken, consumeRedirectResult, signOutUser, toUserInfo,
   signInWithEmail, signUpWithEmail, describeAuthError,
@@ -42,12 +43,13 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation, Mail, Eye, EyeOff, ArrowRight } from "lucide-react";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
+import AuthHeroBird from "./components/AuthHeroBird";
 import ThinkingPanel from "./components/ThinkingPanel";
 import ResearchActivity from "./components/ResearchActivity";
 import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
@@ -8018,10 +8020,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   if (!user) return (
     <div className="auth-page-v3">
       {/* Hero side */}
-      <div className="auth-hero-side">
+      <div className="auth-hero-side auth-hero-sky">
         <div className="auth-hero-orb orb1" />
         <div className="auth-hero-orb orb2" />
         <div className="auth-hero-orb orb3" />
+        <AuthHeroBird />
         <div className="auth-hero-content">
           <div className="auth-hero-logo">
             <VetroLogo width={160} />
@@ -8038,7 +8041,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       </div>
 
       {/* Form side */}
-      <div className="auth-form-side">
+      <div className="auth-form-side auth-form-pro">
         <div className="auth-form-card">
           {pendingVerify !== null ? (
             <div className="auth-verify">
@@ -8064,53 +8067,79 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             </div>
           ) : (<>
           <div className="auth-form-header">
-            {/* Phones hide the hero panel, so the brand shows here instead. */}
-            <div className="auth-form-logo"><VetroLogo width={150} /></div>
-            <h2 className="auth-form-title">{authMode === "login" ? "Welcome back 👋" : "Join VetroAI 🚀"}</h2>
-            <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Create a free account in seconds."}</p>
+            <div className="afp-brand"><VetroLogo width={128} /></div>
+            <h2 className="auth-form-title">{authMode === "login" ? "Welcome back" : "Create your account"}</h2>
+            <p className="auth-form-sub">{authMode === "login" ? "Sign in to continue your conversations." : "Free forever. Set up in under a minute."}</p>
+          </div>
+
+          <div className="afp-tabs" role="tablist" data-mode={authMode}>
+            <span className="afp-tab-pill" aria-hidden="true" />
+            {[["login", "Sign in"], ["signup", "Create account"]].map(([mode, label]) => (
+              <button key={mode} type="button" role="tab" aria-selected={authMode === mode}
+                className={`afp-tab${authMode === mode ? " on" : ""}`}
+                onClick={() => { if (authMode !== mode) { setAuthMode(mode); setAuthError(""); setAuthNotice(""); } }}>
+                {label}
+              </button>
+            ))}
           </div>
 
           {/* Google Sign In */}
           {GOOGLE_SIGNIN_ENABLED ? (
             <>
-              <GoogleLoginButton
-                onLogin={handleGoogleLogin}
-                onError={(message) => setAuthError(message)}
-                theme={theme}
-                disabled={authLoading}
-              />
-              <div className="auth-divider-row"><span /><em>or</em><span /></div>
+              <div className="afp-google">
+                <GoogleLoginButton
+                  onLogin={handleGoogleLogin}
+                  onError={(message) => setAuthError(message)}
+                  theme="light"
+                  disabled={authLoading}
+                />
+              </div>
+              <div className="auth-divider-row"><span /><em>or continue with email</em><span /></div>
             </>
           ) : null}
 
-          <form onSubmit={handleAuthSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <form onSubmit={handleAuthSubmit} className="afp-form">
             {authMode === "signup" && (
-              <input className="auth-input" type="text" placeholder="Full name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
+              <label className="afp-field">
+                <span className="afp-label">Full name</span>
+                <span className="afp-control">
+                  <User size={16} className="afp-icon" />
+                  <input className="auth-input" type="text" placeholder="Your name" autoComplete="name" value={authName} onChange={e => setAuthName(e.target.value)} required autoFocus />
+                </span>
+              </label>
             )}
-            <input className="auth-input" type="email" placeholder="Email address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
-            <div style={{ position: "relative" }}>
-              <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "Password (8+ chars)" : "Password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} style={{ paddingRight: 44 }} />
-              <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: "0.75rem" }}>{showPass ? "Hide" : "Show"}</button>
-            </div>
-            {authMode === "login" && (
-              <button type="button" className="auth-forgot-link" onClick={handleForgotPassword} disabled={authLoading}>Forgot password?</button>
-            )}
+            <label className="afp-field">
+              <span className="afp-label">Email</span>
+              <span className="afp-control">
+                <Mail size={16} className="afp-icon" />
+                <input className="auth-input" type="email" placeholder="you@example.com" autoComplete="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoFocus={authMode === "login"} />
+              </span>
+            </label>
+            <label className="afp-field">
+              <span className="afp-label-row">
+                <span className="afp-label">Password</span>
+                {authMode === "login" && (
+                  <button type="button" className="auth-forgot-link" onClick={handleForgotPassword} disabled={authLoading}>Forgot password?</button>
+                )}
+              </span>
+              <span className="afp-control">
+                <Lock size={16} className="afp-icon" />
+                <input className="auth-input" type={showPass ? "text" : "password"} placeholder={authMode === "signup" ? "At least 8 characters" : "Your password"} autoComplete={authMode === "signup" ? "new-password" : "current-password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={authMode === "signup" ? 8 : 1} />
+                <button type="button" className="afp-eye" onClick={() => setShowPass(v => !v)} aria-label={showPass ? "Hide password" : "Show password"}>
+                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </span>
+            </label>
             {authNotice && <div className="auth-notice auth-notice-ok">{authNotice}</div>}
             {authError && (
-              <div style={{ fontSize: "0.82rem", color: authError.includes("created") ? "#10b981" : "#e76f51", textAlign: "center", padding: "8px 12px", background: authError.includes("created") ? "rgba(16,185,129,0.08)" : "rgba(231,111,81,0.08)", borderRadius: 10, border: `1px solid ${authError.includes("created") ? "rgba(16,185,129,0.2)" : "rgba(231,111,81,0.2)"}` }}>{authError}</div>
+              <div className={`auth-notice ${authError.includes("created") ? "auth-notice-ok" : "auth-notice-err"}`}>{authError}</div>
             )}
             <button className="auth-submit-btn" type="submit" disabled={authLoading}>
-              {authLoading ? <><div className="auth-spin" />Please wait…</> : authMode === "login" ? "Sign in →" : "Create account →"}
+              {authLoading ? <><div className="auth-spin" />Please wait…</> : <>{authMode === "login" ? "Sign in" : "Create account"}<ArrowRight size={16} /></>}
             </button>
           </form>
 
-          <p className="auth-switch-text">
-            {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-            <button onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); setAuthNotice(""); }} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600, fontSize: "inherit" }}>
-              {authMode === "login" ? "Sign up free" : "Sign in"}
-            </button>
-          </p>
-          <p style={{ fontSize: "0.68rem", color: "var(--ink-5)", textAlign: "center", marginTop: 4 }}>By continuing you agree to use VetroAI responsibly.</p>
+          <p className="afp-legal">By continuing you agree to use VetroAI responsibly.</p>
           </>)}
         </div>
       </div>
@@ -8230,6 +8259,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </button>
         </div>
 
+        {/* Nav, Products and Recents scroll together. Recents used to be the only
+            shrinkable block, so on a laptop-height window the fixed rows above it
+            squeezed chat history down to nothing. */}
+        <div className="claude-sb-recents-scroll flex-1 min-h-0 overflow-y-auto flex flex-col" onScroll={() => { if (openRecentMenuId) setOpenRecentMenuId(null); }}>
         {/* Main nav */}
         <div className="px-1 flex flex-col gap-0.5">
           <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); setShowChess(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
@@ -8272,7 +8305,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         </div>
 
         {/* Recents section */}
-        <div className="claude-sb-recents-scroll flex-1 overflow-y-auto px-1 flex flex-col" style={{ marginTop: 12, gap: 2 }} onScroll={() => { if (openRecentMenuId) setOpenRecentMenuId(null); }}>
+        <div className="px-1 flex flex-col" style={{ marginTop: 12, gap: 2 }}>
           {displaySessions.length > 0 && (
             <div className="flex items-center justify-between px-3 py-1 mb-0.5 relative">
               <p className="claude-sb-group-label text-[11.5px] font-medium" style={{ color: 'var(--ink-4)' }}>Recents</p>
@@ -8371,6 +8404,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               </div>
             );
           })}
+        </div>
         </div>
         <div className="claude-sb-footer p-3 flex flex-col gap-0.5 relative">
           {userInfo?.plan !== "pro" && (
