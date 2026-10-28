@@ -5,6 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import React, { Suspense, useContext } from 'react';
 import { CitationLink } from '../CitationLink';
+import { TableCell } from '../chat/TableCell';
 import { CitationContext } from '../../lib/citationContext';
 import { remarkCitations } from '../../lib/citations';
 
@@ -37,6 +38,7 @@ const StructuredSection = ({ title, content, children, delay = 0 }) => {
             rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
             components={{
               a: CitationLink,
+              td: TableCell,
               code({ node, inline, className, children, ...rest }) {
                 const match = /language-(\w+)/.exec(className || '');
                 return !inline && match ? (

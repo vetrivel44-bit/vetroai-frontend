@@ -59,6 +59,7 @@ import { settleResearch } from "./lib/research";
 import { sourceDomain } from "./lib/sources";
 import SourceFavicon from "./components/SourceFavicon";
 import { CitationLink } from "./components/CitationLink";
+import { TableCell } from "./components/chat/TableCell";
 import { CitationContext } from "./lib/citationContext";
 import { remarkCitations } from "./lib/citations";
 import { useSmoothStream, rehypeStreamWords, ReplyLiveContext } from "./lib/streamReveal";
@@ -86,6 +87,7 @@ import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyT
 import LocationPermissionSheet from "./components/LocationPermissionSheet";
 import NearbyMapCard from "./components/chat/NearbyMapCard";
 import { isHumanizeRequest, humanizeSource, buildHumanizePrompt } from "./lib/humanizer";
+import { pickVetroChoice, pickLifeChoice } from "./lib/vetroChoice";
 import { READABLE_DOC, extractFileText } from "./lib/fileText";
 import { detectClockQuestion, clockAnswer, clockPromptLine, userTimeZone } from "./utils/clock";
 import {
@@ -1097,6 +1099,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   const sources = useContext(CitationContext);
   const components = useMemo(() => ({
     a: CitationLink,
+    td: TableCell,
     code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const fenced = /language-(\w+)/.exec(className || "");
@@ -1134,9 +1137,10 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
 });
 
 // Plain markdown — used where code blocks need no artifact affordances.
+const PLAIN_COMPONENTS = { td: TableCell };
 const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
   return (
-    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>{normalizeMathDelimiters(content)}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={PLAIN_COMPONENTS}>{normalizeMathDelimiters(content)}</ReactMarkdown>
   );
 });
 
@@ -1144,6 +1148,7 @@ const PlainMarkdown = React.memo(function PlainMarkdown({ content }) {
 // button — the per-model cards in a multi-AI answer.
 const HighlightedMarkdown = React.memo(function HighlightedMarkdown({ content }) {
   const components = useMemo(() => ({
+    td: TableCell,
     code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const langMatch = /language-(\w+)/.exec(className || "");
@@ -4771,8 +4776,10 @@ export default function App() {
     { label: "Write", icon: PenLine, srcIdx: 1 },
     { label: "Learn", icon: GraduationCap, srcIdx: 0 },
     { label: "Code", icon: Code, srcIdx: 2 },
-    { label: "Life stuff", icon: Coffee, srcIdx: 3 },
-    { label: "VetroAI's choice", icon: Lightbulb, srcIdx: 4 },
+    // These two pick a fresh prompt each click (lib/vetroChoice.js); they used
+    // to send the fixed "Plan my week" and "Summarize a topic".
+    { label: "Life stuff", icon: Coffee, pick: pickLifeChoice },
+    { label: "VetroAI's choice", icon: Lightbulb, pick: pickVetroChoice },
   ];
 
   const suggestionOptions = isYtMode
@@ -8723,8 +8730,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     <div className="vetro-empty-pills claude-suggestion-pills-row">
                       <div className="claude-suggestion-pills" style={{ justifyContent: "center", padding: 0 }}>
                         {!(isYtMode || isDeepSearch || isWebMode) && suggestionOptions.length >= 5
-                          ? claudeStylePills.map(({ label, icon: Icon, srcIdx }) => (
-                              <button key={label} type="button" className="claude-pill" onClick={() => sendMessage(null, suggestionOptions[srcIdx])}>
+                          ? claudeStylePills.map(({ label, icon: Icon, srcIdx, pick }) => (
+                              <button key={label} type="button" className="claude-pill" onClick={() => sendMessage(null, pick ? pick() : suggestionOptions[srcIdx])}>
                                 <Icon size={16} />
                                 <span>{label}</span>
                               </button>

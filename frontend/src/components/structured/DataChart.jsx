@@ -43,15 +43,9 @@ const DataChart = ({ title, data, chartType, library = 'recharts', delay = 0 }) 
     return inferChartType(processedData, chartType);
   }, [chartType, processedData]);
 
-  if (!data || data.length === 0) return null;
-
-  if (processedData.length === 0) {
-    return (
-      <div style={{ padding: '20px', color: 'var(--ink-3)', textAlign: 'center', background: 'var(--surface-2)', borderRadius: '8px' }}>
-        ⚠️ Invalid or empty dataset. Unable to render chart.
-      </div>
-    );
-  }
+  // No real numbers means no chart at all — an empty frame or a warning box
+  // only adds noise to the answer around it.
+  if (processedData.length === 0) return null;
 
   const count = processedData.length;
   const isLargeDataset = count > 15;
