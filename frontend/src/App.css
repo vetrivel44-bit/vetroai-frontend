@@ -1241,8 +1241,11 @@ button:active { transform: scale(0.97); }
   border: 1.5px solid transparent; background-clip: content-box;
 }
 .claude-sb-recents-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+/* Centred with top/bottom + auto margins, not translateY: the global
+   button:active scale() replaced that transform, so the button jumped
+   14px on press and the click landed elsewhere. */
 .claude-sb-recent-more {
-  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 3px; top: 0; bottom: 0; margin: auto 0;
   width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-sm); color: var(--ink-4); background: transparent;
   border: none; cursor: pointer; transition: opacity 0.15s ease, background 0.15s ease;
