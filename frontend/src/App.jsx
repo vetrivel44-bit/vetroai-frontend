@@ -43,7 +43,8 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation, Mail, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
+import "./components/DesignStudio.css";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -2467,8 +2468,8 @@ function DesignCanvas({ onClose }) {
     return { ...parsed, html: resolveSiteImages(parsed.html, API) };
   }, [messages]);
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (preset) => {
+    const text = (typeof preset === "string" ? preset : input).trim();
     if (!text || isLoading) return;
     const hist = [...messages, { role: "user", content: text }, { role: "assistant", content: "" }];
     setMessages(hist);
@@ -2484,7 +2485,9 @@ function DesignCanvas({ onClose }) {
       fd.append("messages", JSON.stringify(hist.slice(0, -1).slice(-8)));
       fd.append("mode", "design");
       fd.append("temperature", "0.7");
-      fd.append("maxTokens", "6000");
+      // A complete site runs well past 6k tokens; at 6000 replies were cut
+      // off mid-page and rendered half-built. Providers still apply their caps.
+      fd.append("maxTokens", "14000");
       fd.append("reqId", `design_${Date.now()}`);
       fd.append("webSearch", "false");
       const res = await fetch(API + "/chat", { headers: authHeaders(), method: "POST", body: fd, signal: ctrl.signal });
@@ -2518,66 +2521,189 @@ function DesignCanvas({ onClose }) {
     try { localStorage.removeItem("vetroai_design_history"); } catch {}
   };
 
+  // While a reply streams, the preview keeps the finished design (or a
+  // "building" screen) instead of re-rendering half-written HTML every token.
+  const streaming = isLoading && messages[messages.length - 1]?.role === "assistant";
+  const streamedChars = streaming ? (messages[messages.length - 1].content || "").length : 0;
+  const shownDesign = useMemo(() => {
+    if (!streaming) return lastDesign;
+    const done = [...messages].slice(0, -1).reverse().find(m => m.role === "assistant" && m.content && !m.content.startsWith("⚠️"));
+    if (!done) return { caption: "", html: "" };
+    const parsed = parseDesignResponse(done.content);
+    return { ...parsed, html: resolveSiteImages(parsed.html, API) };
+  }, [streaming, lastDesign, messages]);
+  const siteTitle = useMemo(() => {
+    const t = (shownDesign.html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
+    return t.trim() || "untitled-design";
+  }, [shownDesign.html]);
+  const siteHost = siteTitle.toLowerCase().split(/[|–—-]/)[0].trim().replace(/[^a-z0-9]+/g, "") || "preview";
+
+  const BUILD_STEPS = ["Choosing an art direction", "Pairing typography and colour", "Laying out the sections", "Finding photos that fit", "Adding motion and polish"];
+  const buildStep = Math.min(BUILD_STEPS.length - 1, Math.floor(streamedChars / 2600));
+  const buildPct = Math.min(96, 6 + Math.round(streamedChars / 260));
+
+  const STARTERS = [
+    { icon: ShoppingBag, title: "Online store", prompt: "A premium online store for a modern sneaker brand: bold hero, categories, 8 products with ratings and prices, reviews, newsletter, rich footer." },
+    { icon: Rocket, title: "SaaS landing page", prompt: "A landing page for an AI note-taking app: striking hero with product screenshot, logo marquee, bento feature grid, pricing with 3 tiers, testimonials, FAQ." },
+    { icon: Utensils, title: "Restaurant", prompt: "A website for an upscale South Indian restaurant in Chennai: photographic hero, signature dishes, menu with prices, gallery, hours and location, table booking form." },
+    { icon: Briefcase, title: "Portfolio", prompt: "A portfolio for a product designer: editorial hero with large name, selected case studies in a bento grid, about, skills, contact." },
+    { icon: Plane, title: "Travel agency", prompt: "A travel agency site for Kerala tours: full-bleed hero with search bar, popular packages with prices, why us, traveller reviews, enquiry form." },
+    { icon: Gauge, title: "Analytics dashboard", prompt: "A clean analytics dashboard for an e-commerce admin: sidebar, KPI cards with trends, revenue chart, recent orders table, top products." },
+  ];
+  const REFINES = ["Make it more premium", "Switch to a dark theme", "Add testimonials", "Bolder hero section", "Change the colour palette"];
+
+  const chatEndRef = useRef(null);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ block: "end" }); }, [messages.length, isLoading]);
+
+  const assistantText = (m, i) => {
+    if (m.content) {
+      if (m.content.startsWith("⚠️")) return m.content;
+      return parseDesignResponse(m.content).caption || "Here's your design — have a look.";
+    }
+    return isLoading && i === messages.length - 1 ? "Designing…" : "";
+  };
+
+  const hasDesign = !!shownDesign.html;
+
   return (
-    <div className="design-canvas-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="design-canvas" onClick={e => e.stopPropagation()}>
-        <div className="design-canvas-header">
-          <h3 className="modal-title"><Palette size={16} /> Design <FlaskConical size={12} style={{ color: "var(--ink-4)" }} /></h3>
-          {lastDesign.html && (
-            <div className="design-viewport-toggle">
-              <button className={viewport === "mobile" ? "active" : ""} onClick={() => setViewport("mobile")} title="Mobile"><Smartphone size={14} /></button>
-              <button className={viewport === "tablet" ? "active" : ""} onClick={() => setViewport("tablet")} title="Tablet"><Tablet size={14} /></button>
-              <button className={viewport === "desktop" ? "active" : ""} onClick={() => setViewport("desktop")} title="Desktop"><Monitor size={14} /></button>
+    <div className="design-canvas-overlay ds-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="design-canvas ds-studio" onClick={e => e.stopPropagation()}>
+        <header className="ds-top">
+          <div className="ds-brand">
+            <span className="ds-brand-mark"><Palette size={16} /></span>
+            <span className="ds-brand-name">Design Studio</span>
+            <span className="ds-beta">Beta</span>
+          </div>
+
+          {hasDesign && (
+            <div className="ds-center">
+              <div className="ds-seg" role="tablist" aria-label="View">
+                <button className={tab !== "code" ? "on" : ""} onClick={() => setTab("preview")}><Eye size={14} /> Preview</button>
+                <button className={tab === "code" ? "on" : ""} onClick={() => setTab("code")}><Code size={14} /> Code</button>
+              </div>
+              {tab !== "code" && (
+                <div className="ds-seg ds-seg-icons" role="tablist" aria-label="Device">
+                  <button className={viewport === "mobile" ? "on" : ""} onClick={() => setViewport("mobile")} title="Mobile"><Smartphone size={15} /></button>
+                  <button className={viewport === "tablet" ? "on" : ""} onClick={() => setViewport("tablet")} title="Tablet"><Tablet size={15} /></button>
+                  <button className={viewport === "desktop" ? "on" : ""} onClick={() => setViewport("desktop")} title="Desktop"><Monitor size={15} /></button>
+                </div>
+              )}
             </div>
           )}
-          <div style={{ display: "flex", gap: 6 }}>
-            {lastDesign.html && (
+
+          <div className="ds-actions">
+            {hasDesign && (
               <>
-                <button className="atab" onClick={() => setTab(tab === "code" ? "preview" : "code")}>{tab === "code" ? "▶ Preview" : "📄 Code"}</button>
-                <button className="atab" onClick={openInNewTab} title="Open in new tab"><ExternalLink size={13} /></button>
-                <button className="atab" onClick={download} title="Download"><Download size={13} /></button>
-                <button className="atab" onClick={copy} style={{ color: copied ? "var(--success)" : undefined }}>{copied ? "✓ Copied" : "Copy"}</button>
+                <button className="ds-icon-btn" onClick={copy} title={copied ? "Copied" : "Copy HTML"}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
+                <button className="ds-icon-btn" onClick={openInNewTab} title="Open in new tab"><ExternalLink size={15} /></button>
+                <button className="ds-export" onClick={download}><Download size={15} /> Export</button>
               </>
             )}
             {messages.length > 0 && (
-              <button className="atab" onClick={clearChat} title="Clear chat"><Trash2 size={13} /></button>
+              <button className="ds-icon-btn" onClick={clearChat} title="Start over"><Trash2 size={15} /></button>
             )}
-            <button className="modal-x" onClick={onClose}><X size={18} /></button>
+            <span className="ds-divider" />
+            <button className="ds-icon-btn" onClick={onClose} title="Close"><X size={17} /></button>
           </div>
-        </div>
-        <div className="design-canvas-body">
-          <div className="design-canvas-stage">
-            {!lastDesign.html ? (
-              <div className="design-canvas-empty">
-                <Palette size={28} />
-                <p>{isLoading ? "Designing…" : "Describe a UI below and I'll design it live."}</p>
-              </div>
-            ) : tab === "code" ? (
-              <Suspense fallback={<pre style={{ margin: 0, flex: 1, fontSize: "0.82rem", height: "100%", whiteSpace: "pre-wrap" }}>{lastDesign.html}</pre>}>
-                <CodeHighlighter language="html" customStyle={{ margin: 0, flex: 1, fontSize: "0.82rem", height: "100%" }}>
-                  {lastDesign.html}
-                </CodeHighlighter>
-              </Suspense>
-            ) : (
-              <div className={`design-frame-wrap viewport-${viewport}`}>
-                <iframe title="design-preview" srcDoc={lastDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />
-              </div>
-            )}
-          </div>
-          <div className="design-canvas-chat">
-            <div className="design-canvas-chat-msgs">
-              {messages.length === 0 && <p style={{ color: "var(--ink-4)", fontSize: "0.8rem" }}>e.g. "A pricing page with 3 tiers" or "Make the buttons rounded and purple"</p>}
-              {messages.map((m, i) => (
-                <div key={i} className={`design-msg design-msg-${m.role}`}>
-                  {m.role === "user" ? m.content : (m.content ? (parseDesignResponse(m.content).caption || "Updated the design ↑") : (isLoading && i === messages.length - 1 ? "Designing…" : ""))}
+        </header>
+
+        <div className="design-canvas-body ds-body">
+          <main className={`ds-stage${tab === "code" && hasDesign ? " is-code" : ""}`}>
+            {!hasDesign && !streaming ? (
+              <div className="ds-empty">
+                <div className="ds-empty-orb" aria-hidden="true"><Sparkles size={26} /></div>
+                <h2>What should we design?</h2>
+                <p>Describe a website or app screen. You'll get a complete, polished, responsive design, ready to export as HTML.</p>
+                <div className="ds-starters">
+                  {STARTERS.map(({ icon: Icon, title, prompt }) => (
+                    <button key={title} className="ds-starter" onClick={() => send(prompt)}>
+                      <span className="ds-starter-icon"><Icon size={17} /></span>
+                      <span className="ds-starter-title">{title}</span>
+                      <span className="ds-starter-sub">{prompt.split(":")[0]}</span>
+                    </button>
+                  ))}
                 </div>
-              ))}
+              </div>
+            ) : tab === "code" && hasDesign ? (
+              <div className="ds-code">
+                <Suspense fallback={<pre className="ds-code-fallback">{shownDesign.html}</pre>}>
+                  <CodeHighlighter language="html" customStyle={{ margin: 0, height: "100%", fontSize: "0.8rem", background: "transparent" }}>
+                    {shownDesign.html}
+                  </CodeHighlighter>
+                </Suspense>
+              </div>
+            ) : (
+              <div className={`ds-device ds-${viewport}`}>
+                {viewport !== "mobile" && (
+                  <div className="ds-browser-bar">
+                    <span className="ds-dots"><i /><i /><i /></span>
+                    <span className="ds-url">{siteHost}.vetro.design</span>
+                    <span className="ds-dots-spacer" />
+                  </div>
+                )}
+                <div className="ds-screen">
+                  {hasDesign && <iframe title="design-preview" srcDoc={shownDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />}
+                  {streaming && (
+                    <div className={`ds-building${hasDesign ? " over" : ""}`}>
+                      <div className="ds-skeleton" aria-hidden="true">
+                        <div className="sk-nav" /><div className="sk-hero" /><div className="sk-row"><div /><div /><div /></div>
+                      </div>
+                      <div className="ds-build-card">
+                        <div className="ds-build-spark"><Sparkles size={18} /></div>
+                        <strong>{hasDesign ? "Updating your design" : "Designing your page"}</strong>
+                        <span className="ds-build-step" key={buildStep}>{BUILD_STEPS[buildStep]}…</span>
+                        <div className="ds-progress"><i style={{ width: `${buildPct}%` }} /></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </main>
+
+          <aside className="ds-chat">
+            <div className="ds-chat-head">
+              <span>Conversation</span>
+              {hasDesign && <span className="ds-chat-title" title={siteTitle}>{siteTitle}</span>}
             </div>
-            <form className="design-input-row" onSubmit={e => { e.preventDefault(); send(); }}>
-              <input value={input} onChange={e => setInput(e.target.value)} placeholder="Describe the UI you want…" disabled={isLoading} />
-              <button type="submit" disabled={isLoading || !input.trim()}>Send</button>
+            <div className="ds-msgs">
+              {messages.length === 0 && (
+                <div className="ds-hint">
+                  <Sparkles size={15} />
+                  <p>Try “A pricing page with 3 tiers”, then refine it: “make the buttons rounded and purple”.</p>
+                </div>
+              )}
+              {messages.map((m, i) => (
+                m.role === "user" ? (
+                  <div key={i} className="ds-msg ds-msg-user">{m.content}</div>
+                ) : (
+                  <div key={i} className={`ds-msg ds-msg-ai${m.content?.startsWith("⚠️") ? " err" : ""}`}>
+                    <span className="ds-ai-avatar"><Sparkles size={12} /></span>
+                    <span>{assistantText(m, i) || "…"}</span>
+                  </div>
+                )
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            {hasDesign && !isLoading && (
+              <div className="ds-refines">
+                {REFINES.map(r => <button key={r} onClick={() => send(r)}>{r}</button>)}
+              </div>
+            )}
+            <form className="ds-composer" onSubmit={e => { e.preventDefault(); send(); }}>
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder={hasDesign ? "Ask for a change…" : "Describe what you want to design…"}
+                rows={2}
+                disabled={isLoading}
+              />
+              <button type="submit" className="ds-send" disabled={isLoading || !input.trim()} aria-label="Send">
+                {isLoading ? <span className="ds-send-spin" /> : <ArrowUp size={17} />}
+              </button>
             </form>
-          </div>
+          </aside>
         </div>
       </div>
     </div>

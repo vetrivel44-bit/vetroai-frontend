@@ -288,6 +288,12 @@ class ProviderManager {
       } else if (mode === "creative") {
         if (a === "mistral") scoreA += 50;
         if (b === "mistral") scoreB += 50;
+      } else if (mode === "design") {
+        // Whole hand-styled sites: Claude writes the strongest front-end
+        // design, then GPT; the gateway's reasoning default lays out plainly.
+        const designBoost = { fable: 60, chatgpt: 30 };
+        scoreA += designBoost[a] || 0;
+        scoreB += designBoost[b] || 0;
       }
       if (SEARCH_MODES.has(mode)) {
         if (a === "vercel") scoreA -= 60;

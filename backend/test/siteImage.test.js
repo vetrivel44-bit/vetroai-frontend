@@ -34,38 +34,95 @@ test("uses Pexels when a key is configured", async () => {
   assert.equal(calls[0].auth, "k");
 });
 
-test("falls back to Openverse without a Pexels key, and caches the lookup", async () => {
+const commonsPage = (index, thumburl, width, height, title = "File:Latte art cake.jpg") => ({ index, title, imageinfo: [{ thumburl, width, height, mime: "image/jpeg" }] });
+
+test("uses Wikimedia Commons without a Pexels key, prefers the slot's shape, and caches the lookup", async () => {
   let calls = 0;
   await withFetch(async (url) => {
     calls++;
-    assert.match(url, /api\.openverse\.org/);
-    return json({ results: [{ url: "https://live.staticflickr.com/a.jpg", width: 1600, filetype: "jpg" }] });
+    assert.match(url, /commons\.wikimedia\.org\/w\/api\.php\?.*gsrsearch=latte\+art\+filetype%3Abitmap/);
+    return json({ query: { pages: {
+      a: commonsPage(1, "https://upload.wikimedia.org/wide.jpg", 1600, 900),
+      b: commonsPage(2, "https://upload.wikimedia.org/square.jpg", 1000, 1000),
+      c: { index: 3, imageinfo: [{ thumburl: "https://upload.wikimedia.org/map.svg", width: 1000, height: 1000, mime: "image/svg+xml" }] },
+    } } });
   }, async () => {
-    assert.equal(await service.findSiteImage({ q: "latte art", w: 600, h: 600 }), "https://live.staticflickr.com/a.jpg");
-    assert.equal(await service.findSiteImage({ q: "Latte art", w: 640, h: 640, i: 3 }), "https://live.staticflickr.com/a.jpg");
+    assert.equal(await service.findSiteImage({ q: "latte art", w: 600, h: 600 }), "https://upload.wikimedia.org/square.jpg");
+    await service.findSiteImage({ q: "Latte art", w: 640, h: 640, i: 3 });
   });
   assert.equal(calls, 1);
 });
 
-test("ends at a keyword-tagged LoremFlickr photo when every lookup fails", async () => {
-  await withFetch(async () => { throw new Error("offline"); }, async () => {
-    const url = await service.findSiteImage({ q: "fresh bread loaf bakery", w: 900, h: 500 });
-    assert.match(url, /^https:\/\/loremflickr\.com\/900\/500\/fresh%2Cbread%2Cloaf\/all\?lock=\d+$/);
+test("Commons drops shot words, skips loosely matched files, and retries with the last two words", async () => {
+  const searches = [];
+  await withFetch(async (url) => {
+    const q = new URL(url).searchParams.get("gsrsearch");
+    searches.push(q);
+    if (q === "gold smart watch filetype:bitmap") {
+      return json({ query: { pages: { a: commonsPage(1, "https://upload.wikimedia.org/book.jpg", 800, 800, "File:Highways and byways (gold).jpg") } } });
+    }
+    return json({ query: { pages: { a: commonsPage(1, "https://upload.wikimedia.org/watch.jpg", 800, 800, "File:Smart watch on wrist.jpg") } } });
+  }, async () => {
+    assert.equal(await service.findSiteImage({ q: "gold smart watch product photo", w: 800, h: 800 }), "https://upload.wikimedia.org/watch.jpg");
+  });
+  assert.deepEqual(searches, ["gold smart watch filetype:bitmap", "smart watch filetype:bitmap"]);
+});
+
+test("falls back to Openverse when Commons has nothing", async () => {
+  await withFetch(async (url) => {
+    if (/commons\.wikimedia\.org/.test(url)) return json({});
+    assert.match(url, /api\.openverse\.org/);
+    return json({ results: [{ url: "https://live.staticflickr.com/a.jpg", width: 1600, filetype: "jpg" }] });
+  }, async () => {
+    assert.equal(await service.findSiteImage({ q: "latte art", w: 600, h: 600 }), "https://live.staticflickr.com/a.jpg");
   });
 });
 
-test("the route redirects to the photo and lets browsers cache it", async () => {
+test("finds nothing when every lookup fails, and the placeholder is a labelled image of the asked size", async () => {
+  await withFetch(async () => { throw new Error("offline"); }, async () => {
+    assert.equal(await service.findSiteImage({ q: "fresh bread loaf bakery", w: 900, h: 500 }), null);
+  });
+  const svg = service.placeholderSvg({ q: "Fresh <bread> & loaf", w: 900, h: 500 });
+  assert.match(svg, /^<svg [^>]*width="900" height="500"/);
+  assert.match(svg, />fresh bread loaf<\/text>/);
+  assert.doesNotMatch(svg, /<bread>/);
+});
+
+function routeHandler() {
   const router = require("../src/routes/siteImageRoutes");
-  const layer = router.stack.find((l) => l.route?.path === "/");
-  const handler = layer.route.stack[0].handle;
+  return router.stack.find((l) => l.route?.path === "/").route.stack[0].handle;
+}
+
+test("the route redirects to the photo and lets browsers cache it", async () => {
+  const handler = routeHandler();
   const headers = {};
   let redirected = null;
   const res = { set(k, v) { headers[k] = v; return this; } };
-  await withFetch(async () => json({ results: [{ url: "https://example.org/cake.jpg" }] }), async () => {
+  await withFetch(async () => json({ query: { pages: { a: commonsPage(1, "https://example.org/cake.jpg", 800, 600) } } }), async () => {
     await new Promise((resolve, reject) => {
       handler({ query: { q: "birthday cake", w: "400", h: "300" } }, { ...res, redirect(code, url) { redirected = { code, url }; resolve(); } }, reject);
     });
   });
   assert.deepEqual(redirected, { code: 302, url: "https://example.org/cake.jpg" });
   assert.equal(headers["Cache-Control"], "public, max-age=86400");
+});
+
+test("the route serves the placeholder image, briefly cached, when no photo is found", async () => {
+  const handler = routeHandler();
+  const headers = {};
+  let sent = null;
+  let type = null;
+  const res = {
+    set(k, v) { headers[k] = v; return this; },
+    type(t) { type = t; return this; },
+    redirect() { throw new Error("should not redirect"); },
+  };
+  await withFetch(async () => { throw new Error("offline"); }, async () => {
+    await new Promise((resolve, reject) => {
+      handler({ query: { q: "birthday cake", w: "400", h: "300" } }, { ...res, send(body) { sent = body; resolve(); } }, reject);
+    });
+  });
+  assert.equal(type, "image/svg+xml");
+  assert.match(sent, /^<svg /);
+  assert.equal(headers["Cache-Control"], "public, max-age=300");
 });
