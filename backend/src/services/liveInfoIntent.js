@@ -1,0 +1,38 @@
+// Does a question need live information from the web?
+//
+// The auto-search setting is permission, not a mandate (see AIOrchestrator):
+// a turn searches only when these patterns say the answer may have changed
+// since the model was trained. A miss means the model answers from memory —
+// "Is TTV Vasan in Bigg Boss season 10?" got a confident, out-of-date and
+// partly invented answer because no pattern covered TV shows, public roles
+// or "is X in …" questions.
+//
+// frontend/src/lib/liveInfoIntent.js carries the same patterns for browser
+// models; keep the two in step.
+
+const LIVE_INFO_PATTERNS = [
+  // Time words
+  /\b(today|tonight|tomorrow|yesterday|now|current|currently|live|latest|recent|recently|breaking|news|update|updates)\b/i,
+  /\b(20[2-9]\d|this (year|month|week|weekend|season)|last (week|month|night)|next (week|month|year|match|season|episode))\b/i,
+  // Who holds / did what now
+  /\bwho (is|are|was|were|won|leads|runs|hosts|plays|joined|left|replaced)\b/i,
+  /\bwhat is the (score|price|rate|status|result)\b/i,
+  // Markets, weather, sport, conflict
+  /\b(stock|share price|crypto|bitcoin|market|weather|election|war|match|game|ipl|cricket|football|tournament|world cup|olympics)\b/i,
+  /\bjust (happened|announced|released|launched)\b/i,
+  /\b(trending|viral|happening)\b/i,
+  // Shows, films and releases
+  /\b(bigg ?boss|season \d+|s\d{1,2}e\d{1,2}|episodes?|contestants?|housemates?|evict(ed|ion)|eliminat(ed|ion)|finalists?|wild ?card|hosted by|cast of|box office|collections?|release date|released|trailer|ott|netflix|prime video|hotstar|jiohotstar|zee5|sun nxt)\b/i,
+  // People in public roles
+  /\b(chief minister|prime minister|minister|governor|president of|mla|mp|mayor|ceo of|captain of|coach of|political party|party (leader|president|chief)|alliance|elected|appointed|resigned|sworn in|arrested|passed away)\b/i,
+  // "Is X in / still / currently …", "Did X win …"
+  /^\s*(is|are|was|were|did|does|has|have|will)\b.{2,80}\b(in|on|still|currently|now|joining|participating|playing|contesting|alive|married|retired|winner|won|win)\b/i,
+  /\b(when (is|will|does|did)|upcoming|schedule|fixtures?|results?|winners?|price of|cost of|how much (is|does))\b/i,
+];
+
+function needsLiveInfo(query) {
+  const q = String(query || "");
+  return LIVE_INFO_PATTERNS.some((rx) => rx.test(q));
+}
+
+module.exports = { LIVE_INFO_PATTERNS, needsLiveInfo };

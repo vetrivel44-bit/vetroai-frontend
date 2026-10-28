@@ -45,6 +45,7 @@ import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from ".
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, ListTodo, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
+import { needsLiveInfo } from "./lib/liveInfoIntent";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -785,8 +786,6 @@ const CLAUDE_FABLE_PROVIDER = "Claude Fable 5";
 // Worth asking the backend for ProKerala grounding? A loose check — the
 // backend (astrologyContext.js) makes the final call. Mirrors its terms, and
 // catches a reply with birth details after the assistant asked for them.
-// Mirrors AIOrchestrator.SEARCH_TRIGGERS: questions that need live information.
-const NEEDS_LIVE_INFO_RE = /\b(today|tonight|now|current|currently|live|latest|recent|breaking|news|2024|2025|2026|this (year|month|week|day)|who (is|was|won|leads|runs)|what is the (score|price|rate|status)|stock|crypto|bitcoin|market|weather|election|war|match|game|ipl|cricket|football|just (happened|announced|released|launched)|trending|viral|happening)\b/i;
 
 const ASTROLOGY_HINT_RE = /\b(horoscopes?|astrology|astrological|astrologer|natal chart|birth chart|zodiac(?: sign)?|sun sign|moon sign|rising sign|ascendant|kundli|kundali|kundale?e|jathagam|jathakam|jatakam|rasi|rashi|raasi|nakshatra|nakshatram|natchathiram|lagna|lagnam|dasha|mahadasha|antardasha|panchang|panchangam|navamsa|birth star|star sign)\b/i;
 const mightBeAstrology = (hist, query) => {
@@ -6336,7 +6335,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // it needs live information. Otherwise every message ran a web search
     // first, and a failed search sent the turn to a backend model instead.
     const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
-    const browserSearch = explicitSearch || (autoWebSearchRef.current && NEEDS_LIVE_INFO_RE.test(userQuery));
+    const browserSearch = explicitSearch || (autoWebSearchRef.current && needsLiveInfo(userQuery));
     setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
 
     const nearbyMapsRequest = !maybeLocal && isNearbyRequest(userQuery);

@@ -6,6 +6,7 @@ const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
+const { LIVE_INFO_PATTERNS } = require("./liveInfoIntent");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
@@ -118,14 +119,8 @@ class AIOrchestrator {
       /\b(plot|graph|chart|function|y\s*=|f\(x\)\s*=)\b/i,
     ];
 
-    this.SEARCH_TRIGGERS = [
-      /\b(today|tonight|now|current|currently|live|latest|recent|breaking|news)\b/i,
-      /\b(2024|2025|2026|this (year|month|week|day))\b/i,
-      /\b(who (is|was|won|leads|runs)|what is the (score|price|rate|status))\b/i,
-      /\b(stock|crypto|bitcoin|market|weather|election|war|match|game|ipl|cricket|football)\b/i,
-      /\b(just (happened|announced|released|launched))\b/i,
-      /\b(trending|viral|happening)\b/i,
-    ];
+    // Questions whose answer may have changed since training (liveInfoIntent.js).
+    this.SEARCH_TRIGGERS = LIVE_INFO_PATTERNS;
 
     // Deliberately narrow: only fires when the user is clearly asking to SEE something
     // specific (a named person/place/thing), not for general explanatory questions that
@@ -879,7 +874,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     let promptExtras = "";
     if (clockNote) promptExtras += clockNote;
     if (noRealtimeData) {
-      promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, or "as of today/now" claim) as if it were verified — you have no live data backing it. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
+      promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, who is in a show or contest, who holds a role, a person's current party or affiliation, or an "as of today/now" claim) as if it were verified — you have no live data backing it. Never guess who a person is or what organisation they founded or lead; if you are not certain, say you are not sure. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current.`;
     }
     promptExtras += buildPluginPrompt(params.activePlugins);
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
