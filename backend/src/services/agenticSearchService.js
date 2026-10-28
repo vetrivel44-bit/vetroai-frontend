@@ -30,6 +30,7 @@
 // queries, pages, a wall-clock deadline), and the research always returns what
 // it has rather than throwing: a partial report with real sources beats none.
 const Groq = require("groq-sdk");
+const { randomUUID } = require("node:crypto");
 const { searchForResearch } = require("../controllers/searchController");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
@@ -430,7 +431,11 @@ async function performAgenticSearch(query, options = {}) {
   const startedAt = Date.now();
   // Once cancelled, no time is left: every phase checks this before starting.
   const timeLeft = () => (opts.signal?.aborted ? 0 : opts.deadlineMs - (Date.now() - startedAt));
-  const search = opts.searchFn || ((q) => searchForResearch(q, { clock: opts.clock }));
+  const sessionId = randomUUID();
+  const search = opts.searchFn || ((q) => searchForResearch(q, {
+    clock: opts.clock, signal: opts.signal, sessionId,
+    timeoutMs: Math.max(1, Math.min(12000, timeLeft())),
+  }));
   const readPage = opts.readFn || ((url) => fetchPageText(url, { signal: opts.signal }));
   const rawThink = "plannerFn" in options ? options.plannerFn : defaultThinker();
   const think = rawThink && ((prompt, maxTokens) => (opts.signal?.aborted
