@@ -28,9 +28,14 @@ test("charts, maps, quizzes and questions under a stray tag are drawn", () => {
   assert.equal(detectVisual("", "graph TD\n  A --> B")?.kind, "mermaid");
 });
 
-test("code the user may have asked for stays code", () => {
-  // A Chart.js config or a place list asked for as ```json is code to copy.
-  assert.equal(detectVisual("json", chartjs), null);
+test("charts, maps and quizzes fenced as ```json are drawn, not shown as raw JSON", () => {
+  // The drawn card keeps a Code button for viewing or copying the config.
+  assert.equal(detectVisual("json", chartjs)?.kind, "chartjs");
+  assert.equal(detectVisual("json", places)?.kind, "map");
+  assert.equal(detectVisual("json", quiz)?.kind, "quiz");
+});
+
+test("code that isn't a visual stays code", () => {
   assert.equal(detectVisual("javascript", places), null);
   assert.equal(detectVisual("json", JSON.stringify({ name: "app", type: "module" })), null);
   assert.equal(mightBeVisual("python", "x = {\"type\": \"chart\"}"), false);

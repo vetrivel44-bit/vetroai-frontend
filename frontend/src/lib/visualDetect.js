@@ -56,7 +56,9 @@ export function mightBeVisual(lang, code) {
 /** The visual `code` (fenced as `lang`) should be drawn as, or null to keep it as code. */
 export function detectVisual(lang, code) {
   const tag = tagOf(lang);
-  const freeTag = !tag || VISUAL_TAGS.test(tag);
+  // ```json counts too: a chart config or place list fenced as json was left
+  // as raw JSON. Drawn, it still has the card's Code button to view or copy.
+  const freeTag = !tag || VISUAL_TAGS.test(tag) || /^(json|jsonc|json5)$/i.test(tag);
   const text = String(code || "");
 
   if (freeTag && MERMAID_START.test(text) && !/^\s*[[{]/.test(text)) return { kind: "mermaid", code: text };
