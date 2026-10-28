@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense, laz
 import { Chess } from "chess.js";
 import {
   X, Play, Pause, SkipForward, RotateCcw, Swords, Eye, User, Trophy, Crown,
-  ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap,
+  ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap, ChessKnight,
 } from "lucide-react";
 import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, getModel, requestAIMove } from "../../utils/chessAI";
 import { openingName } from "../../utils/chessPersonas";
@@ -206,7 +206,7 @@ function Avatar({ modelId, you = false, size = 36 }) {
   const model = getModel(modelId);
   if (model.logo && !logoFailed) {
     return (
-      <span className="ca-avatar ca-avatar-logo" style={{ "--mc": model.color, width: size, height: size }}>
+      <span className="ca-avatar ca-avatar-logo" data-model={model.id} style={{ "--mc": model.color, width: size, height: size }}>
         <img src={model.logo} alt={model.name} style={{ width: size * 0.58, height: size * 0.58 }} onError={() => setLogoFailed(true)} />
       </span>
     );
@@ -810,7 +810,7 @@ export default function ChessArena({ onClose }) {
           {mode !== "menu" ? (
             <button className="ca-back-link" onClick={() => setMode("menu")} title="Back to modes"><ChevronLeft size={16} /></button>
           ) : (
-            <span className="ca-logo"><Sparkles size={15} /></span>
+            <span className="ca-logo"><ChessKnight size={17} strokeWidth={1.9} /></span>
           )}
           <span className="ca-title">Chess Arena</span>
           {mode !== "menu" && <span className="ca-crumb">{MODE_NAMES[mode]}</span>}
