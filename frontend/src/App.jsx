@@ -46,6 +46,7 @@ import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, P
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo } from "./lib/liveInfoIntent";
+import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -6745,7 +6746,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         const res = await fetch(`${API}/web-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: userQuery, timeZone: userTimeZone() }),
+          // A follow-up ("then in 2025?") is searched with the question it follows.
+          body: JSON.stringify({ query: searchQueryFor(userQuery, messagesRef.current), timeZone: userTimeZone() }),
           signal: ctrl.signal,
         });
         const json = await res.json().catch(() => ({}));
@@ -6765,7 +6767,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           `[${i + 1}] ${s.title || s.domain} — ${s.url}${s.published ? ` (${s.published})` : ""}\n${(s.snippet || "").slice(0, 700)}`
         ).join("\n\n");
         return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
-          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally.";
+          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. " + GROUNDING_RULE;
       };
 
       // `requireSummary`: only answer when the search itself wrote a summary

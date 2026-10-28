@@ -7,6 +7,7 @@ const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { LIVE_INFO_PATTERNS } = require("./liveInfoIntent");
+const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
@@ -98,7 +99,8 @@ function withSearchInQuestion(history, webContext, clock) {
     `LIVE SEARCH RESULTS — fetched just now for my question below. ${clockLine(clock || {})}`,
     webContext,
     "",
-    "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. Where they don't cover it, say that what you know may be out of date. If they are unrelated to my question, ignore them.",
+    "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. If they are unrelated to my question, ignore them.",
+    GROUNDING_RULE,
     "",
     `My question: ${history[at].content}`,
   ].join("\n");
@@ -492,7 +494,7 @@ Before finishing, mentally check: every class referenced in the HTML has a match
 
     // Web context
     if (webContext) {
-      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question. If a SOURCES list is present, cite it inline by number — [1], [2] — on the specific claims those sources support, and never cite a number that is not in that list. Where the results disagree with each other, say so rather than silently picking one. If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply.`;
+      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question. If a SOURCES list is present, cite it inline by number — [1], [2] — on the specific claims those sources support, and never cite a number that is not in that list. Where the results disagree with each other, say so rather than silently picking one. If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply. ${GROUNDING_RULE}`;
     }
 
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with
@@ -776,6 +778,8 @@ Choose the single best-fitting visualization block(s) from the formats below:
       (autoSearchRequested && this.needsWebSearch(userQuery))
     );
     let webContext = null;
+    // A follow-up ("then in 2025?") is searched with the question it follows.
+    const searchQuery = searchQueryFor(userQuery, messages.slice(0, -1));
 
     // Astrology: ProKerala data (and the rasi chart) for every model — the
     // same builder backs /api/astrology/context for browser models.
@@ -790,7 +794,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
     const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
     const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
-      ? searchImages(userQuery, 4).catch(() => [])
+      ? searchImages(searchQuery, 4).catch(() => [])
       : Promise.resolve([]);
 
     // Set when a live search was needed for this query but came back with nothing
@@ -836,7 +840,7 @@ Choose the single best-fitting visualization block(s) from the formats below:
             "Search timeout",
           );
         } else {
-          searchRes = await withTimeout(searchWeb(userQuery, { clock: params.clock }), 10000, "Search timeout");
+          searchRes = await withTimeout(searchWeb(searchQuery, { clock: params.clock }), 10000, "Search timeout");
         }
         webContext = searchRes.context;
         compactContext = searchRes.compactContext || null;
@@ -938,7 +942,11 @@ Choose the single best-fitting visualization block(s) from the formats below:
     // The conversation the controller kept (up to 50 messages), trimmed to a
     // size every provider takes — this used to be the last 10 messages only,
     // so anything said five exchanges back was forgotten.
-    const history = historyWithinBudget(messages).filter(m => {
+    // Earlier replies lose their picture galleries: a model that sees one
+    // writes its own, with web-page links that show as blank pictures.
+    const history = historyWithinBudget(messages).map(m => (
+      m.role === "assistant" && typeof m.content === "string" ? { ...m, content: stripGalleryBlocks(m.content) } : m
+    )).filter(m => {
       if (m.role === "assistant" && !m.content && (!m.tool_calls || m.tool_calls.length === 0)) return false;
       return true;
     });
