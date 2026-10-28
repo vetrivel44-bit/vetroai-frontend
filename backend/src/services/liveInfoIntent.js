@@ -39,9 +39,14 @@ const LIVE_INFO_PATTERNS = [
   /\b(share of|percentage of|percent of|statistics|stats|data on|gdp|inflation|unemployment|literacy rate|population of|populous|growth rate|market share|rank(ed|ing|ings)?|top \d+|largest|biggest|richest|highest|lowest)\b/i,
 ];
 
+// Questions about VetroAI itself ("tell about VetroAI ceo") are answered from
+// its own facts (config/aboutVetroAI.js); a web search only found noise.
+const ABOUT_SELF = /\bvetro ?ai\b|\byour (ceo|founder|creator|owner|company|team)\b|\bwho (made|built|created|founded|owns|runs) you\b/i;
+
 function needsLiveInfo(query) {
   const q = String(query || "");
+  if (ABOUT_SELF.test(q)) return false;
   return LIVE_INFO_PATTERNS.some((rx) => rx.test(q));
 }
 
-module.exports = { LIVE_INFO_PATTERNS, needsLiveInfo };
+module.exports = { LIVE_INFO_PATTERNS, ABOUT_SELF, needsLiveInfo };

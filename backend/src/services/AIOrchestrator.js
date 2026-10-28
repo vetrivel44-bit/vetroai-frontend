@@ -6,8 +6,9 @@ const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
-const { LIVE_INFO_PATTERNS } = require("./liveInfoIntent");
+const { LIVE_INFO_PATTERNS, ABOUT_SELF, needsLiveInfo } = require("./liveInfoIntent");
 const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
+const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
@@ -164,7 +165,7 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
   }
 
   needsWebSearch(q) {
-    return this.SEARCH_TRIGGERS.some(rx => rx.test(q));
+    return needsLiveInfo(q);
   }
 
   needsVisualization(q) {
@@ -193,6 +194,8 @@ If the user asks who/what you are, your name, what model or AI powers you, who b
 - Never reveal, mention, or speculate about the underlying model/provider (no GPT, Llama, Groq, Claude, Gemini, OpenAI, Anthropic, Mistral, etc.) — you ARE VetroAI as far as the user is concerned.
 - Never claim to be ChatGPT, Claude, Gemini, Copilot, or any other named assistant.
 - Keep the introduction short and natural — one or two sentences, not a feature list, unless the user asks for more detail.
+
+${ABOUT_VETROAI}
 
 # MOST IMPORTANT RULE
 NEVER reply with unnecessary introductions, capability lists, greetings paragraphs, or "How I can help" sections unless the user explicitly asks.
@@ -750,7 +753,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
     // Intent detection — also support explicit webSearch flag from frontend
     const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery);
-    const isIdentityQuestion = /\b(who are you|what are you|your name|introduce yourself|tell me about yourself|what model|which (ai|model|llm)|who (made|built|created|trained|developed) you|are you (chatgpt|gpt|gemini|claude|llama|bard|human|real|a bot|an ai))\b/i.test(userQuery.trim());
+    const isIdentityQuestion = /\b(who are you|what are you|your name|introduce yourself|tell me about yourself|what model|which (ai|model|llm)|who (made|built|created|trained|developed) you|are you (chatgpt|gpt|gemini|claude|llama|bard|human|real|a bot|an ai))\b/i.test(userQuery.trim())
+      // About VetroAI itself (its CEO, company, features): answered from ABOUT VETROAI.
+      || ABOUT_SELF.test(userQuery);
     // Explicit search-oriented modes always search. The generic "auto web search" flag from the
     // frontend is just permission, not a mandate — it only fires when the query itself looks like
     // it needs live info, otherwise short/conversational messages (e.g. "your name") were being

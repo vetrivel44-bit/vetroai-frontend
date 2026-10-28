@@ -47,6 +47,7 @@ import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, Clou
 import "./components/DesignStudio.css";
 import { needsLiveInfo } from "./lib/liveInfoIntent";
 import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
+import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
@@ -6699,7 +6700,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           const lastUser = [...puterMessages].reverse().find((m) => m.role === "user");
           if (lastUser) lastUser.content = withDocuments(docs, lastUser.content);
         }
-        const puterSystem = [finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
+        // Who VetroAI is comes first: without it a browser model knew nothing
+        // about VetroAI but its name.
+        const puterSystem = [VETROAI_IDENTITY, finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
         if (puterSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
           // answers "draw a flowchart" or "chart this" with a visual, not prose.
