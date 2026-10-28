@@ -3,6 +3,17 @@ import { motion } from 'framer-motion';
 import { Check, X, Zap } from 'lucide-react';
 import '../../styles/StructuredResponse.css';
 
+// A model writes the feature keys by hand, so "Identity", "identity" and
+// "identity " have to find the same value — a near miss used to show "—".
+const keyOf = (k) => String(k ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const valueFor = (option, feature) => {
+  const values = option?.features || {};
+  for (const k of [feature.id, feature.name]) if (k != null && k in values) return values[k];
+  const wanted = new Set([keyOf(feature.id), keyOf(feature.name)].filter(Boolean));
+  const hit = Object.keys(values).find((k) => wanted.has(keyOf(k)));
+  return hit === undefined ? undefined : values[hit];
+};
+
 const ComparisonTable = ({ title, options = [], features = [], delay = 0 }) => {
   if (!options || options.length === 0) return null;
 
@@ -43,9 +54,10 @@ const ComparisonTable = ({ title, options = [], features = [], delay = 0 }) => {
                   <div className="feature-desc">{feature.description}</div>
                 </td>
                 {options.map((opt, oIdx) => {
-                  const val = opt.features?.[feature.id] || opt.features?.[feature.name];
+                  const val = valueFor(opt, feature);
+                  // data-label names the option when a phone stacks the row (StructuredResponse.css).
                   return (
-                    <td key={oIdx} className={opt.highlight ? 'highlight-col' : ''}>
+                    <td key={oIdx} className={opt.highlight ? 'highlight-col' : ''} data-label={opt.name}>
                       {typeof val === 'boolean' ? (
                         val ? <Check size={18} style={{ color: 'var(--s-success)' }} /> : <X size={18} style={{ color: 'var(--s-danger)' }} />
                       ) : (

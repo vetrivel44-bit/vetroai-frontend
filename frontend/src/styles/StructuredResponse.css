@@ -809,6 +809,13 @@
   border-bottom: none;
 }
 
+/* A phone fits two or three columns once the cells stop padding 18px a side;
+   wider tables still scroll sideways inside their own box. */
+@media (max-width: 640px) {
+  .structured-section .section-body th,
+  .structured-section .section-body td { padding: 10px 12px; font-size: 0.88rem; }
+}
+
 /* ─── THINKING STATE ─── */
 
 .thinking-staged {
@@ -1007,6 +1014,45 @@
 .feature-value-text {
   font-weight: 600;
   color: var(--structured-text-secondary);
+}
+
+/* On a phone the grid can't fit: a 220px feature column left room for one
+   option, and the rest were cut off at the right. Each feature becomes a
+   block instead — its name and description, then one line per option, named
+   from data-label — so every value is on screen without scrolling sideways. */
+@media (max-width: 640px) {
+  .comparison-header { padding: 16px 18px; }
+  .premium-comparison-table,
+  .premium-comparison-table tbody,
+  .premium-comparison-table tr,
+  .premium-comparison-table td { display: block; width: auto; }
+  .premium-comparison-table thead { display: none; }
+  .premium-comparison-table tbody tr { padding: 14px 18px; border-bottom: 1px solid var(--structured-border); }
+  .premium-comparison-table tbody tr:last-child { border-bottom: none; }
+  .premium-comparison-table tbody tr:nth-child(odd) { background: var(--structured-accent-soft); }
+  .premium-comparison-table tbody tr td,
+  .premium-comparison-table tbody tr:hover td,
+  .premium-comparison-table td.highlight-col { background: none !important; box-shadow: none; border: none; }
+  .premium-comparison-table td.highlight-col::after { display: none; }
+  .premium-comparison-table .feature-cell { width: auto; min-width: 0; padding: 0 0 8px; }
+  .premium-comparison-table td:not(.feature-cell) {
+    display: grid;
+    grid-template-columns: minmax(72px, 34%) 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 6px 0;
+    text-align: left;
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+  .premium-comparison-table td:not(.feature-cell)::before {
+    content: attr(data-label);
+    font-weight: 700;
+    color: var(--structured-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .premium-comparison-table td.highlight-col::before { color: var(--structured-accent); }
+  .premium-comparison-table td:not(.feature-cell) > svg { justify-self: start; }
 }
 
 /* ─── ENHANCED TIMELINE ─── */
