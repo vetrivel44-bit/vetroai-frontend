@@ -170,13 +170,17 @@ export default function AuthHeroBird() {
   return (
     <>
       <canvas ref={canvasRef} className="ahb-canvas" aria-hidden="true" />
+      {/* The photo's CC BY-SA licence needs a credit; it stays a small icon
+          that reveals the text on hover or focus. */}
       <a
         className="ahb-credit"
         href="https://commons.wikimedia.org/wiki/File:Gazing_at_the_Milky_Way_Morvan_2019-08-31.jpg"
         target="_blank"
         rel="noopener noreferrer"
+        aria-label="Image credit: based on a photo by Benh LIEU SONG, CC BY-SA 4.0"
       >
-        Based on a photo by Benh LIEU SONG, CC BY-SA 4.0
+        <span className="ahb-credit-i" aria-hidden="true">i</span>
+        <span className="ahb-credit-text">Based on a photo by Benh LIEU SONG, CC BY-SA 4.0</span>
       </a>
     </>
   );

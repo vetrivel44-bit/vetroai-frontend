@@ -24,11 +24,24 @@
 }
 
 .ahb-credit {
-  position: absolute; left: 16px; bottom: 14px; z-index: 2;
-  font-size: 10.5px; color: rgba(255, 255, 255, 0.75); text-decoration: none;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  position: absolute; left: 14px; bottom: 12px; z-index: 2;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; color: #fff; text-decoration: none;
 }
-.ahb-credit:hover { color: #fff; text-decoration: underline; }
+.ahb-credit-i {
+  width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: italic 600 10px/1 Georgia, serif;
+  border: 1px solid rgba(255, 255, 255, 0.35); color: rgba(255, 255, 255, 0.55);
+  transition: color 0.2s, border-color 0.2s;
+}
+.ahb-credit-text {
+  opacity: 0; transform: translateX(-4px); pointer-events: none;
+  background: rgba(8, 14, 30, 0.7); padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.ahb-credit:hover .ahb-credit-i, .ahb-credit:focus-visible .ahb-credit-i { color: #fff; border-color: #fff; }
+.ahb-credit:hover .ahb-credit-text, .ahb-credit:focus-visible .ahb-credit-text { opacity: 1; transform: none; }
 
 /* Compact white card. */
 .auth-hero-sky .auth-hero-content {

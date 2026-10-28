@@ -115,6 +115,29 @@
 .auth-form-pro .auth-notice { text-align: left; }
 .afp-legal { font-size: 0.72rem; color: var(--ink-4); text-align: center; margin-top: 2px; }
 
+/* Short windows (laptops at 125–150% zoom): tighten everything so the whole
+   form fits, and scroll as a last resort rather than cutting it off. */
+.auth-page-v3:has(.auth-form-pro) { height: 100dvh; }
+.auth-form-side.auth-form-pro { overflow-y: auto; }
+@media (max-height: 760px) {
+  .auth-form-side.auth-form-pro { padding-top: 24px; padding-bottom: 24px; }
+  .auth-form-pro .auth-form-card { gap: 12px; }
+  .auth-form-pro .afp-brand { margin-bottom: 12px; }
+  .auth-form-pro .auth-form-title { font-size: 1.5rem; margin-bottom: 2px; }
+  .auth-form-pro .auth-form-sub { font-size: 0.84rem; }
+  .afp-tab { height: 32px; }
+  .afp-google button { min-height: 40px !important; }
+  .afp-form { gap: 10px; }
+  .afp-field { gap: 4px; }
+  .auth-form-pro .afp-control .auth-input { height: 40px; }
+  .auth-form-pro .auth-submit-btn { height: 42px; margin-top: 2px; }
+}
+@media (max-height: 600px) {
+  .auth-form-pro .afp-brand, .auth-form-pro .auth-form-sub { display: none; }
+  .auth-form-pro .auth-form-title { font-size: 1.3rem; }
+  .auth-form-pro .afp-legal { display: none; }
+}
+
 @media (max-width: 768px) {
   .auth-form-side.auth-form-pro { width: 100%; padding: 32px 22px; }
   .auth-form-pro .afp-brand { display: flex; justify-content: center; margin-bottom: 20px; }
