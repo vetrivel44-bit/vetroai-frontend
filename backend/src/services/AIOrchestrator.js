@@ -534,6 +534,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 }
 \`\`\`
    *(Note: Include coordinates if they are known or can be estimated. Otherwise, they will be geocoded by the server.)*
+   - Several places (tourist spots, branches, a list of cities): add \`"points": [{"label": "Madurai", "lat": 9.9252, "lng": 78.1198, "note": "Meenakshi Temple"}, …]\` to the same block. Name each place once, and only places inside the area asked about (Coorg is in Karnataka, not Tamil Nadu).
 
 3. **Geographic Route Map (\`type: "route"\`)** - For showing navigation routes, travel paths, corridors, or journeys between two locations.
    - Format: \`\`\`json
@@ -1003,7 +1004,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           ? [...messagesFor(currentProviderName), { role: "assistant", content: resumeText }, { role: "user", content: CONTINUE_PROMPT }]
           : messagesFor(currentProviderName);
         const streamPromise = adapter.generateStream(attemptMessages, options);
-        const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : ATTEMPT_TIMEOUT_MS;
+        // A slow-starting model (Sarvam 105B) sets its own start budget.
+        const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : (adapter.startTimeoutMs?.() || ATTEMPT_TIMEOUT_MS);
         const stream = await withTimeout(streamPromise, attemptTimeout, "Stream generation timeout");
         
         if (!stream) throw new Error("Provider returned empty stream");

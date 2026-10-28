@@ -14,6 +14,7 @@ import React, { useState, useMemo, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import '../../styles/StructuredResponse.css';
 import { parseLooseJson } from '../../lib/looseJson';
+import { placePoints } from '../../lib/places';
 
 // The four heavyweights. Between them these pull in recharts, chart.js,
 // apexcharts, echarts, the MapTiler SDK and four CodeMirror language modes —
@@ -196,7 +197,7 @@ const parseResponse = (text) => {
           place: data.place || data.destination, 
           summary: data.summary, 
           coordinates: data.coordinates, 
-          points: data.points, 
+          points: placePoints(data),
           details: data.details,
           origin: data.origin,
           destination: data.destination,

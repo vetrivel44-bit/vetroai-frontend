@@ -120,6 +120,12 @@ function reasoningEffortFor({ drawing, light, effort } = {}) {
   return Object.prototype.hasOwnProperty.call(REASONING_EFFORT, effort) ? REASONING_EFFORT[effort] : REASONING_EFFORT.balanced;
 }
 
+// sarvam-105b can think for well over 30s before its first byte, longer as
+// the system prompt grows: the general 30s start budget timed out the first
+// tries ("Trying Sarvam 105B again…") before it answered on a later one. Once
+// it starts, the orchestrator's idle watchdog guards the rest of the stream.
+const START_TIMEOUT_MS = 75000;
+
 async function generateStream(messages, options = {}) {
   const { temperature, maxTokens, sarvamModel } = options;
   try {
@@ -130,7 +136,7 @@ async function generateStream(messages, options = {}) {
       max_tokens: Math.min(maxTokens ?? 4096, MAX_TOKENS_CAP),
       stream: true,
       reasoning_effort: reasoningEffortFor(options),
-    }, { timeoutMs: 30000 });
+    }, { timeoutMs: START_TIMEOUT_MS });
     return res.body;
   } catch (err) {
     logger.error("sarvamAdapter.generateStream", { error: err.message });
@@ -156,6 +162,8 @@ module.exports = {
   // Live search results go with the question, not deep in the system prompt:
   // there Sarvam answered from its own out-of-date training (AIOrchestrator).
   searchResultsWithQuestion: () => true,
+  // How long the orchestrator waits for the stream to start (see above).
+  startTimeoutMs: () => START_TIMEOUT_MS,
   complete,
   modelFor,
   shapeMessages,

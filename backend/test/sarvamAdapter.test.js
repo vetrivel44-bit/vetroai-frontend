@@ -366,3 +366,10 @@ test("picked, a key problem is reported at once instead of retried", async (t) =
   assert.deepEqual(r.calls.other, []);
   assert.ok(r.error, "an error is shown");
 });
+
+test("Sarvam gets longer than other models to start answering", () => {
+  // sarvam-105b thinks before its first byte; at the general 30s budget the
+  // first tries timed out ("Trying Sarvam 105B again…").
+  const sarvam = require("../src/providers/sarvamAdapter");
+  assert.ok(sarvam.startTimeoutMs() >= 60000);
+});
