@@ -116,7 +116,7 @@ email when email is set up. A watched condition stops once it comes true.
 | Setting | Where | What it does |
 | --- | --- | --- |
 | `MONGO_URI` | Render | **Required** for scheduled tasks to survive restarts and a sleeping free instance. Without it they are kept in memory only, and the app says so. |
-| `CRON_SECRET` | Render **and** GitHub repository secret | A long random string. `.github/workflows/scheduled-tasks.yml` calls `POST /api/schedules/run-due` with it every 15 minutes, which wakes the backend and runs what is due. |
+| `CRON_SECRET` | Render **and** GitHub repository secret | A long random string. `.github/workflows/scheduled-tasks.yml` calls `POST /api/schedules/run-due` with it every 10 minutes and runs what is due. The same workflow pings `/api/health` every 10 minutes even without this secret, so the free Render instance stays awake and a chat never waits for it to start. |
 | `BACKEND_URL` | GitHub repository secret (optional) | The backend's address, if it isn't `https://ai-chatbot-backend-gvvz.onrender.com`. |
 | `RESEND_API_KEY`, `MAIL_FROM` | Render (optional) | Email each result (resend.com; `MAIL_FROM` must be on a domain verified there, e.g. `VetroAI <tasks@yourdomain.com>`). |
 

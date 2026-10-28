@@ -294,7 +294,7 @@ test("picked, a Sarvam answer cut off part-way continues from where it stopped",
   }
 });
 
-test("a drawing asks Sarvam to skip reasoning; an ordinary chat leaves it alone", async (t) => {
+test("a drawing or a greeting skips Sarvam's reasoning; a real question reasons at the chosen depth", async (t) => {
   const drawing = await chatWithSarvam(t, [sarvamSays("Here is the heart.")], {
     input: "draw a labelled diagram of the heart",
     systemPrompt: "[DRAWING REQUEST — FOLLOW EXACTLY]\nThe user asked: \"draw a labelled diagram of the heart\".",
@@ -303,8 +303,30 @@ test("a drawing asks Sarvam to skip reasoning; an ordinary chat leaves it alone"
   assert.ok("reasoning_effort" in drawing.calls.bodies[0], "reasoning_effort is sent");
   assert.equal(drawing.calls.bodies[0].reasoning_effort, null);
 
-  const chat = await chatWithSarvam(t, [sarvamSays("Hello!")]);
-  assert.equal("reasoning_effort" in chat.calls.bodies[0], false);
+  // "Hi" used to wait behind Sarvam's default "medium" reasoning.
+  const hi = await chatWithSarvam(t, [sarvamSays("Hello!")]);
+  assert.equal(hi.text, "Hello!");
+  assert.ok("reasoning_effort" in hi.calls.bodies[0], "reasoning_effort is sent");
+  assert.equal(hi.calls.bodies[0].reasoning_effort, null);
+
+  const question = "Why does my Python loop throw an IndexError on a short list?";
+  const balanced = await chatWithSarvam(t, [sarvamSays("Because…")], { input: question, effort: "balanced" });
+  assert.equal(balanced.calls.bodies[0].reasoning_effort, "low");
+  const deep = await chatWithSarvam(t, [sarvamSays("Because…")], { input: question, effort: "deep" });
+  assert.equal(deep.calls.bodies[0].reasoning_effort, "medium");
+});
+
+test("the effort setting maps to Sarvam's reasoning depth", () => {
+  assert.equal(sarvam.reasoningEffortFor({ effort: "quick" }), null);
+  assert.equal(sarvam.reasoningEffortFor({ effort: "balanced" }), "low");
+  assert.equal(sarvam.reasoningEffortFor({ effort: "deep" }), "medium");
+  assert.equal(sarvam.reasoningEffortFor({ effort: "max" }), "high");
+  // An unknown or missing setting is treated as the default, never as "max".
+  assert.equal(sarvam.reasoningEffortFor({}), "low");
+  assert.equal(sarvam.reasoningEffortFor({ effort: "toString" }), "low");
+  // A light turn or a drawing is off whatever the setting.
+  assert.equal(sarvam.reasoningEffortFor({ effort: "max", light: true }), null);
+  assert.equal(sarvam.reasoningEffortFor({ effort: "max", drawing: true }), null);
 });
 
 test("a drawing that stops at its token limit mid-sketch is finished, not left half-drawn", async (t) => {

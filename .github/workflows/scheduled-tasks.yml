@@ -1,13 +1,16 @@
 name: Scheduled tasks
 
 # Runs VetroAI Computer's scheduled tasks ("every morning at 8…", "tell me
-# when the price drops…"). Render's free instance sleeps when idle, so this
-# calls the backend every 15 minutes: the request wakes it, and it runs every
-# task that is due. Needs the same CRON_SECRET set as a repository secret here
-# and as an environment variable on Render. BACKEND_URL is optional.
+# when the price drops…"), and keeps the backend awake. Render's free instance
+# sleeps after 15 idle minutes, and the next chat then waits up to a minute
+# while it starts — even for "hi". Every 10 minutes (GitHub runs schedules a
+# few minutes late, so 15 let it fall asleep) this pings /api/health, which
+# needs no secret, then runs every task that is due. That part needs the same
+# CRON_SECRET set as a repository secret here and as an environment variable
+# on Render. BACKEND_URL is optional.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -19,6 +22,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Keep the backend awake
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          url="${BACKEND_URL:-https://ai-chatbot-backend-gvvz.onrender.com}/api/health"
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "$url" || echo 000)
+            if [ "$code" = "200" ]; then echo "Backend awake."; exit 0; fi
+            echo "Attempt $attempt: HTTP $code"; sleep 15
+          done
+          # Not fatal: the due tasks below retry on their own.
+          echo "::warning::The backend didn't answer its health check (last HTTP $code)."
+
       - name: Run due tasks
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
