@@ -177,8 +177,10 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
 
   async buildSystemPrompt(mode, context = {}) {
     // `lean` leaves out the visual-block instructions (about two thirds of the
-    // prompt) for a writer with a small request budget.
-    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock, lean = false, researched = false } = context;
+    // prompt) for a writer with a small request budget. `inlineVisuals: false`
+    // leaves out only the long ```chartjs/```mermaid/… guide (VISUALS_PROMPT,
+    // ~7k tokens) and keeps the structured chart/map/timeline blocks.
+    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock, lean = false, researched = false, inlineVisuals = true } = context;
 
     // ── Core system prompt ──
     // The date is the user's, in their own timezone (clockService) — the
@@ -640,7 +642,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // Inline visuals: ```mermaid / ```chartjs / ```html widget / ```json map
     // blocks are drawn in the chat. Not for design (single HTML block) or
     // computer_use (single JSON action).
-    if (mode !== "design" && mode !== "computer_use" && !lean) {
+    if (mode !== "design" && mode !== "computer_use" && !lean && inlineVisuals) {
       sys += VISUALS_PROMPT;
     }
 
@@ -902,6 +904,12 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const compactSysPrompt = isAgentic && compactContext
       ? await this.buildSystemPrompt(mode, { userQuery, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
       : null;
+    // The full prompt is ~10k tokens (~12k with search results), so Groq
+    // turned down nearly every chat with "Request too large" and the smaller
+    // retry failed the same way. Groq gets it without the long inline-visuals
+    // guide (~3k tokens, ~5k with results); it still draws charts, maps and
+    // timelines through the structured blocks.
+    const tightSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras;
     // A drawing carries its own sketch rules (the app's drawing instruction), so
     // it gets the lean prompt without the chart/diagram/table rules: about a
     // third of the input tokens, on every try.
@@ -968,7 +976,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           ...withSearchInQuestion(history, webContext, params.clock),
         ];
       }
-      const base = compactSysPrompt && TIGHT_BUDGET_PROVIDERS.has(providerName) ? compactSysPrompt : finalSysPrompt;
+      const base = TIGHT_BUDGET_PROVIDERS.has(providerName) ? (compactSysPrompt || tightSysPrompt) : finalSysPrompt;
       return [{ role: "system", content: base + thinking + astrologyPrompt }, ...history];
     };
 
