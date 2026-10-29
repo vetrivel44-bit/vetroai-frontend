@@ -104,7 +104,11 @@ export function parseMarkdownBlocks(markdown = "") {
       const code = [];
       i++;
       while (i < lines.length && !lines[i].trim().startsWith(fence[1])) code.push(lines[i++]);
-      blocks.push({ type: "code", language: fence[2] || "", text: code.join("\n") });
+      // A block indented under a list item loses that indent, so its own
+      // indentation is all that is left.
+      const indent = line.match(/^\s*/)[0].length;
+      const text = indent ? code.map((l) => (l.slice(0, indent).trim() ? l : l.slice(indent))) : code;
+      blocks.push({ type: "code", language: fence[2] || "", text: text.join("\n") });
       continue;
     }
 
@@ -171,9 +175,17 @@ export function parseMarkdownBlocks(markdown = "") {
             level: Math.min(3, indents.length - 1),
             ordered: /\d/.test(current[2]),
             marker: current[2],
+            // The number the text gives, so a list split by a code block (or a
+            // later chapter's exercises) keeps "2." as 2 instead of counting on.
+            number: /\d/.test(current[2]) ? parseInt(current[2], 10) : null,
             runs: parseInline(current[3]),
           });
           i++;
+        } else if (/^(```|~~~)/.test(lines[i].trim())) {
+          // A code block under a list item (an exercise's code) is a code
+          // block, not more text for the item: glued on, its fence showed as
+          // "```javascript" and its backticks were read as inline code.
+          break;
         } else if (lines[i].trim() && /^\s{2,}/.test(lines[i]) && items.length) {
           const previous = items[items.length - 1];
           previous.runs = [...previous.runs, { text: " " }, ...parseInline(lines[i].trim())];
@@ -191,14 +203,14 @@ export function parseMarkdownBlocks(markdown = "") {
   return blocks;
 }
 
-const runsText = (runs = []) => runs.map((run) => run.text).join("");
+export const runsText = (runs = []) => runs.map((run) => run.text).join("");
 
 export function documentTitle(markdown = "", fallback = "VetroAI document") {
   const heading = parseMarkdownBlocks(markdown).find((block) => block.type === "heading");
   return (heading ? runsText(heading.runs) : fallback).slice(0, 80) || fallback;
 }
 
-const safeFileName = (title, ext) =>
+export const safeFileName = (title, ext) =>
   `${String(title).replace(/[^\p{L}\p{M}\p{N}_ -]+/gu, "").trim().replace(/\s+/g, "-").slice(0, 60) || "vetroai-document"}.${ext}`;
 
 function saveBlob(blob, filename) {
@@ -496,7 +508,7 @@ export async function exportPdf(markdown, { book = false } = {}) {
         counters[item.level] = (counters[item.level] || 0) + 1;
         counters.length = item.level + 1;
         const indent = margin + 14 + item.level * 18;
-        const bullet = item.ordered ? `${counters[item.level]}.` : ["•", "-", "·", "•"][item.level];
+        const bullet = item.ordered ? `${item.number ?? counters[item.level]}.` : ["•", "-", "·", "•"][item.level];
         ensureSpace(16);
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(11);
@@ -636,11 +648,19 @@ export async function exportDocx(markdown) {
     } else if (block.type === "paragraph") {
       children.push(new Paragraph({ children: toRuns(block.runs), spacing: { after: 120 } }));
     } else if (block.type === "list") {
+      const counters = [];
       for (const item of block.items) {
+        counters[item.level] = (counters[item.level] || 0) + 1;
+        counters.length = item.level + 1;
+        // A numbered item keeps the number it was written with. Word's own
+        // list numbering ran on through the whole document (a course's
+        // chapter 4 exercises were numbered 76-85).
         children.push(new Paragraph({
-          children: toRuns(item.runs),
+          children: item.ordered
+            ? [new TextRun({ text: `${item.number ?? counters[item.level]}.\t` }), ...toRuns(item.runs)]
+            : toRuns(item.runs),
           ...(item.ordered
-            ? { numbering: { reference: "vetro-numbered", level: item.level } }
+            ? { indent: { left: 720 * (item.level + 1), hanging: 360 }, tabStops: [{ type: "left", position: 720 * (item.level + 1) }] }
             : { bullet: { level: item.level } }),
         }));
       }

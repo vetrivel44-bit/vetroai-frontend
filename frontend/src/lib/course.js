@@ -3,6 +3,8 @@
 // full course and writes it chapter by chapter (/api/course); the chat shows
 // its progress (CourseCard) and turns it into a PDF and a Word file.
 
+import { normalizeFences } from "./fences.js";
+
 const TEACH = /\b(teach|learn|course|tutorial|guide|lessons?|book|ebook|notes|master|study)\b/i;
 // "from start to end", "from scratch", "complete", "zero to hero", "A to Z"…
 const WHOLE = /\b(from\s+(the\s+)?(start(ing)?|scratch|beginning|basics?|zero|ground up)|(start(ing)?|beginning|basics?|zero|scratch)\s+(to|till|until|upto|up to)\s+(the\s+)?(end|ending|advanced?|expert|pro|hero|master(y|ing)?|finish)|complete|full|entire|whole|end[- ]to[- ]end|a\s*to\s*z|zero to hero|everything (about|in)|in[- ]depth|comprehensive|step[- ]by[- ]step)\b/i;
@@ -35,7 +37,9 @@ export function courseMarkdown(course) {
     "*A complete course by VetroAI*",
     "## Contents",
     contents,
-    ...chapters.map((c) => c.markdown.replace(/^#\s/gm, "## ")),
+    // A fence glued to a sentence ("Solution:```js") gets its own line, or
+    // the whole listing would print as text.
+    ...chapters.map((c) => normalizeFences(c.markdown).replace(/^#\s/gm, "## ")),
   ];
   return parts.filter(Boolean).join("\n\n");
 }

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { BookOpen, Check, Download, FileText, Loader2, X } from "lucide-react";
 import { courseMarkdown } from "../../lib/course";
-import { exportDocx, exportPdf } from "../../lib/documentExport";
+import { exportDocx } from "../../lib/documentExport";
+import { exportBookPdf } from "../../lib/bookPdf";
 import "./CourseCard.css";
 
 // A course being written (lib/course.js): its chapters ticking off as they
@@ -20,7 +21,7 @@ export default function CourseCard({ course }) {
     setBusy(kind);
     setFailed("");
     try {
-      if (kind === "pdf") await exportPdf(book, { book: true });
+      if (kind === "pdf") await exportBookPdf(book);
       else await exportDocx(book);
     } catch (err) {
       setFailed(`Couldn't make the ${kind === "pdf" ? "PDF" : "Word file"}: ${err.message}`);
