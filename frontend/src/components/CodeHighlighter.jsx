@@ -2,6 +2,28 @@ import { useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
+// One Light's layout with GitHub's light palette: One Light's own token colors
+// (light greens, oranges, sky blues) read washed out on a white card, and
+// GitHub's are tuned to stay legible there.
+const ONE_LIGHT_TO_GITHUB = {
+  "hsl(230, 8%, 24%)": "#1f2328", // text, punctuation
+  "hsl(230, 4%, 64%)": "#6e7781", // comments
+  "hsl(35, 99%, 36%)": "#0550ae", // numbers, constants, class names
+  "hsl(301, 63%, 40%)": "#cf222e", // keywords
+  "hsl(5, 74%, 59%)": "#116329", // tags, properties
+  "hsl(119, 34%, 47%)": "#0a3069", // strings
+  "hsl(221, 87%, 60%)": "#8250df", // functions, variables, operators
+  "hsl(198, 99%, 37%)": "#0550ae", // urls, css functions
+  "hsl(344, 84%, 43%)": "#cf222e",
+};
+const githubLight = Object.fromEntries(Object.entries(oneLight).map(([sel, rules]) => [
+  sel,
+  rules.color && ONE_LIGHT_TO_GITHUB[rules.color] ? { ...rules, color: ONE_LIGHT_TO_GITHUB[rules.color] } : rules,
+]));
+// JS operators (=, =>, ||) as plain text, the way GitHub shows them.
+githubLight[".language-javascript .token.operator"] = { ...githubLight[".language-javascript .token.operator"], color: "#1f2328" };
+githubLight.operator = { ...githubLight.operator, color: "#1f2328" };
+
 // The app's theme lives on <html data-theme>; watch it so open code blocks
 // recolor when the user flips the theme.
 const readTheme = () => (typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
@@ -54,7 +76,7 @@ export default function CodeHighlighter({ language, children, raw = false, follo
   const theme = useDocTheme();
   return (
     <SyntaxHighlighter
-      style={followTheme && theme === "light" ? oneLight : vscDarkPlus}
+      style={followTheme && theme === "light" ? githubLight : vscDarkPlus}
       language={raw ? language : resolveHighlightLanguage(language)}
       PreTag="div"
       {...rest}
