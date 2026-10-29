@@ -4,7 +4,48 @@
 // page numbers, and code in labelled boxes. The plain exportPdf stays for
 // ordinary replies.
 
-import { parseMarkdownBlocks, toPdfText, isPdfSafe, hasMath, stripChatPreamble, runsText, safeFileName, exportPdf } from "./documentExport.js";
+import { parseMarkdownBlocks, toPdfText as basePdfText, stripChatPreamble, runsText, safeFileName, exportPdf } from "./documentExport.js";
+
+// Symbols jsPDF's built-in fonts can't draw, as plain text: a folder tree,
+// arrows, ticks. Anything else outside them (emoji) is dropped. One such
+// character used to send the whole course down the image-per-page export,
+// which for 100 pages never finished ("keeps loading").
+const BOOK_REPLACEMENTS = {
+  "├": "+", "└": "+", "┌": "+", "┐": "+", "┘": "+", "┬": "+", "┴": "+", "┼": "+", "╰": "+", "╭": "+",
+  "│": "|", "┃": "|", "─": "-", "━": "-", "═": "=", "║": "|",
+  "→": "->", "←": "<-", "↑": "^", "↓": "v", "⇒": "=>", "⇐": "<=", "↔": "<->", "⟶": "->", "➜": "->", "➡": "->",
+  "≤": "<=", "≥": ">=", "≠": "!=", "≈": "~", "×": "x", "÷": "/", "∞": "inf",
+  "✅": "[x]", "❌": "[ ]", "⚠": "(!)", "💡": "Tip:", "📁": "", "📄": "",
+};
+const WIN_ANSI_EXTRA = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+const drawable = (ch) => {
+  const code = ch.codePointAt(0);
+  return code === 9 || code === 10 || (code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff) || WIN_ANSI_EXTRA.includes(ch);
+};
+
+/** `text` in characters the PDF's fonts can draw. */
+export function toPdfText(text = "") {
+  let out = "";
+  for (const ch of basePdfText(text)) {
+    if (BOOK_REPLACEMENTS[ch] !== undefined) out += BOOK_REPLACEMENTS[ch];
+    else if (drawable(ch)) out += ch;
+    // Variation selectors, emoji and other symbols: dropped.
+  }
+  return out;
+}
+
+/**
+ * Whether the course is written in a script the built-in fonts can't draw
+ * at all (Tamil, Hindi, Chinese…): then only the image-based export can show
+ * it. A few stray symbols in an English course don't count.
+ */
+export function needsImagePdf(text = "") {
+  let foreign = 0;
+  for (const ch of String(text)) {
+    if (/\p{L}/u.test(ch) && !drawable(ch) && !/\p{Script=Greek}/u.test(ch) && ++foreign > 40) return true;
+  }
+  return false;
+}
 
 const ACCENT = [79, 70, 229];
 const ACCENT_DARK = [55, 48, 163];
@@ -52,12 +93,13 @@ export function bookPlan(markdown) {
 /** Downloads the course as a book-style PDF. */
 export async function exportBookPdf(markdown) {
   const plan = bookPlan(markdown);
-  // Formulas and scripts jsPDF's built-in fonts can't draw go through the
-  // image-based export instead.
-  if (hasMath(plan.body) || !isPdfSafe(toPdfText(stripChatPreamble(markdown)))) return exportPdf(markdown, { book: true });
+  // Only a course in another script goes through the (slow) image-based
+  // export; formulas are written out as text, and stray symbols replaced.
+  if (needsImagePdf(stripChatPreamble(markdown))) return exportPdf(markdown, { book: true });
 
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ unit: "pt", format: "a4" });
+  // Compressed: a 100-page course was a 16 MB file without it.
+  const pdf = new jsPDF({ unit: "pt", format: "a4", compress: true });
   const W = pdf.internal.pageSize.getWidth();
   const H = pdf.internal.pageSize.getHeight();
   const side = 60;

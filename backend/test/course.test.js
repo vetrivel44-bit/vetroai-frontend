@@ -131,3 +131,51 @@ test("the writer is told the rules the first course broke", () => {
   assert.match(prompt, /numbered 1, 2, 3/);
   assert.match(prompt, /CURRENT FACTS[\s\S]*Node\.js 24 is the current LTS/);
 });
+
+test("a busy spell doesn't lose chapters: they wait, retry and all get written", async (t) => {
+  // The live run of 29 Oct lost 14 of 24 chapters when the model refused
+  // requests for a few minutes. Here the model refuses the first ten chapter
+  // requests, then recovers.
+  const { setCourseDelays } = require("../src/services/courseService");
+  setCourseDelays({ retry: 1, cooldown: 5, afterFailure: 1, secondPass: 1 });
+  t.after(() => setCourseDelays({ retry: 4000, cooldown: 25000, afterFailure: 15000, secondPass: 8000 }));
+  const app = require("../src/app");
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const saved = config.sarvamApiKey;
+  const realFetch = global.fetch;
+  config.sarvamApiKey = "test-key";
+  let refusals = 10;
+  global.fetch = async (url, init) => {
+    const href = String(url);
+    if (href.startsWith("http://127.0.0.1")) return realFetch(url, init);
+    if (!href.startsWith("https://api.sarvam.ai/")) throw new Error("offline");
+    const body = JSON.parse(init.body);
+    const ask = body.messages[body.messages.length - 1].content;
+    const chapter = /Write Chapter (\d+): (.+)/.exec(ask);
+    if (chapter && refusals > 0) { refusals--; return new Response('{"error":{"message":"Too many requests"}}', { status: 429 }); }
+    const content = /--- CHAPTER ---/.test(ask) ? '{"fixes": []}'
+      : chapter ? `## Chapter ${chapter[1]}: ${chapter[2]}\n\nText.` : JSON.stringify(outline(6));
+    const frames = [{ choices: [{ delta: { content } }] }, { choices: [{ delta: {}, finish_reason: "stop" }] }];
+    return new Response(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    config.sarvamApiKey = saved;
+    for (const p of Object.values(providerManager.providers)) { p.isSuspended = false; p.consecutiveErrors = 0; }
+  });
+
+  const res = await realFetch(`${baseUrl}/api/course`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic: "teach me node js from start to end", provider: "Sarvam 105B", modelLabel: "Sarvam 105B" }),
+  });
+  const events = (await res.text()).split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5)));
+  const done = events.find((e) => e.type === "done").data;
+  assert.equal(refusals, 0, "the busy spell happened");
+  assert.deepEqual({ written: done.written, failed: done.failed }, { written: 6, failed: 0 });
+  assert.equal(events.filter((e) => e.type === "chapter_failed").length, 0);
+});

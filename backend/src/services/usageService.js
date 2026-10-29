@@ -29,7 +29,13 @@ const UsageRecord = mongoose.models.UsageRecord || mongoose.model("UsageRecord",
   events: { type: [{ m: String, u: Number, t: Number, _id: false }], default: [] },
 }, { timestamps: true }));
 
-const STORE_FILE = process.env.USAGE_STORE_FILE || path.join(os.tmpdir(), "vetroai-usage.json");
+// Under `node --test` (NODE_TEST_CONTEXT), each test process gets its own
+// store: sharing the real one, the suite's chats added up across runs until
+// its test visitor hit the usage limit and the tests failed for that alone.
+const STORE_FILE = process.env.USAGE_STORE_FILE
+  || (process.env.NODE_TEST_CONTEXT
+    ? path.join(os.tmpdir(), `vetroai-usage-test-${process.pid}.json`)
+    : path.join(os.tmpdir(), "vetroai-usage.json"));
 const memory = new Map();
 let fileLoaded = false;
 let saveTimer = null;

@@ -34,7 +34,7 @@ function groqModelFor(index) {
 const MAX_CONTINUATIONS = 2;
 // The editor returns corrections only, not the chapter.
 const EDITOR_TOKENS = 2500;
-const TRIES_PER_CHAPTER = 3;
+const TRIES_PER_CHAPTER = 4;
 
 // pipeStream reports progress through `res`; a chapter is collected silently.
 const SILENT = { write() {}, locals: {} };
@@ -220,11 +220,36 @@ async function write(provider, prompt, { maxTokens, modelLabel, signal, groqMode
 }
 
 /** `write` on the picked model, falling back to others when it fails. */
+// How long to wait when a model turns a request down. A live Node.js course
+// lost 14 of its 24 chapters in a few minutes when the models were busy:
+// every chapter failed within seconds and was given up. Now each try waits a
+// little longer, a busy spell is waited out, and failed chapters get a
+// second pass at the end. Tests shorten these (setCourseDelays).
+const DELAYS = { retry: 4000, cooldown: 25000, afterFailure: 15000, secondPass: 8000 };
+function setCourseDelays(next) { Object.assign(DELAYS, next); }
+
+/** Waits `ms`, or less if the reader leaves. */
+function pause(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener?.("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+/** `write` on the picked model, waiting and falling back to others when it fails. */
 async function writeWithFallback(state, prompt, opts) {
   const tried = [];
   let provider = state.provider;
   let lastError = null;
-  for (let attempt = 0; attempt < TRIES_PER_CHAPTER && provider; attempt++) {
+  for (let attempt = 0; attempt < TRIES_PER_CHAPTER; attempt++) {
+    if (!provider) {
+      // Every model is busy or resting: wait for them to come back, then
+      // start again from the course's own model.
+      await pause(DELAYS.cooldown, opts.signal);
+      tried.length = 0;
+      provider = state.provider;
+    }
     tried.push(provider);
     const started = Date.now();
     try {
@@ -236,10 +261,9 @@ async function writeWithFallback(state, prompt, opts) {
       if (opts.signal?.aborted) throw err;
       lastError = err;
       providerManager.updateMetrics(provider, false, Date.now() - started);
-      logger.warn("course.writeFailed", { provider, error: err.message });
-      // A picked model that keeps failing hands the rest of the course over.
+      logger.warn("course.writeFailed", { provider, attempt, error: err.message });
+      await pause(DELAYS.retry * (attempt + 1), opts.signal);
       provider = providerManager.getFallbackProvider(provider, tried);
-      if (provider && attempt === TRIES_PER_CHAPTER - 2) state.provider = provider;
     }
   }
   throw lastError || new Error("No model is available");
@@ -315,32 +339,55 @@ async function buildCourse(topic, { preferredProvider, modelLabel, send, signal 
   // A few chapters at a time; on Groq one per course model, since each
   // model's per-minute limit only fits about one chapter at a time.
   const parallel = state.provider === "groq" ? Math.max(1, (config.groqCourseModels || []).length) : 3;
+  const total = course.chapters.length;
+  const writeChapter = async (index, verb = "Writing") => {
+    const { title } = course.chapters[index];
+    send("status", `${verb} chapter ${index + 1} of ${total}: ${title}`);
+    const draft = await writeWithFallback(state, chapterPrompt(course, index), { maxTokens: CHAPTER_TOKENS, modelLabel, signal, groqModel: groqModelFor(index) });
+    send("status", `Checking chapter ${index + 1} of ${total}: ${title}`);
+    const text = await editChapter(state, course, draft.text, { modelLabel, signal, groqModel: groqModelFor(index + 1) });
+    send("chapter", { n: index + 1, title, markdown: text.trim() });
+  };
+
   let next = 0;
   let written = 0;
-  let failed = 0;
+  const retryLater = [];
   const worker = async () => {
-    while (next < course.chapters.length) {
+    while (next < total) {
       if (signal?.aborted) return;
       const index = next++;
-      const { title } = course.chapters[index];
-      send("status", `Writing chapter ${index + 1} of ${course.chapters.length}: ${title}`);
       try {
-        const draft = await writeWithFallback(state, chapterPrompt(course, index), { maxTokens: CHAPTER_TOKENS, modelLabel, signal, groqModel: groqModelFor(index) });
-        send("status", `Checking chapter ${index + 1} of ${course.chapters.length}: ${title}`);
-        const text = await editChapter(state, course, draft.text, { modelLabel, signal, groqModel: groqModelFor(index + 1) });
+        await writeChapter(index);
         written++;
-        send("chapter", { n: index + 1, title, markdown: text.trim() });
       } catch (err) {
         if (signal?.aborted) return;
-        failed++;
-        logger.warn("course.chapterFailed", { chapter: index + 1, error: err.message });
-        send("chapter_failed", { n: index + 1, title });
+        logger.warn("course.chapterDeferred", { chapter: index + 1, error: err.message });
+        retryLater.push(index);
+        // The models are struggling: this worker eases off before the next.
+        await pause(DELAYS.afterFailure, signal);
       }
     }
   };
   await Promise.all(Array.from({ length: parallel }, worker));
+
+  // A second, slower pass for the chapters that failed: one at a time, with
+  // a pause between, once the busy spell has had time to pass.
+  let failed = 0;
+  for (const index of retryLater.sort((a, b) => a - b)) {
+    if (signal?.aborted) break;
+    await pause(DELAYS.secondPass, signal);
+    try {
+      await writeChapter(index, "Retrying");
+      written++;
+    } catch (err) {
+      if (signal?.aborted) break;
+      failed++;
+      logger.warn("course.chapterFailed", { chapter: index + 1, error: err.message });
+      send("chapter_failed", { n: index + 1, title: course.chapters[index].title });
+    }
+  }
   send("done", { title: course.title, written, failed });
   return written;
 }
 
-module.exports = { buildCourse, parseOutline, outlinePrompt, chapterPrompt, groqModelFor, subjectOf, parseFixes, applyFixes, COURSE_WRITER, EDITOR, MIN_CHAPTERS, MAX_CHAPTERS };
+module.exports = { buildCourse, parseOutline, outlinePrompt, chapterPrompt, groqModelFor, subjectOf, parseFixes, applyFixes, setCourseDelays, COURSE_WRITER, EDITOR, MIN_CHAPTERS, MAX_CHAPTERS };
