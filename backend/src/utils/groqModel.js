@@ -8,16 +8,35 @@ const logger = require("./logger");
 // per model. When the configured model has used up its day, the others still
 // have theirs — so switch to one of them until the cap resets, rather than
 // giving up on Groq and letting another provider answer.
+// Groq shut qwen3-32b and llama-4-scout down in July 2026 and announced
+// llama-3.3-70b's for August (console.groq.com/docs/deprecations); the
+// current replacements lead. An id the account doesn't have is just skipped.
 const PREFERRED_MODELS = [
-  "llama-3.3-70b-versatile",
   "openai/gpt-oss-120b",
-  "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "llama-3.3-70b-versatile",
+  "qwen/qwen3.8-27b",
   "moonshotai/kimi-k2-instruct",
-  "qwen/qwen3-32b",
   "openai/gpt-oss-20b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
   "llama-3.1-8b-instant",
 ];
+
+// The Groq models that read images. qwen3.8-27b is a preview model, which
+// Groq can withdraw at short notice; a vision request is then never moved to
+// a text-only model (see `candidates` below) but fails over to another
+// provider instead.
+const VISION_MODELS = ["qwen/qwen3.8-27b"];
+
+/**
+ * How to keep a model from reasoning at length before a short or plain job
+ * (a title, follow-up questions, a course chapter). Qwen 3 can switch it off;
+ * gpt-oss can't, so it reasons briefly. Other models take no such field.
+ */
+function quietReasoning(model) {
+  const id = String(model || "");
+  if (/^qwen\//i.test(id)) return { reasoning_effort: "none" };
+  if (/gpt-oss/i.test(id)) return { reasoning_effort: "low" };
+  return {};
+}
 const NON_CHAT_MODEL = /whisper|tts|guard|embed|playai|orpheus|compound|prompt-guard/i;
 const MAX_DAILY_SWITCHES = 3;
 
@@ -49,21 +68,26 @@ async function listChatModels(client) {
     .map((m) => m.id);
 }
 
-async function pickAvailableModel(client, rejected) {
+// `candidates`: only these may stand in (a vision request needs a model that
+// can see); otherwise the preferred list, then anything the account has.
+async function pickAvailableModel(client, rejected, candidates = null) {
   const skip = new Set([].concat(rejected));
   const ids = (await listChatModels(client)).filter((id) => !skip.has(id) && !isExhausted(id));
+  if (candidates) return candidates.find((id) => ids.includes(id)) || null;
   return PREFERRED_MODELS.find((id) => ids.includes(id)) || ids[0] || null;
 }
 
 // Runs `call(model)`. If Groq says the model doesn't exist, retries once with
 // an available model and keeps using it for the rest of the process. If the
 // model has hit its daily cap, moves on to another model until the cap resets.
-async function withGroqModel(client, model, call) {
-  let current = replacements.get(model) || model;
+// `candidates` limits which models may replace it.
+async function withGroqModel(client, model, call, { candidates = null } = {}) {
+  const key = candidates ? `${model}|${candidates.join(",")}` : model;
+  let current = replacements.get(key) || model;
   const tried = [];
 
   if (isExhausted(current)) {
-    const next = await pickAvailableModel(client, current).catch(() => null);
+    const next = await pickAvailableModel(client, current, candidates).catch(() => null);
     if (next) current = next;
   }
 
@@ -73,10 +97,10 @@ async function withGroqModel(client, model, call) {
       return await call(current);
     } catch (err) {
       if (isModelNotFound(err) && tried.length === 1) {
-        const next = await pickAvailableModel(client, current).catch(() => null);
+        const next = await pickAvailableModel(client, current, candidates).catch(() => null);
         if (!next) throw err;
         logger.warn("groq.modelReplaced", { from: current, to: next });
-        replacements.set(model, next);
+        replacements.set(key, next);
         current = next;
         continue;
       }
@@ -84,7 +108,7 @@ async function withGroqModel(client, model, call) {
       if (resetMs == null) throw err;
       exhaustedUntil.set(current, Date.now() + resetMs);
       if (tried.length > MAX_DAILY_SWITCHES) throw err;
-      const next = await pickAvailableModel(client, tried).catch(() => null);
+      const next = await pickAvailableModel(client, tried, candidates).catch(() => null);
       if (!next) throw err;
       logger.warn("groq.dailyLimitSwitch", { from: current, to: next, resetsInMin: Math.round(resetMs / 60000) });
       current = next;
@@ -92,4 +116,4 @@ async function withGroqModel(client, model, call) {
   }
 }
 
-module.exports = { withGroqModel, isModelNotFound, dailyLimitResetMs, PREFERRED_MODELS, _exhaustedUntil: exhaustedUntil };
+module.exports = { withGroqModel, isModelNotFound, dailyLimitResetMs, quietReasoning, PREFERRED_MODELS, VISION_MODELS, _exhaustedUntil: exhaustedUntil, _replacements: replacements };

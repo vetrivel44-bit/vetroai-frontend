@@ -15,11 +15,13 @@ const { withTimeout } = require("../utils/withTimeout");
 
 // Adapters that read a message's `images` field, so they can be handed a
 // screenshot (see geminiAdapter.js / cohereAdapter.js). Order is preference:
-// Gemini leads, Cohere takes over when Gemini isn't configured or fails.
+// Gemini leads, Cohere takes over when Gemini isn't configured or fails, and
+// Groq (its Qwen vision model, config.groqVisionModel) after that, so an
+// image question still has somewhere to go when Cohere is busy or down.
 // Kept in one place because the primary pick, the retry budget and the
 // fallback walk all read it — letting them drift silently shrinks the budget
 // below the chain length, so the loop exits before trying the last provider.
-const VISION_PROVIDERS = ["gemini", "cohere"];
+const VISION_PROVIDERS = ["gemini", "cohere", "groq"];
 // Ceiling on provider hops for one request. See where it's used for why it
 // isn't simply the configured-provider count.
 const MAX_FALLBACK_ATTEMPTS = 5;

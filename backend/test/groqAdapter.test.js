@@ -60,3 +60,29 @@ test("a 413 'Request too large' is retried once with a smaller request", async (
   assert.equal(requests.length, 2);
   assert.ok(requests[1].max_tokens < requests[0].max_tokens);
 });
+
+test("images go to Groq's vision model as image parts, at most the newest three", async () => {
+  requests.length = 0;
+  const img = (n) => ({ mimeType: "image/png", data: `img${n}` });
+  const stream = await generateStream([
+    { role: "user", content: "earlier", images: [img(1), img(2)] },
+    { role: "assistant", content: "seen" },
+    { role: "user", content: "what is in these?", images: [img(3), img(4)] },
+  ], { maxTokens: 512 });
+  for await (const _ of stream) { /* drain */ }
+  const body = requests[0];
+  assert.equal(body.model, "qwen/qwen3.8-27b");
+  assert.equal(body.reasoning_effort, "none");
+  const urls = body.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((p) => p.type === "image_url").map((p) => p.image_url.url);
+  assert.deepEqual(urls, ["data:image/png;base64,img2", "data:image/png;base64,img3", "data:image/png;base64,img4"]);
+  assert.ok(body.messages.every((m) => !("images" in m)), "the images key never reaches Groq");
+});
+
+test("a light turn asks the model not to reason at length; a text turn keeps its model", async () => {
+  requests.length = 0;
+  const stream = await generateStream([{ role: "user", content: "hi" }], { maxTokens: 256, light: true, model: "qwen/qwen3.8-27b" });
+  for await (const _ of stream) { /* drain */ }
+  assert.equal(requests[0].model, "qwen/qwen3.8-27b");
+  assert.equal(requests[0].reasoning_effort, "none");
+  assert.equal(requests[0].messages[0].content, "hi");
+});

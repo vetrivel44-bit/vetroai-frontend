@@ -7,13 +7,16 @@ const orchestrator = require("../src/services/AIOrchestrator");
 // requested reply). The full system prompt reached ~10k tokens (~12k with
 // search results), so nearly every Groq chat failed with "Request too large".
 const tokens = (text) => Math.ceil(text.length / 3.5); // groqAdapter's estimate
-const GROQ_BUDGET = 11000;
+// groqAdapter's per-request budget, under the ~8k tokens a minute Groq's
+// current models allow.
+const GROQ_BUDGET = 7800;
 const results = "[1] Some source — a dated snippet about the question\n".repeat(110); // ~6k chars
 
 test("Groq's prompt leaves room for the chat and a full reply, with search results", async () => {
   const tight = await orchestrator.buildSystemPrompt("chat", { userQuery: "compare rainfall in chennai and mumbai", webContext: results, memories: [], clock: {}, inlineVisuals: false });
-  // A full 4k reply fits beside it; groqAdapter trims old history for the rest.
-  assert.ok(tokens(tight) + 4096 < GROQ_BUDGET, `Groq prompt is ~${tokens(tight)} tokens`);
+  // A reply of at least 2k tokens fits beside it; groqAdapter trims old
+  // history for the rest.
+  assert.ok(tokens(tight) + 2048 < GROQ_BUDGET, `Groq prompt is ~${tokens(tight)} tokens`);
   assert.ok(tokens(tight) < 6000, `Groq prompt is ~${tokens(tight)} tokens`);
 });
 

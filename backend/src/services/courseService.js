@@ -12,12 +12,24 @@ const providerManager = require("./ProviderManager");
 const orchestrator = require("./AIOrchestrator");
 const { withTimeout } = require("../utils/withTimeout");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
+const { config } = require("../config/env");
 
 const MIN_CHAPTERS = 20;
 const MAX_CHAPTERS = 30;
 const CHAPTER_TOKENS = 7000;
-// Groq's free tier counts ~12k tokens a minute, so it gets shorter turns.
+// Each Groq model takes ~8k tokens a minute, prompt included, so a Groq
+// chapter is a shorter turn (continued if it runs out).
 const GROQ_CHAPTER_TOKENS = 5000;
+
+/**
+ * The Groq model for chapter `index`: chapters alternate between the course
+ * models (config.groqCourseModels), and each model has its own per-minute
+ * limit, so two of them write a course about twice as fast as one.
+ */
+function groqModelFor(index) {
+  const models = config.groqCourseModels || [];
+  return models.length ? models[index % models.length] : undefined;
+}
 const MAX_CONTINUATIONS = 2;
 const TRIES_PER_CHAPTER = 3;
 
@@ -87,11 +99,12 @@ function parseOutline(text) {
 }
 
 /** One model turn, collected; continues once or twice if it ran out of tokens. */
-async function write(provider, prompt, { maxTokens, modelLabel, signal }) {
+async function write(provider, prompt, { maxTokens, modelLabel, signal, groqModel }) {
   const adapter = providerManager.getAdapter(provider);
   if (!adapter) throw new Error(`No adapter for ${provider}`);
   const options = {
     maxTokens,
+    model: provider === "groq" ? groqModel : undefined,
     temperature: 0.5,
     // No separate reasoning pass: the whole budget goes to the chapter.
     light: true,
@@ -162,8 +175,9 @@ async function buildCourse(topic, { preferredProvider, modelLabel, send, signal 
   if (!course.title) course.title = topic;
   send("outline", course);
 
-  // A few chapters at a time; Groq one at a time (its per-minute limit).
-  const parallel = state.provider === "groq" ? 1 : 3;
+  // A few chapters at a time; on Groq one per course model, since each
+  // model's per-minute limit only fits about one chapter at a time.
+  const parallel = state.provider === "groq" ? Math.max(1, (config.groqCourseModels || []).length) : 3;
   let next = 0;
   let written = 0;
   let failed = 0;
@@ -174,7 +188,7 @@ async function buildCourse(topic, { preferredProvider, modelLabel, send, signal 
       const { title } = course.chapters[index];
       send("status", `Writing chapter ${index + 1} of ${course.chapters.length}: ${title}`);
       try {
-        const { text } = await writeWithFallback(state, chapterPrompt(course, index), { maxTokens: CHAPTER_TOKENS, modelLabel, signal });
+        const { text } = await writeWithFallback(state, chapterPrompt(course, index), { maxTokens: CHAPTER_TOKENS, modelLabel, signal, groqModel: groqModelFor(index) });
         written++;
         send("chapter", { n: index + 1, title, markdown: text.trim() });
       } catch (err) {
@@ -190,4 +204,4 @@ async function buildCourse(topic, { preferredProvider, modelLabel, send, signal 
   return written;
 }
 
-module.exports = { buildCourse, parseOutline, outlinePrompt, chapterPrompt, MIN_CHAPTERS, MAX_CHAPTERS };
+module.exports = { buildCourse, parseOutline, outlinePrompt, chapterPrompt, groqModelFor, MIN_CHAPTERS, MAX_CHAPTERS };

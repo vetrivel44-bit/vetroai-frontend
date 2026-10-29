@@ -81,3 +81,8 @@ test("/api/course plans the course, then writes and sends every chapter", async 
   // Later chapters are told what came before, so they don't repeat it.
   assert.match(bodies.find((b) => /Write Chapter 4:/.test(b.messages[1].content)).messages[1].content, /Already taught[\s\S]*3\. Topic 3/);
 });
+
+test("on Groq, chapters alternate between the two course models", () => {
+  const { groqModelFor } = require("../src/services/courseService");
+  assert.deepEqual([0, 1, 2, 3].map(groqModelFor), ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]);
+});

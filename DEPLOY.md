@@ -136,3 +136,25 @@ the replacement Sarvam names in its error.) They run on the backend
 |---|---|---|
 | `SARVAM_API_KEY` | Render | The API subscription key from the Sarvam dashboard. Without it, picking a Sarvam model is answered by the next available provider. |
 | `SARVAM_MODEL` | Render (optional) | Model used when Sarvam is reached without a size chosen. Default `sarvam-105b`. |
+
+## Groq models (chat, titles, images, courses)
+
+Groq retires models often (qwen3-32b and llama-4-scout in July 2026,
+llama-3.3-70b in August). When a configured model is gone, the backend asks
+Groq which models the account has and switches on its own, so nothing breaks;
+these settings only choose what is used first. Each Groq model has its own
+per-minute token limit (about 8k on the current models), which is why side
+jobs and courses use more than one.
+
+| Variable | Default | Used for |
+|---|---|---|
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Chat, when Groq is picked or reached as a fallback. If it is still set to `llama-3.3-70b-versatile` on Render, remove it or change it. |
+| `GROQ_TITLE_MODEL` | `qwen/qwen3.8-27b` | Chat titles, with reasoning off, so they don't use the chat model's limit. |
+| `GROQ_FOLLOWUP_MODEL` | `qwen/qwen3.8-27b` | Suggested follow-up questions, the same way. |
+| `GROQ_VISION_MODEL` | `qwen/qwen3.8-27b` | Reading images when Cohere can't: the third vision provider after Gemini and Cohere. Only a model that reads images ever stands in for it. |
+| `GROQ_COURSE_MODELS` | `openai/gpt-oss-120b,qwen/qwen3.8-27b` | Courses written on Groq: chapters alternate between these, one at a time on each, so two models write about twice as fast as one. |
+| `GROQ_REQUEST_TOKEN_BUDGET` | `7800` | The most a single Groq request sends (prompt plus reply). Raise it for an account with higher limits. |
+
+`qwen/qwen3.8-27b` is a Groq *preview* model and may be withdrawn at short
+notice; titles, follow-ups and courses then move to another model, and images
+go to the next vision provider.

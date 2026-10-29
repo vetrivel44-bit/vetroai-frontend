@@ -24,13 +24,21 @@ module.exports = {
     bcryptSaltRounds:    Number(getEnv("BCRYPT_SALT_ROUNDS", "12")),
     corsOrigin:          getEnv("CORS_ORIGIN",           "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"),
     groqApiKey:          getEnv("GROQ_API_KEY",          ""),
-    groqModel:           getEnv("GROQ_MODEL",            "llama-3.3-70b-versatile"),
+    // Groq retired llama-3.3-70b (Aug 2026); gpt-oss-120b is its replacement.
+    groqModel:           getEnv("GROQ_MODEL",            "openai/gpt-oss-120b"),
     groqTemperature:     Number(getEnv("GROQ_TEMPERATURE", "0.7")),
     groqMaxTokens:       Number(getEnv("GROQ_MAX_TOKENS",  "16384")),
-    // Related-question generation. Deliberately a stronger model than the chat
-    // default's fast tier — templated suggestions were mostly the small model
-    // reaching for a familiar shape instead of reading the answer.
-    groqFollowUpModel:   getEnv("GROQ_FOLLOWUP_MODEL",  "llama-3.3-70b-versatile"),
+    // Chat titles and related questions run on a different Groq model from
+    // chat, so they don't spend the chat model's per-minute token allowance
+    // (each Groq model has its own). Qwen 3.8 with reasoning off: fast, and
+    // strong enough that suggestions read the answer instead of a template.
+    groqFollowUpModel:   getEnv("GROQ_FOLLOWUP_MODEL",  "qwen/qwen3.8-27b"),
+    groqTitleModel:      getEnv("GROQ_TITLE_MODEL",     "qwen/qwen3.8-27b"),
+    // Groq's image-reading model: a second vision provider after Cohere.
+    groqVisionModel:     getEnv("GROQ_VISION_MODEL",    "qwen/qwen3.8-27b"),
+    // A course on Groq alternates its chapters between these, two at once:
+    // each model has its own per-minute limit, so two write twice as fast.
+    groqCourseModels:    getEnv("GROQ_COURSE_MODELS",   "openai/gpt-oss-120b,qwen/qwen3.8-27b").split(",").map((m) => m.trim()).filter(Boolean),
     mistralApiKey:       getEnv("MISTRAL_API_KEY",       ""),
     mistralModel:        getEnv("MISTRAL_MODEL",        "mistral-small-latest"),
     mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),

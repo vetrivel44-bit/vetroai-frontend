@@ -21,7 +21,7 @@ const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
 const usage = require("../services/usageService");
 const { modelOf } = require("./usageController");
-const { withGroqModel } = require("../utils/groqModel");
+const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const mistralAdapter = require("../providers/mistralAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
 const medicalService = require("../services/medicalService");
@@ -343,15 +343,19 @@ async function generateTitle(req, res) {
     return successResponse(res, "Title generated", { title });
   }
 
+  // Its own Groq model (config.groqTitleModel), with reasoning off: a title
+  // is a few words, and must not spend the chat model's per-minute allowance.
+  // A small fast model stands in if that one is retired.
   const completion = await withRetry(
-    () => groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+    () => withGroqModel(groq, config.groqTitleModel, (model) => groq.chat.completions.create({
+      model,
       temperature: 0.2, max_tokens: 28,
+      ...quietReasoning(model),
       messages: [
         { role: "system", content: "Generate a 4-6 word summary title for this chat. Never use simple greetings like 'hi' or 'hello' as a title. Include a relevant emoji at the start. Return plain text only." },
         { role: "user", content: firstMessage.slice(0, 400) },
       ],
-    }),
+    }), { candidates: [config.groqTitleModel, "llama-3.1-8b-instant", "openai/gpt-oss-20b"] }),
     1
   );
 
@@ -385,11 +389,13 @@ async function followUps(req, res) {
     callModel = async ({ system, user, maxTokens, temperature }) => {
       const completion = await withRetry(
         // A stronger model than llama-3.1-8b-instant: the questions are the
-        // whole point, and the weaker one reached for templates.
-        () => withGroqModel(groq, config.groqFollowUpModel || "llama-3.3-70b-versatile", (model) => groq.chat.completions.create({
+        // whole point, and the weaker one reached for templates. Its own model
+        // (config.groqFollowUpModel), reasoning off, off the chat model's limit.
+        () => withGroqModel(groq, config.groqFollowUpModel, (model) => groq.chat.completions.create({
           model,
           temperature,
           max_tokens: maxTokens,
+          ...quietReasoning(model),
           messages: [{ role: "system", content: system }, { role: "user", content: user }],
         })),
         1

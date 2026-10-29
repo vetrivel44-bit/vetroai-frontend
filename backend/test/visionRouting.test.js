@@ -33,10 +33,15 @@ test("the vision fallback walk offers only image-capable providers", () => {
   assert.equal(orchestrator.nextFallback("gemini", attempted, true), "cohere");
 });
 
+test("after gemini and cohere, an image goes to groq's vision model", () => {
+  configureOnly(["vercel", "groq", "mistral", "gemini", "cohere"]);
+  assert.equal(orchestrator.nextFallback("cohere", new Set(["gemini", "cohere"]), true), "groq");
+});
+
 test("the vision walk ends rather than handing an image to a text-only provider", () => {
   configureOnly(["vercel", "groq", "mistral", "gemini", "cohere"]);
-  const attempted = new Set(["gemini", "cohere"]);
-  assert.equal(orchestrator.nextFallback("cohere", attempted, true), null);
+  const attempted = new Set(["gemini", "cohere", "groq"]);
+  assert.equal(orchestrator.nextFallback("groq", attempted, true), null);
 });
 
 test("cohere alone can carry a vision request when gemini is unconfigured", () => {
