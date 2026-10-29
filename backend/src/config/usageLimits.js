@@ -24,7 +24,7 @@ const COMPUTER_MODEL = "VetroAI Computer";
 
 // First match wins. "premium" models also count towards premiumWeekly.
 const MODEL_TIERS = [
-  { tier: "premium", weight: 4, label: "Most capable", re: /\b(opus|gpt-5\.6 sol|fable 5\.1|claude fable 5\b(?!\.)|deepsearch|deep search|sonar|research)\b/i },
+  { tier: "premium", weight: 4, label: "Most capable", re: /\b(opus|gpt-5\.6 sol|fable 5\.1|claude fable 5\b(?!\.)|deepsearch|deep search|sonar|research|vetroai course)\b/i },
   { tier: "standard", weight: 2, label: "Balanced", re: /\b(sonnet|terra|codex|deepseek|grok|gemini 3\.1 pro|vercel|sarvam 105b)\b/i },
   { tier: "light", weight: 1, label: "Fast", re: /./ },
 ];

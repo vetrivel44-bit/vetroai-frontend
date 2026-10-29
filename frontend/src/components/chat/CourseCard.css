@@ -1,0 +1,38 @@
+.vai-course {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  padding: 16px 18px;
+  margin: 8px 0 12px;
+  color: var(--ink);
+}
+.vai-course-head { display: flex; gap: 10px; align-items: flex-start; }
+.vai-course-head > svg { margin-top: 2px; color: var(--accent); flex-shrink: 0; }
+.vai-course-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vai-course-titles strong { font-size: 15px; line-height: 1.35; }
+.vai-course-titles small { color: var(--ink-3); font-size: 12.5px; }
+.vai-course-progress { height: 6px; border-radius: 999px; background: var(--surface-3, rgba(127, 127, 127, 0.15)); margin: 14px 0 8px; overflow: hidden; }
+.vai-course-progress span { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.4s ease; }
+.vai-course-status { font-size: 13px; color: var(--ink-2); }
+.vai-course-chapters { list-style: none; margin: 12px 0 0; padding: 0; max-height: 260px; overflow-y: auto; display: grid; gap: 4px; font-size: 13px; }
+.vai-course-chapters li { display: flex; gap: 8px; align-items: center; color: var(--ink-3); }
+.vai-course-chapters li.is-done { color: var(--ink); }
+.vai-course-chapters li.is-failed { color: var(--ink-3); text-decoration: line-through; }
+.vai-course-mark { width: 16px; display: inline-flex; justify-content: center; flex-shrink: 0; }
+.vai-course-chapters li.is-done .vai-course-mark { color: var(--accent); }
+.vai-course-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.vai-course-actions button {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface, transparent); color: var(--ink);
+  padding: 8px 14px; font-size: 13.5px; cursor: pointer;
+}
+.vai-course-actions button:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
+.vai-course-actions button:disabled { opacity: 0.6; cursor: default; }
+.vai-course-error { margin-top: 10px; font-size: 13px; color: #c2410c; }
+.vai-course-spin { animation: vai-course-spin 1s linear infinite; }
+@keyframes vai-course-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .vai-course-spin { animation: none; }
+  .vai-course-progress span { transition: none; }
+}

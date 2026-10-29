@@ -35,6 +35,8 @@ router.post("/follow-ups", chatLimiter, asyncHandler(chatController.followUps));
 router.post("/search", chatLimiter, asyncHandler(searchController.performSearch));
 // DeepSearch for browser models: the research itself, streamed (researchController.js).
 router.post("/research", chatLimiter, asyncHandler(require("../controllers/researchController").research));
+// "Teach me X from start to end": a full course, chapter by chapter.
+router.post("/course", chatLimiter, optionalAuth, asyncHandler(require("../controllers/courseController").course));
 router.post("/generate-video", chatLimiter, asyncHandler(videoController.generateVideo));
 router.get("/video-status/:videoId", asyncHandler(videoController.checkVideoStatus));
 // Lets the browser open a playing video directly instead of a search page it

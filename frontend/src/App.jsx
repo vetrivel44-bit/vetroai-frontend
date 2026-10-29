@@ -28,6 +28,8 @@ import {
 } from "./lib/firebaseAuth";
 import { isFirebaseConfigured } from "./firebase";
 import FileCard from "./components/chat/FileCard";
+import CourseCard from "./components/chat/CourseCard";
+import { isCourseRequest, courseTopic, readCourseEvents, applyCourseEvent } from "./lib/course";
 import ModeSwitch from "./components/ModeSwitch";
 import { generateImageViaPuter, wantsDrawing } from "./lib/puterImage";
 import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
@@ -7550,6 +7552,53 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       return;
     }
 
+    // "Teach me X from start to end": a whole course, chapter by chapter, as
+    // a PDF and Word file (lib/course.js, /api/course) instead of one reply.
+    if (isCourseRequest(text) && !selFiles.length && !isWebMode && !isDeepSearch) {
+      const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const courseId = `course_${Date.now()}`;
+      const userMsg = { role: "user", content: text, timestamp: ts };
+      const botMsg = { role: "assistant", content: "", timestamp: ts, course: { id: courseId, phase: "running", title: "", chapters: [], status: "Planning the course…" } };
+      setMessages(prev => [...prev, userMsg, botMsg]);
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      if (messages.length === 0) updateSessionTitle(text);
+      // Every event replaces the course on its own message, found by id.
+      const update = (change) => setMessages(prev => {
+        const u = [...prev];
+        const i = u.findLastIndex(m => m.course?.id === courseId);
+        if (i !== -1) u[i] = change(u[i]);
+        return u;
+      });
+      let course = botMsg.course;
+      try {
+        const res = await fetch(`${API}/course`, {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ topic: courseTopic(text), provider: selectedProvider, modelLabel: selectedProvider }),
+        });
+        if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`);
+        await readCourseEvents(res, (event) => {
+          course = applyCourseEvent(course, event);
+          update(m => ({ ...m, course }));
+        });
+        if (course.phase === "running") course = applyCourseEvent(course, { type: "error", data: "The connection closed before the course was finished. Please try again." });
+      } catch (err) {
+        course = applyCourseEvent(course, { type: "error", data: `The course couldn't be made: ${err.message}` });
+      }
+      // The first chapter is readable right in the chat; the rest is in the files.
+      const first = course.chapters?.find(c => c.markdown);
+      const written = course.chapters?.filter(c => c.markdown).length || 0;
+      update(m => ({
+        ...m,
+        course,
+        content: course.phase === "done" && first
+          ? `Your course **${course.title}** is ready: ${written} chapters. Download it as a PDF or Word file above. Here's the first chapter to get you started.\n\n${first.markdown}`
+          : "",
+      }));
+      return;
+    }
+
     // YouTube URL intercept
     const videoId  = extractVideoId(text);
     const isYtMode = selectedMode === "youtube";
@@ -8863,6 +8912,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.usageLimit
                                ? <UsageLimitNotice limit={m.usageLimit} onOpenUsage={openUsageSettings} />
+                               : m.course
+                               ? <>
+                                   <CourseCard course={m.course} />
+                                   {m.content && <AssistantBody content={m.content} autoOpen={false} onSaveArtifact={saveArtifact} isStreaming={false} />}
+                                 </>
                                : m.isPending && m.isImageGen
                                ? <MediaGenCard type="image" text={m.content} />
                                : m.isPending && m.isVideoGen

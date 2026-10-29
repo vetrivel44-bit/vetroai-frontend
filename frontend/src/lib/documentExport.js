@@ -401,7 +401,9 @@ async function mathImage(katex, htmlToImage, latex, displayMode, fontEmbedCSS) {
   }
 }
 
-export async function exportPdf(markdown) {
+// `book`: a long document read like a book (a course): every ## section
+// starts on a new page, and pages are numbered.
+export async function exportPdf(markdown, { book = false } = {}) {
   const filename = safeFileName(documentTitle(markdown), "pdf");
   // Formulas need KaTeX's layout, and other scripts need the browser's fonts;
   // both go through the image path.
@@ -475,6 +477,7 @@ export async function exportPdf(markdown) {
 
   for (const block of blocks) {
     if (block.type === "heading") {
+      if (book && block.level === 2 && y > margin) { pdf.addPage(); y = margin; }
       y += block.level <= 2 ? 10 : 6;
       ensureSpace(headingSizes[block.level] * 2);
       writeRuns(block.runs, { size: headingSizes[block.level], forceBold: true, lineGap: 1.3 });
@@ -550,6 +553,17 @@ export async function exportPdf(markdown) {
       drawRow(block.header, true);
       block.rows.forEach((row) => drawRow(row, false));
       y += 10;
+    }
+  }
+
+  if (book) {
+    const pages = pdf.getNumberOfPages();
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(140, 140, 140);
+    for (let p = 2; p <= pages; p++) {
+      pdf.setPage(p);
+      pdf.text(`${p} / ${pages}`, page.width / 2, page.height - 24, { align: "center" });
     }
   }
 
