@@ -44,3 +44,45 @@ test("a streaming flowchart is drawn from its finished lines", async () => {
   assert.equal(drawablePrefix("---\nlook: handDrawn\nflowchart TD\n"), "");
   assert.equal(drawablePrefix("sequenceDiagram\n  A->>B: hi\n"), "", "other kinds wait for the end");
 });
+
+test("repairs flowchart arrows Mermaid rejects, so the diagram draws", async () => {
+  const { repairMermaid } = await import("../src/lib/mermaidCode.js");
+  const code = [
+    "flowchart TD",
+    '  Volunteer["Volunteer"]',
+    "  DB[(Database)]",
+    "  Volunteer <--> WebApp",
+    '  Volunteer --"1. Request Task Update">> WebApp',
+    '  WebApp -- "2. Validate" ->> TaskService',
+    "  TaskService --|3. Update|> DB",
+    "  DB -->> TaskService",
+    "  A -> B",
+    "  B ->> C",
+    "  C => D",
+    "  D -.-> E",
+    '  E -->|"ok"| F',
+    '  F["a -> b"] --> G',
+  ].join("\n");
+  assert.equal(repairMermaid(code), [
+    "flowchart TD",
+    '  Volunteer["Volunteer"]',
+    "  DB[(Database)]",
+    "  Volunteer <--> WebApp",
+    '  Volunteer -->|"1. Request Task Update"| WebApp',
+    '  WebApp -->|"2. Validate"| TaskService',
+    '  TaskService -->|"3. Update"| DB',
+    "  DB --> TaskService",
+    "  A --> B",
+    "  B --> C",
+    "  C ==> D",
+    "  D -.-> E",
+    '  E -->|"ok"| F',
+    '  F["a -> b"] --> G',
+  ].join("\n"));
+});
+
+test("leaves other kinds of diagram alone", async () => {
+  const { repairMermaid } = await import("../src/lib/mermaidCode.js");
+  const seq = "sequenceDiagram\n  Alice->>Bob: Hi\n  Bob-->>Alice: Hello";
+  assert.equal(repairMermaid(seq), seq);
+});
