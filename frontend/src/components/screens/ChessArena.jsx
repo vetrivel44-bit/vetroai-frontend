@@ -467,7 +467,7 @@ function AIvAI() {
           <div className="ca-duel-vs">VS</div>
           <ModelPicker label="Black" sideColor="b" value={blackModel} onChange={setBlackModel} />
         </div>
-        <div className="ca-note"><Scale size={15} /> Both sides play at maximum strength — more thinking time than the Master level, grandmaster opening theory — with identical settings, so the better play on the board wins.</div>
+        <div className="ca-note"><Scale size={15} /> Both sides play the arena engine at full strength — grandmaster opening theory, identical settings — so the better play on the board wins.</div>
         <div className="ca-setup-actions">
           <button className="ca-btn-primary" disabled={whiteModel === blackModel} onClick={startGame}>
             <Swords size={16} /> Start match

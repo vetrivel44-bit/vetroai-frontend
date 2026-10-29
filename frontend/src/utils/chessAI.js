@@ -27,6 +27,7 @@ import {
 } from "./chessEngine.js";
 import { buildGameIdentity, bookMove, openingName, getPersona } from "./chessPersonas.js";
 import { grandmasterBookMove, repertoireName } from "./chessOpenings.js";
+import { stockfishMove, warmUpStockfish } from "./stockfish.js";
 import { resolveApiBase } from "../lib/apiBase.js";
 
 const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
@@ -62,20 +63,22 @@ export const CHESS_DIFFICULTIES = [
   { id: "easy", name: "Easy", desc: "Makes human mistakes" },
   { id: "medium", name: "Medium", desc: "Solid club player" },
   { id: "hard", name: "Hard", desc: "Rarely slips" },
-  { id: "master", name: "Master", desc: "Grandmaster-level play" },
+  { id: "master", name: "Master", desc: "You'll lose. Prove me wrong." },
 ];
 const DIFFICULTY = {
   easy: { thinkMs: 400, maxDepth: 3, vetoMargin: 150, pickWindow: 120, softness: 60 },
   medium: null, // the persona's own settings
   hard: { thinkMs: 2500, vetoMargin: 20, pickWindow: 8, softness: 10 },
-  // Master is the engine at full strength with the neutral evaluation. The
-  // language model is not consulted for the move: it could only ever make
-  // the choice worse, and the round trip was most of the wait.
-  master: { thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
-  // AI vs AI and Spectator: the strongest setting in the arena — more
-  // thinking time than Master — and both sides get exactly this, whatever
-  // model is named on the badge, so a match is decided over the board and
-  // not by one side being handed a bigger budget or a looser leash.
+  // Master plays Stockfish's move (stockfish.js), searched for `stockfishMs`.
+  // The language model is not consulted for the move: it could only ever make
+  // the choice worse, and the round trip was most of the wait. The other
+  // fields are the arena engine at full strength, which takes over only in a
+  // browser that can't run Stockfish.
+  master: { stockfish: true, stockfishMs: 3000, thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
+  // AI vs AI and Spectator: the arena engine at its strongest, and both sides
+  // get exactly this, whatever model is named on the badge, so a match is
+  // decided over the board and not by one side being handed a bigger budget
+  // or a looser leash.
   arena: { thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
 };
 export const ARENA_LEVEL = "arena";
@@ -430,7 +433,9 @@ function describeEngineMove(candidate, depth, score) {
   if (tags.includes("checkmate")) return "Checkmate.";
   if (Math.abs(score) > MATE_SCORE - 1000) {
     const moves = Math.ceil((MATE_SCORE - Math.abs(score)) / 2);
-    parts.push(score > 0 ? `Forced mate in ${moves}.` : "Holding on as long as possible.");
+    // No depth: once a mate is proven it means little (Stockfish reports its
+    // maximum, 245).
+    return score > 0 ? `Forced mate in ${moves}.` : "Holding on as long as possible.";
   } else {
     const capture = tags.find((t) => t.startsWith("captures "));
     if (capture) parts.push(`Takes the ${PIECE_NAME[capture.slice(9)] || "piece"}${tags.includes("check") ? " with check" : ""}.`);
@@ -453,6 +458,8 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   const level = DIFFICULTY[difficulty] || null;
   const legalSans = chess.moves();
   if (!legalSans.length) return null;
+
+  if (level?.stockfish) warmUpStockfish();
 
   const identity = buildGameIdentity(providerId, gameSeed, color);
   const colorName = color === "w" ? "White" : "Black";
@@ -491,6 +498,32 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
     }
   }
 
+  // Only one legal reply — no point spending a search or a model call on it.
+  if (legalSans.length === 1) {
+    return {
+      move: legalSans[0],
+      commentary: "Forced — there is nothing else.",
+      providerId, raw: "", source: "forced",
+    };
+  }
+
+  // ── Master: Stockfish ─────────────────────────────────────────────────────
+  if (level?.stockfish) {
+    const best = await stockfishMove(chess, { movetime: level.stockfishMs, signal, gameSeed });
+    const choice = best && annotateCandidate(chess, best.uci, best.score, best.score);
+    if (choice && legalSans.includes(choice.san)) {
+      return {
+        move: choice.san,
+        commentary: describeEngineMove(choice, best.depth, best.score),
+        providerId, raw: "", source: "engine",
+        eval: choice.label,
+        score: best.score,
+        depth: best.depth,
+      };
+    }
+    // Stockfish can't run in this browser: the arena engine plays instead.
+  }
+
   // ── 2. Engine analysis with this model's eyes ─────────────────────────────
   const thinkMs = level ? level.thinkMs : identity.thinkMs;
   // Master judges with the neutral, strongest evaluation rather than the
@@ -518,15 +551,6 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   const bestScore = engineLines.length ? engineLines[0].score : 0;
   const candidates = engineLines.map((l) => annotateCandidate(chess, l.uci, l.score, bestScore));
   const engineChoice = chooseEngineMove(identity, candidates, bestScore, level);
-
-  // Only one legal reply — no point spending a model call on it.
-  if (legalSans.length === 1) {
-    return {
-      move: legalSans[0],
-      commentary: "Forced — there is nothing else.",
-      providerId, raw: "", source: "forced",
-    };
-  }
 
   // ── Full-strength levels: the engine's move, played straight away ─────────
   if (level?.engineOnly && engineChoice) {
