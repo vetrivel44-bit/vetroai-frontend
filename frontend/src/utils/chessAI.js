@@ -75,11 +75,12 @@ const DIFFICULTY = {
   // fields are the arena engine at full strength, which takes over only in a
   // browser that can't run Stockfish.
   master: { stockfish: true, stockfishMs: 3000, thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
-  // AI vs AI and Spectator: the arena engine at its strongest, and both sides
-  // get exactly this, whatever model is named on the badge, so a match is
-  // decided over the board and not by one side being handed a bigger budget
-  // or a looser leash.
-  arena: { thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
+  // AI vs AI and Spectator: Stockfish, as on Master, and both sides get
+  // exactly this, whatever model is named on the badge, so a match is decided
+  // over the board and not by one side being handed a bigger budget or a
+  // looser leash. Without Stockfish, the arena engine with more thinking time
+  // than Master's fallback.
+  arena: { stockfish: true, stockfishMs: 3000, thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
 };
 export const ARENA_LEVEL = "arena";
 
