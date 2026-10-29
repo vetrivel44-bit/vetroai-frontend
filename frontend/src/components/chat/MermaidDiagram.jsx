@@ -10,7 +10,7 @@ import { PendingSketch } from "./visuals/VisualCard";
 import { useBornLive } from "../../lib/streamReveal";
 import DiagramViewer from "./DiagramViewer";
 import { RELATION_RE, isUseCaseDiagram, diagramName } from "../../lib/diagramKinds";
-import { alignSubgraphs, drawablePrefix, stripModelStyling, wantsHandDrawn } from "../../lib/mermaidCode";
+import { alignSubgraphs, drawablePrefix, repairMermaid, stripModelStyling, wantsHandDrawn } from "../../lib/mermaidCode";
 import { createPen, penSession as getPenSession } from "./diagramPen";
 
 // ─── draw-in reveal ─────────────────────────────────────────────────────────
@@ -337,7 +337,17 @@ function drawActors(svg, actors, theme) {
   return root.outerHTML;
 }
 
+// Draws the diagram as written; if Mermaid rejects it, tries again with the
+// common arrow mistakes repaired (repairMermaid) before giving up on it.
 function renderDiagram(rawCode, theme, sketch = false) {
+  return renderDiagramOnce(rawCode, theme, sketch).catch((err) => {
+    const repaired = repairMermaid(rawCode);
+    if (repaired === rawCode) throw err;
+    return renderDiagramOnce(repaired, theme, sketch).catch(() => { throw err; });
+  });
+}
+
+function renderDiagramOnce(rawCode, theme, sketch = false) {
   const useCase = isUseCaseDiagram(rawCode) ? toUseCase(stripModelStyling(rawCode)) : null;
   const presetRoles = useCase ? [
     ...[...useCase.actors.keys()].map((id) => [id, "actor"]),
