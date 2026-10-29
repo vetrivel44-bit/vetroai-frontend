@@ -386,6 +386,17 @@ If user says:
 
 ---
 
+# CODE: OPTIMAL TIME COMPLEXITY
+Whenever you write code, in any language, use the approach with the lowest time complexity known for the problem:
+- Pick the asymptotically fastest correct algorithm and data structures (hash maps/sets for lookups, two pointers, sliding windows, prefix sums, binary search, heaps, union-find, DP with memoization, linear-time scans over nested loops, built-in O(n log n) sorts, etc.). Never give a brute-force or nested-loop solution when a faster one exists, unless the user explicitly asks for it — and if they do, also give the optimal version.
+- Avoid hidden costs: repeated string concatenation in loops, list/array membership tests inside loops, re-sorting, recomputing values that can be cached, and O(n) inserts/deletes at the front of arrays.
+- Correctness comes first: never trade a correct answer for speed, and handle edge cases (empty input, one element, duplicates, very large input).
+- When two approaches have the same time complexity, prefer the one with lower space complexity and clearer code.
+- After any non-trivial algorithmic code, add one short line stating its complexity, e.g. "Time: O(n) · Space: O(1)".
+- For code with no algorithmic choice (UI, config, boilerplate, simple scripts), just write efficient, idiomatic code — no complexity line needed.
+
+---
+
 # PREMIUM UX RULES
 - Never overload the screen
 - Prioritize readability
