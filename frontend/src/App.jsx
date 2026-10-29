@@ -1031,6 +1031,26 @@ function WritingBlockCard({ content }) {
 }
 
 // ─── CODE BLOCK ───────────────────────────────────────────────────────────────
+// Display names for fence tags, so a card reads "JavaScript", not "javascript".
+const CODE_LANG_LABELS = {
+  js: "JavaScript", javascript: "JavaScript", jsx: "JSX", ts: "TypeScript", typescript: "TypeScript", tsx: "TSX",
+  py: "Python", python: "Python", java: "Java", c: "C", cpp: "C++", "c++": "C++", cs: "C#", csharp: "C#",
+  go: "Go", rust: "Rust", rb: "Ruby", ruby: "Ruby", php: "PHP", swift: "Swift", kotlin: "Kotlin", dart: "Dart",
+  html: "HTML", css: "CSS", scss: "SCSS", json: "JSON", yaml: "YAML", yml: "YAML", xml: "XML", svg: "SVG",
+  sql: "SQL", bash: "Bash", sh: "Shell", shell: "Shell", zsh: "Shell", powershell: "PowerShell",
+  markdown: "Markdown", md: "Markdown", text: "Plain text", txt: "Plain text", dockerfile: "Dockerfile",
+};
+const codeLangLabel = (lang) => {
+  const key = String(lang || "text").toLowerCase();
+  return CODE_LANG_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1);
+};
+// Older artifacts were saved as "javascript snippet"; show them as "JavaScript snippet".
+const artifactDisplayTitle = (title, lang) => {
+  const m = /^(\S+) snippet$/i.exec(title || "");
+  if (m) return `${codeLangLabel(m[1])} snippet`;
+  return title || `${codeLangLabel(lang)} snippet`;
+};
+
 function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = false }) {
   const [cp, setCp] = useState(false);
   const autoOpenedRef = useRef(false);
@@ -1050,22 +1070,22 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
   return (
     <div className="code-wrap">
       <div className="code-header">
-        <span className="code-lang">{lang}</span>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span className="code-lang">{codeLangLabel(lang)}</span>
+        <div className="code-actions">
           {onSaveArtifact && (
             <button className="code-copy-btn" onClick={onSaveArtifact} title="Open as artifact" aria-label="Open as artifact">
-              <LayoutGrid size={12} />&nbsp;Artifact
+              <LayoutGrid size={13} /><span className="code-btn-label">Open</span>
             </button>
           )}
-          <button className="code-copy-btn" onClick={download} title="Download file" aria-label="Download"><DlIcon />&nbsp;Download</button>
-          <button className="code-copy-btn" onClick={copy} aria-label="Copy code">
-            {cp ? <><CheckIcon /> Copied</> : <><CopyIcon /> {copyLabel || "Copy"}</>}
+          <button className="code-copy-btn" onClick={download} title="Download file" aria-label="Download"><DlIcon /></button>
+          <button className="code-copy-btn" onClick={copy} title="Copy code" aria-label="Copy code">
+            {cp ? <><CheckIcon /><span className="code-btn-label">Copied</span></> : <><CopyIcon /><span className="code-btn-label">{copyLabel || "Copy"}</span></>}
           </button>
         </div>
       </div>
-      <Suspense fallback={<pre className="code-loading" style={{ margin: 0, padding: "16px 20px", fontSize: "0.82rem", whiteSpace: "pre-wrap" }}>{codeString}</pre>}>
-        <CodeHighlighter language={lang}
-          customStyle={{ margin: 0, padding: "16px 20px", background: "transparent", fontSize: "0.82rem" }}>
+      <Suspense fallback={<pre className="code-loading">{codeString}</pre>}>
+        <CodeHighlighter language={lang} className="code-body"
+          customStyle={{ margin: 0, padding: "14px 16px 16px", background: "transparent", fontSize: "0.8rem", lineHeight: 1.65 }}>
           {codeString}
         </CodeHighlighter>
       </Suspense>
@@ -1105,6 +1125,9 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   const components = useMemo(() => ({
     a: CitationLink,
     td: TableCell,
+    // The code renderer below draws its own card; markdown's <pre> around it
+    // only added a second, mismatched box behind that card.
+    pre: ({ children }) => <>{children}</>,
     code({ node, inline, className, children }) {
       const codeString = String(children).replace(/\n$/, "");
       const fenced = /language-(\w+)/.exec(className || "");
@@ -1123,7 +1146,7 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
           match={langMatch}
           codeString={codeString}
           autoOpen={autoOpen}
-          onSaveArtifact={isArtifactWorthy ? () => onSaveArtifact(codeString, langMatch[1], `${langMatch[1]} snippet`) : null}
+          onSaveArtifact={isArtifactWorthy ? () => onSaveArtifact(codeString, langMatch[1], `${codeLangLabel(langMatch[1])} snippet`) : null}
         />
       );
     },
@@ -2348,55 +2371,69 @@ function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete
     onUpdate?.({ ...artifact, code: draft, updatedAt: Date.now() });
     setIsEditing(false);
   };
+  const lineCount = draft ? draft.split("\n").length : 0;
+  const displayTitle = artifactDisplayTitle(title, language);
   return (
     <aside className="artifacts-panel" aria-label="Artifact workspace">
       <div className="artifacts-header">
         <div className="artifact-heading">
           <span className="artifact-eyebrow">Artifact</span>
-          <span className="artifact-title" title={title}>{title || "Artifact"}</span>
+          <span className="artifact-title" title={displayTitle}>{displayTitle}</span>
         </div>
         <div className="artifact-header-actions">
           {artifacts.length > 1 && (
-            <select className="artifact-switcher" value={artifact.id} onChange={e => onSelect?.(artifacts.find(a => a.id === e.target.value))} aria-label="Switch artifact">
-              {artifacts.slice().reverse().map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
-            </select>
+            <label className="artifact-switcher-wrap" title="Switch artifact">
+              <select className="artifact-switcher" value={artifact.id} onChange={e => onSelect?.(artifacts.find(a => a.id === e.target.value))} aria-label="Switch artifact">
+                {artifacts.slice().reverse().map(a => <option key={a.id} value={a.id}>{artifactDisplayTitle(a.title, a.language)}</option>)}
+              </select>
+              <ChevronDown size={14} className="artifact-switcher-chevron" aria-hidden="true" />
+            </label>
           )}
-          <button className="artifact-icon-btn" onClick={onClose} title="Close artifact"><X size={16} /></button>
+          <button className="artifact-icon-btn" onClick={onClose} title="Close artifact" aria-label="Close artifact"><X size={16} /></button>
         </div>
       </div>
       <div className="artifacts-subbar">
-        <div className="artifacts-tabs">
-          <button className={`atab${tab === "code" ? " active" : ""}`} onClick={() => setTab("code")}><Code size={13} /> Code</button>
-          {previewable && (
-            <button className={`atab${tab === "preview" ? " active" : ""}`} onClick={() => setTab("preview")}><Play size={13} /> Preview</button>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        {previewable ? (
+          <div className="artifacts-tabs" role="tablist">
+            <button role="tab" aria-selected={tab === "code"} className={`atab${tab === "code" ? " active" : ""}`} onClick={() => setTab("code")}><Code size={13} /> Code</button>
+            <button role="tab" aria-selected={tab === "preview"} className={`atab${tab === "preview" ? " active" : ""}`} onClick={() => setTab("preview")}><Play size={13} /> Preview</button>
+          </div>
+        ) : (
+          <div className="artifact-meta">
+            <span className="artifact-lang-chip">{codeLangLabel(language)}</span>
+            <span>{lineCount} {lineCount === 1 ? "line" : "lines"}</span>
+          </div>
+        )}
+        <div className="artifact-actions">
           {tab === "preview" && (
-            <button className="atab" onClick={openInNewTab} title="Open in new tab"><ExternalLink size={13} /></button>
+            <button className="artifact-icon-btn" onClick={openInNewTab} title="Open in new tab" aria-label="Open in new tab"><ExternalLink size={14} /></button>
           )}
-          {tab === "code" && !isEditing && <button className="atab" onClick={() => setIsEditing(true)}><Pencil size={13} /> Edit</button>}
-          {isEditing && <button className="atab artifact-save-btn" onClick={saveChanges}>Save changes</button>}
-          <button className="artifact-icon-btn" onClick={download} title="Download"><Download size={14} /></button>
-          <button className="atab" onClick={copy} style={{ color: copied ? "var(--success)" : undefined }}>{copied ? "✓ Copied" : "Copy"}</button>
+          {tab === "code" && !isEditing && <button className="artifact-icon-btn" onClick={() => setIsEditing(true)} title="Edit" aria-label="Edit"><Pencil size={14} /></button>}
+          {isEditing && <button className="atab artifact-save-btn" onClick={saveChanges}>Save</button>}
+          <button className="artifact-icon-btn" onClick={download} title="Download" aria-label="Download"><Download size={14} /></button>
+          <button className={`artifact-icon-btn${copied ? " is-done" : ""}`} onClick={copy} title={copied ? "Copied" : "Copy"} aria-label="Copy">{copied ? <Check size={14} /> : <Copy size={14} />}</button>
         </div>
       </div>
       {tab === "code" && isEditing && (
         <textarea className="artifact-editor" value={draft} onChange={e => setDraft(e.target.value)} spellCheck="false" aria-label="Edit artifact source" />
       )}
       {tab === "code" && !isEditing && (
-        <Suspense fallback={<pre style={{ margin: 0, flex: 1, fontSize: "0.83rem", minHeight: 400, whiteSpace: "pre-wrap" }}>{draft}</pre>}>
-          <CodeHighlighter language={language} customStyle={{ margin: 0, borderRadius: 0, flex: 1, fontSize: "0.83rem", minHeight: 400 }}>
-            {draft}
-          </CodeHighlighter>
-        </Suspense>
+        <div className="artifact-code">
+          <Suspense fallback={<pre className="code-loading">{draft}</pre>}>
+            <CodeHighlighter language={language} showLineNumbers
+              lineNumberStyle={{ minWidth: "2.4em", paddingRight: "1.1em", color: "rgba(255,255,255,0.26)", userSelect: "none" }}
+              customStyle={{ margin: 0, borderRadius: 0, background: "transparent", padding: "16px 16px 24px 8px", fontSize: "0.8rem", lineHeight: 1.7, minHeight: "100%", overflow: "visible" }}>
+              {draft}
+            </CodeHighlighter>
+          </Suspense>
+        </div>
       )}
       {tab === "preview" && (
         <iframe title="artifact-preview" srcDoc={resolveSiteImages(draft, API)} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff", minHeight: 400 }} />
       )}
       <div className="artifact-footer">
-        <span>{language || "text"}{artifact.updatedAt ? " · Edited" : ""}</span>
-        <button onClick={() => onDelete?.(artifact.id)}><Trash2 size={13} /> Delete</button>
+        <span>{artifact.updatedAt ? "Edited" : "Saved to your artifacts"}</span>
+        <button onClick={() => onDelete?.(artifact.id)} aria-label="Delete artifact"><Trash2 size={13} /> Delete</button>
       </div>
     </aside>
   );

@@ -13348,3 +13348,105 @@ button:active{transform:scale(0.97)}
   .dv-titlepill { height: 46px; }
   .dv-chip { height: 40px; padding: 0 14px; font-size: .92rem; }
 }
+
+/* ── Code cards & artifact panel (final layer) ──────────────────────────────
+   One flat card: quiet header with a plain language label and compact icon
+   actions that never overflow on a phone, code on the same surface below. */
+.code-wrap {
+  margin: 16px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+[data-theme="light"] .code-wrap { border-color: rgba(0,0,0,0.1); box-shadow: 0 1px 3px rgba(20,20,40,0.08); }
+.code-wrap .code-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 38px; padding: 0 6px 0 14px;
+  background: #252526;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  text-transform: none; letter-spacing: 0;
+}
+.code-wrap .code-lang {
+  font-family: var(--font); font-size: 12px; font-weight: 500;
+  color: rgba(255,255,255,0.55);
+  background: none; border: 0; padding: 0; letter-spacing: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.code-wrap .code-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.code-wrap .code-copy-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; min-width: 28px; padding: 0 8px;
+  border: 0; border-radius: 7px; background: transparent;
+  color: rgba(255,255,255,0.55); font: 500 12px var(--font); cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.code-wrap .code-copy-btn:hover { background: rgba(255,255,255,0.08); color: #fff; border-color: transparent; }
+.code-wrap .code-copy-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.35); outline-offset: 1px; }
+.code-wrap .code-copy-btn svg { flex-shrink: 0; }
+.code-wrap > div:not(.code-header), .code-wrap pre {
+  background: #1e1e1e !important;
+  background-image: none !important;
+}
+.code-wrap .code-body, .code-wrap .code-body code, .artifact-code, .artifact-code code, .artifact-editor { font-family: var(--mono) !important; font-variant-ligatures: none; }
+.code-loading {
+  margin: 0; padding: 14px 16px 16px; white-space: pre; overflow-x: auto;
+  color: #d4d4d4; background: #1e1e1e; font: 0.8rem/1.65 var(--mono);
+}
+@media (max-width: 520px) {
+  .code-wrap { border-radius: 10px; margin: 12px 0; }
+  .code-wrap .code-btn-label { display: none; }
+  .code-wrap .code-copy-btn { width: 32px; height: 32px; padding: 0; }
+  .code-wrap .code-body { font-size: 0.76rem !important; }
+}
+
+/* Artifact panel */
+.artifacts-panel { overflow: hidden; }
+.artifacts-panel .artifacts-header { gap: 12px; padding: 12px 12px 12px 16px; padding-top: max(12px, env(safe-area-inset-top)); }
+.artifacts-panel .artifact-heading { flex: 1; }
+.artifacts-panel .artifact-eyebrow { font-size: 10.5px; letter-spacing: .08em; }
+.artifacts-panel .artifact-title { max-width: 100%; font-size: 15px; font-weight: 600; }
+.artifacts-panel .artifact-header-actions { flex-shrink: 0; gap: 6px; }
+.artifact-switcher-wrap { position: relative; display: inline-flex; align-items: center; }
+.artifacts-panel .artifact-switcher {
+  appearance: none; -webkit-appearance: none;
+  height: 32px; max-width: 170px; padding: 0 28px 0 10px;
+  border-radius: 8px; font: 500 12.5px var(--font);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; cursor: pointer;
+}
+.artifact-switcher-chevron { position: absolute; right: 9px; pointer-events: none; color: var(--ink-4); }
+.artifacts-panel .artifact-icon-btn {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: transparent; border: 1px solid transparent; color: var(--ink-3);
+  transition: background .15s ease, color .15s ease;
+}
+.artifacts-panel .artifact-icon-btn:hover { background: var(--bg-hover); color: var(--ink); }
+.artifacts-panel .artifact-icon-btn.is-done { color: var(--success); }
+.artifacts-panel .artifacts-subbar { gap: 10px; min-height: 46px; padding: 6px 10px 6px 16px; }
+.artifact-meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: var(--ink-4); white-space: nowrap; }
+.artifact-lang-chip { padding: 3px 9px; border-radius: 999px; background: var(--bg-hover); color: var(--ink-2); font-weight: 500; }
+.artifacts-panel .artifact-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.artifacts-panel .artifacts-tabs { gap: 2px; padding: 3px; border-radius: 9px; background: var(--bg-hover); }
+.artifacts-panel .atab { height: 28px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-3); font-weight: 500; }
+.artifacts-panel .atab:hover { background: transparent; color: var(--ink); }
+.artifacts-panel .atab.active { background: var(--bg-elevated); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.artifacts-panel .artifact-save-btn { height: 30px; margin-right: 4px; padding: 0 14px; border-radius: 8px; background: var(--accent); color: var(--bg-elevated); }
+.artifacts-panel .artifact-save-btn:hover { background: var(--accent); color: var(--bg-elevated); opacity: .9; }
+.artifact-code { flex: 1; min-height: 0; overflow: auto; background: #1e1e1e; overscroll-behavior: contain; }
+.artifact-code > div { background: transparent !important; }
+.artifacts-panel .artifact-editor { background: #1e1e1e; color: #d4d4d4; font: 0.8rem/1.7 var(--mono); padding: 16px; }
+.artifacts-panel .artifact-footer {
+  height: auto; min-height: 40px; padding: 0 12px 0 16px;
+  padding-bottom: env(safe-area-inset-bottom);
+  font-size: 12px;
+}
+.artifacts-panel .artifact-footer button { height: 30px; padding: 0 10px; border-radius: 7px; }
+.artifacts-panel .artifact-footer button:hover { background: var(--danger-soft); color: var(--danger); }
+.artifact-code::-webkit-scrollbar { width: 10px; height: 10px; }
+.artifact-code::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+.artifact-code::-webkit-scrollbar-track { background: transparent; }
+@media (max-width: 520px) {
+  .artifacts-panel .artifact-switcher { max-width: 120px; }
+  .artifact-code > div { font-size: 0.76rem !important; }
+}
