@@ -13450,3 +13450,23 @@ button:active{transform:scale(0.97)}
   .artifacts-panel .artifact-switcher { max-width: 120px; }
   .artifact-code > div { font-size: 0.76rem !important; }
 }
+
+/* Light mode: code cards and the artifact code area go light with the theme
+   (the highlighter swaps to a light palette via `followTheme`). */
+.artifact-code .linenumber { color: rgba(255,255,255,0.26) !important; }
+[data-theme="light"] .code-wrap { background: #fbfbfc; border-color: var(--border); box-shadow: 0 1px 2px rgba(20,20,40,0.05); }
+[data-theme="light"] .code-wrap .code-header { background: #f3f3f6; border-bottom-color: var(--border); }
+[data-theme="light"] .code-wrap .code-lang { color: var(--ink-3); }
+[data-theme="light"] .code-wrap .code-copy-btn { color: var(--ink-3); }
+[data-theme="light"] .code-wrap .code-copy-btn:hover { background: rgba(0,0,0,0.06); color: var(--ink); }
+[data-theme="light"] .code-wrap .code-copy-btn:focus-visible { outline-color: var(--accent); }
+[data-theme="light"] .code-wrap > div:not(.code-header),
+[data-theme="light"] .code-wrap pre { background: #fbfbfc !important; }
+[data-theme="light"] .code-loading { color: var(--ink-2); background: #fbfbfc; }
+[data-theme="light"] .artifact-code { background: #fbfbfc; }
+[data-theme="light"] .artifact-code .linenumber { color: var(--ink-5) !important; }
+[data-theme="light"] .artifact-code::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.14); background-clip: content-box; }
+[data-theme="light"] .artifacts-panel .artifact-editor { background: #fbfbfc; color: var(--ink); }
+[data-theme="light"] .artifacts-panel .artifact-code + .artifact-footer,
+[data-theme="light"] .artifacts-panel .artifacts-subbar { border-bottom-color: var(--border); }
+[data-theme="light"] .code-wrap .code-body, [data-theme="light"] .artifact-code > div { color: #383a42; }

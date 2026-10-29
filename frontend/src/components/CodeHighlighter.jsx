@@ -1,5 +1,19 @@
+import { useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { vscDarkPlus, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+// The app's theme lives on <html data-theme>; watch it so open code blocks
+// recolor when the user flips the theme.
+const readTheme = () => (typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
+function useDocTheme() {
+  const [theme, setTheme] = useState(readTheme);
+  useEffect(() => {
+    const obs = new MutationObserver(() => setTheme(readTheme()));
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
+  return theme;
+}
 
 // Prism (and so SyntaxHighlighter) only tokenizes languages it has a grammar
 // for. An unrecognized tag — a niche/DSL name a model invented for a code
@@ -33,11 +47,14 @@ export function resolveHighlightLanguage(lang) {
  *
  * `raw` renders the highlighter on its own, for callers that supply their own
  * chrome; otherwise the language is resolved and sane defaults are applied.
+ * `followTheme` swaps in a light palette in light mode, for callers whose
+ * chrome follows the theme too (callers with fixed dark chrome leave it off).
  */
-export default function CodeHighlighter({ language, children, raw = false, ...rest }) {
+export default function CodeHighlighter({ language, children, raw = false, followTheme = false, ...rest }) {
+  const theme = useDocTheme();
   return (
     <SyntaxHighlighter
-      style={vscDarkPlus}
+      style={followTheme && theme === "light" ? oneLight : vscDarkPlus}
       language={raw ? language : resolveHighlightLanguage(language)}
       PreTag="div"
       {...rest}

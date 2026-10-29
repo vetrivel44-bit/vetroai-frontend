@@ -1084,7 +1084,7 @@ function CodeBlock({ match, codeString, copyLabel, onSaveArtifact, autoOpen = fa
         </div>
       </div>
       <Suspense fallback={<pre className="code-loading">{codeString}</pre>}>
-        <CodeHighlighter language={lang} className="code-body"
+        <CodeHighlighter language={lang} className="code-body" followTheme
           customStyle={{ margin: 0, padding: "14px 16px 16px", background: "transparent", fontSize: "0.8rem", lineHeight: 1.65 }}>
           {codeString}
         </CodeHighlighter>
@@ -2420,8 +2420,8 @@ function ArtifactsPanel({ artifact, artifacts = [], onSelect, onUpdate, onDelete
       {tab === "code" && !isEditing && (
         <div className="artifact-code">
           <Suspense fallback={<pre className="code-loading">{draft}</pre>}>
-            <CodeHighlighter language={language} showLineNumbers
-              lineNumberStyle={{ minWidth: "2.4em", paddingRight: "1.1em", color: "rgba(255,255,255,0.26)", userSelect: "none" }}
+            <CodeHighlighter language={language} showLineNumbers followTheme
+              lineNumberStyle={{ minWidth: "2.4em", paddingRight: "1.1em", userSelect: "none" }}
               customStyle={{ margin: 0, borderRadius: 0, background: "transparent", padding: "16px 16px 24px 8px", fontSize: "0.8rem", lineHeight: 1.7, minHeight: "100%", overflow: "visible" }}>
               {draft}
             </CodeHighlighter>
