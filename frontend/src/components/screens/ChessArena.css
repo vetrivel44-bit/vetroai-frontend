@@ -626,3 +626,9 @@
   .chess-arena .ca-picker-grid{ grid-template-columns: repeat(2, 1fr); }
   .chess-arena .ca-crumb{ display: none; }
 }
+
+/* Engine credit: Stockfish is GPL-3.0. */
+.chess-arena .ca-credit{ margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--ca-faint); text-align: center; }
+.chess-arena .ca-credit a{ color: var(--ca-muted); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 2px; }
+.chess-arena .ca-credit a:hover{ color: var(--ca-text); text-decoration-color: currentColor; }
+.chess-arena .ca-menu > .ca-credit{ margin-top: 22px; }

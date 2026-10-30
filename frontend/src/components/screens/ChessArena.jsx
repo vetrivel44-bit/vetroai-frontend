@@ -411,9 +411,23 @@ function ResultBanner({ status, whiteId, blackId, playerColor, onRematch }) {
   );
 }
 
+// Stockfish is GPL-3.0: say so wherever it plays, with the license and where
+// its source code is.
+function EngineCredit() {
+  const ext = { target: "_blank", rel: "noopener noreferrer" };
+  return (
+    <p className="ca-credit">
+      Engine: Stockfish (<a href="/stockfish/Copying.txt" {...ext}>GPL-3.0</a>)
+      {" · "}<a href="https://github.com/nmrugg/stockfish.js" {...ext}>stockfish.js</a>
+      {" · "}<a href="https://github.com/official-stockfish/Stockfish" {...ext}>Stockfish</a>
+    </p>
+  );
+}
+
 // The shared play layout: board (with eval bar and player strips) on the
 // left, a side panel with status, notes, moves and controls on the right.
-function PlayLayout({ top, bottom, board, evalBar, panelTop, controls, extra, children }) {
+// `credit`: Stockfish plays in this game, so the engine note is shown.
+function PlayLayout({ top, bottom, board, evalBar, panelTop, controls, extra, credit = false, children }) {
   return (
     <div className="ca-play">
       <div className="ca-board-wrap">
@@ -429,6 +443,7 @@ function PlayLayout({ top, bottom, board, evalBar, panelTop, controls, extra, ch
         <div className="ca-controls">{controls}</div>
         {children}
         {extra}
+        {credit && <EngineCredit />}
       </aside>
     </div>
   );
@@ -526,6 +541,7 @@ function AIvAI() {
   const turnName = getModel(chess.turn() === "w" ? whiteModel : blackModel).name;
   return (
     <PlayLayout
+      credit
       evalBar={<EvalBar whiteEval={whiteEval} />}
       top={<PlayerStrip modelId={blackModel} color="b" subtitle="Black" active={chess.turn() === "b" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       bottom={<PlayerStrip modelId={whiteModel} color="w" subtitle="White" active={chess.turn() === "w" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
@@ -627,6 +643,7 @@ function Spectator() {
   const turnName = getModel(chess.turn() === "w" ? whiteModel : blackModel).name;
   return (
     <PlayLayout
+      credit
       evalBar={<EvalBar whiteEval={whiteEval} />}
       top={<PlayerStrip modelId={blackModel} color="b" subtitle="Black" active={chess.turn() === "b" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       bottom={<PlayerStrip modelId={whiteModel} color="w" subtitle="White" active={chess.turn() === "w" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
@@ -802,6 +819,7 @@ function PlayerVsAI() {
   const turnName = chess.turn() === playerColor ? "You" : aiName;
   return (
     <PlayLayout
+      credit={difficulty === "master"}
       top={<PlayerStrip modelId={aiModel} color={aiColor} subtitle={level} active={chess.turn() === aiColor && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       bottom={<PlayerStrip you color={playerColor} active={chess.turn() === playerColor && !status.over} thinking={false} verboseHistory={verboseHistory} balance={balance} />}
       board={
@@ -861,6 +879,7 @@ function ModeMenu({ onPick }) {
           </button>
         ))}
       </div>
+      <EngineCredit />
     </div>
   );
 }
