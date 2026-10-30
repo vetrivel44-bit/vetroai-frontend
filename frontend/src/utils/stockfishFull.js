@@ -42,10 +42,14 @@ export function markFullEngineFailed(err) {
 }
 
 // ─── pieces ─────────────────────────────────────────────────────────────────
-// The build to run. Only one listed for now: the single-threaded one.
-export function pickBuild(manifest) {
+// Threads need SharedArrayBuffer, which only a cross-origin isolated page
+// has: Chess Arena's own page (/chess, see public/_headers).
+export const canUseThreads = () => Boolean(globalThis.crossOriginIsolated) && typeof SharedArrayBuffer !== "undefined";
+
+// The multi-threaded build where threads can run, else the single-threaded one.
+export function pickBuild(manifest, threads = canUseThreads()) {
   const builds = Object.values(manifest?.builds || {});
-  return builds.find((b) => !b.threads) || null;
+  return (threads && builds.find((b) => b.threads)) || builds.find((b) => !b.threads) || null;
 }
 
 const absolute = (url) => new URL(url, globalThis.location?.href).href;

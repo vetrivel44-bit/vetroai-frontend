@@ -10,3 +10,29 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+  Cross-Origin-Embedder-Policy: credentialless
+
+# Chess Arena (chess.html, at /chess) runs cross-origin isolated, so Master's
+# Stockfish gets SharedArrayBuffer and several threads. Only this page: an
+# isolated page never hears back from a sign-in popup on another origin
+# (Google, Puter), which the rest of the app relies on.
+/chess
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cache-Control: no-cache
+
+/chess.html
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cache-Control: no-cache
+
+# A worker started by an isolated page needs COEP on its own script: the
+# Stockfish builds and their thread workers here, and the arena's engine
+# worker, which Vite puts in /assets (above). Nothing else in the app runs
+# workers from either folder, so this changes nothing for it.
+/stockfish/*
+  Cross-Origin-Embedder-Policy: credentialless
+
+# Master's engine parts are named after their content, so they never change.
+/stockfish/full/parts/*
+  Cache-Control: public, max-age=31536000, immutable

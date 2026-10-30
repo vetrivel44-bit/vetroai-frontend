@@ -353,7 +353,7 @@ function EngineStatus({ status, showReady = false }) {
     );
   }
   if (status.state === "ready" && showReady) {
-    return <div className="ca-engine ca-engine-ready" role="status"><Zap size={13} /> Master's full engine is ready.</div>;
+    return <div className="ca-engine ca-engine-ready" role="status"><Zap size={13} /> Master's full engine is ready{status.threads ? " · multi-threaded" : ""}.</div>;
   }
   return null;
 }

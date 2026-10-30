@@ -9,12 +9,14 @@ Web Worker (`src/utils/stockfish.js`).
   loads the `.wasm` file of the same name from next to it, so the two must
   stay together.
 - `full/` (generated, not in git): Master's engine, the full build with
-  Stockfish's big network. `scripts/stockfishFull.mjs` copies its loader here
-  and cuts its 94.5 MiB `.wasm` into parts under 25 MiB (Cloudflare's per-file
-  limit) before every `npm run dev` and `npm run build`, from the `stockfish`
-  package pinned in `package.json`. `full/manifest.json` lists the parts;
-  `src/utils/stockfishFull.js` downloads them, keeps them in the Cache API and
-  joins them in the browser.
+  Stockfish's big network, in two flavours: `stockfish-19` (multi-threaded,
+  needs a cross-origin isolated page, which Chess Arena's own page `/chess`
+  is) and `stockfish-19-single` (anywhere else). `scripts/stockfishFull.mjs`
+  copies their loaders here and cuts each 94.5 MiB `.wasm` into parts under
+  25 MiB (Cloudflare's per-file limit) before every `npm run dev` and
+  `npm run build`, from the `stockfish` package pinned in `package.json`.
+  `full/manifest.json` lists the parts; `src/utils/stockfishFull.js`
+  downloads them, keeps them in the Cache API and joins them in the browser.
 - `Copying.txt`: the license, GNU GPL v3.
 
 Source code: https://github.com/nmrugg/stockfish.js (engine wrapper) and

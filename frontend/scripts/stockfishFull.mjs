@@ -24,8 +24,11 @@ export function partRanges(total, partSize = PART_SIZE) {
   return ranges;
 }
 
-// The builds Master can use, by loader name.
+// The builds Master can use, by loader name: the multi-threaded one needs a
+// cross-origin isolated page (Chess Arena's own, /chess), the other runs
+// anywhere.
 const BUILDS = [
+  { name: "stockfish-19", threads: true },
   { name: "stockfish-19-single", threads: false },
 ];
 

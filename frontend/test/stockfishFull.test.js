@@ -31,11 +31,17 @@ test("the worker URL hands the loader the .wasm address it decodes", () => {
   assert.equal(decodeURIComponent(fields[0]), blobUrl);
 });
 
-test("the single-threaded full build is the one picked", () => {
+test("threads get the multi-threaded build, anywhere else the single-threaded one", () => {
   const manifest = { builds: {
+    "stockfish-19": { script: "stockfish-19.js", threads: true },
     "stockfish-19-single": { script: "stockfish-19-single.js", threads: false },
   } };
+  assert.equal(pickBuild(manifest, true).script, "stockfish-19.js");
+  assert.equal(pickBuild(manifest, false).script, "stockfish-19-single.js");
+  // Node has no crossOriginIsolated: the default is no threads.
   assert.equal(pickBuild(manifest).script, "stockfish-19-single.js");
-  assert.equal(pickBuild({ builds: {} }), null);
+  const singleOnly = { builds: { "stockfish-19-single": manifest.builds["stockfish-19-single"] } };
+  assert.equal(pickBuild(singleOnly, true).script, "stockfish-19-single.js");
+  assert.equal(pickBuild({ builds: {} }, true), null);
   assert.equal(pickBuild(null), null);
 });

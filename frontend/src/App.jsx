@@ -81,7 +81,6 @@ const ComputerUI = React.lazy(loadComputerUI);
 // Fetch Computer in the background once the page is idle, so the switch opens it at once.
 if (typeof window !== "undefined") (window.requestIdleCallback || ((f) => setTimeout(f, 2500)))(() => { loadComputerUI().catch(() => {}); });
 const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
-const ChessArena = React.lazy(() => import("./components/screens/ChessArena"));
 import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
@@ -8008,7 +8007,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [viewer, setViewer] = useState(null);
   const [showPlugins, setShowPlugins] = useState(false);
   const [showComputer, setShowComputer] = useState(false);
-  const [showChess, setShowChess] = useState(false);
   // A phone that scanned a computer's Dispatch QR code opens straight into
   // Computer → Dispatch (ComputerUI picks the pairing up from the tab).
   useEffect(() => {
@@ -8550,7 +8548,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         <div className="claude-sb-recents-scroll flex-1 min-h-0 overflow-y-auto flex flex-col" onScroll={() => { if (openRecentMenuId) setOpenRecentMenuId(null); }}>
         {/* Main nav */}
         <div className="px-1 flex flex-col gap-0.5">
-          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); setShowChess(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
+          <button onClick={() => { setActiveNav('chats'); setShowBookmarks(false); setShowPlayground(false); setShowSysPrompt(false); setShowSpaces(false); setShowArtifactsGallery(false); setShowDesign(false); setShowComputer(false); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chats' && !currentSessionId ? 'active' : ''}`}>
             <MessageSquare size={17} /> Chats
           </button>
           <button onClick={() => { setActiveNav('projects'); setShowSpaces(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'projects' ? 'active' : ''}`}>
@@ -8578,7 +8576,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <span className="flex items-center gap-3"><Palette size={17} /> Design</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
           </button>
-          <button onClick={() => { setActiveNav('chess'); setShowChess(true); setSidebarMobileOpen(false); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chess' ? 'active' : ''}`}>
+          {/* Chess Arena is its own page (chess.html): it is served cross-origin
+              isolated so Stockfish can use several threads, and that isolation
+              would cut off the sign-in popups the rest of the app needs. */}
+          <button onClick={() => { window.location.assign("/chess"); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'chess' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Swords size={17} /> Chess Arena</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
           </button>
@@ -8726,13 +8727,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             {/* While Computer loads, its top bar is already there, so the switch doesn't jump. */}
             <Suspense fallback={<header className="chat-header" style={{ position: "absolute", top: 0, left: 0, right: 0, height: 60, borderBottom: 0 }}><div className="ch-left"><span style={{ width: 34, height: 30 }} /></div><div className="ch-center"><ModeSwitch mode="computer" /></div></header>}>
               <ComputerUI onClose={() => { setShowComputer(false); setActiveNav("chats"); }} onUpgrade={() => setShowUpgrade(true)} />
-            </Suspense>
-          </div>
-        )}
-        {showChess && (
-          <div className="fixed inset-0 z-[120] flex">
-            <Suspense fallback={<ScreenLoader />}>
-              <ChessArena onClose={() => { setShowChess(false); setActiveNav("chats"); }} />
             </Suspense>
           </div>
         )}
