@@ -5,7 +5,7 @@ import {
   ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap, ChessKnight,
 } from "lucide-react";
 import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, MASTER_MOVETIME_MS, MASTER_MOVETIMES, getModel, requestAIMove } from "../../utils/chessAI";
-import { warmUpStockfish } from "../../utils/stockfish";
+import { warmUpStockfish, stopStockfishPondering } from "../../utils/stockfish";
 import { getFullEngineStatus, subscribeFullEngine } from "../../utils/stockfishFull";
 import { openingName } from "../../utils/chessPersonas";
 import { repertoireName } from "../../utils/chessOpenings";
@@ -683,11 +683,14 @@ function PlayerVsAI() {
   const engineStatus = useFullEngineStatus();
   // Master's engine is large: start fetching it as soon as Master is picked.
   useEffect(() => { if (difficulty === "master") warmUpStockfish("full"); }, [difficulty]);
+  // Master thinks on the player's time; not once the game is over or left.
+  useEffect(() => () => stopStockfishPondering(), []);
 
   const aiColor = playerColor === "w" ? "b" : "w";
   const view = useGameView(chess, version);
   const { historySAN, verboseHistory, lastMove, balance, opening } = view;
   const status = resigned ? { over: true, result: aiColor, reason: "resignation", check: false } : view.status;
+  useEffect(() => { if (status.over) stopStockfishPondering(); }, [status.over]);
   const legalTargets = useMemo(() => {
     if (!selected) return [];
     return chess.moves({ square: selected, verbose: true }).map((m) => m.to);
@@ -740,8 +743,8 @@ function PlayerVsAI() {
     setStarted(true);
     setResigned(false);
   };
-  const resetAll = () => { cancel(); reset(); clear(); setStarted(false); setSelected(null); setResigned(false); };
-  const rematch = () => { cancel(); reset(); clear(); setSelected(null); setResigned(false); setStarted(true); };
+  const resetAll = () => { cancel(); stopStockfishPondering(); reset(); clear(); setStarted(false); setSelected(null); setResigned(false); };
+  const rematch = () => { cancel(); stopStockfishPondering(); reset(); clear(); setSelected(null); setResigned(false); setStarted(true); };
 
   if (!started) {
     return (

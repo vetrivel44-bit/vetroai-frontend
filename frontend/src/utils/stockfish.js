@@ -61,6 +61,18 @@ export function positionCommand(chess) {
   return `position fen ${moves[0].before} moves ${moves.map((m) => m.lan).join(" ")}`;
 }
 
+// The game in `position` (a positionCommand) continued by `ucis`.
+export function extendPosition(position, ucis) {
+  return `${position}${/ moves /.test(position) ? "" : " moves"} ${ucis.join(" ")}`;
+}
+
+// "bestmove e2e4 ponder e7e5" plus the last scored info line → the result.
+function bestmoveResult(line, last) {
+  const [, uci, , ponder] = line.split(/\s+/);
+  if (!uci || uci === "(none)") return null;
+  return { uci, ponder: ponder || null, score: last?.score ?? 0, depth: last?.depth ?? 0 };
+}
+
 // Wraps anything worker-shaped: postMessage(string) in, onmessage({ data })
 // out. The arena passes a real Worker; tests pass a stand-in.
 export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_MS } = {}) {
@@ -113,8 +125,70 @@ export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_M
 
   let queue = Promise.resolve();
 
+  // ── pondering ─────────────────────────────────────────────────────────────
+  // While the player thinks, the engine searches the position after the reply
+  // it expects ("go ponder"). If that reply comes, "ponderhit" turns the
+  // search into the real one and the time already spent counts: with a
+  // movetime, the answer comes at once when the player took longer than it.
+  // After any other reply the search is stopped, its answer is thrown away,
+  // and the real position is searched from scratch.
+  let pondering = null; // { position, result, deadline(ms) }
+
+  function beginPonder(position, movetime) {
+    let last = null;
+    let timer = null;
+    const result = new Promise((resolve, reject) => {
+      const listener = (line, err) => {
+        if (err) { clearTimeout(timer); reject(err); return; }
+        const info = parseInfoLine(line);
+        if (info) last = info;
+        if (!line.startsWith("bestmove")) return;
+        clearTimeout(timer);
+        listeners.delete(listener);
+        resolve(bestmoveResult(line, last));
+      };
+      listeners.add(listener);
+    });
+    result.catch(() => {});
+    worker.postMessage(position);
+    worker.postMessage(`go ponder movetime ${movetime}`);
+    return {
+      position,
+      result,
+      // Once told "ponderhit" or "stop", the answer is due within `ms`.
+      deadline(ms) { timer = setTimeout(() => fail(new Error("Stockfish did not answer after pondering")), ms); },
+    };
+  }
+
+  // Ends the ponder search, if there is one, before anything else is sent.
+  // Resolves to its result when it was pondering on `position` (the player
+  // played the expected move), otherwise to undefined.
+  async function settlePonder(position, movetime, signal) {
+    const ponder = pondering;
+    if (!ponder) return undefined;
+    pondering = null;
+    if (position && ponder.position === position && !signal?.aborted) {
+      worker.postMessage("ponderhit");
+      ponder.deadline(movetime + SEARCH_GRACE_MS);
+      const onAbort = () => worker.postMessage("stop");
+      signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        const result = await ponder.result;
+        return result && { ...result, pondered: true };
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+      }
+    }
+    worker.postMessage("stop");
+    ponder.deadline(SEARCH_GRACE_MS);
+    await ponder.result.catch(() => null);
+    return undefined;
+  }
+
   async function runSearch({ position, movetime, newGame }, signal) {
     await ready;
+    const pondered = await settlePonder(newGame ? null : position, movetime, signal);
+    if (pondered !== undefined) return pondered;
     if (signal?.aborted) return null;
     if (newGame) {
       worker.postMessage("ucinewgame");
@@ -130,9 +204,7 @@ export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_M
         if (info) last = info;
         return l.startsWith("bestmove");
       }, movetime + SEARCH_GRACE_MS);
-      const uci = line.split(/\s+/)[1];
-      if (!uci || uci === "(none)") return null;
-      return { uci, score: last?.score ?? 0, depth: last?.depth ?? 0 };
+      return bestmoveResult(line, last);
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
@@ -152,9 +224,11 @@ export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_M
       queue = job.catch(() => {});
       return job;
     },
-    // Resolves to { uci, score, depth } (score from the side to move), or
-    // null when there is no move. Rejects with an AbortError when `signal`
-    // fires and with an Error when the engine has stopped working.
+    // Resolves to { uci, ponder, score, depth } (score from the side to move;
+    // `ponder` is the reply Stockfish expects, or null), plus `pondered: true`
+    // when the answer came from pondering; null when there is no move.
+    // Rejects with an AbortError when `signal` fires and with an Error when
+    // the engine has stopped working.
     search(request, signal) {
       const job = queue.then(() => (signal?.aborted ? null : runSearch(request, signal)));
       queue = job.catch(() => {});
@@ -162,6 +236,22 @@ export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_M
         if (signal?.aborted) throw abortError();
         return result;
       });
+    },
+    // Starts thinking on `position` (the game after the engine's move and
+    // the reply it expects) until the next search or stopPondering().
+    ponder({ position, movetime }) {
+      const job = queue.then(async () => {
+        await ready;
+        await settlePonder(null, movetime);
+        pondering = beginPonder(position, movetime);
+      });
+      queue = job.catch(() => {});
+      return job;
+    },
+    stopPondering() {
+      const job = queue.then(() => settlePonder(null, 0));
+      queue = job.catch(() => {});
+      return job;
     },
   };
 }
@@ -190,6 +280,8 @@ export function masterOptions({ threaded, cores = globalThis.navigator?.hardware
       "setoption name Skill Level value 20",
       "setoption name UCI_LimitStrength value false",
       "setoption name MultiPV value 1",
+      // Master ponders (stockfishMove's `ponder`): tell the engine, as UCI asks.
+      "setoption name Ponder value true",
     ],
   };
 }
@@ -258,18 +350,21 @@ async function pickEngine(kind, signal) {
   return { kind: "lite", engine: await abortable(getEngine("lite"), signal), fallback: waited === "loading" ? "loading" : "failed" };
 }
 
-// Stockfish's move for the position in `chess` — { uci, score, depth, engine,
-// fallback } — or null when Stockfish can't run here (no WebAssembly, the
-// download failed) and the caller should use the arena engine instead.
-// Throws an AbortError when `signal` fires.
-export async function stockfishMove(chess, { movetime, signal, gameSeed, engine: wanted = "lite" }) {
+// Stockfish's move for the position in `chess` — { uci, ponder, score, depth,
+// pondered, engine, fallback } — or null when Stockfish can't run here (no
+// WebAssembly, the download failed) and the caller should use the arena engine
+// instead. Throws an AbortError when `signal` fires. With `ponder`, the engine
+// goes on thinking about the reply it expects while the player is to move.
+export async function stockfishMove(chess, { movetime, signal, gameSeed, engine: wanted = "lite", ponder = false }) {
   if (typeof Worker === "undefined") return null;
   const { kind, engine, fallback } = await pickEngine(wanted, signal);
   if (!engine) return null;
   const newGame = gameSeed !== lastGame.get(kind);
   lastGame.set(kind, gameSeed);
+  const position = positionCommand(chess);
   try {
-    const result = await engine.search({ position: positionCommand(chess), movetime, newGame }, signal);
+    const result = await engine.search({ position, movetime, newGame }, signal);
+    if (ponder && result?.ponder) engine.ponder({ position: extendPosition(position, [result.uci, result.ponder]), movetime }).catch(() => {});
     return result && { ...result, engine: kind, fallback };
   } catch (err) {
     if (err?.name === "AbortError") throw err;
@@ -277,9 +372,14 @@ export async function stockfishMove(chess, { movetime, signal, gameSeed, engine:
     // The full engine stopped working mid-game: the lite build takes over.
     if (kind === "full") {
       markFullEngineFailed(err);
-      const result = await stockfishMove(chess, { movetime, signal, gameSeed, engine: "lite" });
+      const result = await stockfishMove(chess, { movetime, signal, gameSeed, engine: "lite", ponder });
       return result && { ...result, fallback: "failed" };
     }
     return null;
   }
+}
+
+// The game is over, or left: stop thinking on the player's time.
+export function stopStockfishPondering() {
+  for (const engine of engines.values()) engine.then((e) => e && e.stopPondering()).catch(() => {});
 }

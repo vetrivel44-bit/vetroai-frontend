@@ -74,10 +74,11 @@ const DIFFICULTY = {
   // another of MASTER_MOVETIMES). Every move is Stockfish's own best one: no
   // opening book, which picks at random between main lines. The language
   // model is not consulted for the move: it could only ever make the choice
-  // worse, and the round trip was most of the wait. The other fields are the
-  // arena engine at full strength, which takes over only in a browser that
-  // can't run Stockfish.
-  master: { stockfish: "full", stockfishMs: 5000, thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true, openingBook: false },
+  // worse, and the round trip was most of the wait. Master ponders: it keeps
+  // thinking on the player's time about the reply it expects. The other
+  // fields are the arena engine at full strength, which takes over only in a
+  // browser that can't run Stockfish.
+  master: { stockfish: "full", stockfishMs: 5000, ponder: true, thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true, openingBook: false },
   // AI vs AI and Spectator: Stockfish, as on Master, and both sides get
   // exactly this, whatever model is named on the badge, so a match is decided
   // over the board and not by one side being handed a bigger budget or a
@@ -519,11 +520,13 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
 
   // ── Master: Stockfish ─────────────────────────────────────────────────────
   if (level?.stockfish) {
-    const best = await stockfishMove(chess, { movetime: movetime || level.stockfishMs, signal, gameSeed, engine: level.stockfish });
+    const best = await stockfishMove(chess, { movetime: movetime || level.stockfishMs, signal, gameSeed, engine: level.stockfish, ponder: Boolean(level.ponder) });
     const choice = best && annotateCandidate(chess, best.uci, best.score, best.score);
     if (choice && legalSans.includes(choice.san)) {
-      const engineNote = best.fallback === "loading" ? "lite engine while the full one loads"
-        : best.fallback === "failed" ? "lite engine" : "";
+      const engineNote = [
+        best.fallback === "loading" ? "lite engine while the full one loads" : best.fallback === "failed" ? "lite engine" : "",
+        best.pondered ? "saw your move coming" : "",
+      ].filter(Boolean).join(" · ");
       return {
         move: choice.san,
         commentary: describeEngineMove(choice, best.depth, best.score, engineNote),
