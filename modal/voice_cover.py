@@ -37,7 +37,7 @@ cache = modal.Volume.from_name("vetroai-voice-cover-cache", create_if_missing=Tr
 usage = modal.Dict.from_name("vetroai-voice-cover-usage", create_if_missing=True)
 
 gpu_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")  # Modal's 2026.10 builder: 3.11+
     .apt_install("git", "ffmpeg")
     .pip_install("torch==2.4.0", "torchaudio==2.4.0", index_url="https://download.pytorch.org/whl/cu121")
     .pip_install(
