@@ -9162,7 +9162,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    {/* Related questions for the latest answer */}
                    {!isLoading && messages.length > 0 && messages[messages.length - 1].role === "assistant" && (followUpsLoading || followUps.length > 0) && (
                      <section className="related-block" aria-label="Related questions">
-                       <h3 className="related-heading"><Layers size={15} /> Related</h3>
+                       <h3 className="related-heading"><Layers size={13} /> Related</h3>
                        <ul className="related-list">
                          {followUpsLoading
                            ? [0, 1, 2].map(i => (
@@ -9177,8 +9177,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                  className="related-btn"
                                  onClick={() => { setFollowUps([]); sendMessage(null, q); }}
                                >
+                                 <CornerDownRight size={15} className="related-icon" aria-hidden="true" />
                                  <span className="related-text">{q}</span>
-                                 <Plus size={16} className="related-plus" aria-hidden="true" />
                                </button>
                              </li>
                            ))}

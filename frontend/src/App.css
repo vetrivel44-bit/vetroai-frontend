@@ -12188,85 +12188,84 @@ button:active{transform:scale(0.97)}
 .artifact-footer { border-color:var(--border); }
 
 /* ── Related questions ──────────────────────────────────────────────────────
-   A vertical list with hairline separators, in the shape people know from
-   Perplexity's "Related" block. The previous horizontal pill row truncated
-   longer questions with an ellipsis, so the specific detail that makes a
-   question worth clicking was usually the part that got cut. */
+   Follow-up suggestions as soft, rounded rows: a small ↳ in the accent colour,
+   then the question, which wraps rather than truncating (the specific detail
+   is what makes it worth tapping). A quiet label instead of a heading, and no
+   hairlines or trailing "+", so it reads as suggestions, not a settings list. */
 .related-block {
-  margin: 26px 0 8px;
-  padding-top: 4px;
+  margin: 22px 0 8px;
   animation: fadeUp 0.35s ease both;
 }
 .related-heading {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin: 0 0 2px;
-  padding: 0 2px 8px;
-  font-size: 0.95rem;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0 4px;
+  font-size: 0.78rem;
   font-weight: 600;
-  color: var(--ink-2);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
 }
 .related-heading svg { color: var(--ink-4); }
-.related-list { list-style: none; margin: 0; padding: 0; }
-.related-item {
-  border-top: 1px solid var(--border);
-  animation: fadeUp 0.32s ease var(--d, 0s) both;
+.related-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
+.related-item { animation: fadeUp 0.32s ease var(--d, 0s) both; }
 .related-btn {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 10px;
   width: 100%;
-  padding: 13px 2px;
-  background: none;
-  border: none;
+  padding: 10px 14px;
+  background: var(--bg-hover);
+  border: 1px solid transparent;
+  border-radius: 14px;
   cursor: pointer;
   text-align: left;
   font-family: var(--font);
-  font-size: 0.94rem;
+  font-size: 0.875rem;
   line-height: 1.45;
   color: var(--ink-2);
-  transition: color var(--tr);
+  transition: background var(--tr), border-color var(--tr), color var(--tr), transform 0.12s ease;
 }
-.related-btn:hover { color: var(--ink); }
+.related-btn:hover { color: var(--ink); background: var(--bg-active); border-color: var(--border); }
+.related-btn:active { transform: scale(0.99); }
 .related-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 6px;
 }
-/* The question wraps rather than truncating — the detail is the point. */
-.related-text { flex: 1; min-width: 0; }
-.related-plus {
+.related-icon {
   flex-shrink: 0;
-  color: var(--ink-4);
-  transition: color var(--tr), transform var(--tr);
+  margin-top: 2px;
+  color: var(--accent);
+  opacity: 0.85;
 }
-.related-btn:hover .related-plus { color: var(--ink-2); transform: rotate(90deg); }
+.related-text { flex: 1; min-width: 0; }
 
 .related-item.is-loading { pointer-events: none; }
 .related-skeleton {
   display: block;
-  height: 15px;
-  margin: 14px 0;
-  border-radius: 4px;
+  height: 40px;
+  border-radius: 14px;
   background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-active) 50%, var(--bg-hover) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite;
 }
-.related-item.is-loading:nth-child(1) .related-skeleton { width: 78%; }
-.related-item.is-loading:nth-child(2) .related-skeleton { width: 64%; }
-.related-item.is-loading:nth-child(3) .related-skeleton { width: 71%; }
+.related-item.is-loading:nth-child(1) .related-skeleton { width: 82%; }
+.related-item.is-loading:nth-child(2) .related-skeleton { width: 68%; }
+.related-item.is-loading:nth-child(3) .related-skeleton { width: 75%; }
 
 @media (max-width: 768px) {
   /* The composer is taller on mobile, so the last question would otherwise
      sit flush against it once the feed scrolls to the bottom. */
-  .related-block { margin-top: 20px; margin-bottom: 24px; }
-  .related-btn { padding: 12px 2px; font-size: 0.9rem; }
-  .related-heading { font-size: 0.9rem; }
-  .related-item:last-child { border-bottom: 1px solid var(--border); }
+  .related-block { margin-top: 18px; margin-bottom: 24px; }
+  .related-btn { padding: 10px 12px; font-size: 0.86rem; }
 }
 
 /* The chat feed reserves a fixed 130px for the composer (set inline on
