@@ -206,6 +206,53 @@ async function mix(instrumentalBlob, vocalsBlob, format) {
   return encodeWav(channels, SAMPLE_RATE);
 }
 
+// VetroAI's own Voice Cover worker on Modal (free monthly credits; see
+// modal/voice_cover.py). It separates, converts and mixes on one GPU, fast and
+// without Hugging Face's daily limits. If it is unreachable, out of credits or
+// over its daily cap, the free Hugging Face pipeline below takes over.
+const WORKER_URL = String(import.meta.env?.VITE_VOICE_COVER_URL
+  || "https://vetrivel44-bit--vetroai-voice-cover-web.modal.run").replace(/\/+$/, "");
+
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(timer); reject(abortError()); }, { once: true });
+});
+
+async function workerMessage(res) {
+  const body = await res.json().catch(() => null);
+  return body?.message || body?.detail || `voice worker error ${res.status}`;
+}
+
+async function coverOnWorker({ clip, reference, format, signal, onStage, onDetail }) {
+  const form = new FormData();
+  form.append("song", clip, clip.name || "song.wav");
+  form.append("voice", reference, reference.name || "voice.wav");
+  form.append("format", format === "wav" ? "wav" : "mp3");
+  onStage?.("Uploading");
+  onDetail?.("Uploading to VetroAI's voice worker…");
+  const start = await fetch(`${WORKER_URL}/cover`, { method: "POST", body: form, signal });
+  if (!start.ok) throw new Error(await workerMessage(start));
+  const { job } = await start.json();
+  if (!job) throw new Error("the voice worker did not start the job");
+  const began = Date.now();
+  for (;;) {
+    await sleep(3000, signal);
+    const res = await fetch(`${WORKER_URL}/cover/${encodeURIComponent(job)}`, { signal });
+    if (res.status === 202) {
+      const secs = Math.round((Date.now() - began) / 1000);
+      onStage?.(secs < 40 ? "Separating Vocals" : secs < 55 ? "Learning My Voice" : "Converting Singer");
+      onDetail?.(`Working on VetroAI's GPU… ${secs}s. The first cover after a break takes about a minute longer while the GPU starts.`);
+      if (secs > 900) throw new Error("the voice worker took too long");
+      continue;
+    }
+    if (!res.ok) throw new Error(await workerMessage(res));
+    onStage?.("Mixing");
+    const blob = await res.blob();
+    if (!blob.size) throw new Error("the voice worker returned an empty file");
+    return blob;
+  }
+}
+
 /**
  * Make a cover of `song` sung in the voice from `referenceVoice`.
  * @param {{ song: File, referenceVoice: File, format?: "mp3"|"wav", signal?: AbortSignal,
@@ -224,6 +271,19 @@ export async function createVoiceCover({ song, referenceVoice, format = "mp3", s
   onDetail?.(maxSeconds ? `Preparing the first ${maxSeconds} seconds of the song…` : "Preparing the song…");
   const { clip, duration } = await trimmedSong(song, maxSeconds);
   if (signal?.aborted) throw abortError();
+
+  if (WORKER_URL) {
+    try {
+      const blob = await coverOnWorker({ clip, reference: await referenceWav(referenceVoice), format, signal, onStage, onDetail });
+      onDetail?.("");
+      return blob;
+    } catch (err) {
+      if (err?.name === "AbortError" || signal?.aborted) throw err;
+      console.warn("Voice worker unavailable, using the free Hugging Face models", err);
+      onDetail?.(`VetroAI's voice worker isn't available (${err?.message || "no answer"}), so the free Hugging Face models are used instead…`);
+    }
+  }
+
   onStage?.("Separating Vocals");
   const eta = separationEstimate(duration);
   onDetail?.(`Separating the singer from the music on a free CPU model (${eta})…`);

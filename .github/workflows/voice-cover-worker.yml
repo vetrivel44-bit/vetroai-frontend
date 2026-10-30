@@ -1,0 +1,53 @@
+name: Voice Cover worker (Modal)
+
+# Deploys modal/voice_cover.py to Modal (free monthly credits) and caches its
+# models. Needs the repository secrets MODAL_TOKEN_ID and MODAL_TOKEN_SECRET
+# (Modal → Settings → API tokens); without them the job is skipped, not failed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "modal/**"
+      - ".github/workflows/voice-cover-worker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: modal-voice-cover
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Modal
+    runs-on: ubuntu-latest
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - name: Check for Modal secrets
+        id: check
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ -z "$MODAL_TOKEN_SECRET" ]; then
+            echo "MODAL_TOKEN_ID / MODAL_TOKEN_SECRET are not set; skipping the deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip != 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.skip != 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install the Modal client
+        if: steps.check.outputs.skip != 'true'
+        run: pip install --quiet modal
+
+      - name: Deploy the worker
+        if: steps.check.outputs.skip != 'true'
+        run: modal deploy modal/voice_cover.py
+
+      - name: Download the models into Modal's cache
+        if: steps.check.outputs.skip != 'true'
+        run: modal run modal/voice_cover.py::prefetch
