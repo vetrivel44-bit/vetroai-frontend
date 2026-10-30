@@ -19,6 +19,14 @@ Web Worker (`src/utils/stockfish.js`).
   downloads them, keeps them in the Cache API and joins them in the browser.
 - `Copying.txt`: the license, GNU GPL v3.
 
+Headers (`public/_headers`): Chess Arena's own page, `/chess`, is served with
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy:
+credentialless`, which makes it cross-origin isolated so the multi-threaded
+build gets SharedArrayBuffer. Only that page: the rest of the app signs in
+through popups, which an isolated page never hears back from. Workers started
+by an isolated page need COEP on their own script, so everything in
+`/stockfish/` and `/assets/` (the arena's engine worker) sends it too.
+
 Source code: https://github.com/nmrugg/stockfish.js (engine wrapper) and
 https://github.com/official-stockfish/Stockfish (the engine).
 

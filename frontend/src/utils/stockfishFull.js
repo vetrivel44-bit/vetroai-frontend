@@ -98,6 +98,14 @@ async function downloadPart(url, onBytes) {
   return new Blob(chunks);
 }
 
+// The engine downloaded but didn't start: the cached parts may be what is
+// wrong, so the next load fetches them again.
+export function forgetCachedEngine() {
+  try {
+    if (typeof caches !== "undefined") caches.delete(CACHE_NAME).catch(() => {});
+  } catch { /* no Cache API */ }
+}
+
 // Drops cached parts of builds the manifest no longer lists (an engine update).
 async function pruneCache(cache, manifest) {
   if (!cache) return;

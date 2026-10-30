@@ -14,7 +14,7 @@
 // the reply to the next search.
 
 import { MATE_SCORE } from "./chessEngine.js";
-import { loadFullEngine, markFullEngineFailed, markFullEngineReady } from "./stockfishFull.js";
+import { forgetCachedEngine, loadFullEngine, markFullEngineFailed, markFullEngineReady } from "./stockfishFull.js";
 
 export const STOCKFISH_URL = `${import.meta.env?.BASE_URL ?? "/"}stockfish/stockfish-19-lite-single.js`;
 
@@ -298,7 +298,14 @@ function startEngine(kind) {
     return loadFullEngine()
       .then(async ({ worker, build, release }) => {
         const engine = createStockfishClient(worker, { readyTimeoutMs: FULL_READY_TIMEOUT_MS });
-        try { await engine.ready; } finally { release(); }
+        try {
+          await engine.ready;
+        } catch (err) {
+          forgetCachedEngine();
+          throw err;
+        } finally {
+          release();
+        }
         const options = masterOptions({ threaded: build.threads });
         await engine.configure(options.commands);
         markFullEngineReady({ threadCount: options.threads, hashMb: options.hash });
@@ -359,6 +366,9 @@ export async function stockfishMove(chess, { movetime, signal, gameSeed, engine:
   if (typeof Worker === "undefined") return null;
   const { kind, engine, fallback } = await pickEngine(wanted, signal);
   if (!engine) return null;
+  // One engine thinks at a time: the lite build may still be pondering from a
+  // move it played while the full one was loading.
+  for (const [other, pending] of engines) if (other !== kind) pending.then((e) => e && e.stopPondering()).catch(() => {});
   const newGame = gameSeed !== lastGame.get(kind);
   lastGame.set(kind, gameSeed);
   const position = positionCommand(chess);
