@@ -1,16 +1,27 @@
 # Stockfish for Chess Arena
 
-Chess Arena's Master level runs these files in a Web Worker
-(`src/utils/stockfish.js`).
+Chess Arena runs Stockfish 19 from stockfish.js 19.0.1 (npm `stockfish`) in a
+Web Worker (`src/utils/stockfish.js`).
 
 - `stockfish-19-lite-single.js` and `stockfish-19-lite-single.wasm`: the lite,
-  single-threaded build from stockfish.js 19.0.1 (npm `stockfish`), copied
-  unchanged from the package's `bin/` folder. The `.js` file loads the `.wasm`
-  file of the same name from next to it, so the two must stay together.
+  single-threaded build, copied unchanged from the package's `bin/` folder. AI
+  vs AI and Spectator play it, and Master falls back to it. The `.js` file
+  loads the `.wasm` file of the same name from next to it, so the two must
+  stay together.
+- `full/` (generated, not in git): Master's engine, the full build with
+  Stockfish's big network. `scripts/stockfishFull.mjs` copies its loader here
+  and cuts its 94.5 MiB `.wasm` into parts under 25 MiB (Cloudflare's per-file
+  limit) before every `npm run dev` and `npm run build`, from the `stockfish`
+  package pinned in `package.json`. `full/manifest.json` lists the parts;
+  `src/utils/stockfishFull.js` downloads them, keeps them in the Cache API and
+  joins them in the browser.
 - `Copying.txt`: the license, GNU GPL v3.
 
 Source code: https://github.com/nmrugg/stockfish.js (engine wrapper) and
 https://github.com/official-stockfish/Stockfish (the engine).
 
-To update, copy the same two files from a newer `stockfish` package and
-change the file name in `STOCKFISH_URL` if the version number in it changed.
+To update the lite build, copy the same two files from a newer `stockfish`
+package and change the file name in `STOCKFISH_URL` if the version number in
+it changed. To update the full build, change the `stockfish` version in
+`package.json` (and the build names in `scripts/stockfishFull.mjs` if the
+version number in them changed).

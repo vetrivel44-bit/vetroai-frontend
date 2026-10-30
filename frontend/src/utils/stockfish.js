@@ -1,11 +1,12 @@
-// Chess Arena — Stockfish for the Master level.
+// Chess Arena — Stockfish for the Master level, and for AI vs AI.
 //
 // The arena's own engine (chessEngine.js) plays like a strong club player,
 // which is not what "Master" promises: a determined player, or a language
-// model coached move by move, could still beat it. Master runs Stockfish 19
-// instead — the lite, single-threaded WebAssembly build from stockfish.js
-// (public/stockfish/, GPLv3, see Copying.txt there). It needs no special
-// headers, is under 2 MB, and is still far stronger than any human.
+// model coached move by move, could still beat it. Master runs the full
+// Stockfish 19 build (stockfishFull.js), and falls back to the lite,
+// single-threaded build from stockfish.js (public/stockfish/, GPLv3, see
+// Copying.txt there) if the full one can't load. AI vs AI and Spectator play
+// the lite build: it is under 2 MB and still far stronger than any human.
 //
 // The engine runs in its own Web Worker and speaks UCI, one line per message.
 // Searches are queued: a cancelled search still answers with a "bestmove"
@@ -13,10 +14,17 @@
 // the reply to the next search.
 
 import { MATE_SCORE } from "./chessEngine.js";
+import { loadFullEngine, markFullEngineFailed, markFullEngineReady } from "./stockfishFull.js";
 
 export const STOCKFISH_URL = `${import.meta.env?.BASE_URL ?? "/"}stockfish/stockfish-19-lite-single.js`;
 
 const READY_TIMEOUT_MS = 20000; // a cold download on a slow phone connection
+// The full build is already downloaded when its worker starts, but compiling
+// 94 MiB of WebAssembly takes a while on a phone.
+const FULL_READY_TIMEOUT_MS = 120000;
+// How long Master's move waits for a full engine that is still downloading
+// before playing this one move with the lite build.
+const FULL_WAIT_MS = 15000;
 const SEARCH_GRACE_MS = 15000; // past movetime before the worker is given up on
 
 function abortError() {
@@ -55,7 +63,7 @@ export function positionCommand(chess) {
 
 // Wraps anything worker-shaped: postMessage(string) in, onmessage({ data })
 // out. The arena passes a real Worker; tests pass a stand-in.
-export function createStockfishClient(worker) {
+export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_MS } = {}) {
   const listeners = new Set();
   let broken = null;
 
@@ -99,8 +107,8 @@ export function createStockfishClient(worker) {
     });
   }
 
-  const ready = exchange("uci", (line) => line === "uciok", READY_TIMEOUT_MS)
-    .then(() => exchange("isready", (line) => line === "readyok", READY_TIMEOUT_MS));
+  const ready = exchange("uci", (line) => line === "uciok", readyTimeoutMs)
+    .then(() => exchange("isready", (line) => line === "readyok", readyTimeoutMs));
   ready.catch(() => {});
 
   let queue = Promise.resolve();
@@ -147,40 +155,90 @@ export function createStockfishClient(worker) {
   };
 }
 
-// ─── the arena's one engine ──────────────────────────────────────────────────
-let client = null; // null = not started, false = unavailable in this browser
-let lastGame = null;
+// ─── the arena's engines ────────────────────────────────────────────────────
+// "lite": lite-single, for AI vs AI and Spectator, and Master's fallback.
+// "full": the full build (stockfishFull.js), for Master.
+const engines = new Map(); // kind → Promise<client | false>; false = can't run here
+const lastGame = new Map(); // kind → gameSeed of its last search
 
-function getClient() {
-  if (client !== null) return client;
-  try {
-    client = createStockfishClient(new Worker(STOCKFISH_URL));
-    client.ready.catch(() => { client = false; });
-  } catch {
-    client = false;
+function startEngine(kind) {
+  if (typeof Worker === "undefined") return Promise.resolve(false);
+  if (kind === "full") {
+    return loadFullEngine()
+      .then(async ({ worker, release }) => {
+        const engine = createStockfishClient(worker, { readyTimeoutMs: FULL_READY_TIMEOUT_MS });
+        try { await engine.ready; } finally { release(); }
+        markFullEngineReady();
+        return engine;
+      })
+      .catch((err) => {
+        markFullEngineFailed(err);
+        return false;
+      });
   }
-  return client;
+  try {
+    const engine = createStockfishClient(new Worker(STOCKFISH_URL));
+    return engine.ready.then(() => engine, () => false);
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
+function getEngine(kind) {
+  if (!engines.has(kind)) engines.set(kind, startEngine(kind));
+  return engines.get(kind);
 }
 
 // Starts the download early, so the first move off the opening book doesn't
-// wait for it.
-export function warmUpStockfish() {
-  if (typeof Worker !== "undefined") getClient();
+// wait for it. Master warms up "full" as soon as it is picked.
+export function warmUpStockfish(kind = "lite") {
+  if (typeof Worker !== "undefined") getEngine(kind);
 }
 
-// Stockfish's move for the position in `chess`, or null when Stockfish can't
-// run here (no WebAssembly, the download failed) and the caller should use
-// the arena engine instead. Throws an AbortError when `signal` fires.
-export async function stockfishMove(chess, { movetime, signal, gameSeed }) {
-  const engine = typeof Worker !== "undefined" ? getClient() : false;
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+// The engine to search with: "full" if it is ready (waiting up to
+// FULL_WAIT_MS for one still loading), otherwise "lite". `fallback` says why
+// a Master move is played by the lite build.
+async function pickEngine(kind, signal) {
+  if (kind !== "full") return { kind, engine: await abortable(getEngine(kind), signal), fallback: null };
+  let timer;
+  const stillLoading = new Promise((resolve) => { timer = setTimeout(() => resolve("loading"), FULL_WAIT_MS); });
+  const waited = await abortable(Promise.race([getEngine("full"), stillLoading]), signal).finally(() => clearTimeout(timer));
+  if (waited && waited !== "loading") return { kind: "full", engine: waited, fallback: null };
+  return { kind: "lite", engine: await abortable(getEngine("lite"), signal), fallback: waited === "loading" ? "loading" : "failed" };
+}
+
+// Stockfish's move for the position in `chess` — { uci, score, depth, engine,
+// fallback } — or null when Stockfish can't run here (no WebAssembly, the
+// download failed) and the caller should use the arena engine instead.
+// Throws an AbortError when `signal` fires.
+export async function stockfishMove(chess, { movetime, signal, gameSeed, engine: wanted = "lite" }) {
+  if (typeof Worker === "undefined") return null;
+  const { kind, engine, fallback } = await pickEngine(wanted, signal);
   if (!engine) return null;
-  const newGame = gameSeed !== lastGame;
-  lastGame = gameSeed;
+  const newGame = gameSeed !== lastGame.get(kind);
+  lastGame.set(kind, gameSeed);
   try {
-    return await engine.search({ position: positionCommand(chess), movetime, newGame }, signal);
+    const result = await engine.search({ position: positionCommand(chess), movetime, newGame }, signal);
+    return result && { ...result, engine: kind, fallback };
   } catch (err) {
     if (err?.name === "AbortError") throw err;
-    client = false;
+    engines.set(kind, Promise.resolve(false));
+    // The full engine stopped working mid-game: the lite build takes over.
+    if (kind === "full") {
+      markFullEngineFailed(err);
+      const result = await stockfishMove(chess, { movetime, signal, gameSeed, engine: "lite" });
+      return result && { ...result, fallback: "failed" };
+    }
     return null;
   }
 }

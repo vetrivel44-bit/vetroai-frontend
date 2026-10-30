@@ -5,6 +5,8 @@ import {
   ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap, ChessKnight,
 } from "lucide-react";
 import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, getModel, requestAIMove } from "../../utils/chessAI";
+import { warmUpStockfish } from "../../utils/stockfish";
+import { getFullEngineStatus, subscribeFullEngine } from "../../utils/stockfishFull";
 import { openingName } from "../../utils/chessPersonas";
 import { repertoireName } from "../../utils/chessOpenings";
 import Board2D from "./chess2d/Board2D";
@@ -313,6 +315,47 @@ function CommentaryCard({ commentary }) {
       </div>
     </div>
   );
+}
+
+// Master's full engine: download progress the first time, a note if it
+// couldn't load. `showReady` also confirms a finished load (on the setup).
+function useFullEngineStatus() {
+  const [status, setStatus] = useState(getFullEngineStatus);
+  useEffect(() => subscribeFullEngine(setStatus), []);
+  return status;
+}
+
+const mib = (bytes) => Math.round(bytes / 1048576);
+
+function EngineStatus({ status, showReady = false }) {
+  if (status.state === "downloading" && status.network) {
+    const pct = status.total ? Math.min(100, Math.floor((100 * status.loaded) / status.total)) : 0;
+    return (
+      <div className="ca-engine" role="status">
+        <div className="ca-engine-text">
+          <Loader2 size={13} className="ca-spin" />
+          <span>Downloading Master's full engine · {pct}%</span>
+          <span className="ca-engine-size">{mib(status.loaded)} of {mib(status.total)} MB</span>
+        </div>
+        <div className="ca-engine-bar"><i style={{ width: `${pct}%` }} /></div>
+        <small>Only the first time — it's kept on this device after that.</small>
+      </div>
+    );
+  }
+  if (status.state === "downloading" || status.state === "starting") {
+    return <div className="ca-engine" role="status"><div className="ca-engine-text"><Loader2 size={13} className="ca-spin" /><span>Starting Master's full engine…</span></div></div>;
+  }
+  if (status.state === "failed") {
+    return (
+      <div className="ca-engine ca-engine-failed" role="status" title={status.error || undefined}>
+        Couldn't load Master's full engine, so Master is playing with Stockfish Lite. Reload to try again.
+      </div>
+    );
+  }
+  if (status.state === "ready" && showReady) {
+    return <div className="ca-engine ca-engine-ready" role="status"><Zap size={13} /> Master's full engine is ready.</div>;
+  }
+  return null;
 }
 
 function MoveList({ history }) {
@@ -632,6 +675,9 @@ function PlayerVsAI() {
   const [started, setStarted] = useState(false);
   const [selected, setSelected] = useState(null);
   const [resigned, setResigned] = useState(false);
+  const engineStatus = useFullEngineStatus();
+  // Master's engine is large: start fetching it as soon as Master is picked.
+  useEffect(() => { if (difficulty === "master") warmUpStockfish("full"); }, [difficulty]);
 
   const aiColor = playerColor === "w" ? "b" : "w";
   const view = useGameView(chess, version);
@@ -722,6 +768,7 @@ function PlayerVsAI() {
                 </button>
               ))}
             </div>
+            {difficulty === "master" && <EngineStatus status={engineStatus} showReady />}
           </div>
         </div>
         <div className="ca-setup-actions">
@@ -755,6 +802,7 @@ function PlayerVsAI() {
       }
       panelTop={<>
         <StatusLine status={status} turnName={turnName} thinking={thinking} opening={opening} />
+        {difficulty === "master" && <EngineStatus status={engineStatus} />}
         <ResultBanner status={status} whiteId={playerColor === "w" ? "you" : aiModel} blackId={playerColor === "b" ? "you" : aiModel} playerColor={playerColor} onRematch={rematch} />
         <CommentaryCard commentary={commentary} />
       </>}
