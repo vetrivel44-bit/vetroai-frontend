@@ -17,9 +17,8 @@ const VOICES = [
   { id: "en-IN-PrabhatNeural", name: "Prabhat", note: "Calm and clear", accent: "India" },
   { id: "en-AU-NatashaNeural", name: "Natasha", note: "Bright and easy", accent: "Australia" },
   { id: "en-AU-WilliamNeural", name: "William", note: "Easygoing", accent: "Australia" },
-  { id: "google-en-US", name: "Google", note: "Google voice", accent: "US" },
-  { id: "google-en-GB", name: "Google", note: "Google voice", accent: "UK" },
-  { id: "google-en-IN", name: "Google", note: "Google voice", accent: "India" },
+  // Google's free voice is the same whatever the accent, so it is one option.
+  { id: "google-en-US", name: "Google", note: "Google's free voice", accent: "US" },
 ];
 
 /**
