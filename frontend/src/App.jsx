@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
+import { createStreamingSpeaker, stopActiveSpeaker } from "./lib/voiceStream.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { setActiveAccountKey, looksLikeJwt } from "./lib/storageGuard.js";
 import { createPortal } from "react-dom";
@@ -5605,6 +5606,7 @@ export default function App() {
 
   // ── Voice helpers ─────────────────────────────────────────────────────────────────────────────
   const stopSpeak = () => {
+    stopActiveSpeaker();
     window.speechSynthesis?.cancel();
     if (window.currentAudio) {
       window.currentAudio.pause();
@@ -5654,6 +5656,8 @@ export default function App() {
   const closeVoice = useCallback(() => {
     setIsVoiceOpen(false);
     voiceRef.current = false;
+    // Normal chat must not keep reading replies aloud after voice mode.
+    setAutoSpeak(false);
     // Stop unconditionally: isListening can lag behind a recognizer that is
     // still holding the microphone, and leaving it hot is a privacy bug.
     stopMic();
@@ -5842,6 +5846,10 @@ export default function App() {
 
     sr.onstart = () => { micRunningRef.current = true; setIsListening(true); };
 
+    // Chrome keeps a continuous session open through several seconds of
+    // silence, and the turn was only sent when that session ended, so every
+    // voice reply started late. End the turn ourselves after a short pause.
+    let endOfTurnTimer = null;
     sr.onresult = e => {
       // Drop anything heard while the assistant is talking. Discarding it (rather
       // than just skipping the render) keeps the assistant's own voice out of the
@@ -5851,6 +5859,15 @@ export default function App() {
       for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
       transcriptRef.current = txt;
       setInput(txt);
+      clearTimeout(endOfTurnTimer);
+      if (voiceRef.current && txt.trim()) {
+        const lastIsFinal = Boolean(e.results[e.results.length - 1]?.isFinal);
+        endOfTurnTimer = setTimeout(() => {
+          if (voiceRef.current && micRunningRef.current && !loadRef.current) {
+            try { sr.stop(); } catch (err) { swallowError(err); } // onend submits the turn
+          }
+        }, lastIsFinal ? 800 : 1500);
+      }
     };
 
     sr.onend = () => {
@@ -5898,6 +5915,7 @@ export default function App() {
     return () => {
       micWantedRef.current = false;
       micRunningRef.current = false;
+      clearTimeout(endOfTurnTimer);
       sr.onresult = sr.onend = sr.onerror = sr.onstart = null;
       try { sr.abort(); } catch (err) { swallowError(err); }
       recogRef.current = null;
@@ -5931,7 +5949,8 @@ export default function App() {
     // Priming speech synthesis inside the click keeps the browser-TTS fallback
     // usable later, when no user gesture is in scope.
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(""));
-    setAutoSpeak(true);
+    // Wake the free-tier backend now so the first reply isn't a cold start.
+    fetch(API + "/health", { cache: "no-store" }).catch(() => {});
     setMuted(false);
     setIsVoiceOpen(true);
     voiceRef.current = true;
@@ -6303,6 +6322,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const answerLocationAsk = useCallback((choice) => { locationAskRef.current?.(choice); }, []);
 
   const triggerAI = async (hist, filesData = null, ytContext = null) => {
+    let replySpeaker = null;
     const reqId = Date.now().toString();
     abortRef.current?.abort();
     const ctrl      = new AbortController(); abortRef.current = ctrl;
@@ -6385,6 +6405,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
     let finalSystemPrompt = systemPromptRef.current || "";
     finalSystemPrompt = `${finalSystemPrompt}\n\n[REASONING EFFORT: ${selectedEffort.toUpperCase()}]\n${EFFORT_INSTRUCTIONS[selectedEffort] || EFFORT_INSTRUCTIONS.balanced}`.trim();
+    // Voice mode: short, plain replies start speaking sooner and sound natural.
+    if (voiceRef.current) {
+      finalSystemPrompt += "\n\n[VOICE MODE] The user is talking to you out loud and hears your reply spoken. Answer conversationally in one to three short sentences, with no lists, tables, code, links or markdown, unless they ask for more detail.";
+    }
     if (currentSpaceId) {
       const space = spaces.find(s => s.id === currentSpaceId);
       if (space) {
@@ -7180,10 +7204,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       let streamErrorCode = "";
       let streamUsageLimit = null;
       let bot = "";
+      // Voice mode: speak the reply sentence by sentence while it streams,
+      // instead of waiting for all of it.
+      if (voiceRef.current || autoSpeakRef.current) {
+        replySpeaker = createStreamingSpeaker({
+          apiBase: API,
+          voice: ttsVoiceRef.current,
+          onStart: () => { stopMic({ keepWanted: true }); setIsSpeaking(true); },
+          onDone: () => { setIsSpeaking(false); if (voiceRef.current) startMic(); },
+          onStop: () => setIsSpeaking(false),
+        });
+      }
       // An empty reply or a dropped connection is usually momentary (a provider
       // closing early, the server waking up), so one quiet retry of the same
       // request is cheaper for the user than an error they have to retry by hand.
       for (let backendAttempt = 0; backendAttempt < 2; backendAttempt++) {
+        if (backendAttempt > 0) replySpeaker?.restart();
         backendFailure = null;
         streamError = "";
         streamErrorCode = "";
@@ -7211,6 +7247,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             reader,
             (acc) => {
               if (!isActive()) return;
+              replySpeaker?.push(acc);
               setMessages(prev => {
                 const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: acc }; return u;
               });
@@ -7287,6 +7324,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         setStreamStatus("Retrying…");
         await new Promise((resolve) => setTimeout(resolve, 800));
         if (!isActive()) return;
+      }
+
+      // Speak what is left now; the sports/medical lookups below can take a while.
+      if (replySpeaker) {
+        if (backendFailure) replySpeaker.stop(); else replySpeaker.finish(bot);
       }
 
       // A used-up usage limit: say when it resets, and don't hand the message
@@ -7394,7 +7436,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         });
       }
 
-      if (voiceRef.current || autoSpeakRef.current) speak(bot);
+      if (!replySpeaker && (voiceRef.current || autoSpeakRef.current)) speak(bot);
       if (isFirstMsg) updateSessionTitle(typedQuery, bot);
       notifyResponseReady(bot);
       generateFollowUps(bot, userQuery);
@@ -7439,6 +7481,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         return u;
       });
     } finally {
+      // Aborted or failed mid-reply: stop speaking and let the mic come back.
+      if (replySpeaker && !replySpeaker.finished) replySpeaker.stop();
       clearFiles();
       // Aborted, failed or completed — the thinking panel must settle either way,
       // and a research log still running was stopped.
