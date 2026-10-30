@@ -26,3 +26,7 @@ dist-ssr
 # Local env files (Firebase config etc.)
 .env
 .env.local
+
+# Master's full Stockfish build, cut into parts by scripts/stockfishFull.mjs
+# before every dev/build run (about 190 MB; never committed).
+public/stockfish/full/

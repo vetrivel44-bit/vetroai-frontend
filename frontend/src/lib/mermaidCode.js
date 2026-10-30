@@ -62,3 +62,36 @@ export function drawablePrefix(code) {
   }
   return [lines[head], ...body, ...Array(open).fill("  end")].join("\n");
 }
+
+// Models often write flowchart arrows Mermaid doesn't accept, borrowing
+// sequence-diagram or ASCII arrows: `A --"Notify">> B`, `A -->>|x| B`,
+// `A -> B`, `A --|x|> B`. Mermaid rejects the whole diagram over one such
+// edge, and the reply shows code instead of a picture. This rewrites them as
+// `A -->|"label"| B`. Quoted text and |labels| are left exactly as written;
+// only flowcharts are touched, and MermaidDiagram only uses the result when
+// the original fails to parse.
+export function repairMermaid(code) {
+  const text = String(code || "");
+  if (!/^\s*(flowchart|graph)\b/m.test(text)) return text;
+  return text.split("\n").map(repairFlowchartLine).join("\n");
+}
+
+const EDGE_LABEL = (label) => `-->|"${label.trim().replace(/"/g, "'")}"|`;
+
+function repairFlowchartLine(line) {
+  if (/^\s*(%%|flowchart\b|graph\b|subgraph\b|end\s*$|direction\b|classDef\b|class\b|style\b|linkStyle\b|click\b)/.test(line)) return line;
+  let out = line;
+  // A --"label">> B · A -- "label" ->> B · A --"label"> B · A --"label"--> B
+  out = out.replace(/-{1,3}\s*"([^"\n]*)"\s*-*>{1,2}/g, (m, label) => EDGE_LABEL(label));
+  // A --|label|> B · A --|label|>> B
+  out = out.replace(/-{1,3}\s*\|([^|\n]*)\|\s*-*>{1,2}/g, (m, label) => EDGE_LABEL(label));
+  // Work outside quotes and |labels| from here on, so their text is untouched.
+  const kept = [];
+  out = out.replace(/"[^"\n]*"|\|[^|\n]*\|/g, (m) => { kept.push(m); return `\u0000${kept.length - 1}\u0000`; });
+  out = out
+    .replace(/-{2,}>>/g, "-->") // A -->> B (sequence-diagram arrow)
+    .replace(/(^|[^-.=<])->>?(?=[\s\u0000]|$)/g, "$1-->") // A -> B · A ->> B
+    .replace(/(^|[^-=<])=>(?=\s)/g, "$1==>") // A => B
+    .replace(/(\S)\s*→\s*(\S)/g, "$1 --> $2"); // A → B
+  return out.replace(/\u0000(\d+)\u0000/g, (m, i) => kept[Number(i)]);
+}

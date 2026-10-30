@@ -26,7 +26,7 @@ Mermaid rules (parsed by Mermaid 11 — invalid syntax shows as raw code):
 - Pick the matching type: \`flowchart TD\`/\`flowchart LR\`, \`sequenceDiagram\`, \`classDiagram\`, \`stateDiagram-v2\`, \`erDiagram\`, \`gantt\`, \`mindmap\`, \`pie\`.
 - Node IDs are single words (letters, digits, underscores). Put every label in double quotes: \`A["Book appointment"]\`, \`B(["Rounded use case"])\`, \`C{"Paid?"}\`.
 - Never put raw quotes, parentheses, brackets or semicolons inside a label without the surrounding double quotes. Write guillemets as «include» and «extend».
-- Dashed labeled edge: \`A -. "«include»" .-> B\`. Solid labeled edge: \`A -- "text" --> B\`.
+- Dashed labeled edge: \`A -. "«include»" .-> B\`. Solid labeled edge: \`A -- "text" --> B\`. Flowchart arrows are only \`-->\`, \`---\`, \`-.->\`, \`==>\` and \`<-->\`; never \`->\`, \`->>\`, \`-->>\` or \`"label">>\` in a flowchart (those are sequenceDiagram arrows).
 - UML use case diagrams: represent actors as nodes, use cases as rounded boxes inside a subgraph representing the system boundary, and represent «include»/«extend» relationships using labeled dashed edges drawn from the base use case: \`Book -. "«include»" .-> CheckAvailability\`, \`Cancel -. "«extend»" .-> ProcessRefund\`. Use cases are stadium nodes \`(["…"])\`, actors are circle nodes \`(("👤 …"))\` — the chat colours them by role automatically, so don't add classDef/style lines.
 - erDiagram: entity names in UPPER_SNAKE_CASE, attributes as \`type name PK|FK\`, relationships like \`USER ||--o{ POST : writes\`.
 - One statement per line. No HTML, no click handlers, no %%{init}%% directives, and no style, classDef, class, linkStyle or :::class colouring — the chat colours every diagram itself to suit light and dark mode.

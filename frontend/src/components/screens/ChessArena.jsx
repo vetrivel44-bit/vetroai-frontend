@@ -4,7 +4,9 @@ import {
   X, Play, Pause, SkipForward, RotateCcw, Swords, Eye, User, Trophy, Crown,
   ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap, ChessKnight,
 } from "lucide-react";
-import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, getModel, requestAIMove } from "../../utils/chessAI";
+import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, MASTER_MOVETIME_MS, MASTER_MOVETIMES, getModel, requestAIMove } from "../../utils/chessAI";
+import { warmUpStockfish, stopStockfishPondering } from "../../utils/stockfish";
+import { getFullEngineStatus, subscribeFullEngine } from "../../utils/stockfishFull";
 import { openingName } from "../../utils/chessPersonas";
 import { repertoireName } from "../../utils/chessOpenings";
 import Board2D from "./chess2d/Board2D";
@@ -15,6 +17,7 @@ const Board3D = lazy(() => import("./chess3d/Board3D"));
 
 const VIEW_KEY = "vetroai_chess_view";
 const DIFFICULTY_KEY = "vetroai_chess_difficulty";
+const MASTER_TIME_KEY = "vetroai_chess_master_ms";
 const readPref = (key, fallback, allowed) => {
   try { const v = localStorage.getItem(key); return allowed.includes(v) ? v : fallback; } catch { return fallback; }
 };
@@ -161,7 +164,7 @@ function useAIMoveEngine() {
     return () => { mountedRef.current = false; abortRef.current?.abort(); };
   }, []);
 
-  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 600, gameSeed = "default", difficulty = null) => {
+  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 600, gameSeed = "default", difficulty = null, movetime = null) => {
     if (chess.isGameOver()) return false;
     const moverColor = chess.turn();
     const ctrl = new AbortController();
@@ -169,7 +172,7 @@ function useAIMoveEngine() {
     if (mountedRef.current) setThinking(true);
     try {
       const [res] = await Promise.all([
-        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed, difficulty }),
+        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed, difficulty, movetime }),
         sleep(minDelayMs),
       ]);
       if (ctrl.signal.aborted || !mountedRef.current) return false;
@@ -315,6 +318,48 @@ function CommentaryCard({ commentary }) {
   );
 }
 
+// Master's full engine: download progress the first time, a note if it
+// couldn't load. `showReady` also confirms a finished load (on the setup).
+function useFullEngineStatus() {
+  const [status, setStatus] = useState(getFullEngineStatus);
+  useEffect(() => subscribeFullEngine(setStatus), []);
+  return status;
+}
+
+const mib = (bytes) => Math.round(bytes / 1048576);
+
+function EngineStatus({ status, showReady = false }) {
+  if (status.state === "downloading" && status.network) {
+    const pct = status.total ? Math.min(100, Math.floor((100 * status.loaded) / status.total)) : 0;
+    return (
+      <div className="ca-engine" role="status">
+        <div className="ca-engine-text">
+          <Loader2 size={13} className="ca-spin" />
+          <span>Downloading Master's full engine · {pct}%</span>
+          <span className="ca-engine-size">{mib(status.loaded)} of {mib(status.total)} MB</span>
+        </div>
+        <div className="ca-engine-bar"><i style={{ width: `${pct}%` }} /></div>
+        <small>Only the first time — it's kept on this device after that.</small>
+      </div>
+    );
+  }
+  if (status.state === "downloading" || status.state === "starting") {
+    return <div className="ca-engine" role="status"><div className="ca-engine-text"><Loader2 size={13} className="ca-spin" /><span>Starting Master's full engine…</span></div></div>;
+  }
+  if (status.state === "failed") {
+    return (
+      <div className="ca-engine ca-engine-failed" role="status" title={status.error || undefined}>
+        Couldn't load Master's full engine, so Master is playing with Stockfish Lite. Reload to try again.
+      </div>
+    );
+  }
+  if (status.state === "ready" && showReady) {
+    const threads = status.threadCount > 1 ? ` · ${status.threadCount} threads` : "";
+    return <div className="ca-engine ca-engine-ready" role="status"><Zap size={13} /> Master's full engine is ready{threads}{status.hashMb ? ` · ${status.hashMb} MB hash` : ""}.</div>;
+  }
+  return null;
+}
+
 function MoveList({ history }) {
   const gridRef = useRef(null);
   // Keep the latest move in view by scrolling the list itself —
@@ -366,9 +411,23 @@ function ResultBanner({ status, whiteId, blackId, playerColor, onRematch }) {
   );
 }
 
+// Stockfish is GPL-3.0: say so wherever it plays, with the license and where
+// its source code is.
+function EngineCredit() {
+  const ext = { target: "_blank", rel: "noopener noreferrer" };
+  return (
+    <p className="ca-credit">
+      Engine: Stockfish (<a href="/stockfish/Copying.txt" {...ext}>GPL-3.0</a>)
+      {" · "}<a href="https://github.com/nmrugg/stockfish.js" {...ext}>stockfish.js</a>
+      {" · "}<a href="https://github.com/official-stockfish/Stockfish" {...ext}>Stockfish</a>
+    </p>
+  );
+}
+
 // The shared play layout: board (with eval bar and player strips) on the
 // left, a side panel with status, notes, moves and controls on the right.
-function PlayLayout({ top, bottom, board, evalBar, panelTop, controls, extra, children }) {
+// `credit`: Stockfish plays in this game, so the engine note is shown.
+function PlayLayout({ top, bottom, board, evalBar, panelTop, controls, extra, credit = false, children }) {
   return (
     <div className="ca-play">
       <div className="ca-board-wrap">
@@ -384,6 +443,7 @@ function PlayLayout({ top, bottom, board, evalBar, panelTop, controls, extra, ch
         <div className="ca-controls">{controls}</div>
         {children}
         {extra}
+        {credit && <EngineCredit />}
       </aside>
     </div>
   );
@@ -481,6 +541,7 @@ function AIvAI() {
   const turnName = getModel(chess.turn() === "w" ? whiteModel : blackModel).name;
   return (
     <PlayLayout
+      credit
       evalBar={<EvalBar whiteEval={whiteEval} />}
       top={<PlayerStrip modelId={blackModel} color="b" subtitle="Black" active={chess.turn() === "b" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       bottom={<PlayerStrip modelId={whiteModel} color="w" subtitle="White" active={chess.turn() === "w" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
@@ -582,6 +643,7 @@ function Spectator() {
   const turnName = getModel(chess.turn() === "w" ? whiteModel : blackModel).name;
   return (
     <PlayLayout
+      credit
       evalBar={<EvalBar whiteEval={whiteEval} />}
       top={<PlayerStrip modelId={blackModel} color="b" subtitle="Black" active={chess.turn() === "b" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       bottom={<PlayerStrip modelId={whiteModel} color="w" subtitle="White" active={chess.turn() === "w" && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
@@ -626,17 +688,26 @@ function PlayerVsAI() {
   const [aiModel, setAiModel] = useState(CHESS_MODELS[0].id);
   const [difficulty, setDifficultyState] = useState(() => readPref(DIFFICULTY_KEY, "hard", CHESS_DIFFICULTIES.map((d) => d.id)));
   const setDifficulty = (id) => { setDifficultyState(id); writePref(DIFFICULTY_KEY, id); };
+  // Master's time per move.
+  const [masterMs, setMasterMsState] = useState(() => Number(readPref(MASTER_TIME_KEY, String(MASTER_MOVETIME_MS), MASTER_MOVETIMES.map(String))));
+  const setMasterMs = (ms) => { setMasterMsState(ms); writePref(MASTER_TIME_KEY, String(ms)); };
   const [boardView, toggleBoardView] = useBoardView();
   const [sideChoice, setSideChoice] = useState("w");
   const [playerColor, setPlayerColor] = useState("w");
   const [started, setStarted] = useState(false);
   const [selected, setSelected] = useState(null);
   const [resigned, setResigned] = useState(false);
+  const engineStatus = useFullEngineStatus();
+  // Master's engine is large: start fetching it as soon as Master is picked.
+  useEffect(() => { if (difficulty === "master") warmUpStockfish("full"); }, [difficulty]);
+  // Master thinks on the player's time; not once the game is over or left.
+  useEffect(() => () => stopStockfishPondering(), []);
 
   const aiColor = playerColor === "w" ? "b" : "w";
   const view = useGameView(chess, version);
   const { historySAN, verboseHistory, lastMove, balance, opening } = view;
   const status = resigned ? { over: true, result: aiColor, reason: "resignation", check: false } : view.status;
+  useEffect(() => { if (status.over) stopStockfishPondering(); }, [status.over]);
   const legalTargets = useMemo(() => {
     if (!selected) return [];
     return chess.moves({ square: selected, verbose: true }).map((m) => m.to);
@@ -647,7 +718,7 @@ function PlayerVsAI() {
     if (!started || resigned) return;
     if (chess.isGameOver()) return;
     if (chess.turn() !== aiColor) return;
-    doOneMove(chess, aiModel, makeMove, 350, gameSeed, difficulty);
+    doOneMove(chess, aiModel, makeMove, 350, gameSeed, difficulty, difficulty === "master" ? masterMs : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, version, aiColor, aiModel, resigned, difficulty]);
 
@@ -689,8 +760,8 @@ function PlayerVsAI() {
     setStarted(true);
     setResigned(false);
   };
-  const resetAll = () => { cancel(); reset(); clear(); setStarted(false); setSelected(null); setResigned(false); };
-  const rematch = () => { cancel(); reset(); clear(); setSelected(null); setResigned(false); setStarted(true); };
+  const resetAll = () => { cancel(); stopStockfishPondering(); reset(); clear(); setStarted(false); setSelected(null); setResigned(false); };
+  const rematch = () => { cancel(); stopStockfishPondering(); reset(); clear(); setSelected(null); setResigned(false); setStarted(true); };
 
   if (!started) {
     return (
@@ -722,6 +793,17 @@ function PlayerVsAI() {
                 </button>
               ))}
             </div>
+            {difficulty === "master" && (
+              <div className="ca-master-time">
+                <span>Time per move</span>
+                <div className="ca-segment">
+                  {MASTER_MOVETIMES.map((ms) => (
+                    <button key={ms} className={masterMs === ms ? "active" : ""} onClick={() => setMasterMs(ms)}>{ms / 1000}s</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {difficulty === "master" && <EngineStatus status={engineStatus} showReady />}
           </div>
         </div>
         <div className="ca-setup-actions">
@@ -731,11 +813,13 @@ function PlayerVsAI() {
     );
   }
 
-  const level = CHESS_DIFFICULTIES.find((d) => d.id === difficulty)?.name;
+  const levelName = CHESS_DIFFICULTIES.find((d) => d.id === difficulty)?.name;
+  const level = difficulty === "master" ? `${levelName} · ${masterMs / 1000}s a move` : levelName;
   const aiName = getModel(aiModel).name;
   const turnName = chess.turn() === playerColor ? "You" : aiName;
   return (
     <PlayLayout
+      credit={difficulty === "master"}
       top={<PlayerStrip modelId={aiModel} color={aiColor} subtitle={level} active={chess.turn() === aiColor && !status.over} thinking={thinking} verboseHistory={verboseHistory} balance={balance} />}
       bottom={<PlayerStrip you color={playerColor} active={chess.turn() === playerColor && !status.over} thinking={false} verboseHistory={verboseHistory} balance={balance} />}
       board={
@@ -755,6 +839,7 @@ function PlayerVsAI() {
       }
       panelTop={<>
         <StatusLine status={status} turnName={turnName} thinking={thinking} opening={opening} />
+        {difficulty === "master" && <EngineStatus status={engineStatus} />}
         <ResultBanner status={status} whiteId={playerColor === "w" ? "you" : aiModel} blackId={playerColor === "b" ? "you" : aiModel} playerColor={playerColor} onRematch={rematch} />
         <CommentaryCard commentary={commentary} />
       </>}
@@ -794,6 +879,7 @@ function ModeMenu({ onPick }) {
           </button>
         ))}
       </div>
+      <EngineCredit />
     </div>
   );
 }

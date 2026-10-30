@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { toClassicThree } from './scripts/threeClassic.mjs'
 
 // `import("virtual:three-classic")` → Three.js as one classic-script string,
@@ -74,6 +75,27 @@ function versionPublicFiles() {
   };
 }
 
+// Chess Arena's page (chess.html, at /chess) runs cross-origin isolated, as
+// public/_headers serves it in production: COOP same-origin plus COEP
+// credentialless, so Master's Stockfish gets SharedArrayBuffer and threads.
+// Every other page keeps COOP same-origin-allow-popups, which the sign-in
+// popups need. Workers started by an isolated page need COEP on their own
+// script, so non-HTML responses get it too; that changes nothing elsewhere.
+function chessIsolation() {
+  const middleware = (req, res, next) => {
+    if (/^\/chess\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/chess\/?/, '/chess.html');
+    const chessPage = /^\/chess\.html(\?|$)/.test(req.url);
+    res.setHeader('Cross-Origin-Opener-Policy', chessPage ? 'same-origin' : 'same-origin-allow-popups');
+    if (chessPage || !/text\/html/.test(req.headers.accept || '')) res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+    next();
+  };
+  return {
+    name: 'vetroai-chess-isolation',
+    configureServer(server) { server.middlewares.use(middleware); },
+    configurePreviewServer(server) { server.middlewares.use(middleware); },
+  };
+}
+
 function browserPuterModelsTransform() {
   return {
     name: 'vetroai-browser-puter-models',
@@ -117,7 +139,7 @@ function browserPuterModelsTransform() {
   };
 }
 
-export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react(),versionPublicFiles(),threeClassicModule()], build:{
+export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd(),''); return { plugins:[browserPuterModelsTransform(),react(),versionPublicFiles(),threeClassicModule(),chessIsolation()], build:{
     // Everything used to land in one ~7.8 MB chunk that had to be downloaded,
     // parsed and executed before the first chat could paint. The screens, the
     // chart/map/editor components and the syntax highlighter are behind
@@ -130,7 +152,10 @@ export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd()
     // a manual group is emitted as one chunk, so a single eagerly-reached
     // module in it drags the whole group into the critical path.
     chunkSizeWarningLimit: 900,
-    rollupOptions:{ output:{ manualChunks(id){
+    rollupOptions:{
+    // Two pages: the app, and Chess Arena on its own (see src/chessPage.jsx).
+    input:{ main: fileURLToPath(new URL('./index.html', import.meta.url)), chess: fileURLToPath(new URL('./chess.html', import.meta.url)) },
+    output:{ manualChunks(id){
       if(!id.includes('node_modules')) return;
       if(/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
       if(id.includes('firebase')||id.includes('@firebase')) return 'firebase-vendor';
@@ -144,4 +169,4 @@ export default defineConfig(({ mode }) => { const env=loadEnv(mode,process.cwd()
       // critical path despite only being reachable through a lazy import.
       return undefined;
     } } }
-  }, server:{port:Number(env.VITE_PORT)||5173,strictPort:true,host:true,cors:{origin:'*',methods:'*',headers:'*'},headers:{"Cross-Origin-Opener-Policy":"same-origin-allow-popups","Access-Control-Allow-Origin":"*"},proxy:{'/api':{target:'http://127.0.0.1:3000',changeOrigin:true,secure:false}}} }; })
+  }, server:{port:Number(env.VITE_PORT)||5173,strictPort:true,host:true,cors:{origin:'*',methods:'*',headers:'*'},headers:{"Access-Control-Allow-Origin":"*"},proxy:{'/api':{target:'http://127.0.0.1:3000',changeOrigin:true,secure:false}}} }; })

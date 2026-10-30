@@ -69,19 +69,26 @@ const DIFFICULTY = {
   easy: { thinkMs: 400, maxDepth: 3, vetoMargin: 150, pickWindow: 120, softness: 60 },
   medium: null, // the persona's own settings
   hard: { thinkMs: 2500, vetoMargin: 20, pickWindow: 8, softness: 10 },
-  // Master plays Stockfish's move (stockfish.js), searched for `stockfishMs`.
-  // The language model is not consulted for the move: it could only ever make
-  // the choice worse, and the round trip was most of the wait. The other
+  // Master plays the move of the full Stockfish 19 build (stockfish.js,
+  // stockfishFull.js), searched for `stockfishMs` (the player can choose
+  // another of MASTER_MOVETIMES). Every move is Stockfish's own best one: no
+  // opening book, which picks at random between main lines. The language
+  // model is not consulted for the move: it could only ever make the choice
+  // worse, and the round trip was most of the wait. Master ponders: it keeps
+  // thinking on the player's time about the reply it expects. The other
   // fields are the arena engine at full strength, which takes over only in a
   // browser that can't run Stockfish.
-  master: { stockfish: true, stockfishMs: 3000, thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
+  master: { stockfish: "full", stockfishMs: 5000, ponder: true, thinkMs: 4000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true, openingBook: false },
   // AI vs AI and Spectator: Stockfish, as on Master, and both sides get
   // exactly this, whatever model is named on the badge, so a match is decided
   // over the board and not by one side being handed a bigger budget or a
   // looser leash. Without Stockfish, the arena engine with more thinking time
   // than Master's fallback.
-  arena: { stockfish: true, stockfishMs: 3000, thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true },
+  arena: { stockfish: "lite", stockfishMs: 3000, thinkMs: 6000, pickWindow: 0, softness: 10, neutralStyle: true, engineOnly: true, openingBook: true },
 };
+// Master's search time per move, in ms, and the choices the setup offers.
+export const MASTER_MOVETIME_MS = DIFFICULTY.master.stockfishMs;
+export const MASTER_MOVETIMES = [3000, 5000, 10000, 20000];
 export const ARENA_LEVEL = "arena";
 
 // ─── engine thread ──────────────────────────────────────────────────────────
@@ -428,7 +435,9 @@ const PIECE_NAME = { P: "pawn", N: "knight", B: "bishop", R: "rook", Q: "queen",
 
 // A one-line note for moves the engine chose on its own, built from what the
 // search actually found rather than from a language model.
-function describeEngineMove(candidate, depth, score) {
+// `engineNote` is added beside the depth (which engine played, when Master's
+// full engine couldn't).
+function describeEngineMove(candidate, depth, score, engineNote = "") {
   const tags = candidate.tags;
   const parts = [];
   if (tags.includes("checkmate")) return "Checkmate.";
@@ -450,17 +459,18 @@ function describeEngineMove(candidate, depth, score) {
     else if (pawns > -2) parts.push("Tough position — making it hard to crack.");
     else parts.push("Defending a difficult position.");
   }
-  return `${parts.filter(Boolean).join(" ")} (depth ${depth})`;
+  return `${parts.filter(Boolean).join(" ")} (depth ${depth}${engineNote ? ` · ${engineNote}` : ""})`;
 }
 
 // Requests a move from an AI model for the given chess.js instance.
 // Never throws for game-flow reasons — always resolves to a legal move.
-export async function requestAIMove({ providerId, chess, color, signal, gameSeed = "default", difficulty = null }) {
+// `movetime` replaces the level's Stockfish search time (Master's setting).
+export async function requestAIMove({ providerId, chess, color, signal, gameSeed = "default", difficulty = null, movetime = null }) {
   const level = DIFFICULTY[difficulty] || null;
   const legalSans = chess.moves();
   if (!legalSans.length) return null;
 
-  if (level?.stockfish) warmUpStockfish();
+  if (level?.stockfish) warmUpStockfish(level.stockfish);
 
   const identity = buildGameIdentity(providerId, gameSeed, color);
   const colorName = color === "w" ? "White" : "Black";
@@ -474,10 +484,10 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
   // the book would answer it with a first move.
   const plyFromFen = (chess.moveNumber() - 1) * 2 + (chess.turn() === "b" ? 1 : 0);
   const historyIsComplete = history.length === plyFromFen;
-  // Full strength opens like a top-level game: grandmaster mainlines, for as
-  // long as the game stays on one.
+  // AI vs AI opens like a top-level game: grandmaster mainlines, for as long
+  // as the game stays on one. Master has no book: Stockfish plays from move one.
   if (historyIsComplete && level?.engineOnly) {
-    const gm = grandmasterBookMove(history, legalSans, identity.rng);
+    const gm = level.openingBook ? grandmasterBookMove(history, legalSans, identity.rng) : null;
     if (gm) {
       return {
         move: gm.san,
@@ -510,12 +520,16 @@ export async function requestAIMove({ providerId, chess, color, signal, gameSeed
 
   // ── Master: Stockfish ─────────────────────────────────────────────────────
   if (level?.stockfish) {
-    const best = await stockfishMove(chess, { movetime: level.stockfishMs, signal, gameSeed });
+    const best = await stockfishMove(chess, { movetime: movetime || level.stockfishMs, signal, gameSeed, engine: level.stockfish, ponder: Boolean(level.ponder) });
     const choice = best && annotateCandidate(chess, best.uci, best.score, best.score);
     if (choice && legalSans.includes(choice.san)) {
+      const engineNote = [
+        best.fallback === "loading" ? "lite engine while the full one loads" : best.fallback === "failed" ? "lite engine" : "",
+        best.pondered ? "saw your move coming" : "",
+      ].filter(Boolean).join(" · ");
       return {
         move: choice.san,
-        commentary: describeEngineMove(choice, best.depth, best.score),
+        commentary: describeEngineMove(choice, best.depth, best.score, engineNote),
         providerId, raw: "", source: "engine",
         eval: choice.label,
         score: best.score,

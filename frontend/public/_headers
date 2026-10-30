@@ -10,3 +10,20 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+  Cross-Origin-Embedder-Policy: credentialless
+
+/chess
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cache-Control: no-cache
+
+/chess.html
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cache-Control: no-cache
+
+/stockfish/*
+  Cross-Origin-Embedder-Policy: credentialless
+
+/stockfish/full/parts/*
+  Cache-Control: public, max-age=31536000, immutable

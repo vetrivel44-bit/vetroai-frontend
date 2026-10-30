@@ -468,6 +468,31 @@
 .chess-arena .ca-status-live{ background: var(--ca-good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ca-good) 18%, transparent); animation: ca-pulse 1.4s ease-in-out infinite; }
 .chess-arena .ca-status-over{ background: var(--ca-gold); }
 .chess-arena .ca-status-text{ font-size: 14px; font-weight: 700; }
+/* Master's time per move, under the difficulty levels. */
+.chess-arena .ca-master-time{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 12.5px; color: var(--ca-muted); font-weight: 600; }
+.chess-arena .ca-master-time .ca-segment button{ min-width: 46px; font-variant-numeric: tabular-nums; }
+
+/* Master's full engine: download progress, then a note if it couldn't load. */
+.chess-arena .ca-engine{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ca-surface);
+  border: 1px solid var(--ca-border);
+  font-size: 12.5px;
+  color: var(--ca-muted);
+}
+.chess-arena .ca-panel .ca-engine{ margin-top: 0; }
+.chess-arena .ca-engine-text{ display: flex; align-items: center; gap: 7px; flex-wrap: wrap; color: var(--ca-text); font-weight: 600; }
+.chess-arena .ca-engine-size{ margin-left: auto; color: var(--ca-muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.chess-arena .ca-engine-bar{ height: 4px; border-radius: 999px; background: var(--ca-surface-3); overflow: hidden; }
+.chess-arena .ca-engine-bar i{ display: block; height: 100%; border-radius: inherit; background: var(--ca-accent); transition: width 0.2s ease; }
+.chess-arena .ca-engine small{ font-size: 11.5px; color: var(--ca-faint); }
+.chess-arena .ca-engine-ready{ flex-direction: row; align-items: center; gap: 7px; color: var(--ca-good); }
+.chess-arena .ca-engine-failed{ color: var(--ca-text); border-color: color-mix(in srgb, var(--ca-gold) 40%, transparent); background: color-mix(in srgb, var(--ca-gold) 9%, var(--ca-surface)); }
 .chess-arena .ca-opening{
   margin-left: auto;
   font-size: 11.5px;
@@ -601,3 +626,9 @@
   .chess-arena .ca-picker-grid{ grid-template-columns: repeat(2, 1fr); }
   .chess-arena .ca-crumb{ display: none; }
 }
+
+/* Engine credit: Stockfish is GPL-3.0. */
+.chess-arena .ca-credit{ margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--ca-faint); text-align: center; }
+.chess-arena .ca-credit a{ color: var(--ca-muted); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 2px; }
+.chess-arena .ca-credit a:hover{ color: var(--ca-text); text-decoration-color: currentColor; }
+.chess-arena .ca-menu > .ca-credit{ margin-top: 22px; }
