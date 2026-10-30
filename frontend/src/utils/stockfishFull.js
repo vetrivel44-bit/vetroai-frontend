@@ -33,8 +33,9 @@ export function subscribeFullEngine(listener) {
   return () => listeners.delete(listener);
 }
 
-export function markFullEngineReady() {
-  setStatus({ state: "ready", error: null });
+// `details`: { threadCount, hashMb } as the engine was set up.
+export function markFullEngineReady(details = {}) {
+  setStatus({ state: "ready", error: null, ...details });
 }
 
 export function markFullEngineFailed(err) {

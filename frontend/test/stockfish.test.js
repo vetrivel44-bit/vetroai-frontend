@@ -4,7 +4,7 @@ import { setImmediate } from "node:timers";
 import { Chess } from "chess.js";
 
 import { MATE_SCORE } from "../src/utils/chessEngine.js";
-import { uciScore, parseInfoLine, positionCommand, createStockfishClient } from "../src/utils/stockfish.js";
+import { uciScore, parseInfoLine, positionCommand, createStockfishClient, masterOptions, isMemoryLimited } from "../src/utils/stockfish.js";
 
 test("UCI scores convert to the arena engine's convention", () => {
   assert.equal(uciScore("cp", 35), 35);
@@ -107,4 +107,39 @@ test("an engine that stops answering is reported broken, not waited on forever",
   await assert.rejects(search, /did not answer/);
   assert.ok(client.broken);
   assert.ok(worker.terminated);
+});
+
+test("Master runs at full strength: no skill or Elo limit, one line, cores minus two threads", () => {
+  const desktop = masterOptions({ threaded: true, cores: 8, memoryLimited: false });
+  assert.equal(desktop.threads, 6);
+  assert.equal(desktop.hash, 256);
+  assert.deepEqual(desktop.commands, [
+    "setoption name Threads value 6",
+    "setoption name Hash value 256",
+    "setoption name Skill Level value 20",
+    "setoption name UCI_LimitStrength value false",
+    "setoption name MultiPV value 1",
+  ]);
+  assert.equal(masterOptions({ threaded: true, cores: 2, memoryLimited: false }).threads, 1);
+  assert.equal(masterOptions({ threaded: true, cores: null, memoryLimited: false }).threads, 1); // core count unknown
+  // The single-threaded build ignores Threads; it is told 1.
+  assert.equal(masterOptions({ threaded: false, cores: 16, memoryLimited: false }).threads, 1);
+  assert.equal(masterOptions({ threaded: true, cores: 8, memoryLimited: true }).hash, 128);
+});
+
+test("memory counts as limited on a phone or a device reporting 4 GB or less", () => {
+  assert.equal(isMemoryLimited({ deviceMemory: 4, userAgent: "Mozilla/5.0 (X11; Linux x86_64)" }), true);
+  assert.equal(isMemoryLimited({ deviceMemory: 8, userAgent: "Mozilla/5.0 (Linux; Android 14) Mobile" }), false);
+  assert.equal(isMemoryLimited({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" }), true);
+  assert.equal(isMemoryLimited({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", maxTouchPoints: 5 }), true); // iPad
+  assert.equal(isMemoryLimited({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", maxTouchPoints: 0 }), false);
+  assert.equal(isMemoryLimited(undefined), false);
+});
+
+test("options are sent before the next search and confirmed with isready", async () => {
+  const { worker, sent } = fakeEngine({ bestmoves: ["e2e4"] });
+  const client = createStockfishClient(worker);
+  await client.configure(["setoption name Hash value 256", "setoption name Threads value 6"]);
+  await client.search({ position: "position fen x", movetime: 100 });
+  assert.deepEqual(sent, ["uci", "isready", "setoption name Hash value 256", "setoption name Threads value 6", "isready", "position fen x", "go movetime 100"]);
 });

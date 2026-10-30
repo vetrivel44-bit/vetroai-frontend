@@ -468,6 +468,10 @@
 .chess-arena .ca-status-live{ background: var(--ca-good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ca-good) 18%, transparent); animation: ca-pulse 1.4s ease-in-out infinite; }
 .chess-arena .ca-status-over{ background: var(--ca-gold); }
 .chess-arena .ca-status-text{ font-size: 14px; font-weight: 700; }
+/* Master's time per move, under the difficulty levels. */
+.chess-arena .ca-master-time{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 12.5px; color: var(--ca-muted); font-weight: 600; }
+.chess-arena .ca-master-time .ca-segment button{ min-width: 46px; font-variant-numeric: tabular-nums; }
+
 /* Master's full engine: download progress, then a note if it couldn't load. */
 .chess-arena .ca-engine{
   display: flex;

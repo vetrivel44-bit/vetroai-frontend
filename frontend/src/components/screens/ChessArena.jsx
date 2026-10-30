@@ -4,7 +4,7 @@ import {
   X, Play, Pause, SkipForward, RotateCcw, Swords, Eye, User, Trophy, Crown,
   ChevronLeft, Loader2, Shuffle, Flag, Sparkles, Box, Grid3x3, ArrowRight, Scale, Zap, ChessKnight,
 } from "lucide-react";
-import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, getModel, requestAIMove } from "../../utils/chessAI";
+import { CHESS_MODELS, CHESS_DIFFICULTIES, ARENA_LEVEL, MASTER_MOVETIME_MS, MASTER_MOVETIMES, getModel, requestAIMove } from "../../utils/chessAI";
 import { warmUpStockfish } from "../../utils/stockfish";
 import { getFullEngineStatus, subscribeFullEngine } from "../../utils/stockfishFull";
 import { openingName } from "../../utils/chessPersonas";
@@ -17,6 +17,7 @@ const Board3D = lazy(() => import("./chess3d/Board3D"));
 
 const VIEW_KEY = "vetroai_chess_view";
 const DIFFICULTY_KEY = "vetroai_chess_difficulty";
+const MASTER_TIME_KEY = "vetroai_chess_master_ms";
 const readPref = (key, fallback, allowed) => {
   try { const v = localStorage.getItem(key); return allowed.includes(v) ? v : fallback; } catch { return fallback; }
 };
@@ -163,7 +164,7 @@ function useAIMoveEngine() {
     return () => { mountedRef.current = false; abortRef.current?.abort(); };
   }, []);
 
-  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 600, gameSeed = "default", difficulty = null) => {
+  const doOneMove = useCallback(async (chess, providerId, makeMove, minDelayMs = 600, gameSeed = "default", difficulty = null, movetime = null) => {
     if (chess.isGameOver()) return false;
     const moverColor = chess.turn();
     const ctrl = new AbortController();
@@ -171,7 +172,7 @@ function useAIMoveEngine() {
     if (mountedRef.current) setThinking(true);
     try {
       const [res] = await Promise.all([
-        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed, difficulty }),
+        requestAIMove({ providerId, chess, color: moverColor, signal: ctrl.signal, gameSeed, difficulty, movetime }),
         sleep(minDelayMs),
       ]);
       if (ctrl.signal.aborted || !mountedRef.current) return false;
@@ -353,7 +354,8 @@ function EngineStatus({ status, showReady = false }) {
     );
   }
   if (status.state === "ready" && showReady) {
-    return <div className="ca-engine ca-engine-ready" role="status"><Zap size={13} /> Master's full engine is ready{status.threads ? " · multi-threaded" : ""}.</div>;
+    const threads = status.threadCount > 1 ? ` · ${status.threadCount} threads` : "";
+    return <div className="ca-engine ca-engine-ready" role="status"><Zap size={13} /> Master's full engine is ready{threads}{status.hashMb ? ` · ${status.hashMb} MB hash` : ""}.</div>;
   }
   return null;
 }
@@ -669,6 +671,9 @@ function PlayerVsAI() {
   const [aiModel, setAiModel] = useState(CHESS_MODELS[0].id);
   const [difficulty, setDifficultyState] = useState(() => readPref(DIFFICULTY_KEY, "hard", CHESS_DIFFICULTIES.map((d) => d.id)));
   const setDifficulty = (id) => { setDifficultyState(id); writePref(DIFFICULTY_KEY, id); };
+  // Master's time per move.
+  const [masterMs, setMasterMsState] = useState(() => Number(readPref(MASTER_TIME_KEY, String(MASTER_MOVETIME_MS), MASTER_MOVETIMES.map(String))));
+  const setMasterMs = (ms) => { setMasterMsState(ms); writePref(MASTER_TIME_KEY, String(ms)); };
   const [boardView, toggleBoardView] = useBoardView();
   const [sideChoice, setSideChoice] = useState("w");
   const [playerColor, setPlayerColor] = useState("w");
@@ -693,7 +698,7 @@ function PlayerVsAI() {
     if (!started || resigned) return;
     if (chess.isGameOver()) return;
     if (chess.turn() !== aiColor) return;
-    doOneMove(chess, aiModel, makeMove, 350, gameSeed, difficulty);
+    doOneMove(chess, aiModel, makeMove, 350, gameSeed, difficulty, difficulty === "master" ? masterMs : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, version, aiColor, aiModel, resigned, difficulty]);
 
@@ -768,6 +773,16 @@ function PlayerVsAI() {
                 </button>
               ))}
             </div>
+            {difficulty === "master" && (
+              <div className="ca-master-time">
+                <span>Time per move</span>
+                <div className="ca-segment">
+                  {MASTER_MOVETIMES.map((ms) => (
+                    <button key={ms} className={masterMs === ms ? "active" : ""} onClick={() => setMasterMs(ms)}>{ms / 1000}s</button>
+                  ))}
+                </div>
+              </div>
+            )}
             {difficulty === "master" && <EngineStatus status={engineStatus} showReady />}
           </div>
         </div>
@@ -778,7 +793,8 @@ function PlayerVsAI() {
     );
   }
 
-  const level = CHESS_DIFFICULTIES.find((d) => d.id === difficulty)?.name;
+  const levelName = CHESS_DIFFICULTIES.find((d) => d.id === difficulty)?.name;
+  const level = difficulty === "master" ? `${levelName} · ${masterMs / 1000}s a move` : levelName;
   const aiName = getModel(aiModel).name;
   const turnName = chess.turn() === playerColor ? "You" : aiName;
   return (

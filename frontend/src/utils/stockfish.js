@@ -141,6 +141,17 @@ export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_M
   return {
     get broken() { return broken; },
     ready,
+    // Sends setoption lines (queued like a search) and waits until the engine
+    // has applied them; a large Hash takes a moment to allocate.
+    configure(commands) {
+      const job = queue.then(async () => {
+        await ready;
+        for (const command of commands) worker.postMessage(command);
+        await exchange("isready", (line) => line === "readyok", readyTimeoutMs);
+      });
+      queue = job.catch(() => {});
+      return job;
+    },
     // Resolves to { uci, score, depth } (score from the side to move), or
     // null when there is no move. Rejects with an AbortError when `signal`
     // fires and with an Error when the engine has stopped working.
@@ -155,6 +166,34 @@ export function createStockfishClient(worker, { readyTimeoutMs = READY_TIMEOUT_M
   };
 }
 
+// A phone, or a device that reports 4 GB of memory or less.
+export function isMemoryLimited(nav = globalThis.navigator) {
+  if (!nav) return false;
+  if (typeof nav.deviceMemory === "number") return nav.deviceMemory <= 4;
+  const ua = nav.userAgent || "";
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (nav.maxTouchPoints > 1 && /Macintosh/.test(ua));
+}
+
+// Master's engine settings: everything at full strength, nothing held back.
+// Skill Level 20 and no UCI_LimitStrength are Stockfish's own defaults, set
+// anyway so Master never depends on them. Threads only matter to the
+// multi-threaded build; two cores are left for the page and the system.
+export function masterOptions({ threaded, cores = globalThis.navigator?.hardwareConcurrency, memoryLimited = isMemoryLimited() } = {}) {
+  const threads = threaded ? Math.max(1, (cores || 1) - 2) : 1;
+  const hash = memoryLimited ? 128 : 256;
+  return {
+    threads,
+    hash,
+    commands: [
+      `setoption name Threads value ${threads}`,
+      `setoption name Hash value ${hash}`,
+      "setoption name Skill Level value 20",
+      "setoption name UCI_LimitStrength value false",
+      "setoption name MultiPV value 1",
+    ],
+  };
+}
+
 // ─── the arena's engines ────────────────────────────────────────────────────
 // "lite": lite-single, for AI vs AI and Spectator, and Master's fallback.
 // "full": the full build (stockfishFull.js), for Master.
@@ -165,10 +204,12 @@ function startEngine(kind) {
   if (typeof Worker === "undefined") return Promise.resolve(false);
   if (kind === "full") {
     return loadFullEngine()
-      .then(async ({ worker, release }) => {
+      .then(async ({ worker, build, release }) => {
         const engine = createStockfishClient(worker, { readyTimeoutMs: FULL_READY_TIMEOUT_MS });
         try { await engine.ready; } finally { release(); }
-        markFullEngineReady();
+        const options = masterOptions({ threaded: build.threads });
+        await engine.configure(options.commands);
+        markFullEngineReady({ threadCount: options.threads, hashMb: options.hash });
         return engine;
       })
       .catch((err) => {
