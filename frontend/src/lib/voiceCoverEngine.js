@@ -1,16 +1,26 @@
 // Voice Cover engine: free, no API keys, no paid services.
 //
-// 1. Demucs (htdemucs) on the free Hugging Face Space "abidlabs/music-separation"
-//    splits the song into vocals + instrumental.
+// 1. The song is split into vocals + instrumental on free CPU Spaces running
+//    UVR5's Kim_Vocal_2 model (no GPU allowance used), with the free GPU
+//    Demucs Space "abidlabs/music-separation" as the last resort.
 // 2. Seed-VC's singing model on the free Space "Plachta/Seed-VC" (/predict_1,
 //    pitch-following) re-sings those vocals in the user's own voice, using
 //    their recording as the reference.
 // 3. The browser mixes the new vocals over the instrumental (Web Audio) and
 //    encodes MP3 (lamejs) or WAV.
 //
-// Both Spaces run on Hugging Face's free ZeroGPU, which gives each visitor a
-// daily GPU allowance; long songs can run out of it, and the error says so.
+// Seed-VC runs on Hugging Face's free ZeroGPU: 2 GPU-minutes a day without an
+// account, 5 with a free account's token (each run reserves ~60 s). Errors
+// from Hugging Face are shown as they are, so a used-up allowance is clear.
 
+// Copies of the same UVR5 Space; the first one that answers is used. (Other
+// CPU separators were tried: their output files are blocked (403) or they run
+// a Gradio too old for the client.)
+const CPU_SEPARATORS = ["Erickeee/UVR5_UI", "stdz/UVR5_UI_2", "DilshanIRU/UVR5_UI"];
+const UVR_OPTIONS = {
+  model: "Kim_Vocal_2.onnx", out_format: "wav", hop_length: 1024, segment_size: 256,
+  denoise: true, overlap: 0.25, batch_size: 1, norm_thresh: 0.9, amp_thresh: 0.7, single_stem: "",
+};
 const SEPARATOR_SPACE = "abidlabs/music-separation";
 const CONVERTER_SPACE = "Plachta/Seed-VC";
 const SAMPLE_RATE = 44100;
@@ -18,23 +28,27 @@ const REFERENCE_SECONDS = 30; // Seed-VC only uses ~25 s of reference anyway
 
 const abortError = () => new DOMException("Voice cover cancelled", "AbortError");
 
-function friendly(message, space) {
+export function friendly(message, space) {
   const text = String(message || "").trim();
-  if (/quota|exceeded/i.test(text)) {
-    return `Hugging Face's free GPU allowance for today is used up (${text}). Try again later, or use a shorter clip of the song.`;
+  if (/quota|runs limit|exceeded/i.test(text)) {
+    return "Hugging Face's free GPU time for today is used up (2 minutes a day without an account). "
+      + "Add your free Hugging Face token below to get 5 minutes a day, or try again tomorrow. "
+      + `(Hugging Face said: ${text})`;
   }
   if (/sleep|building|starting|not running|runtime/i.test(text)) {
     return `The free ${space} model is waking up. Wait a minute and try again.`;
   }
-  return text ? `${space}: ${text}` : `${space} failed without an error message.`;
+  return text ? `${space}: ${text}` : `${space} did not return any audio. Please try again.`;
 }
 
-async function runSpace(space, endpoint, payload, { signal, onStatus } = {}) {
+async function runSpace(space, endpoint, payload, { signal, onStatus, token } = {}) {
   const { Client } = await import("@gradio/client");
   if (signal?.aborted) throw abortError();
   let client;
   try {
-    client = await Client.connect(space);
+    // Without "status" events the client drops Hugging Face's errors (a used-up
+    // GPU allowance looked like "returned no audio").
+    client = await Client.connect(space, { events: ["data", "status"], ...(token ? { hf_token: token } : {}) });
   } catch (err) {
     throw new Error(friendly(err?.message || "could not connect", space));
   }
@@ -110,6 +124,48 @@ async function referenceWav(file) {
   return new File([encodeWav([mono], audio.sampleRate)], "my-voice.wav", { type: "audio/wav" });
 }
 
+/** The first `seconds` of a song as WAV (shorter clips fit the free GPU slot), and its length. */
+async function trimmedSong(file, seconds) {
+  const audio = await decode(file);
+  if (!seconds || audio.duration <= seconds + 0.5) return { clip: file, duration: audio.duration };
+  const frames = Math.floor(seconds * audio.sampleRate);
+  const channels = [];
+  for (let c = 0; c < Math.min(2, audio.numberOfChannels); c++) channels.push(audio.getChannelData(c).slice(0, frames));
+  const name = file.name.replace(/\.[^.]+$/, "") + `-first-${seconds}s.wav`;
+  return { clip: new File([encodeWav(channels, audio.sampleRate)], name, { type: "audio/wav" }), duration: seconds };
+}
+
+// The free CPU separator runs at roughly 3.6x the clip's length.
+const separationEstimate = (seconds) => {
+  const minutes = Math.max(1, Math.round((seconds * 3.6) / 60));
+  return minutes === 1 ? "about a minute" : `about ${minutes} minutes`;
+};
+
+function pickStems(files) {
+  const list = Array.isArray(files) ? files : [];
+  const name = (f) => String(f?.orig_name || f?.path || f?.url || "");
+  return {
+    vocals: list.find((f) => /vocals/i.test(name(f)) && !/instrumental|no_vocals/i.test(name(f))) || list[1],
+    instrumental: list.find((f) => /instrumental|no_vocals/i.test(name(f))) || list[0],
+  };
+}
+
+async function separate(song, { signal, token, onStatus }) {
+  const { handle_file } = await import("@gradio/client");
+  for (const space of CPU_SEPARATORS) {
+    try {
+      const stems = pickStems(await runSpace(space, "/mdxnet_separator", { audio: handle_file(song), ...UVR_OPTIONS }, { signal, onStatus }));
+      if (fileUrl(stems.vocals) && fileUrl(stems.instrumental)) return stems;
+    } catch (err) {
+      if (err?.name === "AbortError") throw err;
+      console.warn(`${space} could not separate the song`, err);
+    }
+  }
+  // Last resort: the GPU separator (uses ~60 s of the daily free GPU time).
+  const [vocals, instrumental] = await runSpace(SEPARATOR_SPACE, "/inference", { audio: handle_file(song) }, { signal, onStatus, token });
+  return { vocals, instrumental };
+}
+
 async function encodeMp3(channels, sampleRate) {
   const lame = await import("@breezystack/lamejs");
   const Mp3Encoder = lame.Mp3Encoder || lame.default?.Mp3Encoder;
@@ -156,17 +212,22 @@ async function mix(instrumentalBlob, vocalsBlob, format) {
  *           onStage?: (stage: string) => void, onDetail?: (text: string) => void }} options
  * @returns {Promise<Blob>}
  */
-export async function createVoiceCover({ song, referenceVoice, format = "mp3", signal, onStage, onDetail }) {
+export async function createVoiceCover({ song, referenceVoice, format = "mp3", signal, onStage, onDetail, maxSeconds = 60, hfToken = "" }) {
+  const token = String(hfToken || "").trim() || undefined;
   const { handle_file } = await import("@gradio/client");
-  const queueDetail = (label) => (status) => {
+  const queueDetail = (label, where) => (status) => {
     if (status.stage === "pending" && Number.isFinite(status.position)) onDetail?.(`${label}: waiting in the free queue (position ${status.position + 1})…`);
-    else if (status.stage === "pending" || status.stage === "generating") onDetail?.(`${label}: running on Hugging Face's free GPU…`);
+    else if (status.stage === "pending" || status.stage === "generating") onDetail?.(`${label}: running on ${where}…`);
   };
 
   onStage?.("Uploading");
-  onDetail?.("Sending the song to the free Demucs model…");
+  onDetail?.(maxSeconds ? `Preparing the first ${maxSeconds} seconds of the song…` : "Preparing the song…");
+  const { clip, duration } = await trimmedSong(song, maxSeconds);
+  if (signal?.aborted) throw abortError();
   onStage?.("Separating Vocals");
-  const [vocals, instrumental] = await runSpace(SEPARATOR_SPACE, "/inference", { audio: handle_file(song) }, { signal, onStatus: queueDetail("Separating vocals") });
+  const eta = separationEstimate(duration);
+  onDetail?.(`Separating the singer from the music on a free CPU model (${eta})…`);
+  const { vocals, instrumental } = await separate(clip, { signal, token, onStatus: queueDetail("Separating vocals", `a free CPU model (${eta})`) });
   if (!fileUrl(vocals) || !fileUrl(instrumental)) throw new Error("The separator did not return both the vocals and the instrumental.");
 
   onStage?.("Learning My Voice");
@@ -184,12 +245,12 @@ export async function createVoiceCover({ song, referenceVoice, format = "mp3", s
     f0_condition: true, // singing: follow the original melody
     auto_f0_adjust: true, // move the melody into the user's vocal range
     pitch_shift: 0,
-  }, { signal, onStatus: queueDetail("Converting to your voice") });
+  }, { signal, token, onStatus: queueDetail("Converting to your voice", "Hugging Face's free GPU") });
   let converted;
   try {
     converted = await convertWith(handle_file(fileUrl(vocals)));
   } catch (err) {
-    if (err?.name === "AbortError" || /quota/i.test(err?.message || "")) throw err;
+    if (err?.name === "AbortError" || /quota|runs limit|GPU time/i.test(err?.message || "")) throw err;
     // The Space could not fetch the vocals by URL: upload the bytes instead.
     converted = await convertWith(handle_file(await fetchAudio(fileUrl(vocals), signal)));
   }
