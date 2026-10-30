@@ -11,6 +11,7 @@
 const Groq = require("groq-sdk");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
+const freeTts = require("./freeTtsService");
 const callGuard = require("./callGuard");
 const { redact } = require("./callGuard/redactor");
 
@@ -42,9 +43,10 @@ function capabilities() {
       reason: groqClient ? null : "GROQ_API_KEY is not configured.",
     },
     speech: {
-      available: !!config.googleTtsApiKey,
-      provider: config.googleTtsApiKey ? "google-cloud-tts" : null,
-      reason: config.googleTtsApiKey ? null : "GOOGLE_TTS_API_KEY is not configured.",
+      // Google's free voice covers speech when no Cloud key is set.
+      available: true,
+      provider: config.googleTtsApiKey ? "google-cloud-tts" : "google-free-tts",
+      reason: null,
     },
     // Analysis is local: no key, no network, and it is the part that must keep
     // working when everything else is unconfigured or offline.
@@ -245,7 +247,14 @@ async function synthesize({ text, languageCode = "en-US", voiceName, speakingRat
   callGuard.assertSafeToTransmit(input, "the speech provider");
 
   if (!config.googleTtsApiKey) {
-    throw new PipelineError(501, "Google Cloud Text-to-Speech is not configured. Set GOOGLE_TTS_API_KEY to enable spoken output.", "TTS_NOT_CONFIGURED");
+    // No Cloud key (it needs a billing account): use Google's free voice.
+    try {
+      const { buffer } = await freeTts.synthesize(input, { languageCode });
+      return { audioBase64: buffer.toString("base64"), mimeType: "audio/mpeg", voice: `${languageCode} (Google free voice)`, languageCode };
+    } catch (err) {
+      logger.error("callAssistant.tts.free.failed", { error: err?.message });
+      throw new PipelineError(502, "Could not reach Google's free text-to-speech voice.", "TTS_FAILED");
+    }
   }
 
   const voice = voiceName

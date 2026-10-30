@@ -13,8 +13,9 @@ test("capabilities report what is unconfigured instead of pretending", () => {
   const caps = service.capabilities();
   assert.equal(caps.transcription.available, false);
   assert.match(caps.transcription.reason, /GROQ_API_KEY/);
-  assert.equal(caps.speech.available, false);
-  assert.match(caps.speech.reason, /GOOGLE_TTS_API_KEY/);
+  // Speech needs no key: Google's free voice covers it.
+  assert.equal(caps.speech.available, true);
+  assert.equal(caps.speech.provider, "google-free-tts");
   // Analysis is local and must work with no provider at all.
   assert.equal(caps.analysis.available, true);
 });
@@ -28,10 +29,7 @@ test("unconfigured providers fail with 501 and a code, not a crash", async () =>
     () => service.translate({ texts: ["hello"], targetLanguage: "ta" }),
     (err) => err.statusCode === 501 && err.code === "MT_NOT_CONFIGURED"
   );
-  await assert.rejects(
-    () => service.synthesize({ text: "hello" }),
-    (err) => err.statusCode === 501 && err.code === "TTS_NOT_CONFIGURED"
-  );
+
 });
 
 test("speech synthesis refuses text that still carries a code", async () => {
@@ -60,5 +58,25 @@ test("the guard's transmit gate is what stands between a code and a provider", (
 test("language names cover the launch languages the spec names", () => {
   for (const code of ["en", "hi", "ta", "es"]) {
     assert.equal(typeof service.LANGUAGE_NAMES[code], "string");
+  }
+});
+
+test("speech without a Cloud key uses Google's free voice", async () => {
+  const freeTts = require("../src/services/freeTtsService");
+  const original = freeTts.synthesize;
+  const previousKey = process.env.GOOGLE_TTS_API_KEY;
+  delete process.env.GOOGLE_TTS_API_KEY;
+  freeTts.synthesize = async (text, opts) => {
+    assert.equal(text, "hello there");
+    assert.equal(opts.languageCode, "en-US");
+    return { buffer: Buffer.from("ID3-fake-mp3"), contentType: "audio/mpeg", provider: "google-free" };
+  };
+  try {
+    const out = await service.synthesize({ text: "hello there" });
+    assert.equal(out.mimeType, "audio/mpeg");
+    assert.equal(Buffer.from(out.audioBase64, "base64").toString(), "ID3-fake-mp3");
+  } finally {
+    freeTts.synthesize = original;
+    if (previousKey !== undefined) process.env.GOOGLE_TTS_API_KEY = previousKey;
   }
 });

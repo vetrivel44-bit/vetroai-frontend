@@ -36,3 +36,43 @@ test("never throws when nothing can be evicted, and keeps user data", () => {
   assert.doesNotThrow(() => s.setItem("vetroai_userinfo", "y".repeat(50)));
   assert.equal(s.getItem("vetroai_sessions_me").length, 90);
 });
+
+// ── other accounts' caches ────────────────────────────────────────────────────
+import { evictOtherAccounts, looksLikeJwt } from "../src/lib/storageGuard.js";
+
+const memoryStore = (entries) => {
+  const map = new Map(Object.entries(entries));
+  return {
+    get length() { return map.size; },
+    key: (i) => [...map.keys()][i] ?? null,
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    removeItem(k) { map.delete(k); },
+    has: (k) => map.has(k),
+  };
+};
+
+test("other accounts' and token-keyed caches are evicted, the writer's are kept", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiJ4In0.sig_part";
+  const store = memoryStore({
+    "vetroai_sessions_me@x.com": "a".repeat(10),
+    "vetroai_artifacts_me@x.com": "a",
+    "vetroai_sessions_other@x.com": "b".repeat(50),
+    [`vetroai_sessions_${jwt}`]: "c".repeat(20),
+    "token": "keep",
+  });
+  const removed = evictOtherAccounts(store, "vetroai_sessions_me@x.com", store.removeItem, null);
+  assert.deepEqual(removed, ["vetroai_sessions_other@x.com", `vetroai_sessions_${jwt}`]);
+  assert.ok(store.has("vetroai_sessions_me@x.com") && store.has("vetroai_artifacts_me@x.com") && store.has("token"));
+});
+
+test("with no known account only token-keyed caches go", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiJ4In0.sig_part";
+  const store = memoryStore({ "vetroai_sessions_a@x.com": "a", [`vetroai_spaces_${jwt}`]: "b", "vetroai_userinfo": "{}" });
+  assert.deepEqual(evictOtherAccounts(store, "vetroai_userinfo", store.removeItem, null), [`vetroai_spaces_${jwt}`]);
+});
+
+test("looksLikeJwt", () => {
+  assert.equal(looksLikeJwt("eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiJ4In0.abc"), true);
+  assert.equal(looksLikeJwt("me@x.com"), false);
+  assert.equal(looksLikeJwt("local_1779301676484_VmV0cm9AZ21haWwuY29t"), false);
+});

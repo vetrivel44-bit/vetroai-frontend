@@ -24,6 +24,7 @@ const { modelOf } = require("./usageController");
 const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const mistralAdapter = require("../providers/mistralAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
+const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
 const { clientClock } = require("../services/clockService");
@@ -454,7 +455,15 @@ async function textToSpeech(req, res) {
   if (!text) throw new ApiError(400, "text is required");
   const voice = String(req.body?.voice || "en-US-JennyNeural").slice(0, 40);
 
-  const { buffer, contentType } = await medicalService.synthesizeSpeech(text.slice(0, 2000), voice);
+  let audio;
+  try {
+    audio = await ttsService.synthesizeSpeech({ text: text.slice(0, 2000), voice });
+  } catch (err) {
+    // 503 tells the browser to fall back to its own voice instead of failing.
+    throw new ApiError(503, `Text-to-speech is unavailable right now: ${err?.message || "unknown error"}`);
+  }
+  const { buffer, contentType, provider } = audio;
+  res.setHeader("X-TTS-Provider", provider || "unknown");
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Length", buffer.length);
   return res.send(buffer);

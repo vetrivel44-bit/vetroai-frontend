@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { speakText } from "../../lib/tts.js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import StructuredResponseRenderer from "../structured/StructuredResponseRenderer";
@@ -326,11 +327,9 @@ async function performDesktopAction(desktop, action) {
 // Cancels any utterance still in flight rather than queuing — narration for
 // the step 4 steps ago finishing mid-run-6 would be confusing, not helpful.
 function narrateAction(text) {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.05;
-  window.speechSynthesis.speak(utterance);
+  if (typeof window === "undefined") return;
+  // Google's free voice via the backend; the browser voice if that fails.
+  speakText(text, { rate: 1.05 });
 }
 function safeFilename(value, fallback) { return String(value || fallback).replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-").slice(0, 54) || fallback; }
 function downloadBlob(content, type, filename) {

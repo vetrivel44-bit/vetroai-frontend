@@ -21,6 +21,45 @@ const DISPOSABLE_PREFIXES = [
   "vetroai_deleted_",
 ];
 
+// Per-account copies of chats, spaces, artifacts and memories. All of them are
+// mirrored to Firestore, so the copies belonging to *other* accounts that once
+// signed in on this browser (and copies keyed by a raw auth token, an old bug)
+// can be dropped when space runs out; they reload from Firestore on sign-in.
+const ACCOUNT_CACHE_PREFIXES = ["vetroai_sessions_", "vetroai_spaces_", "vetroai_artifacts_", "vetroai_memories_"];
+let activeAccountKey = null;
+
+/** Tell the guard whose caches must be kept (the signed-in account's userKey). */
+export const setActiveAccountKey = (key) => { activeAccountKey = key ? String(key) : null; };
+
+/** A JWT ("eyJ…" header.payload.signature). Never a valid storage namespace. */
+export const looksLikeJwt = (value) => typeof value === "string" && /^eyJ[\w-]*\.[\w-]+\.[\w-]+$/.test(value);
+
+const accountCacheOwner = (key) => {
+  const prefix = ACCOUNT_CACHE_PREFIXES.find((p) => key.startsWith(p));
+  return prefix ? key.slice(prefix.length) : null;
+};
+
+/**
+ * Remove other accounts' cached lists (and token-keyed ones), largest first.
+ * The account being written (`keepKey`'s owner) and the active account are kept.
+ */
+export function evictOtherAccounts(storage, keepKey, removeItem, activeKey = activeAccountKey) {
+  const keepOwner = accountCacheOwner(String(keepKey || ""));
+  const candidates = [];
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (key == null || key === keepKey) continue;
+    const owner = accountCacheOwner(key);
+    if (owner == null) continue;
+    const stale = looksLikeJwt(owner) || (activeKey || keepOwner ? owner !== activeKey && owner !== keepOwner : false);
+    if (!stale) continue;
+    candidates.push({ key, size: (storage.getItem(key) || "").length });
+  }
+  candidates.sort((a, b) => b.size - a.size);
+  for (const { key } of candidates) removeItem.call(storage, key);
+  return candidates.map((c) => c.key);
+}
+
 export const isQuotaError = (err) =>
   !!err && (
     err.name === "QuotaExceededError" ||
@@ -62,7 +101,28 @@ export function installStorageGuard(StorageCtor = typeof Storage !== "undefined"
     } catch (err) {
       if (!isQuotaError(err)) throw err;
     }
+    try {
+      if (evictOtherAccounts(this, String(key), rawRemoveItem).length) {
+        return rawSetItem.call(this, key, value);
+      }
+    } catch (err) {
+      if (!isQuotaError(err)) throw err;
+    }
     console.warn(`[storage] quota exceeded; skipped saving "${key}" locally`);
   };
   Object.defineProperty(proto, "__vetroQuotaGuard", { value: true });
+
+  // Caches keyed by a raw auth token are always junk; clear them on startup.
+  try {
+    const store = typeof localStorage !== "undefined" ? localStorage : null;
+    if (store) {
+      const junk = [];
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i);
+        const owner = key && accountCacheOwner(key);
+        if (owner && looksLikeJwt(owner)) junk.push(key);
+      }
+      junk.forEach((key) => rawRemoveItem.call(store, key));
+    }
+  } catch { /* storage unavailable */ }
 }

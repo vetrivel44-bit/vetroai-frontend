@@ -2,13 +2,24 @@ import React, { useEffect, useState } from "react";
 import { Check, ChevronDown, Mic, MicOff, X } from "lucide-react";
 import "./VoiceMode.css";
 
+// Every option is free: "…Neural" voices are Microsoft Edge's neural voices and
+// "google-…" voices are Google's free voice, both spoken by the backend's /tts.
 const VOICES = [
   { id: "en-US-JennyNeural", name: "Jenny", note: "Warm and friendly", accent: "US" },
   { id: "en-US-AriaNeural", name: "Aria", note: "Bright and expressive", accent: "US" },
   { id: "en-US-GuyNeural", name: "Guy", note: "Calm and steady", accent: "US" },
   { id: "en-US-SteffanNeural", name: "Steffan", note: "Clear and confident", accent: "US" },
+  { id: "en-US-AndrewNeural", name: "Andrew", note: "Natural and relaxed", accent: "US" },
+  { id: "en-US-EmmaNeural", name: "Emma", note: "Cheerful and clear", accent: "US" },
   { id: "en-GB-SoniaNeural", name: "Sonia", note: "Polished and gentle", accent: "UK" },
   { id: "en-GB-RyanNeural", name: "Ryan", note: "Relaxed and easygoing", accent: "UK" },
+  { id: "en-IN-NeerjaNeural", name: "Neerja", note: "Clear and cheerful", accent: "India" },
+  { id: "en-IN-PrabhatNeural", name: "Prabhat", note: "Calm and clear", accent: "India" },
+  { id: "en-AU-NatashaNeural", name: "Natasha", note: "Bright and easy", accent: "Australia" },
+  { id: "en-AU-WilliamNeural", name: "William", note: "Easygoing", accent: "Australia" },
+  { id: "google-en-US", name: "Google", note: "Google voice", accent: "US" },
+  { id: "google-en-GB", name: "Google", note: "Google voice", accent: "UK" },
+  { id: "google-en-IN", name: "Google", note: "Google voice", accent: "India" },
 ];
 
 /**

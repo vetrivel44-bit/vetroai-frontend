@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
+import { speakText, stopSpeaking } from "./lib/tts.js";
+import { setActiveAccountKey, looksLikeJwt } from "./lib/storageGuard.js";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -3855,7 +3857,7 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
 
   // Stop reading aloud when the panel closes, not just when a card is tapped
   // again — otherwise the voice keeps going after the overlay disappears.
-  useEffect(() => () => { if ("speechSynthesis" in window) window.speechSynthesis.cancel(); }, []);
+  useEffect(() => () => stopSpeaking(), []);
 
   const selectCategory = (cat) => {
     // Tapping the chip that's already selected refreshes it — the refresh
@@ -3892,15 +3894,14 @@ function NewsPanel({ onClose, userKey, onAskAI }) {
   };
 
   const toggleListen = (article) => {
-    if (!("speechSynthesis" in window)) return;
     const id = newsArticleId(article);
-    window.speechSynthesis.cancel();
+    stopSpeaking();
     if (speakingId === id) { setSpeakingId(null); return; }
-    const utterance = new SpeechSynthesisUtterance(`${article.title}. ${article.description || ""}`);
-    utterance.onend = () => setSpeakingId(null);
-    utterance.onerror = () => setSpeakingId(null);
-    window.speechSynthesis.speak(utterance);
     setSpeakingId(id);
+    // Google's free voice via the backend; the browser voice if that fails.
+    speakText(`${article.title}. ${article.description || ""}`, {
+      onEnd: () => setSpeakingId((cur) => (cur === id ? null : cur)),
+    });
   };
 
   // Both AI actions are grounded in exactly what the news API returned —
@@ -4538,7 +4539,10 @@ export default function App() {
   // Stable per-account storage namespace. `user` is the raw auth token, which rotates on
   // every login/refresh — keying localStorage off it silently orphaned all saved sessions,
   // spaces, and artifacts behind the old token each time a user re-logged in. Email is stable.
-  const userKey = userInfo?.email || user;
+  // The raw token must never become a storage key (it orphaned chats and filled
+  // the quota); until the email is known, local caching simply waits.
+  const userKey = userInfo?.email || (looksLikeJwt(user) ? null : user);
+  useEffect(() => { setActiveAccountKey(userKey); }, [userKey]);
   const [authMode, setAuthMode]   = useState("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
