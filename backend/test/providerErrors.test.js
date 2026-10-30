@@ -109,3 +109,24 @@ test("a missing key is reported differently from a rejected one", () => {
   const rejected = orchestrator.classifyProviderError("Mistral service error: 401 Unauthorized");
   assert.equal(rejected.kind, "auth");
 });
+
+test("a billing or key failure shows the provider's own words", () => {
+  const raw = 'Sarvam service error: 402 {"error":{"message":"Insufficient credits in workspace ws_123","code":"insufficient_credits"}}';
+  const failure = { provider: "sarvam", ...orchestrator.classifyProviderError(raw), detail: orchestrator.providerDetail(raw) };
+  assert.equal(failure.kind, "quota");
+  const text = orchestrator.describeFinalFailure(failure, new Set(["sarvam"]));
+  assert.match(text, /Sarvam has no quota left/);
+  assert.match(text, /Sarvam said: "Insufficient credits in workspace ws_123"/);
+});
+
+test("the provider's words are cleaned up and kept short", () => {
+  assert.equal(orchestrator.providerDetail("Groq service error: 402 payment required"), "payment required");
+  assert.equal(orchestrator.providerDetail('Sarvam service error: 429 {"message":"Quota exceeded: 60 requests per minute"}'), "Quota exceeded: 60 requests per minute");
+  assert.ok(orchestrator.providerDetail("x".repeat(500)).length <= 180);
+});
+
+test("a timeout doesn't append raw error text", () => {
+  const raw = "Sarvam connect timeout after 30000ms";
+  const failure = { provider: "sarvam", ...orchestrator.classifyProviderError(raw), detail: orchestrator.providerDetail(raw) };
+  assert.doesNotMatch(orchestrator.describeFinalFailure(failure, new Set(["sarvam"])), /said:/);
+});

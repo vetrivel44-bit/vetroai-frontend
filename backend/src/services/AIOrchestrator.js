@@ -1094,7 +1094,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         const failure = this.classifyProviderError(err.message);
         const isRateLimit = failure.kind === "rate_limit";
         const isTimeout = failure.kind === "network";
-        lastFailure = { provider: currentProviderName, ...failure };
+        lastFailure = { provider: currentProviderName, ...failure, detail: this.providerDetail(err.message) };
         logger.warn("AIOrchestrator.providerFailure", { reqId, provider: currentProviderName, kind: failure.kind });
 
         if (isRateLimit) {
@@ -1299,6 +1299,23 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     };
   }
 
+  // The provider's own words from an error, for the final message. "Sarvam has
+  // no quota left" alone left nobody able to tell a wallet with no credits from
+  // a key on another account or a per-minute cap that happens to say "quota".
+  providerDetail(message = "") {
+    let text = String(message).replace(/^[\w .-]*(?:service error|request failed|error):\s*/i, "").replace(/^\d{3}\s*/, "");
+    const json = text.indexOf("{");
+    if (json !== -1) {
+      try {
+        const body = JSON.parse(text.slice(json));
+        const said = body?.error?.message || body?.message || body?.detail || body?.error;
+        if (typeof said === "string" && said.trim()) text = said;
+      } catch { /* not JSON, or cut off: keep the raw text */ }
+    }
+    text = text.replace(/\s+/g, " ").trim();
+    return text.length > 180 ? `${text.slice(0, 177)}…` : text;
+  }
+
   // The message shown once every attempt has been used up.
   describeFinalFailure(lastFailure, attemptedProviders) {
     if (!lastFailure) {
@@ -1306,7 +1323,12 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     const label = this.providerLabel(lastFailure.provider);
     const tried = [...attemptedProviders];
-    const base = lastFailure.userMessage(label);
+    // A key, billing or model problem is fixed by whoever runs the backend,
+    // and the provider's own wording says which account or limit it is.
+    const said = ["auth", "quota", "bad_model"].includes(lastFailure.kind) && lastFailure.detail
+      ? ` ${label} said: "${lastFailure.detail}"`
+      : "";
+    const base = lastFailure.userMessage(label) + said;
     // Only mention a fallback chain when one was actually walked, otherwise the
     // "and N others" reads as noise on a single-provider backend.
     if (tried.length > 1) {
