@@ -190,8 +190,8 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
 - After </think>, write the final answer normally. The answer must stand on its own.`;
   }
 
-  needsWebSearch(q) {
-    return needsLiveInfo(q);
+  needsWebSearch(q, mode) {
+    return needsLiveInfo(q, { mode });
   }
 
   /** The answer admits it has no current information ("as of my last update…"). */
@@ -829,7 +829,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
       params.forceSearch ||
       isExplicitSearchMode ||
-      (autoSearchRequested && this.needsWebSearch(userQuery))
+      (autoSearchRequested && this.needsWebSearch(userQuery, mode))
     );
     let webContext = null;
     // A follow-up ("then in 2025?") is searched with the question it follows.
@@ -1027,8 +1027,15 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         return [{ role: "system", content: drawingSysPrompt + astrologyPrompt }, ...history];
       }
       const tight = TIGHT_BUDGET_PROVIDERS.has(providerName);
-      // Groq's DeepSearch writer keeps its compact evidence in the prompt (below).
-      if (sysPromptWithoutSearch && adapter?.searchResultsWithQuestion?.() && !(tight && compactSysPrompt)) {
+      // Live search results go with the question, dated and with a plain
+      // "these beat your memory" instruction: inside a ~10k-token system
+      // prompt, Sarvam and then Groq answered from their out-of-date training
+      // instead, and every other model does the same often enough. An adapter
+      // can opt out (searchResultsWithQuestion() === false). DeepSearch keeps
+      // its research context in the prompt unless the adapter asks otherwise
+      // (Sarvam does); Groq's DeepSearch writer keeps its compact evidence.
+      const resultsWithQuestion = adapter?.searchResultsWithQuestion ? adapter.searchResultsWithQuestion() : !isAgentic;
+      if (sysPromptWithoutSearch && resultsWithQuestion && !(tight && compactSysPrompt)) {
         return [
           { role: "system", content: (tight ? tightSysPromptWithoutSearch : sysPromptWithoutSearch) + thinking + astrologyPrompt },
           ...withSearchInQuestion(history, webContext, params.clock),

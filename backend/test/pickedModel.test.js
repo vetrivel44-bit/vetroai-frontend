@@ -98,8 +98,8 @@ test("an answer that admits its knowledge is out of date is answered again with 
       },
     },
   });
-  // Doesn't look like a live-info question, so nothing is searched up front.
-  const r = await ask("Groq", "Which company makes the Zephyr X9 phone", { webSearch: "true" });
+  // Reads as a timeless "explain" request, so nothing is searched up front.
+  const r = await ask("Groq", "Explain the Zephyr X9 phone", { webSearch: "true" });
   assert.equal(r.ok, true);
   assert.equal(searches, 1, "searched once, after the out-of-date answer");
   assert.equal(sent.length, 2);
@@ -111,7 +111,7 @@ test("an answer that admits its knowledge is out of date is answered again with 
   const question = rest[rest.length - 1].content;
   assert.match(question, /^LIVE SEARCH RESULTS/);
   assert.ok(question.includes(FRESH));
-  assert.match(question, /My question: Which company makes the Zephyr X9 phone$/);
+  assert.match(question, /My question: Explain the Zephyr X9 phone$/);
   assert.doesNotMatch(system.content, /LIVE SEARCH RESULTS/);
 });
 

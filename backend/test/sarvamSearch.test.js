@@ -58,14 +58,17 @@ test("Sarvam gets the live results with the question, dated, and told they beat 
   assert.match(question.content, /My question: What is the latest iPhone price in India\?$/);
 });
 
-test("other models still get the results in the system prompt, as before", async (t) => {
+test("every model gets the live results with the question, not buried in the system prompt", async (t) => {
   const saved = config.airouterApiKey;
   config.airouterApiKey = "test-key";
   t.after(() => { config.airouterApiKey = saved; });
 
   const sent = await webSearchChat(t, "AI Router", "https://api.airouter.in/");
   assert.ok(sent, "AI Router was asked");
-  assert.match(sent.messages[0].content, /LIVE SEARCH RESULTS/);
-  assert.ok(sent.messages[0].content.includes(FRESH));
-  assert.equal(sent.messages[sent.messages.length - 1].content, "What is the latest iPhone price in India?");
+  const question = sent.messages[sent.messages.length - 1].content;
+  assert.doesNotMatch(sent.messages[0].content, /LIVE SEARCH RESULTS/);
+  assert.match(question, /^LIVE SEARCH RESULTS — fetched just now/);
+  assert.ok(question.includes(FRESH));
+  assert.match(question, /out of date/);
+  assert.match(question, /My question: What is the latest iPhone price in India\?$/);
 });
