@@ -39,17 +39,12 @@ module.exports = {
     // A course on Groq alternates its chapters between these, two at once:
     // each model has its own per-minute limit, so two write twice as fast.
     groqCourseModels:    getEnv("GROQ_COURSE_MODELS",   "openai/gpt-oss-120b,qwen/qwen3.8-27b").split(",").map((m) => m.trim()).filter(Boolean),
-    mistralApiKey:       getEnv("MISTRAL_API_KEY",       ""),
-    mistralModel:        getEnv("MISTRAL_MODEL",        "mistral-small-latest"),
-    mistralTemperature:  Number(getEnv("MISTRAL_TEMPERATURE", "0.7")),
-    mistralMaxTokens:    Number(getEnv("MISTRAL_MAX_TOKENS",  "8192")),
     chatgptApiKey:       getEnv("CHATGPT_API_KEY",       ""),
     fableRapidApiKey:    getEnv("FABLE_RAPIDAPI_KEY",    getEnv("CHATGPT_API_KEY", "")),
     fableApiHost:        getEnv("FABLE_API_HOST",        "claude-fable-5-api.p.rapidapi.com"),
     fableApiUrl:         getEnv("FABLE_API_URL",         "https://claude-fable-5-api.p.rapidapi.com/n9zkopuh8fn4eqyi5xy5bqr3tt66mkt3"),
     geminiApiKey:        getEnv("GEMINI_API_KEY",        ""),
     geminiModel:         getEnv("GEMINI_MODEL",          "gemini-3.6-flash"),
-    sambanovaApiKey:     getEnv("SAMBANOVA_API_KEY",     ""),
     // Sarvam AI — Indian-language model (sarvam-105b).
     sarvamApiKey:        getEnv("SARVAM_API_KEY",        ""),
     sarvamModel:         getEnv("SARVAM_MODEL",          "sarvam-105b"),
@@ -62,18 +57,15 @@ module.exports = {
     cohereVisionModel:   getEnv("COHERE_VISION_MODEL",   "command-a-vision-07-2025"),
     agnesApiKey:         getEnv("AGNES_API_KEY",         ""),
     agnesModel:          getEnv("AGNES_MODEL",           "agnes-2.0-flash"),
-    // Vercel AI Gateway — OpenAI-compatible, one key for many providers' models.
-    // AI_GATEWAY_API_KEY is Vercel's own name for it.
-    vercelApiKey:        getEnv("AI_GATEWAY_API_KEY", "") || getEnv("VERCEL_AI_GATEWAY_API_KEY", ""),
-    vercelBaseUrl:       getEnv("VERCEL_AI_BASE_URL",    "https://ai-gateway.vercel.sh/v1"),
-    vercelModel:         getEnv("VERCEL_AI_MODEL",       "openai/gpt-oss-120b"),
-    vercelTemperature:   Number(getEnv("VERCEL_AI_TEMPERATURE", "0.7")),
-    vercelMaxTokens:     Number(getEnv("VERCEL_AI_MAX_TOKENS",  "8192")),
+    // AI Router (ai-router.dev) — OpenAI-compatible. VetroAI uses only DeepSeek V4.1 Flash there.
+    airouterApiKey:      getEnv("AIROUTER_API_KEY",      ""),
+    airouterBaseUrl:     getEnv("AIROUTER_BASE_URL",     "https://api.ai-router.dev/v1"),
+    airouterModel:       getEnv("AIROUTER_MODEL",        "deepseek/deepseek-v4.1-flash"),
+    airouterTemperature: Number(getEnv("AIROUTER_TEMPERATURE", "0.7")),
+    airouterMaxTokens:   Number(getEnv("AIROUTER_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.
     thinkingEnabled:     getEnv("THINKING_ENABLED", "true") !== "false",
     // Chess Arena — dedicated keys/models, isolated from the chat providers above.
-    chessMistralApiKey:    getEnv("CHESS_MISTRAL_API_KEY",    ""),
-    chessMistralModel:     getEnv("CHESS_MISTRAL_MODEL",      "mistral-small-latest"),
     chessGroqApiKey:       getEnv("CHESS_GROQ_API_KEY",       ""),
     chessGroqModel:        getEnv("CHESS_GROQ_MODEL",         "llama-3.3-70b-versatile"),
     chessGeminiApiKey:     getEnv("CHESS_GEMINI_API_KEY",     ""),

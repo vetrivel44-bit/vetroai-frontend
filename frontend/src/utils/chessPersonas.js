@@ -114,8 +114,8 @@ export const PERSONAS = {
     ],
     voice: "fast, brash, and a little cocky",
   },
-  mistral: {
-    label: "Mistral",
+  airouter: {
+    label: "DeepSeek",
     school: "European technique — Petrosian's prophylaxis",
     thinkMs: 900,
     discipline: 0.92,
@@ -127,20 +127,6 @@ export const PERSONAS = {
       "A tiny material edge, carefully converted, is a whole point.",
     ],
     voice: "dry, exact, faintly amused by the opponent's optimism",
-  },
-  sambanova: {
-    label: "SambaNova",
-    school: "Hypermodern — cede the centre, then break it",
-    thinkMs: 850,
-    discipline: 0.78,
-    tolerance: 70,
-    style: makeStyle({ material: 0.95, kingAttack: 1.25, mobility: 1.35, pawnStructure: 0.9, kingSafety: 1.0, centre: 0.85, initiative: 0.8, contempt: 1 }),
-    doctrine: [
-      "Let the opponent build a big centre, then undermine it with a flank pawn break.",
-      "Fianchettoed bishops are long-term assets — do not trade them cheaply.",
-      "Prefer the move that keeps more pieces on when you have the more flexible position.",
-    ],
-    voice: "bold and unorthodox, enjoying the road less travelled",
   },
   openrouter: {
     label: "OpenRouter",

@@ -106,7 +106,7 @@ async function request(body, { timeoutMs }) {
 
 // sarvam-105b reasons before every answer, at "medium" when nothing is said —
 // so a plain "hi" sat behind seconds of silent reasoning. The user's effort
-// setting picks the depth (as vercelAdapter does for gpt-oss), the default
+// setting picks the depth (as airouterAdapter does for gpt-oss), the default
 // ("balanced") kept light, and null switches reasoning off.
 const REASONING_EFFORT = { quick: null, balanced: "low", deep: "medium", max: "high" };
 

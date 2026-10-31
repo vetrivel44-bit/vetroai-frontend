@@ -59,12 +59,12 @@ test("Sarvam gets the live results with the question, dated, and told they beat 
 });
 
 test("other models still get the results in the system prompt, as before", async (t) => {
-  const saved = config.mistralApiKey;
-  config.mistralApiKey = "test-key";
-  t.after(() => { config.mistralApiKey = saved; });
+  const saved = config.airouterApiKey;
+  config.airouterApiKey = "test-key";
+  t.after(() => { config.airouterApiKey = saved; });
 
-  const sent = await webSearchChat(t, "Mistral", "https://api.mistral.ai/");
-  assert.ok(sent, "Mistral was asked");
+  const sent = await webSearchChat(t, "AI Router", "https://api.ai-router.dev/");
+  assert.ok(sent, "AI Router was asked");
   assert.match(sent.messages[0].content, /LIVE SEARCH RESULTS/);
   assert.ok(sent.messages[0].content.includes(FRESH));
   assert.equal(sent.messages[sent.messages.length - 1].content, "What is the latest iPhone price in India?");

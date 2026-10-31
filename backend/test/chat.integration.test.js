@@ -8,9 +8,8 @@ function clearProviderKeys() {
   for (const key of [
     "chatgptApiKey",
     "groqApiKey",
-    "mistralApiKey",
     "agnesApiKey",
-    "sambanovaApiKey",
+    "airouterApiKey",
     "geminiApiKey",
   ]) config[key] = "";
 }
@@ -64,7 +63,6 @@ test("title and follow-up endpoints remain usable without Groq", async (t) => {
 test("processRequest reports failure when no provider is configured, so the turn is not billed", async () => {
   clearProviderKeys();
   config.fableRapidApiKey = "";
-  config.vercelApiKey = "";
   const orchestrator = require("../src/services/AIOrchestrator");
 
   const written = [];

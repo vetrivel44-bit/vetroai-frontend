@@ -15,14 +15,14 @@ if (!config.groqApiKey) {
 const MAX_VISION_IMAGES = 4;
 
 const groq = config.groqApiKey ? new Groq({ apiKey: config.groqApiKey }) : null;
-const mistralAvailable = Boolean(config.mistralApiKey);
+const airouterAvailable = () => Boolean(config.airouterApiKey);
 
 const providerManager = require("../services/ProviderManager");
 const creditService = require("../services/creditService");
 const usage = require("../services/usageService");
 const { modelOf } = require("./usageController");
 const { withGroqModel, quietReasoning } = require("../utils/groqModel");
-const mistralAdapter = require("../providers/mistralAdapter");
+const airouterAdapter = require("../providers/airouterAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
 const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
@@ -132,8 +132,8 @@ const AIOrchestrator = require("../services/AIOrchestrator");
 
 // Goes through the adapter so titles and follow-ups get the same rate-limit
 // retries and model fallbacks as chat replies.
-async function callMistralChat({ messages, temperature = 0.4, maxTokens = 120 }) {
-  return mistralAdapter.complete(messages, { temperature, maxTokens });
+async function callAirouterChat({ messages, temperature = 0.4, maxTokens = 120 }) {
+  return airouterAdapter.complete(messages, { temperature, maxTokens });
 }
 
 // ── MAIN CHAT HANDLER ─────────────────────────────────────────────────────────
@@ -320,13 +320,13 @@ async function generateTitle(req, res) {
   const firstMessage = String(req.body?.firstMessage || "").trim();
   if (!firstMessage) throw new ApiError(400, "firstMessage is required");
 
-  if (!groq && mistralAvailable) {
-    const completion = await callMistralChat({
+  if (!groq && airouterAvailable()) {
+    const completion = await callAirouterChat({
       messages: [
         { role: "system", content: "Generate a 4-6 word summary title for this chat. Never use simple greetings like 'hi' or 'hello' as a title. Include a relevant emoji at the start. Return plain text only." },
         { role: "user", content: firstMessage.slice(0, 400) },
       ],
-      temperature: config.mistralTemperature,
+      temperature: config.airouterTemperature,
       maxTokens: 28,
     });
     const title = completion.trim().replace(/^["']|["']$/g, "").slice(0, 64) || "New Chat";
@@ -403,8 +403,8 @@ async function followUps(req, res) {
       );
       return completion?.choices?.[0]?.message?.content || "";
     };
-  } else if (mistralAvailable) {
-    callModel = async ({ system, user, maxTokens, temperature }) => callMistralChat({
+  } else if (airouterAvailable()) {
+    callModel = async ({ system, user, maxTokens, temperature }) => callAirouterChat({
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature,
       maxTokens,

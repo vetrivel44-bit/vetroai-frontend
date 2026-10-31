@@ -1,7 +1,7 @@
 // Chess Arena — AI move engine.
 //
 // Most models talk to the existing /api/chat endpoint the same way the rest
-// of VetroAI does (FormData + SSE). Mistral, Groq, Gemini, and OpenRouter
+// of VetroAI does (FormData + SSE). Groq, Gemini, and OpenRouter
 // instead go through a dedicated /api/chess/move endpoint with its own
 // CHESS_*_API_KEY credentials on the backend — completely separate from the
 // main chat's provider keys, so wiring chess up never changes chat behavior.
@@ -39,14 +39,13 @@ export const CHESS_MODELS = [
   { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#d97757", avatar: "F", logo: "/model-icons/claude.svg" },
   { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G", logo: "/model-icons/gemini.svg" },
   { id: "groq", name: "Groq", tagline: "Relentless initiative — thrives in chaos", color: "#f55036", avatar: "Q", logo: "/model-icons/groq.svg" },
-  { id: "mistral", name: "Mistral", tagline: "Prophylactic grinder — stops your plan first", color: "#f97316", avatar: "M", logo: "/model-icons/mistral.svg" },
-  { id: "sambanova", name: "SambaNova", tagline: "Hypermodern — cedes the centre to break it", color: "#ec4899", avatar: "S", logo: "/model-icons/sambanova.svg" },
+  { id: "airouter", name: "DeepSeek", tagline: "Prophylactic grinder — stops your plan first", color: "#4d6bfe", avatar: "D", logo: "/model-icons/deepseek.svg" },
   { id: "openrouter", name: "OpenRouter", tagline: "Adaptive — borrows whichever school fits", color: "#6366f1", avatar: "O", logo: "/model-icons/openrouter.svg" },
 ];
 
-// These four run through the dedicated /api/chess/move endpoint (their own
+// These three run through the dedicated /api/chess/move endpoint (their own
 // backend API keys); everything else still goes through the shared /api/chat.
-const DEDICATED_CHESS_PROVIDERS = new Set(["mistral", "groq", "gemini", "openrouter"]);
+const DEDICATED_CHESS_PROVIDERS = new Set(["groq", "gemini", "openrouter"]);
 
 export function getModel(id) {
   return CHESS_MODELS.find((m) => m.id === id) || CHESS_MODELS[0];

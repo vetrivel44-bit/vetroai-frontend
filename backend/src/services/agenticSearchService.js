@@ -34,7 +34,7 @@ const { searchForResearch } = require("../controllers/searchController");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { withGroqModel } = require("../utils/groqModel");
-const mistralAdapter = require("../providers/mistralAdapter");
+const airouterAdapter = require("../providers/airouterAdapter");
 const { describeClock } = require("./clockService");
 const { fetchPageText, keyTerms, indexPassages, pickPassages } = require("./pageReader");
 const { withTimeout } = require("../utils/withTimeout");
@@ -324,7 +324,7 @@ If nothing needs checking, reply {"claims": []}.`;
 /**
  * The model that plans, reviews and picks claims to check. Groq's stronger
  * model first (falling back to the small planner model when rate-limited),
- * then Mistral. Null when neither is configured: the research then runs
+ * then AI Router. Null when neither is configured: the research then runs
  * without planning, still reading the pages it finds.
  */
 function defaultThinker() {
@@ -348,8 +348,8 @@ function defaultThinker() {
       }
     };
   }
-  if (config.mistralApiKey) {
-    return (prompt, maxTokens) => mistralAdapter.complete([{ role: "user", content: prompt }], { temperature: 0.2, maxTokens });
+  if (config.airouterApiKey) {
+    return (prompt, maxTokens) => airouterAdapter.complete([{ role: "user", content: prompt }], { temperature: 0.2, maxTokens });
   }
   return null;
 }

@@ -227,7 +227,7 @@ async function runTask(task, { now = Date.now(), search = searchWeb, think = def
   })();
   let run;
   try {
-    if (!think) throw new Error("No AI model is configured on the server (GROQ_API_KEY or MISTRAL_API_KEY).");
+    if (!think) throw new Error("No AI model is configured on the server (GROQ_API_KEY or AIROUTER_API_KEY).");
     const { context } = await search(task.kind === "watch" ? task.condition || task.prompt : task.prompt, { clock: { timeZone: tz, now: new Date(now) } });
     const text = await think((task.kind === "watch" ? WATCH_PROMPT : BRIEF_PROMPT)(task, clockText, context), task.kind === "watch" ? 400 : 900);
     if (task.kind === "watch") {
