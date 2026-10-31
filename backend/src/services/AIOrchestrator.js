@@ -2,6 +2,7 @@
 const logger = require("../utils/logger");
 const { VISUALS_PROMPT } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
+const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
@@ -1084,7 +1085,11 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         success = true;
         // Which model actually answered (it may be a fallback, not the one
         // picked): the app labels the reply with it, and usage counts it.
-        const answeredBy = this.providerLabel(currentProviderName);
+        // AI Router serves several models: name the one that answered, so the
+        // reply shows DeepSeek's or Mercury's logo rather than a generic one.
+        const answeredBy = currentProviderName === "airouter"
+          ? airouterAdapter.displayName(options?.airouterModel)
+          : this.providerLabel(currentProviderName);
         if (res.locals) res.locals.answeredBy = answeredBy;
         this.sendVetroEvent(res, "model", answeredBy);
       } catch (err) {
