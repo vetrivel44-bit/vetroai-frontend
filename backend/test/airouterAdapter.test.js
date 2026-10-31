@@ -160,3 +160,10 @@ test("model names match across AI Router's naming styles", () => {
   assert.equal(airouter.matchModel("inception/mercury-2.5", ["inception/mercury-coder", "Mercury 2.5"]), "Mercury 2.5");
   assert.equal(airouter.matchModel("deepseek/deepseek-v4.1-flash", ["openai/gpt-5"]), null);
 });
+
+test("each AI Router model's reply is labelled with its own picker name", () => {
+  assert.equal(airouter.displayName(airouter.modelFor("Mercury 2.5")), "Mercury 2.5");
+  assert.equal(airouter.displayName(airouter.modelFor("VetroAI")), "VetroAI");
+  assert.equal(airouter.displayName(airouter.modelFor("DeepSeek V4.1 Flash")), "DeepSeek V4.1 Flash");
+  assert.equal(airouter.displayName(undefined), "DeepSeek V4.1 Flash", "a fallback to AI Router uses DeepSeek");
+});

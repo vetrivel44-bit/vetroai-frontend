@@ -34,6 +34,14 @@ function modelFor(label) {
   return null;
 }
 
+/** The picker name of an AI Router model id, for labelling the reply. */
+function displayName(modelId) {
+  const id = String(modelId || defaultModel());
+  if (/mercury/i.test(id)) return "Mercury 2.5";
+  if (/qwen/i.test(id)) return "VetroAI";
+  return "DeepSeek V4.1 Flash";
+}
+
 // A short-lived 429 is retried after a pause (Retry-After when sent, capped)
 // rather than failing over on the first one. A spend or credit limit won't
 // clear in seconds and is left to the orchestrator's fallback.
@@ -144,6 +152,7 @@ async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel
     signal: AbortSignal.timeout(timeoutMs),
   });
 
+  logger.info("airouterAdapter.request", { model, stream });
   let res = await request();
   let detail = res.ok ? "" : await res.text();
   if (!res.ok && isUnknownModelError(res.status, detail)) {
@@ -202,6 +211,7 @@ module.exports = {
   MERCURY_MODEL,
   QWEN_MODEL,
   modelFor,
+  displayName,
   matchModel,
   keyFingerprint,
   resetResolvedModels: () => { resolvedModels.clear(); modelListCache = null; },
