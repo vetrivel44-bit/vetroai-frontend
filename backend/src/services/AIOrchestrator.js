@@ -8,6 +8,7 @@ const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { LIVE_INFO_PATTERNS, ABOUT_SELF, needsLiveInfo } = require("./liveInfoIntent");
+const { decideSearch } = require("./searchIntentService");
 const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
 const { config } = require("../config/env");
@@ -113,7 +114,7 @@ function withSearchInQuestion(history, webContext, clock) {
     `LIVE SEARCH RESULTS — fetched just now for my question below. ${clockLine(clock || {})}`,
     webContext,
     "",
-    "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. If they are unrelated to my question, ignore them.",
+    "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. If they are unrelated to my question, ignore them. If my message is small talk or about how I feel, just reply to me naturally and leave the results out — don't explain what they say.",
     GROUNDING_RULE,
     "",
     `My question: ${history[at].content}`,
@@ -826,11 +827,17 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // A turn about an attached file or image is answered from the attachment;
     // searching the web for words from the file's text only added noise.
     // forceSearch: a retry after the model said its knowledge is out of date.
-    const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
-      params.forceSearch ||
-      isExplicitSearchMode ||
-      (autoSearchRequested && this.needsWebSearch(userQuery, mode))
-    );
+    // With auto-search on, a small model reads the message and decides
+    // (searchIntentService) — the same judge for every model, here and for
+    // browser models via /api/search-intent. A word list used to decide, and
+    // "I am happy" was searched and answered with facts about a song.
+    const searchAllowed = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments;
+    let shouldSearch = searchAllowed && (params.forceSearch || isExplicitSearchMode);
+    if (searchAllowed && !shouldSearch && autoSearchRequested) {
+      const decision = await decideSearch({ query: userQuery, history: messages.slice(0, -1), mode, clock: params.clock });
+      shouldSearch = decision.search;
+      logger.info("AIOrchestrator.searchDecision", { reqId, search: decision.search, by: decision.by, ...(decision.reason ? { reason: decision.reason } : {}) });
+    }
     let webContext = null;
     // A follow-up ("then in 2025?") is searched with the question it follows.
     const searchQuery = searchQueryFor(userQuery, messages.slice(0, -1));

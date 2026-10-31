@@ -32,6 +32,7 @@ const handleUpload = (req, res, next) => {
 router.post("/chat", chatLimiter, handleUpload, optionalAuth, asyncHandler(chatController.chat));
 router.post("/generate-title", chatLimiter, asyncHandler(chatController.generateTitle));
 router.post("/follow-ups", chatLimiter, asyncHandler(chatController.followUps));
+router.post("/search-intent", chatLimiter, asyncHandler(chatController.searchIntent));
 router.post("/search", chatLimiter, asyncHandler(searchController.performSearch));
 // DeepSearch for browser models: the research itself, streamed (researchController.js).
 router.post("/research", chatLimiter, asyncHandler(require("../controllers/researchController").research));
