@@ -53,3 +53,46 @@ test("the orchestrator uses the shared patterns", () => {
   assert.equal(orchestrator.needsWebSearch("is TTV Vasan in bigg boss season 10"), true);
   assert.equal(orchestrator.needsWebSearch("what is DBMS"), false);
 });
+
+// Questions with no "2026", "latest" or "news" in them, which were answered
+// from the models' out-of-date memory before the rule was turned around.
+const NO_TIME_WORD_BUT_CURRENT = [
+  "best phones under 30000",
+  "tamil nadu cm",
+  "zephyr x9 review",
+  "kerala tourism package cost",
+  "who runs twitter",
+  "how to apply for passport in india",
+  "make a list of the best phones",
+  "top engineering colleges in tamil nadu",
+  "what is zephyr x9",
+  "anna university exam date",
+  "TVK party",
+];
+const STILL_TIMELESS = [
+  "review my essay",
+  "how does photosynthesis work",
+  "why is the sky blue",
+  "2+2*3",
+  "translate hello to tamil",
+  "thank you so much",
+  "Kubernetes",
+  "what is machine learning",
+  "solve x^2 - 4 = 0",
+  "good morning",
+  "tell me a joke",
+  "summarize this document",
+];
+
+test("questions without a time word are searched unless they're clearly timeless", () => {
+  for (const q of NO_TIME_WORD_BUT_CURRENT) assert.equal(needsLiveInfo(q), true, q);
+  for (const q of STILL_TIMELESS) assert.equal(needsLiveInfo(q), false, q);
+});
+
+test("in coding, creative and similar modes only clearly-current questions search", () => {
+  assert.equal(needsLiveInfo("best laptop for coding", { mode: "debugger" }), false);
+  assert.equal(needsLiveInfo("latest react version", { mode: "debugger" }), true);
+  assert.equal(needsLiveInfo("best laptop for coding", { mode: "normal" }), true);
+  assert.equal(orchestrator.needsWebSearch("tamil nadu cm", "normal"), true);
+  assert.equal(orchestrator.needsWebSearch("tamil nadu cm", "summarize"), false);
+});
