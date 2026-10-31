@@ -1383,15 +1383,35 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
   // Splits a content chunk into visible answer text and <think> reasoning text.
   // `state` ({ inside, buf }) is carried across chunks by the caller.
+  //
+  // Some models think in the answer without opening a <think> block and only
+  // close one ("Okay, the user wants… </think> Here is the answer"). A closing
+  // tag that comes before any opening tag means everything so far was thinking:
+  // the text before it in this chunk is returned as reasoning, and
+  // `orphanClose` tells the caller to move what it already showed as the answer
+  // there too. Only once per reply, and only if no <think> block was opened.
   splitThinkingTags(chunk, state) {
     state.buf += chunk;
     let content = "";
     let reasoning = "";
+    let orphanClose = false;
 
     for (;;) {
       if (!state.inside) {
         const open = state.buf.match(/<think(?:ing)?>/i);
+        let close = state.opened || state.orphanSeen ? null : state.buf.match(/<\/think(?:ing)?>/i);
+        // A tag in quotes or backticks is an answer talking about the tag.
+        if (close && /[`'"]$/.test(state.buf.slice(0, close.index))) close = null;
+        if (close && (!open || close.index < open.index)) {
+          reasoning += content + state.buf.slice(0, close.index);
+          content = "";
+          state.buf = state.buf.slice(close.index + close[0].length).replace(/^\s+/, "");
+          state.orphanSeen = true;
+          orphanClose = true;
+          continue;
+        }
         if (open) {
+          state.opened = true;
           content += state.buf.slice(0, open.index);
           state.buf = state.buf.slice(open.index + open[0].length);
           state.inside = true;
@@ -1416,7 +1436,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       break;
     }
 
-    return { content, reasoning };
+    return orphanClose ? { content, reasoning, orphanClose } : { content, reasoning };
   }
 
   // Whatever is still buffered when the stream ends belongs to whichever
@@ -1481,6 +1501,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       if (content) {
         const split = this.splitThinkingTags(content, think);
         content = split.content;
+        if (split.orphanClose && fullContent) {
+          // The model closed a <think> block it never opened: what was shown
+          // as the answer so far was its thinking. Clear the reply in the app
+          // and replay it all into the thinking panel ("clear" wipes both).
+          const replay = fullReasoning + fullContent;
+          fullContent = "";
+          fullReasoning = "";
+          reasoningStartedAt = 0;
+          reasoningClosed = false;
+          this.sendVetroEvent(res, "clear", "");
+          reasoning = replay + reasoning;
+        }
         if (split.reasoning) reasoning += split.reasoning;
       }
 
