@@ -16,7 +16,7 @@ const CASES = [
   ["404 unknown model", "Gemini request failed: 404 model not found", "bad_model", false],
   ["decommissioned model", "The model `llama-3.1-70b` has been decommissioned", "bad_model", false],
   ["network timeout", "Stream generation timeout", "network", true],
-  ["dns failure", "fetch failed ENOTFOUND api.ai-router.dev", "network", true],
+  ["dns failure", "fetch failed ENOTFOUND api.airouter.in", "network", true],
   ["upstream 503", "Agnes service error: 503 Service Unavailable", "upstream", true],
 ];
 

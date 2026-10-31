@@ -819,7 +819,7 @@ const PUTER_MODEL_IDS = {
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-// DeepSeek V4.1 Flash, served by AI Router (ai-router.dev) on the backend
+// DeepSeek V4.1 Flash, served by AI Router (airouter.in) on the backend
 // (providers/airouterAdapter.js).
 const AIROUTER_PROVIDER = "DeepSeek V4.1 Flash";
 const GROK_PROVIDER = "Grok 4.6";
