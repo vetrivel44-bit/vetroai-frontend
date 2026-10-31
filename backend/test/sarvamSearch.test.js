@@ -63,7 +63,7 @@ test("other models still get the results in the system prompt, as before", async
   config.airouterApiKey = "test-key";
   t.after(() => { config.airouterApiKey = saved; });
 
-  const sent = await webSearchChat(t, "AI Router", "https://api.ai-router.dev/");
+  const sent = await webSearchChat(t, "AI Router", "https://api.airouter.in/");
   assert.ok(sent, "AI Router was asked");
   assert.match(sent.messages[0].content, /LIVE SEARCH RESULTS/);
   assert.ok(sent.messages[0].content.includes(FRESH));

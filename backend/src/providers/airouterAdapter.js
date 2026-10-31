@@ -6,11 +6,11 @@ const ApiError = require("../utils/apiError");
 // The id can be overridden with AIROUTER_MODEL only if AI Router renames it.
 const MODEL = "deepseek/deepseek-v4.1-flash";
 
-// AI Router (ai-router.dev) exposes an OpenAI-compatible /chat/completions endpoint,
+// AI Router (airouter.in) exposes an OpenAI-compatible /chat/completions endpoint,
 // so the stream is handed back untouched and parsed by AIOrchestrator.pipeStream
 // (which also routes any `delta.reasoning_content` into the thinking panel).
 function endpoint() {
-  const base = (config.airouterBaseUrl || "https://api.ai-router.dev/v1").replace(/\/+$/, "");
+  const base = (config.airouterBaseUrl || "https://api.airouter.in/v1").replace(/\/+$/, "");
   return `${base}/chat/completions`;
 }
 

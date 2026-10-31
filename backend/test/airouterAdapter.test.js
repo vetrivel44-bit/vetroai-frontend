@@ -31,7 +31,7 @@ const OK = { status: 200, body: "data: [DONE]\n\n" };
 test("streams DeepSeek V4.1 Flash from AI Router", withFetch([OK], async (calls) => {
   await airouter.generateStream([{ role: "user", content: "hi" }]);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "https://api.ai-router.dev/v1/chat/completions");
+  assert.equal(calls[0].url, "https://api.airouter.in/v1/chat/completions");
   assert.equal(calls[0].body.model, "deepseek/deepseek-v4.1-flash");
   assert.equal(calls[0].body.stream, true);
   assert.equal(calls[0].headers.Authorization, "Bearer test-key");
