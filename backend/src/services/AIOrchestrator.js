@@ -26,10 +26,14 @@ const VISION_PROVIDERS = ["gemini", "cohere", "groq"];
 // Ceiling on provider hops for one request. See where it's used for why it
 // isn't simply the configured-provider count.
 const MAX_FALLBACK_ATTEMPTS = 5;
-// Tries for a provider that answers alone once picked (Sarvam), and the pause
-// before each retry, grown per try (1 s, 2 s, 3 s, 4 s). A try that stopped
-// part-way continues from where the answer stopped instead of starting over.
+// Tries for a model picked in the model picker (it answers alone; only Auto
+// falls back to other models), and the pause before each retry, grown per try
+// (1 s, 2 s, 3 s, 4 s). A try that stopped part-way continues from where the
+// answer stopped instead of starting over. With AI Router's 90s start limit,
+// five timeouts would keep the user waiting for minutes, so retries also stop
+// once the turn has run this long.
 const PICKED_ALONE_TRIES = 5;
+const PICKED_ALONE_BUDGET_MS = 180000;
 const CONTINUE_PROMPT = "Your previous reply was cut off. Continue it exactly from where it stopped: do not repeat anything already written, do not restart or summarise, and keep any open code block or ```sketch block going.";
 let pickedAloneRetryDelayMs = 1000;
 // A screenshot is a much bigger, slower request than a text turn, so a vision
@@ -117,6 +121,19 @@ function withSearchInQuestion(history, webContext, clock) {
   return history.map((m, i) => (i === at ? { ...m, content: turn } : m));
 }
 
+// Phrases a model uses when it answers from memory and admits that memory is
+// out of date. Such an answer is retried once with a web search.
+const OUT_OF_DATE_PATTERNS = [
+  /\b(as of|since|after|beyond) my (last |latest |most recent )?(knowledge|training|update)\b/i,
+  /\bmy (knowledge|training data|training)( cut-?off)? (only )?(goes|extends|runs|is limited|ends)\b/i,
+  /\bknowledge cut-?off\b/i,
+  /\bI (don'?t|do not|can'?t|cannot) (have )?(access( to)?|browse|check|provide|offer) (the )?(real[- ]time|current|live|up[- ]to[- ]date|latest|recent)\b/i,
+  /\bI (don'?t|do not) have (any )?(information|data|details|knowledge) (about|on|of) (events|developments|anything|things) (after|since|beyond)\b/i,
+  /\b(unable|not able) to (browse|access|search) the (internet|web)\b/i,
+];
+// Modes where an answer is not a lookup (a website, code to run, the computer).
+const NO_SEARCH_RETRY_MODES = new Set(["design", "code_exec", "computer_use", "data_analysis"]);
+
 class AIOrchestrator {
   constructor() {
     this.VISUALIZATION_TRIGGERS = [
@@ -175,6 +192,12 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
 
   needsWebSearch(q) {
     return needsLiveInfo(q);
+  }
+
+  /** The answer admits it has no current information ("as of my last update…"). */
+  soundsOutOfDate(text) {
+    const head = String(text || "").slice(0, 3000);
+    return OUT_OF_DATE_PATTERNS.some((rx) => rx.test(head));
   }
 
   needsVisualization(q) {
@@ -713,9 +736,10 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       : providerManager.getBestProvider(mode, preferredProvider);
     let attempts = 0;
     const attemptedProviders = new Set();
-    // Sarvam, picked in the model picker, answers alone: a timeout, a busy
-    // moment or an empty reply is tried again on Sarvam, never handed to
-    // another model. Auto still walks the fallback chain.
+    // A model picked in the model picker answers alone: a timeout, a busy
+    // moment or an empty reply is tried again on the same model, never handed
+    // to another one. Only Auto walks the fallback chain.
+    const pickedAloneSince = Date.now();
     const pickedAlone = !needsVision && currentProviderName
       && providerManager.pickedAlone(preferredProvider) === currentProviderName
       ? currentProviderName : null;
@@ -801,7 +825,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const answeredByClock = !!clockQuestion && (!clockQuestion.place || !!clockNote);
     // A turn about an attached file or image is answered from the attachment;
     // searching the web for words from the file's text only added noise.
+    // forceSearch: a retry after the model said its knowledge is out of date.
     const shouldSearch = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments && (
+      params.forceSearch ||
       isExplicitSearchMode ||
       (autoSearchRequested && this.needsWebSearch(userQuery))
     );
@@ -935,6 +961,11 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // guide (~3k tokens, ~5k with results); it still draws charts, maps and
     // timelines through the structured blocks.
     const tightSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras;
+    // The same, without the search results, for a tight-budget writer that
+    // takes them with the question instead (Groq).
+    const tightSysPromptWithoutSearch = webContext
+      ? await this.buildSystemPrompt(mode, { userQuery, webContext: null, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras
+      : null;
     // A drawing carries its own sketch rules (the app's drawing instruction), so
     // it gets the lean prompt without the chart/diagram/table rules: about a
     // third of the input tokens, on every try.
@@ -995,9 +1026,11 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       if (drawingSysPrompt) {
         return [{ role: "system", content: drawingSysPrompt + astrologyPrompt }, ...history];
       }
-      if (sysPromptWithoutSearch && adapter?.searchResultsWithQuestion?.()) {
+      const tight = TIGHT_BUDGET_PROVIDERS.has(providerName);
+      // Groq's DeepSearch writer keeps its compact evidence in the prompt (below).
+      if (sysPromptWithoutSearch && adapter?.searchResultsWithQuestion?.() && !(tight && compactSysPrompt)) {
         return [
-          { role: "system", content: sysPromptWithoutSearch + thinking + astrologyPrompt },
+          { role: "system", content: (tight ? tightSysPromptWithoutSearch : sysPromptWithoutSearch) + thinking + astrologyPrompt },
           ...withSearchInQuestion(history, webContext, params.clock),
         ];
       }
@@ -1079,6 +1112,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           continue;
         }
 
+        // Answered from memory and said that memory is out of date ("as of my
+        // last update…", "I don't have real-time data"): with auto-search on,
+        // clear it, search the web and answer again — once per message.
+        if (!webContext && !params.forceSearch && autoSearchRequested && !isGreeting && !isIdentityQuestion
+          && !params.hasAttachments && !drawing && !NO_SEARCH_RETRY_MODES.has(mode) && !params.signal?.aborted
+          && this.soundsOutOfDate(soFar)) {
+          logger.info("AIOrchestrator.searchAfterOutOfDateAnswer", { reqId, provider: currentProviderName });
+          this.sendVetroEvent(res, "clear", "");
+          this.sendVetroEvent(res, "status", "Checking the web for up-to-date information…");
+          return this.processRequest(reqId, { ...params, forceSearch: true }, res);
+        }
+
         // Append a real-image gallery if this query warranted one — fetched in parallel
         // above, so it's typically already resolved by the time the text stream finishes.
         const images = await imagesPromise;
@@ -1129,7 +1174,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // A key, billing or model-name problem fails the same way every
           // time: say so now instead of retrying.
           const worthRetrying = !["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind);
-          if (worthRetrying && attempts < maxAttempts && !params.signal?.aborted) {
+          const withinBudget = Date.now() - pickedAloneSince < PICKED_ALONE_BUDGET_MS;
+          if (worthRetrying && withinBudget && attempts < maxAttempts && !params.signal?.aborted) {
             if (err.partialContent && err.partialContent.trim()) resumeText += err.partialContent;
             if (resumeText) {
               // Keep what the user already has; the next try picks up from it.
