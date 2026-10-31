@@ -27,7 +27,7 @@ Query: "${query}"
       body: JSON.stringify({
         input: prompt,
         mode: "normal",
-        provider: "agnes",
+        provider: "vetroai",
         messages: [{ role: "user", content: prompt }]
       })
     });

@@ -2,9 +2,13 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
 
-// AI Router serves exactly one model for VetroAI: DeepSeek V4.1 Flash.
-// The id can be overridden with AIROUTER_MODEL only if AI Router renames it.
+// AI Router serves three models for VetroAI, picked by name in the model picker:
+// DeepSeek V4.1 Flash (the default), Mercury 2.5, and Qwen 3.7 Flash (shown as
+// "VetroAI"). AIROUTER_MODEL, AIROUTER_MERCURY_MODEL and AIROUTER_QWEN_MODEL
+// override the ids only if AI Router names them differently.
 const MODEL = "deepseek/deepseek-v4.1-flash";
+const MERCURY_MODEL = "inception/mercury-2.5";
+const QWEN_MODEL = "qwen/qwen3.7-flash";
 
 // AI Router (airouter.in) exposes an OpenAI-compatible /chat/completions endpoint,
 // so the stream is handed back untouched and parsed by AIOrchestrator.pipeStream
@@ -14,8 +18,20 @@ function endpoint() {
   return `${base}/chat/completions`;
 }
 
-function model() {
+function defaultModel() {
   return config.airouterModel || MODEL;
+}
+
+/**
+ * "Mercury 2.5" → Mercury, "VetroAI" / "Qwen…" → Qwen 3.7 Flash,
+ * "DeepSeek V4.1 Flash" / "AI Router" → DeepSeek, else null.
+ */
+function modelFor(label) {
+  const text = String(label || "").trim();
+  if (/mercury/i.test(text)) return config.airouterMercuryModel || MERCURY_MODEL;
+  if (/qwen|^vetro\s?ai$/i.test(text)) return config.airouterQwenModel || QWEN_MODEL;
+  if (/deepseek|ai[\s_-]?router/i.test(text)) return defaultModel();
+  return null;
 }
 
 // A short-lived 429 is retried after a pause (Retry-After when sent, capped)
@@ -51,7 +67,7 @@ function apiKey() {
 }
 
 // Sends one request, retrying a short-lived rate limit. Returns the ok Response.
-async function send(body, { stream, timeoutMs }) {
+async function send(body, { stream, timeoutMs, model = defaultModel() }) {
   const key = apiKey();
   const request = () => fetch(endpoint(), {
     method: "POST",
@@ -62,7 +78,7 @@ async function send(body, { stream, timeoutMs }) {
       "Content-Type": "application/json",
       ...(stream ? { Accept: "text/event-stream" } : {}),
     },
-    body: JSON.stringify({ ...body, model: model(), stream }),
+    body: JSON.stringify({ ...body, model, stream }),
     signal: AbortSignal.timeout(timeoutMs),
   });
 
@@ -71,7 +87,7 @@ async function send(body, { stream, timeoutMs }) {
   for (const fallbackMs of rateLimitDelaysMs) {
     if (res.ok || !isTransientRateLimit(res.status, detail)) break;
     const waitMs = retryDelay(res, fallbackMs);
-    logger.warn("airouterAdapter.rateLimited", { model: model(), retryInMs: waitMs });
+    logger.warn("airouterAdapter.rateLimited", { model, retryInMs: waitMs });
     await new Promise((resolve) => setTimeout(resolve, waitMs));
     res = await request();
     detail = res.ok ? "" : await res.text();
@@ -84,13 +100,15 @@ async function send(body, { stream, timeoutMs }) {
 }
 
 async function generateStream(messages, options = {}) {
-  const { temperature, maxTokens } = options;
+  // airouterModel is set only when this provider was picked by name; a
+  // fallback from another provider gets the default model.
+  const { temperature, maxTokens, airouterModel } = options;
   try {
     const res = await send({
       messages,
       temperature: temperature ?? config.airouterTemperature ?? 0.7,
       max_tokens: maxTokens ?? config.airouterMaxTokens ?? 8192,
-    }, { stream: true, timeoutMs: 30000 });
+    }, { stream: true, timeoutMs: 30000, model: airouterModel || defaultModel() });
     return res.body;
   } catch (err) {
     logger.error("airouterAdapter.generateStream", { error: err.message });
@@ -110,6 +128,9 @@ module.exports = {
   generateStream,
   complete,
   MODEL,
+  MERCURY_MODEL,
+  QWEN_MODEL,
+  modelFor,
   keyFingerprint,
   // Tests shorten the pauses between rate-limit retries.
   setRateLimitDelays: (delays) => { rateLimitDelaysMs = delays; },

@@ -9,7 +9,7 @@ const providerKeys = {
   chatgpt: "chatgptApiKey",
   fable: "fableRapidApiKey",
   groq: "groqApiKey",
-  agnes: "agnesApiKey",
+  sarvam: "sarvamApiKey",
   gemini: "geminiApiKey",
   cohere: "cohereApiKey",
 };
@@ -31,15 +31,15 @@ test("auto selection only chooses a configured provider", () => {
 
 test("an unconfigured preferred provider falls back to a configured provider", () => {
   configureOnly("groq");
-  assert.equal(providerManager.getBestProvider("normal", "Agnes"), "groq");
-  assert.equal(providerManager.getFallbackProvider("agnes"), "groq");
+  assert.equal(providerManager.getBestProvider("normal", "Sarvam 105B"), "groq");
+  assert.equal(providerManager.getFallbackProvider("sarvam"), "groq");
 });
 
 test("selection fails fast when no provider is configured", () => {
   configureOnly(null);
   assert.equal(providerManager.getBestProvider("normal", "Auto"), null);
-  assert.equal(providerManager.getFallbackProvider("agnes"), null);
-  assert.equal(providerManager.getStats().agnes.status, "unconfigured");
+  assert.equal(providerManager.getFallbackProvider("sarvam"), null);
+  assert.equal(providerManager.getStats().sarvam.status, "unconfigured");
 });
 
 function configureMany(names) {
@@ -70,12 +70,12 @@ test("Auto does not route web searches to AI Router when another provider is ava
 
 test("a key or billing problem parks the provider longer than a normal failure", () => {
   const pm = require("../src/services/ProviderManager");
-  const p = pm.providers.agnes;
+  const p = pm.providers.sarvam;
   const realNow = Date.now;
   try {
     const t0 = realNow();
     Date.now = () => t0;
-    pm.suspendProvider("agnes", "Configuration problem: quota", 10 * 60 * 1000);
+    pm.suspendProvider("sarvam", "Configuration problem: quota", 10 * 60 * 1000);
     Date.now = () => t0 + 60 * 1000;
     pm.checkHealth();
     assert.equal(p.isSuspended, true, "still parked after a minute");
@@ -84,7 +84,7 @@ test("a key or billing problem parks the provider longer than a normal failure",
     assert.equal(p.isSuspended, false, "back after ten minutes");
 
     Date.now = () => t0;
-    pm.suspendProvider("agnes", "Rate limit reached");
+    pm.suspendProvider("sarvam", "Rate limit reached");
     Date.now = () => t0 + 25 * 1000;
     pm.checkHealth();
     assert.equal(p.isSuspended, false, "a rate limit keeps the short cooldown");
@@ -93,4 +93,16 @@ test("a key or billing problem parks the provider longer than a normal failure",
     p.isSuspended = false;
     p.consecutiveErrors = 0;
   }
+});
+
+test("Mercury 2.5 and DeepSeek V4.1 Flash are both answered by AI Router", () => {
+  configureMany(["airouter", "groq"]);
+  assert.equal(providerManager.getBestProvider("normal", "Mercury 2.5"), "airouter");
+  assert.equal(providerManager.getBestProvider("normal", "DeepSeek V4.1 Flash"), "airouter");
+});
+
+test("VetroAI (Qwen 3.7 Flash) is answered by AI Router", () => {
+  configureMany(["airouter", "groq"]);
+  assert.equal(providerManager.getBestProvider("normal", "VetroAI"), "airouter");
+  assert.equal(providerManager.getBestProvider("normal", "vetroai"), "airouter");
 });

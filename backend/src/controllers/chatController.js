@@ -24,6 +24,7 @@ const { modelOf } = require("./usageController");
 const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
+const airouterModelFor = airouterAdapter.modelFor;
 const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
@@ -290,6 +291,7 @@ async function chat(req, res) {
         temperature,
         maxTokens,
         sarvamModel: sarvamModelFor(req.body?.modelLabel || provider) || undefined,
+        airouterModel: airouterModelFor(req.body?.modelLabel || provider) || undefined,
         drawing: systemPrompt.includes("[DRAWING REQUEST"),
       }
     }, res) === true;

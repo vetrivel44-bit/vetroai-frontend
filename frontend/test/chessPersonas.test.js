@@ -33,8 +33,8 @@ test("a game seed is reproducible, and different seeds differ", () => {
 test("the two colours in one game get independent moods", () => {
   const differing = [];
   for (let i = 0; i < 20; i++) {
-    const w = buildGameIdentity("agnes", "g" + i, "w").mood.id;
-    const b = buildGameIdentity("agnes", "g" + i, "b").mood.id;
+    const w = buildGameIdentity("vetroai", "g" + i, "w").mood.id;
+    const b = buildGameIdentity("vetroai", "g" + i, "b").mood.id;
     if (w !== b) differing.push(i);
   }
   assert.ok(differing.length > 5, "White and Black should not always share a mood");

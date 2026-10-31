@@ -46,7 +46,7 @@ test("a rate limit still suggests waiting, because that one does recover", () =>
 test("the final message names the failing provider", () => {
   const failure = { provider: "airouter", ...orchestrator.classifyProviderError("401 Unauthorized") };
   const text = orchestrator.describeFinalFailure(failure, new Set(["airouter"]));
-  assert.match(text, /DeepSeek V4.1 Flash/);
+  assert.match(text, /AI Router/);
   assert.doesNotMatch(text, /other model/, "no fallback chain was walked, so don't claim one");
 });
 
@@ -63,7 +63,7 @@ test("falls back to a safe message when nothing was recorded", () => {
 });
 
 test("provider ids are shown with their display names", () => {
-  assert.equal(orchestrator.providerLabel("airouter"), "DeepSeek V4.1 Flash");
+  assert.equal(orchestrator.providerLabel("airouter"), "AI Router");
   assert.equal(orchestrator.providerLabel("chatgpt"), "ChatGPT");
   assert.equal(orchestrator.providerLabel("fable"), "Claude Fable 5");
   assert.equal(orchestrator.providerLabel(undefined), "The AI model");
