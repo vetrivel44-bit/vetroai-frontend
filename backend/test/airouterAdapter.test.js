@@ -117,15 +117,15 @@ test("complete() returns the reply text for short side tasks", withFetch([
 }));
 
 test("the picker label picks the AI Router model", () => {
-  assert.equal(airouter.modelFor("Mercury 2.5"), "inception/mercury-2.5");
+  assert.equal(airouter.modelFor("Ling 3.0 Flash"), "inclusionai/ling-3.0-flash");
   assert.equal(airouter.modelFor("DeepSeek V4.1 Flash"), airouter.MODEL);
   assert.equal(airouter.modelFor("Groq"), null);
 });
 
-test("Mercury 2.5 is sent when picked, and DeepSeek otherwise", withFetch([OK, OK], async (calls) => {
-  await airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.modelFor("Mercury 2.5") });
+test("Ling 3.0 Flash is sent when picked, and DeepSeek otherwise", withFetch([OK, OK], async (calls) => {
+  await airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.modelFor("Ling 3.0 Flash") });
   await airouter.generateStream([{ role: "user", content: "hi" }]);
-  assert.deepEqual(calls.map((c) => c.body.model), ["inception/mercury-2.5", "deepseek/deepseek-v4.1-flash"]);
+  assert.deepEqual(calls.map((c) => c.body.model), ["inclusionai/ling-3.0-flash", "deepseek/deepseek-v4.1-flash"]);
 }));
 
 test("VetroAI is Qwen 3.7 Flash on AI Router", () => {
@@ -134,17 +134,17 @@ test("VetroAI is Qwen 3.7 Flash on AI Router", () => {
   assert.equal(airouter.modelFor("VetroAI Computer"), null, "only the exact model name");
 });
 
-const MODELS = { status: 200, body: JSON.stringify({ data: [{ id: "deepseek-v4.1-flash" }, { id: "mercury-2.5" }, { id: "qwen3.7-flash" }] }) };
-const NO_MODEL = { status: 400, body: '{"error":{"message":"model inception/mercury-2.5 does not exist"}}' };
+const MODELS = { status: 200, body: JSON.stringify({ data: [{ id: "deepseek-v4.1-flash" }, { id: "ling-3.0-flash" }, { id: "qwen3.7-flash" }] }) };
+const NO_MODEL = { status: 400, body: '{"error":{"message":"model inclusionai/ling-3.0-flash does not exist"}}' };
 
 test("a rejected model id is looked up in AI Router's model list, retried, and remembered", withFetch([NO_MODEL, MODELS, OK, OK], async (calls) => {
-  const picked = { airouterModel: airouter.modelFor("Mercury 2.5") };
+  const picked = { airouterModel: airouter.modelFor("Ling 3.0 Flash") };
   await airouter.generateStream([{ role: "user", content: "hi" }], picked);
   assert.equal(calls[1].url, "https://api.airouter.in/v1/models");
-  assert.equal(calls[2].body.model, "mercury-2.5");
+  assert.equal(calls[2].body.model, "ling-3.0-flash");
   await airouter.generateStream([{ role: "user", content: "again" }], picked);
   assert.equal(calls.length, 4, "the next message goes straight to the right id");
-  assert.equal(calls[3].body.model, "mercury-2.5");
+  assert.equal(calls[3].body.model, "ling-3.0-flash");
 }));
 
 test("with no matching model in the list, the original error reaches the orchestrator", withFetch([
@@ -157,12 +157,12 @@ test("with no matching model in the list, the original error reaches the orchest
 
 test("model names match across AI Router's naming styles", () => {
   assert.equal(airouter.matchModel("alibaba/qwen3.7-flash", ["qwen-3.7-plus", "qwen-3.7-flash"]), "qwen-3.7-flash");
-  assert.equal(airouter.matchModel("inception/mercury-2.5", ["inception/mercury-coder", "Mercury 2.5"]), "Mercury 2.5");
+  assert.equal(airouter.matchModel("inclusionai/ling-3.0-flash", ["inclusionai/ling-coder-lite", "Ling 3.0 Flash"]), "Ling 3.0 Flash");
   assert.equal(airouter.matchModel("deepseek/deepseek-v4.1-flash", ["openai/gpt-5"]), null);
 });
 
 test("each AI Router model's reply is labelled with its own picker name", () => {
-  assert.equal(airouter.displayName(airouter.modelFor("Mercury 2.5")), "Mercury 2.5");
+  assert.equal(airouter.displayName(airouter.modelFor("Ling 3.0 Flash")), "Ling 3.0 Flash");
   assert.equal(airouter.displayName(airouter.modelFor("VetroAI")), "VetroAI");
   assert.equal(airouter.displayName(airouter.modelFor("DeepSeek V4.1 Flash")), "DeepSeek V4.1 Flash");
   assert.equal(airouter.displayName(undefined), "DeepSeek V4.1 Flash", "a fallback to AI Router uses DeepSeek");
@@ -194,3 +194,8 @@ test("no reasoning_effort is sent (airouter.in stalled on it)", withFetch([OK], 
   await airouter.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
   assert.equal(calls[0].body.reasoning_effort, undefined);
 }));
+
+test("Ling falls back to the closest listed Ling 3.0 Flash variant", () => {
+  assert.equal(airouter.matchModel("inclusionai/ling-3.0-flash", ["inclusionai/ling-3.0-flash-sante", "zai/glm-4.7-flash"]), "inclusionai/ling-3.0-flash-sante");
+  assert.equal(airouter.modelFor("Kling 2"), null, "only Ling itself");
+});

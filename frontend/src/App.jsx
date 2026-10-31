@@ -822,16 +822,16 @@ const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high",
 // AI Router (airouter.in) models, on the backend (providers/airouterAdapter.js),
 // which picks the model from the label sent as modelLabel.
 const AIROUTER_PROVIDER = "DeepSeek V4.1 Flash";
-const MERCURY_PROVIDER = "Mercury 2.5";
+const LING_PROVIDER = "Ling 3.0 Flash";
 // Qwen 3.7 Flash, shown as VetroAI's own model.
 const VETROAI_PROVIDER = "VetroAI";
-const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, MERCURY_PROVIDER, VETROAI_PROVIDER]);
+const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, LING_PROVIDER, VETROAI_PROVIDER]);
 const GROK_PROVIDER = "Grok 4.6";
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
 // sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
 const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, MERCURY_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3273,7 +3273,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
     [VETROAI_PROVIDER]: ["V", "VetroAI · fast everyday model"],
     [AIROUTER_PROVIDER]: ["D", "DeepSeek · fast, via AI Router"],
-    [MERCURY_PROVIDER]: ["M", "Inception · ultra-fast diffusion"],
+    [LING_PROVIDER]: ["L", "inclusionAI · fast and efficient"],
     [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],

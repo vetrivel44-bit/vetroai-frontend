@@ -21,7 +21,7 @@ const MODEL_ICON_RULES = [
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/^groq$/i, '/model-icons/groq.svg'],
   [/vetro/i, '/favicon.svg'],
-  [/mercury/i, '/model-icons/mercury.svg'],
+  [/\bling\b/i, '/model-icons/ling.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
 
