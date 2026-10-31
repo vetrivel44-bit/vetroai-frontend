@@ -42,7 +42,7 @@ test("the key fingerprint shows only the last 4 characters and the length", () =
   const saved = config.airouterApiKey;
   try {
     config.airouterApiKey = ' "Bearer sk-abcdef123456" ';
-    assert.equal(airouter.keyFingerprint(), "…3456 (16 chars)");
+    assert.equal(airouter.keyFingerprint(), "…3456 (15 chars)");
     config.airouterApiKey = "";
     assert.equal(airouter.keyFingerprint(), "");
   } finally {

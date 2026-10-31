@@ -34,7 +34,6 @@ function retryDelay(res, fallbackMs) {
   return Math.min(ms, MAX_RETRY_AFTER_MS);
 }
 
-// Tolerates the usual paste mistakes in the env var: whitespace, quotes, "Bearer ".
 // Last 4 characters and length only, so the logs can confirm which key is
 // loaded without exposing it.
 function keyFingerprint() {
@@ -42,6 +41,7 @@ function keyFingerprint() {
   return key ? `…${key.slice(-4)} (${key.length} chars)` : "";
 }
 
+// Tolerates the usual paste mistakes in the env var: whitespace, quotes, "Bearer ".
 function apiKey() {
   const key = String(config.airouterApiKey || "").trim().replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "").trim();
   if (!key) {
