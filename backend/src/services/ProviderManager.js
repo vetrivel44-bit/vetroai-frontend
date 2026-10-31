@@ -19,7 +19,7 @@ const PROVIDER_ALIASES = [
   [/gemini|google/i, "gemini"],
   [/^groq$/i, "groq"],
   [/agnes/i, "agnes"],
-  [/ai[\s_-]?router/i, "airouter"],
+  [/ai[\s_-]?router|deepseek/i, "airouter"],
   [/cohere/i, "cohere"],
   [/sarvam/i, "sarvam"],
 ];
@@ -32,7 +32,7 @@ function resolveProviderName(label) {
   return alias ? alias[1] : lower;
 }
 
-// Modes that answer from live search results. AI Router's default reasoning model thinks at length; that
+// Modes that answer from live search results. AI Router's DeepSeek model thinks at length; that
 // style is a poor fit there, so Auto prefers models that answer directly.
 const SEARCH_MODES = new Set(["web_search", "research", "deep_search"]);
 

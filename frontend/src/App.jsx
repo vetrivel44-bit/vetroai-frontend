@@ -815,20 +815,19 @@ const PUTER_MODEL_IDS = {
   "GPT-5.6 Terra": "gpt-5.6-terra",
   "GPT-5.6 Luna": "gpt-5.6-luna",
   "GPT-5.3 Codex": "openai/gpt-5.3-codex",
-  "DeepSeek V4 Pro": "deepseek/deepseek-v4-pro",
   "Grok 4.6": "x-ai/grok-4.6",
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-// AI Router (ai-router.dev), on the backend (providers/airouterAdapter.js).
-const AIROUTER_PROVIDER = "AI Router";
-const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
+// DeepSeek V4.1 Flash, served by AI Router (ai-router.dev) on the backend
+// (providers/airouterAdapter.js).
+const AIROUTER_PROVIDER = "DeepSeek V4.1 Flash";
 const GROK_PROVIDER = "Grok 4.6";
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
 // sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
 const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, AIROUTER_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, AIROUTER_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3268,8 +3267,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
-    [AIROUTER_PROVIDER]: ["R", "AI Router · many models"],
-    [DEEPSEEK_PROVIDER]: ["D", "Open reasoning · strong at code"],
+    [AIROUTER_PROVIDER]: ["D", "DeepSeek · fast, via AI Router"],
     [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
@@ -6134,7 +6132,7 @@ export default function App() {
 
   const MULTI_AI_MODELS = [
     { name: "Agnes 2.0",  id: "agnes",     color: "#3b82f6" },
-    { name: "AI Router",  id: "airouter",  color: "#f97316" },
+    { name: "DeepSeek",   id: "airouter",  color: "#4d6bfe" },
     { name: "Groq",       id: "groq",      color: "#10b981" },
     { name: "Gemini",     id: "gemini",    color: "#8b5cf6" },
     { name: "Web Search", id: "_web",      color: "#06b6d4", isWeb: true },

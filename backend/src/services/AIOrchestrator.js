@@ -1339,7 +1339,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
   providerLabel(name) {
     const labels = {
-      chatgpt: "ChatGPT", fable: "Claude Fable 5", airouter: "AI Router", groq: "Groq",
+      chatgpt: "ChatGPT", fable: "Claude Fable 5", airouter: "DeepSeek V4.1 Flash", groq: "Groq",
       agnes: "Agnes", gemini: "Gemini", cohere: "Cohere", sarvam: "Sarvam",
     };
     return labels[name] || name || "The AI model";

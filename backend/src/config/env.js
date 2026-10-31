@@ -57,10 +57,10 @@ module.exports = {
     cohereVisionModel:   getEnv("COHERE_VISION_MODEL",   "command-a-vision-07-2025"),
     agnesApiKey:         getEnv("AGNES_API_KEY",         ""),
     agnesModel:          getEnv("AGNES_MODEL",           "agnes-2.0-flash"),
-    // AI Router (ai-router.dev) — OpenAI-compatible, one key for many providers' models.
+    // AI Router (ai-router.dev) — OpenAI-compatible. VetroAI uses only DeepSeek V4.1 Flash there.
     airouterApiKey:      getEnv("AIROUTER_API_KEY",      ""),
     airouterBaseUrl:     getEnv("AIROUTER_BASE_URL",     "https://api.ai-router.dev/v1"),
-    airouterModel:       getEnv("AIROUTER_MODEL",        "openai/gpt-oss-120b"),
+    airouterModel:       getEnv("AIROUTER_MODEL",        "deepseek/deepseek-v4.1-flash"),
     airouterTemperature: Number(getEnv("AIROUTER_TEMPERATURE", "0.7")),
     airouterMaxTokens:   Number(getEnv("AIROUTER_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.

@@ -39,7 +39,7 @@ export const CHESS_MODELS = [
   { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#d97757", avatar: "F", logo: "/model-icons/claude.svg" },
   { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G", logo: "/model-icons/gemini.svg" },
   { id: "groq", name: "Groq", tagline: "Relentless initiative — thrives in chaos", color: "#f55036", avatar: "Q", logo: "/model-icons/groq.svg" },
-  { id: "airouter", name: "AI Router", tagline: "Prophylactic grinder — stops your plan first", color: "#f97316", avatar: "R", logo: "/model-icons/airouter.svg" },
+  { id: "airouter", name: "DeepSeek", tagline: "Prophylactic grinder — stops your plan first", color: "#4d6bfe", avatar: "D", logo: "/model-icons/deepseek.svg" },
   { id: "openrouter", name: "OpenRouter", tagline: "Adaptive — borrows whichever school fits", color: "#6366f1", avatar: "O", logo: "/model-icons/openrouter.svg" },
 ];
 

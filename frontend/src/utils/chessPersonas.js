@@ -115,7 +115,7 @@ export const PERSONAS = {
     voice: "fast, brash, and a little cocky",
   },
   airouter: {
-    label: "AI Router",
+    label: "DeepSeek",
     school: "European technique — Petrosian's prophylaxis",
     thinkMs: 900,
     discipline: 0.92,
