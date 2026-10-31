@@ -1339,8 +1339,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
   providerLabel(name) {
     const labels = {
-      chatgpt: "ChatGPT", fable: "Claude Fable 5", vercel: "Vercel AI", groq: "Groq",
-      mistral: "Mistral", agnes: "Agnes", sambanova: "SambaNova", gemini: "Gemini", cohere: "Cohere", sarvam: "Sarvam",
+      chatgpt: "ChatGPT", fable: "Claude Fable 5", airouter: "AI Router", groq: "Groq",
+      agnes: "Agnes", gemini: "Gemini", cohere: "Cohere", sarvam: "Sarvam",
     };
     return labels[name] || name || "The AI model";
   }
@@ -1412,7 +1412,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     return state.inside ? { content: "", reasoning: rest } : { content: rest, reasoning: "" };
   }
 
-  // Reasoning field names used by OpenAI-compatible providers (Vercel AI Gateway, Groq
+  // Reasoning field names used by OpenAI-compatible providers (AI Router, Groq
   // reasoning models, DeepSeek-R1 style deployments).
   reasoningFromDelta(delta) {
     if (!delta || typeof delta !== "object") return "";
@@ -1653,7 +1653,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       return reasoning ? { content: "", reasoning } : empty;
     }
 
-    // 2. Handle String Chunks (Mistral, SambaNova, Gemini raw text stream)
+    // 2. Handle String Chunks (Gemini raw text stream)
     const rawText = chunk;
 
     // Handle Gemini raw JSON stream (often wrapped in [ ])
@@ -1707,7 +1707,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
 
     // If using SSE provider, ignore comments or heartbeats that carry no data frame
-    if (["groq", "mistral", "sambanova", "agnes", "vercel", "sarvam"].includes(provider)) {
+    if (["groq", "agnes", "airouter", "sarvam"].includes(provider)) {
       return empty;
     }
 

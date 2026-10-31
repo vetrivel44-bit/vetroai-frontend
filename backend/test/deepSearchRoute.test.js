@@ -153,7 +153,7 @@ test("Groq writes from the compact research, with a lean prompt that fits its re
   const seen = {};
   withProviders(t, {
     groq: { generateStream: async (messages) => { seen.groq = messages[0].content; throw new Error("503 overloaded"); } },
-    mistral: { generateStream: async (messages) => { seen.mistral = messages[0].content; return streamOf(['data: {"choices":[{"delta":{"content":"Report [1]."}}]}']); } },
+    airouter: { generateStream: async (messages) => { seen.airouter = messages[0].content; return streamOf(['data: {"choices":[{"delta":{"content":"Report [1]."}}]}']); } },
   });
   const res = { write: () => {}, end: () => {}, writableEnded: false };
   await orchestrator.processRequest("t_groq", {
@@ -164,7 +164,7 @@ test("Groq writes from the compact research, with a lean prompt that fits its re
   assert.doesNotMatch(seen.groq, /RESEARCH CONTEXT/);
   assert.doesNotMatch(seen.groq, /RICH VISUALIZATION INTENT SYSTEM/);
   assert.match(seen.groq, /RESEARCH REPORT/, "the report brief stays");
-  assert.match(seen.mistral, /RESEARCH CONTEXT with \[1\] … \[15\]/, "the next writer gets everything again");
+  assert.match(seen.airouter, /RESEARCH CONTEXT with \[1\] … \[15\]/, "the next writer gets everything again");
 
   // A realistic compact context (about 18k characters) still leaves Groq room to write.
   const { estimateTokens } = require("../src/providers/groqAdapter");

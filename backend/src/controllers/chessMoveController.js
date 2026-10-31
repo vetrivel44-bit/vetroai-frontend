@@ -2,7 +2,7 @@
 // AIOrchestrator / ProviderManager. It reads its own CHESS_*_API_KEY env vars
 // and talks to each provider directly, so wiring keys in here can never
 // change behavior for the main chat (which keeps using its own GROQ_API_KEY,
-// MISTRAL_API_KEY, GEMINI_API_KEY, etc).
+// GEMINI_API_KEY, etc).
 const Groq = require("groq-sdk");
 const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
@@ -10,27 +10,6 @@ const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
 
 const TIMEOUT_MS = 20000;
-
-async function callMistral({ prompt, apiKey, model, temperature, maxTokens }) {
-  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new ApiError(res.status, `Mistral request failed: ${detail.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
-}
 
 async function callGroq({ prompt, apiKey, model, temperature, maxTokens }) {
   const client = new Groq({ apiKey });
@@ -93,7 +72,6 @@ async function callOpenRouter({ prompt, apiKey, model, temperature, maxTokens })
 
 function providerTable() {
   return {
-    mistral: { fn: callMistral, apiKey: config.chessMistralApiKey, model: config.chessMistralModel },
     groq: { fn: callGroq, apiKey: config.chessGroqApiKey, model: config.chessGroqModel },
     gemini: { fn: callGemini, apiKey: config.chessGeminiApiKey, model: config.chessGeminiModel },
     openrouter: { fn: callOpenRouter, apiKey: config.chessOpenRouterApiKey, model: config.chessOpenRouterModel },

@@ -104,7 +104,7 @@ test("different personas genuinely disagree about the same position", () => {
 
 test("style weights actually move the evaluation", () => {
   const engine = new Engine();
-  const greedy = buildGameIdentity("mistral", "s", "w").style;
+  const greedy = buildGameIdentity("airouter", "s", "w").style;
   const attacker = buildGameIdentity("fable", "s", "w").style;
   const a = engine.analyse(Position.fromFen(START), { timeMs: 200, style: greedy, multiPv: 1 });
   const b = engine.analyse(Position.fromFen(START), { timeMs: 200, style: attacker, multiPv: 1 });

@@ -82,7 +82,7 @@ app.get("/health", (_req, res) => {
     integrations: {
       prokerala: require("./services/prokeralaService").isConfigured() ? "configured" : "not configured",
       webSearch: config.tavilyApiKey ? "tavily" : "keyless fallback (DuckDuckGo, Bing, Google News)",
-      researchModel: config.groqApiKey ? `groq (${config.researchModel})` : config.mistralApiKey ? "mistral" : "none (DeepSearch runs without planning)",
+      researchModel: config.groqApiKey ? `groq (${config.researchModel})` : config.airouterApiKey ? "airouter" : "none (DeepSearch runs without planning)",
     },
   });
 });

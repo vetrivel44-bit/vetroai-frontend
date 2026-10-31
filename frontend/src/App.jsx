@@ -820,14 +820,15 @@ const PUTER_MODEL_IDS = {
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-const VERCEL_PROVIDER = "Vercel AI";
+// AI Router (ai-router.dev), on the backend (providers/airouterAdapter.js).
+const AIROUTER_PROVIDER = "AI Router";
 const DEEPSEEK_PROVIDER = "DeepSeek V4 Pro";
 const GROK_PROVIDER = "Grok 4.6";
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
 // sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
 const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VERCEL_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", "Mistral", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "SambaNova", "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, AIROUTER_PROVIDER, DEEPSEEK_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "Agnes"];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3267,15 +3268,13 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
-    [VERCEL_PROVIDER]: ["▲", "Vercel AI Gateway · many models"],
+    [AIROUTER_PROVIDER]: ["R", "AI Router · many models"],
     [DEEPSEEK_PROVIDER]: ["D", "Open reasoning · strong at code"],
     [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
-    Mistral: ["M", "Efficient reasoning"],
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],
     [SARVAM_105B_CHAT_PROVIDER]: ["स", "Sarvam AI · quick conversations"],
-    SambaNova: ["S", "High-speed inference"],
     Agnes: ["A", "VetroAI creative model"],
   };
 
@@ -6135,10 +6134,9 @@ export default function App() {
 
   const MULTI_AI_MODELS = [
     { name: "Agnes 2.0",  id: "agnes",     color: "#3b82f6" },
-    { name: "Mistral",    id: "mistral",   color: "#f97316" },
+    { name: "AI Router",  id: "airouter",  color: "#f97316" },
     { name: "Groq",       id: "groq",      color: "#10b981" },
     { name: "Gemini",     id: "gemini",    color: "#8b5cf6" },
-    { name: "SambaNova",  id: "sambanova", color: "#ec4899" },
     { name: "Web Search", id: "_web",      color: "#06b6d4", isWeb: true },
   ];
 
@@ -6389,7 +6387,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append(
       "provider",
       requestProvider === CLAUDE_FABLE_PROVIDER ? "fable"
-        : requestProvider === VERCEL_PROVIDER ? "vercel"
+        : requestProvider === AIROUTER_PROVIDER ? "airouter"
         : requestProvider
     );
     // The model as the user knows it, for usage limits (Settings → Usage).

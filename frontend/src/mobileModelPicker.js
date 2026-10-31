@@ -5,7 +5,7 @@
 const MOBILE_MODEL_QUERY = window.matchMedia('(max-width: 768px)');
 
 const MODEL_TASKS = {
-  writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'Mistral', 'Agnes', 'Grok 4.6']),
+  writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'Agnes', 'Grok 4.6']),
   research: new Set(['GPT-5.6 Sol', 'Claude Fable 5', 'Groq', 'Sonar Pro Research', 'Gemini', 'DeepSeek V4 Pro', 'Grok 4.6']),
   coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Groq', 'Gemini', 'DeepSeek V4 Pro']),
 };
@@ -19,12 +19,10 @@ const MODEL_ICON_RULES = [
   [/grok|xai/i, '/model-icons/grok.svg'],
   [/sonar|perplexity/i, '/model-icons/perplexity.svg'],
   [/gemini|google/i, '/model-icons/gemini.svg'],
-  [/mistral/i, '/model-icons/mistral.svg'],
   [/sarvam/i, '/model-icons/sarvam.svg'],
-  [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/^groq$/i, '/model-icons/groq.svg'],
-  [/vercel/i, '/model-icons/vercel.svg'],
+  [/ai[\s_-]?router/i, '/model-icons/airouter.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
 const modelIconSrc = (label = '') => MODEL_ICON_RULES.find(([rx]) => rx.test(label))?.[1] || '/model-icons/vetro.svg';

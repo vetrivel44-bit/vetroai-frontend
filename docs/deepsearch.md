@@ -56,7 +56,7 @@ inside IPv6 ones, like `[::ffff:127.0.0.1]`, are checked as the IPv4 address.
 
 - **Research model:** Groq `RESEARCH_MODEL` (default `llama-3.3-70b-versatile`).
   When that's rate-limited it falls back to `SEARCH_PLANNER_MODEL`, then to
-  Mistral. With neither key set, DeepSearch searches the question as asked
+  AI Router (`AIROUTER_API_KEY`). With neither key set, DeepSearch searches the question as asked
   and still reads the pages.
 - **Search:** Tavily (`TAVILY_API_KEY`), falling back to DuckDuckGo, Bing
   and Google News.

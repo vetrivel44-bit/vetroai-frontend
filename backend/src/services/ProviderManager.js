@@ -2,12 +2,10 @@ const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const groqAdapter = require("../providers/groqAdapter");
 const geminiAdapter = require("../providers/geminiAdapter");
-const mistralAdapter = require("../providers/mistralAdapter");
-const sambanovaAdapter = require("../providers/sambanovaAdapter");
 const agnesAdapter = require("../providers/agnesAdapter");
 const chatgptAdapter = require("../providers/chatgptAdapter");
 const fableAdapter = require("../providers/fableAdapter");
-const vercelAdapter = require("../providers/vercelAdapter");
+const airouterAdapter = require("../providers/airouterAdapter");
 const cohereAdapter = require("../providers/cohereAdapter");
 const sarvamAdapter = require("../providers/sarvamAdapter");
 
@@ -20,10 +18,8 @@ const PROVIDER_ALIASES = [
   [/claude|fable/i, "fable"],
   [/gemini|google/i, "gemini"],
   [/^groq$/i, "groq"],
-  [/mistral/i, "mistral"],
-  [/sambanova/i, "sambanova"],
   [/agnes/i, "agnes"],
-  [/vercel/i, "vercel"],
+  [/ai[\s_-]?router/i, "airouter"],
   [/cohere/i, "cohere"],
   [/sarvam/i, "sarvam"],
 ];
@@ -36,7 +32,7 @@ function resolveProviderName(label) {
   return alias ? alias[1] : lower;
 }
 
-// Modes that answer from live search results. The Vercel gateway's default reasoning model thinks at length; that
+// Modes that answer from live search results. AI Router's default reasoning model thinks at length; that
 // style is a poor fit there, so Auto prefers models that answer directly.
 const SEARCH_MODES = new Set(["web_search", "research", "deep_search"]);
 
@@ -53,7 +49,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
+        fallbacks: ["airouter", "groq", "agnes", "gemini", "cohere"],
       },
       fable: {
         adapter: fableAdapter,
@@ -65,10 +61,10 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
+        fallbacks: ["airouter", "chatgpt", "groq", "agnes", "gemini", "cohere"],
       },
-      vercel: {
-        adapter: vercelAdapter,
+      airouter: {
+        adapter: airouterAdapter,
         weight: 105,
         score: 105,
         latency: 0,
@@ -77,7 +73,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["fable", "chatgpt", "groq", "mistral", "agnes", "sambanova", "gemini", "cohere"],
+        fallbacks: ["fable", "chatgpt", "groq", "agnes", "gemini", "cohere"],
       },
       groq: {
         adapter: groqAdapter,
@@ -89,19 +85,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "chatgpt", "agnes", "mistral", "sambanova", "gemini", "cohere"],
-      },
-      mistral: {
-        adapter: mistralAdapter,
-        weight: 90,
-        score: 90,
-        latency: 0,
-        successRate: 1,
-        consecutiveErrors: 0,
-        isSuspended: false,
-        lastFailure: 0,
-        cooldown: 20000,
-        fallbacks: ["vercel", "groq", "sambanova", "agnes", "gemini", "cohere"],
+        fallbacks: ["airouter", "chatgpt", "agnes", "gemini", "cohere"],
       },
       agnes: {
         adapter: agnesAdapter,
@@ -113,19 +97,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "mistral", "groq", "sambanova", "gemini", "cohere"],
-      },
-      sambanova: {
-        adapter: sambanovaAdapter,
-        weight: 80,
-        score: 80,
-        latency: 0,
-        successRate: 1,
-        consecutiveErrors: 0,
-        isSuspended: false,
-        lastFailure: 0,
-        cooldown: 20000,
-        fallbacks: ["vercel", "groq", "mistral", "agnes", "gemini", "cohere"],
+        fallbacks: ["airouter", "groq", "gemini", "cohere"],
       },
       gemini: {
         adapter: geminiAdapter,
@@ -137,7 +109,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "cohere"],
+        fallbacks: ["airouter", "groq", "agnes", "cohere"],
       },
       sarvam: {
         adapter: sarvamAdapter,
@@ -157,7 +129,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "mistral", "groq", "agnes", "gemini", "cohere"],
+        fallbacks: ["airouter", "groq", "agnes", "gemini", "cohere"],
       },
       cohere: {
         adapter: cohereAdapter,
@@ -172,7 +144,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["vercel", "groq", "mistral", "agnes", "sambanova", "gemini"],
+        fallbacks: ["airouter", "groq", "agnes", "gemini"],
       },
     };
 
@@ -185,13 +157,11 @@ class ProviderManager {
 
   isConfigured(providerName) {
     const configured = {
-      vercel: Boolean(config.vercelApiKey),
+      airouter: Boolean(config.airouterApiKey),
       chatgpt: Boolean(config.chatgptApiKey),
       fable: Boolean(config.fableRapidApiKey),
       groq: Boolean(config.groqApiKey),
-      mistral: Boolean(config.mistralApiKey),
       agnes: Boolean(config.agnesApiKey),
-      sambanova: Boolean(config.sambanovaApiKey),
       gemini: Boolean(config.geminiApiKey),
       cohere: Boolean(config.cohereApiKey),
       sarvam: Boolean(config.sarvamApiKey),
@@ -285,9 +255,6 @@ class ProviderManager {
       } else if (mode === "deep_search" || mode === "analyst") {
         if (a === "gemini") scoreA += 50;
         if (b === "gemini") scoreB += 50;
-      } else if (mode === "creative") {
-        if (a === "mistral") scoreA += 50;
-        if (b === "mistral") scoreB += 50;
       } else if (mode === "design") {
         // Whole hand-styled sites: Claude writes the strongest front-end
         // design, then GPT; the gateway's reasoning default lays out plainly.
@@ -296,8 +263,8 @@ class ProviderManager {
         scoreB += designBoost[b] || 0;
       }
       if (SEARCH_MODES.has(mode)) {
-        if (a === "vercel") scoreA -= 60;
-        if (b === "vercel") scoreB -= 60;
+        if (a === "airouter") scoreA -= 60;
+        if (b === "airouter") scoreB -= 60;
       }
 
       return scoreB - scoreA;
@@ -306,7 +273,7 @@ class ProviderManager {
 
   getFallbackProvider(failedProvider, excludedProviders = []) {
     const p = this.providers[failedProvider];
-    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["vercel", "gemini", "sambanova", "mistral", "groq", "agnes", "cohere"];
+    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["airouter", "gemini", "groq", "agnes", "cohere"];
     const excluded = new Set([failedProvider, ...excludedProviders]);
 
     // Auto-expire cooled-down suspensions first

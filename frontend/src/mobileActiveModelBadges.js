@@ -17,12 +17,10 @@ const MODEL_ICON_RULES = [
   [/grok|xai/i, '/model-icons/grok.svg'],
   [/sonar|perplexity/i, '/model-icons/perplexity.svg'],
   [/gemini|google/i, '/model-icons/gemini.svg'],
-  [/mistral/i, '/model-icons/mistral.svg'],
   [/sarvam/i, '/model-icons/sarvam.svg'],
-  [/sambanova/i, '/model-icons/sambanova.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/^groq$/i, '/model-icons/groq.svg'],
-  [/vercel/i, '/model-icons/vercel.svg'],
+  [/ai[\s_-]?router/i, '/model-icons/airouter.svg'],
   [/agnes|vetro/i, '/favicon.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
