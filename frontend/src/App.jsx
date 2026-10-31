@@ -5754,6 +5754,27 @@ export default function App() {
     observer.observe(content);
     return () => observer.disconnect();
   }, [hasMessages, scrollToBottom]);
+  // The feed leaves room at the bottom for the composer floating over it. That
+  // room was a fixed 130px, but the composer is taller than that in the light
+  // theme (~145px), with a few lines typed, or with attachments — and then the
+  // end of the chat (the Related questions, the last lines of an answer) sat
+  // underneath it with no way to scroll further. Reserve the composer's real
+  // height instead, kept current as it grows and shrinks.
+  const composerOverlayRef = useRef(null);
+  const [composerSpace, setComposerSpace] = useState(130);
+  useEffect(() => {
+    const overlay = composerOverlayRef.current;
+    if (!overlay || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      // The overlay's top 40px is the fade above the composer; the content
+      // should clear the solid part with a 24px gap.
+      const space = Math.max(130, Math.ceil(overlay.getBoundingClientRect().height) - 40 + 24);
+      setComposerSpace((prev) => (prev === space ? prev : space));
+      if (!isScrolling.current) scrollToBottom();
+    });
+    observer.observe(overlay);
+    return () => observer.disconnect();
+  }, [hasMessages, scrollToBottom]);
 
   // ── Voice ─────────────────────────────────────────────────────────────────────
   const speak = async txt => {
@@ -8897,7 +8918,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 </div>
              ) : (
                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: 130 }} ref={feedRef} onScroll={handleScroll}
+                 <div className="claude-feed-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: composerSpace, '--composer-space': `${composerSpace}px` }} ref={feedRef} onScroll={handleScroll}
                    onWheel={markUserScroll} onTouchStart={markUserScroll} onTouchMove={markUserScroll} onPointerDown={markUserScroll} onKeyDown={markUserScroll}>
                    <div style={{ maxWidth: 720, margin: '0 auto', paddingTop: 32 }} className="px-4 sm:px-6">
                    {messages.map((m, i) => (
@@ -9201,7 +9222,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      <ArrowDown size={16} />
                    </button>
                  )}
-                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="px-4 sm:px-6">
+                 <div ref={composerOverlayRef} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="px-4 sm:px-6">
                    <div style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto' }}>
                     {renderInputBox()}
                   </div>
