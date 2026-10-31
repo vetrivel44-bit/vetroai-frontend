@@ -3,7 +3,13 @@
 // to "#cite-n", which the chat renders as a source chip (CitationChip).
 // Code, inline code and existing links are left alone.
 
-const CITATION = /\[(\d{1,3})\]/g;
+// gpt-oss (Groq's default model) cites in its own browsing format,
+// 【5†L1-L4】: read as [5]. The backend converts these as it streams; this
+// also covers replies saved before it did. Unnumbered ones (【news†L3】) point
+// at nothing the app can show and are dropped. Brackets that aren't citations
+// (【重要】: no number, no †) are left alone.
+const CITATION = /\[(\d{1,3})\]|【(\d{1,3})(?:†[^】\n]{0,80})?】/g;
+const UNNUMBERED_MARK = /【[^】\n]{0,80}†[^】\n]{0,80}】/g;
 const SKIP = new Set(["code", "inlineCode", "link", "linkReference", "math", "inlineMath", "html"]);
 
 export const citationHref = (n) => `#cite-${n}`;
@@ -15,17 +21,18 @@ export function citationNumber(href) {
 }
 
 /** Splits a text node's value into text and citation-link nodes. */
-export function splitCitations(value) {
+export function splitCitations(raw) {
+  const value = raw.replace(UNNUMBERED_MARK, (m) => (/^【\d/.test(m) ? m : ""));
   const nodes = [];
   let last = 0;
   for (const match of value.matchAll(CITATION)) {
-    const n = Number(match[1]);
+    const n = Number(match[1] ?? match[2]);
     if (n < 1) continue;
     if (match.index > last) nodes.push({ type: "text", value: value.slice(last, match.index) });
     nodes.push({ type: "link", url: citationHref(n), title: null, children: [{ type: "text", value: String(n) }] });
     last = match.index + match[0].length;
   }
-  if (!nodes.length) return null;
+  if (!nodes.length) return value === raw ? null : [{ type: "text", value }];
   if (last < value.length) nodes.push({ type: "text", value: value.slice(last) });
   return nodes;
 }
@@ -57,7 +64,7 @@ const EMPTY_SOURCES_LINE = /^\s*(sources?|references?|citations?)\s*:?\s*[.,;]*\
 
 /** `value` without stray [n] citations. */
 export function dropCitations(value) {
-  return String(value).replace(STRAY_CITATIONS, "");
+  return String(value).replace(/[ \t]*【[^】\n]{0,80}†[^】\n]{0,80}】|[ \t]*【\d{1,3}】/g, "").replace(STRAY_CITATIONS, "");
 }
 
 const textOf = (node) => (node.type === "text" ? node.value : (node.children || []).map(textOf).join(""));

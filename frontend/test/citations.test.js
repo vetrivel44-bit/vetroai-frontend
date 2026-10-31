@@ -90,3 +90,10 @@ test("indexes and code keep their brackets", () => {
   assert.equal(dropCitations("arr[1] is the second item"), "arr[1] is the second item");
   assert.match(textOf(dropTree("Use `x[1]` here")), /x\[1\]/);
 });
+
+test("gpt-oss's 【5†L1-L4】 marks become citation links too, and unnumbered ones go", () => {
+  const nodes = splitCitations("Repo rate is 5.50% 【5†L1-L4】【3†L1-L4】. See 【news†L3】.");
+  assert.deepEqual(nodes.map((n) => (n.type === "link" ? `#${n.children[0].value}` : n.value)), ["Repo rate is 5.50% ", "#5", "#3", ". See ."]);
+  assert.equal(splitCitations("【重要】 stays as it is"), null);
+  assert.equal(dropCitations("Repo rate is 5.50% 【5†L1-L4】."), "Repo rate is 5.50%.");
+});

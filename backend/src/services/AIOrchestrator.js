@@ -1492,6 +1492,27 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     return orphanClose ? { content, reasoning, orphanClose } : { content, reasoning };
   }
 
+  // gpt-oss (Groq's default model) cites search results in its own browsing
+  // format, 【5†L1-L4】 or 【3†source】, which the app doesn't know: it showed
+  // up as raw text. Numbered marks become [5], the app's citation form;
+  // unnumbered ones are dropped. A mark split across chunks is held back
+  // (state.buf) until it closes; `flush` releases whatever is left at the end.
+  // Brackets that aren't citations (【重要】: no number, no †) are left alone.
+  normalizeCitations(chunk, state, flush = false) {
+    let text = state.buf + (chunk || "");
+    state.buf = "";
+    if (!flush) {
+      const open = text.lastIndexOf("【");
+      if (open !== -1 && text.indexOf("】", open) === -1 && text.length - open <= 80) {
+        state.buf = text.slice(open);
+        text = text.slice(0, open);
+      }
+    }
+    return text
+      .replace(/【(\d+)(?:†[^】\n]{0,80})?】/g, "[$1]")
+      .replace(/【[^】\n]{0,80}†[^】\n]{0,80}】/g, "");
+  }
+
   // Whatever is still buffered when the stream ends belongs to whichever
   // channel we were in — an unterminated <think> block stays reasoning.
   flushThinkingTags(state) {
@@ -1518,6 +1539,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     let buffer = "";
 
     const think = { inside: false, buf: "" };
+    const cite = { buf: "" };
     let reasoningStartedAt = 0;
     let reasoningClosed = false;
 
@@ -1568,6 +1590,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         }
         if (split.reasoning) reasoning += split.reasoning;
       }
+      if (content || parts.flushCitations) content = this.normalizeCitations(content, cite, parts.flushCitations);
 
       if (reasoning) {
         if (!reasoningStartedAt) {
@@ -1684,6 +1707,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         emit(this.normalizeChunkParts(buffer, provider));
       }
       emit(this.flushThinkingTags(think));
+      emit({ flushCitations: true });
     } catch (err) {
       logger.error(`AIOrchestrator.pipeStream.error [${provider}]`, { error: err.message });
       // What already reached the user, so a retry can continue from there.
