@@ -207,3 +207,18 @@ test("an answer that talks about the </think> tag is left alone", async () => {
   assert.equal(joined(afterBlock.events, "content"), "Close it with </think> later.");
   assert.equal(afterBlock.events.filter((e) => e.type === "clear").length, 0);
 });
+
+test("the mid-stream silence limit comes from the provider's adapter", async () => {
+  const { config } = require("../src/config/env");
+  const saved = config.airouterIdleTimeoutMs;
+  config.airouterIdleTimeoutMs = 50; // tiny, so the 5s watchdog check trips at once
+  const stalled = (async function* () {
+    yield Buffer.from(dataLine({ content: "Hello" }));
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+  })();
+  try {
+    await assert.rejects(orchestrator.pipeStream(stalled, makeRes(), "airouter"), /stalled — no data received for 0.05s/);
+  } finally {
+    config.airouterIdleTimeoutMs = saved;
+  }
+});

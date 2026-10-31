@@ -199,3 +199,35 @@ test("Ling falls back to the closest listed Ling 3.0 Flash variant", () => {
   assert.equal(airouter.matchModel("inclusionai/ling-3.0-flash", ["inclusionai/ling-3.0-flash-sante", "zai/glm-4.7-flash"]), "inclusionai/ling-3.0-flash-sante");
   assert.equal(airouter.modelFor("Kling 2"), null, "only Ling itself");
 });
+
+test("AI Router's models get 90s to start and 90s of mid-stream silence, unless configured", () => {
+  const saved = { start: config.airouterStartTimeoutMs, idle: config.airouterIdleTimeoutMs };
+  try {
+    config.airouterStartTimeoutMs = undefined;
+    config.airouterIdleTimeoutMs = undefined;
+    assert.equal(airouter.startTimeoutMs(), 90000);
+    assert.equal(airouter.idleTimeoutMs(), 90000);
+    config.airouterStartTimeoutMs = 120000;
+    config.airouterIdleTimeoutMs = 60000;
+    assert.equal(airouter.startTimeoutMs(), 120000);
+    assert.equal(airouter.idleTimeoutMs(), 60000);
+  } finally {
+    config.airouterStartTimeoutMs = saved.start;
+    config.airouterIdleTimeoutMs = saved.idle;
+  }
+});
+
+test("a reply that starts after 30s is still waited for", withFetch([OK], async (calls) => {
+  // The request's own start timer is the configured one, not the old 30s.
+  const realSetTimeout = global.setTimeout;
+  const delays = [];
+  global.setTimeout = (fn, ms, ...rest) => { delays.push(ms); return realSetTimeout(fn, ms, ...rest); };
+  try {
+    await airouter.generateStream([{ role: "user", content: "hi" }]);
+  } finally {
+    global.setTimeout = realSetTimeout;
+  }
+  assert.ok(delays.includes(airouter.startTimeoutMs()), `start timer was ${delays.join(", ")}`);
+  assert.ok(!delays.includes(30000));
+  assert.equal(calls.length, 1);
+}));
