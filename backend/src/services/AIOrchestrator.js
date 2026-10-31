@@ -1099,6 +1099,10 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
         if (isRateLimit) {
           providerManager.suspendProvider(currentProviderName, "Rate limit reached");
+        } else if (failure.kind === "bad_model" && currentProviderName === "airouter" && options?.airouterModel) {
+          // One AI Router model's name was wrong (Mercury, say): its other
+          // models still work, so AI Router stays on for them.
+          logger.warn("AIOrchestrator.airouterModelRejected", { reqId, model: options.airouterModel });
         } else if (["auth", "quota", "bad_model", "unconfigured"].includes(failure.kind)) {
           // Retrying a key, billing or model-name problem just burns the
           // user's time — park the provider for a while (not the usual 20s)

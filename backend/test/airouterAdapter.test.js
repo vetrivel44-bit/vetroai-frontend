@@ -11,8 +11,9 @@ function withFetch(responses, fn) {
     const saved = { key: config.airouterApiKey, model: config.airouterModel };
     config.airouterApiKey = "test-key";
     config.airouterModel = "";
+    airouter.resetResolvedModels();
     global.fetch = async (url, init) => {
-      calls.push({ url, body: JSON.parse(init.body), headers: init.headers });
+      calls.push({ url, body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
       const next = responses.shift();
       return new Response(next.body, { status: next.status, headers: next.headers });
     };
@@ -131,4 +132,31 @@ test("VetroAI is Qwen 3.7 Flash on AI Router", () => {
   assert.equal(airouter.modelFor("VetroAI"), "qwen/qwen3.7-flash");
   assert.equal(airouter.modelFor("vetroai"), "qwen/qwen3.7-flash");
   assert.equal(airouter.modelFor("VetroAI Computer"), null, "only the exact model name");
+});
+
+const MODELS = { status: 200, body: JSON.stringify({ data: [{ id: "deepseek-v4.1-flash" }, { id: "mercury-2.5" }, { id: "qwen3.7-flash" }] }) };
+const NO_MODEL = { status: 400, body: '{"error":{"message":"model inception/mercury-2.5 does not exist"}}' };
+
+test("a rejected model id is looked up in AI Router's model list, retried, and remembered", withFetch([NO_MODEL, MODELS, OK, OK], async (calls) => {
+  const picked = { airouterModel: airouter.modelFor("Mercury 2.5") };
+  await airouter.generateStream([{ role: "user", content: "hi" }], picked);
+  assert.equal(calls[1].url, "https://api.airouter.in/v1/models");
+  assert.equal(calls[2].body.model, "mercury-2.5");
+  await airouter.generateStream([{ role: "user", content: "again" }], picked);
+  assert.equal(calls.length, 4, "the next message goes straight to the right id");
+  assert.equal(calls[3].body.model, "mercury-2.5");
+}));
+
+test("with no matching model in the list, the original error reaches the orchestrator", withFetch([
+  { status: 404, body: '{"error":{"message":"model qwen/qwen3.7-flash not found"}}' },
+  { status: 200, body: JSON.stringify({ data: [{ id: "deepseek-v4.1-flash" }] }) },
+], async (calls) => {
+  await assert.rejects(airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.QWEN_MODEL }), /AI Router service error: 404/);
+  assert.equal(calls.length, 2);
+}));
+
+test("model names match across AI Router's naming styles", () => {
+  assert.equal(airouter.matchModel("qwen/qwen3.7-flash", ["qwen-3.7-plus", "qwen-3.7-flash"]), "qwen-3.7-flash");
+  assert.equal(airouter.matchModel("inception/mercury-2.5", ["inception/mercury-coder", "Mercury 2.5"]), "Mercury 2.5");
+  assert.equal(airouter.matchModel("deepseek/deepseek-v4.1-flash", ["openai/gpt-5"]), null);
 });

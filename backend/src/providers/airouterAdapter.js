@@ -66,9 +66,71 @@ function apiKey() {
   return key;
 }
 
+function isUnknownModelError(status, detail) {
+  return [400, 404, 422].includes(status) && /model/i.test(detail);
+}
+
+// The model ids above are VetroAI's best guess at AI Router's names. When AI
+// Router rejects one, its model list (/v1/models) is fetched once and the
+// closest match is used from then on, so a differently named id ("mercury-2.5",
+// "qwen3.7-flash", "inception/mercury-2-5"…) still works without a config change.
+const resolvedModels = new Map();
+let modelListCache = null;
+
+const squash = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const lastSegment = (id) => String(id || "").split("/").pop();
+
+/** The id in `available` that names the same model as `wanted`, or null. */
+function matchModel(wanted, available) {
+  const target = squash(lastSegment(wanted));
+  if (!target) return null;
+  const ids = available.filter(Boolean);
+  const exact = ids.find((id) => squash(lastSegment(id)) === target);
+  if (exact) return exact;
+  const containing = ids.filter((id) => squash(id).includes(target));
+  if (containing.length) return containing.sort((a, b) => a.length - b.length)[0];
+  // Every word and version number of the wanted name, in any form.
+  const tokens = lastSegment(wanted).toLowerCase().split(/[^a-z0-9]+|(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])/).filter(Boolean);
+  const all = ids.filter((id) => {
+    const s = squash(id);
+    return tokens.every((t) => s.includes(t));
+  });
+  return all.length ? all.sort((a, b) => a.length - b.length)[0] : null;
+}
+
+async function listModels(key) {
+  if (modelListCache) return modelListCache;
+  const res = await fetch(endpoint().replace(/\/chat\/completions$/, "/models"), {
+    headers: { Authorization: `Bearer ${key}`, "x-api-key": key },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`model list ${res.status}`);
+  const data = await res.json();
+  const list = Array.isArray(data) ? data : data.data || data.models || [];
+  modelListCache = list.map((m) => (typeof m === "string" ? m : m?.id || m?.name)).filter(Boolean);
+  return modelListCache;
+}
+
+async function resolveRejectedModel(key, model) {
+  try {
+    const available = await listModels(key);
+    const match = matchModel(model, available);
+    logger.warn("airouterAdapter.modelRejected", {
+      model,
+      useInstead: match || "(no match)",
+      available: available.slice(0, 80).join(", "),
+    });
+    return match && match !== model ? match : null;
+  } catch (err) {
+    logger.warn("airouterAdapter.modelListFailed", { model, error: err.message });
+    return null;
+  }
+}
+
 // Sends one request, retrying a short-lived rate limit. Returns the ok Response.
-async function send(body, { stream, timeoutMs, model = defaultModel() }) {
+async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel() }) {
   const key = apiKey();
+  let model = resolvedModels.get(wantedModel) || wantedModel;
   const request = () => fetch(endpoint(), {
     method: "POST",
     headers: {
@@ -84,6 +146,15 @@ async function send(body, { stream, timeoutMs, model = defaultModel() }) {
 
   let res = await request();
   let detail = res.ok ? "" : await res.text();
+  if (!res.ok && isUnknownModelError(res.status, detail)) {
+    const match = await resolveRejectedModel(key, model);
+    if (match) {
+      model = match;
+      res = await request();
+      detail = res.ok ? "" : await res.text();
+      if (res.ok) resolvedModels.set(wantedModel, match);
+    }
+  }
   for (const fallbackMs of rateLimitDelaysMs) {
     if (res.ok || !isTransientRateLimit(res.status, detail)) break;
     const waitMs = retryDelay(res, fallbackMs);
@@ -131,7 +202,9 @@ module.exports = {
   MERCURY_MODEL,
   QWEN_MODEL,
   modelFor,
+  matchModel,
   keyFingerprint,
+  resetResolvedModels: () => { resolvedModels.clear(); modelListCache = null; },
   // Tests shorten the pauses between rate-limit retries.
   setRateLimitDelays: (delays) => { rateLimitDelaysMs = delays; },
 };
