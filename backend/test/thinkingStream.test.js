@@ -169,3 +169,41 @@ test("pipeStream strips <unk> tokens and abandons a stream that degenerates into
     /corrupted output/,
   );
 });
+
+// What the app shows: content after the last "clear" (which wipes the reply).
+const shown = (events, type) => {
+  const last = events.map((e) => e.type).lastIndexOf("clear");
+  return joined(events.slice(last + 1), type);
+};
+
+test("thinking with a closing </think> but no opening tag is moved out of the answer", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([
+    dataLine({ content: "Okay, the user greets me. " }),
+    dataLine({ content: "I should reply warmly.</th" }),
+    dataLine({ content: "ink>\n\nHello! How can I help?" }),
+  ]), res, "sarvam");
+
+  assert.equal(res.events.filter((e) => e.type === "clear").length, 1, "the leaked thinking is wiped from the reply");
+  assert.equal(shown(res.events, "content"), "Hello! How can I help?");
+  assert.equal(shown(res.events, "reasoning"), "Okay, the user greets me. I should reply warmly.");
+});
+
+test("a stray </think> in the first chunk needs no clear", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([dataLine({ content: "plan it</think>The answer." })]), res, "sarvam");
+  assert.equal(res.events.filter((e) => e.type === "clear").length, 0);
+  assert.equal(joined(res.events, "content"), "The answer.");
+  assert.equal(joined(res.events, "reasoning"), "plan it");
+});
+
+test("an answer that talks about the </think> tag is left alone", async () => {
+  const quoted = makeRes();
+  await orchestrator.pipeStream(sseLines([dataLine({ content: "Reasoning models end their thinking with `</think>` before answering." })]), quoted, "sarvam");
+  assert.equal(joined(quoted.events, "content"), "Reasoning models end their thinking with `</think>` before answering.");
+
+  const afterBlock = makeRes();
+  await orchestrator.pipeStream(sseLines([dataLine({ content: "<think>a</think>Close it with </think> later." })]), afterBlock, "sarvam");
+  assert.equal(joined(afterBlock.events, "content"), "Close it with </think> later.");
+  assert.equal(afterBlock.events.filter((e) => e.type === "clear").length, 0);
+});

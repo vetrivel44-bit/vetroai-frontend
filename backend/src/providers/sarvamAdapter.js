@@ -159,6 +159,11 @@ async function complete(messages, { temperature = 0.4, maxTokens = 120 } = {}) {
 
 module.exports = {
   generateStream,
+  // sarvam-105b reasons in its own channel (reasoning_content, shown in the
+  // thinking panel). Also asking it for a <think> block in the answer made it
+  // write its thinking out a second time, and when it did so without both
+  // tags the thinking showed up as part of the reply.
+  reasonsNatively: () => true,
   // Live search results go with the question, not deep in the system prompt:
   // there Sarvam answered from its own out-of-date training (AIOrchestrator).
   searchResultsWithQuestion: () => true,

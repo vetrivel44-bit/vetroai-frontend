@@ -406,3 +406,7 @@ test("a reply that really ran out of tokens is continued, and stops once a try a
   const r = await chatWithSarvam(t, [cut, nothingMore, nothingMore, nothingMore, nothingMore], { input: "Compare the rainfall of Chennai and Mumbai" });
   assert.equal(r.calls.sarvam, 2, "one continuation, then it stops");
 });
+
+test("Sarvam reasons in its own channel, so it is never also asked for a <think> block", () => {
+  assert.equal(require("../src/providers/sarvamAdapter").reasonsNatively(), true);
+});
