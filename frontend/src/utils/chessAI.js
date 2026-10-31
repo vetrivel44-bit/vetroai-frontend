@@ -34,7 +34,7 @@ const PRODUCTION_API_BASE = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 export const CHESS_API = resolveApiBase(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD, PRODUCTION_API_BASE);
 
 export const CHESS_MODELS = [
-  { id: "agnes", name: "Agnes 2.0", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A", logo: "/model-icons/vetro.svg" },
+  { id: "vetroai", name: "VetroAI", tagline: "Universal style — squeezes, then strikes", color: "#3b82f6", avatar: "A", logo: "/model-icons/vetro.svg" },
   { id: "chatgpt", name: "ChatGPT", tagline: "Classical technician — structure above all", color: "#10a37f", avatar: "C", logo: "/model-icons/openai.svg" },
   { id: "fable", name: "Fable", tagline: "Romantic attacker — sacrifices on principle", color: "#d97757", avatar: "F", logo: "/model-icons/claude.svg" },
   { id: "gemini", name: "Gemini", tagline: "Pure calculator — trusts the variation", color: "#8b5cf6", avatar: "G", logo: "/model-icons/gemini.svg" },

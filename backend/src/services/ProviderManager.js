@@ -2,7 +2,6 @@ const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const groqAdapter = require("../providers/groqAdapter");
 const geminiAdapter = require("../providers/geminiAdapter");
-const agnesAdapter = require("../providers/agnesAdapter");
 const chatgptAdapter = require("../providers/chatgptAdapter");
 const fableAdapter = require("../providers/fableAdapter");
 const airouterAdapter = require("../providers/airouterAdapter");
@@ -18,8 +17,7 @@ const PROVIDER_ALIASES = [
   [/claude|fable/i, "fable"],
   [/gemini|google/i, "gemini"],
   [/^groq$/i, "groq"],
-  [/agnes/i, "agnes"],
-  [/ai[\s_-]?router|deepseek/i, "airouter"],
+  [/ai[\s_-]?router|deepseek|mercury|qwen|^vetro\s?ai$/i, "airouter"],
   [/cohere/i, "cohere"],
   [/sarvam/i, "sarvam"],
 ];
@@ -49,7 +47,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["airouter", "groq", "agnes", "gemini", "cohere"],
+        fallbacks: ["airouter", "groq", "gemini", "cohere"],
       },
       fable: {
         adapter: fableAdapter,
@@ -61,7 +59,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["airouter", "chatgpt", "groq", "agnes", "gemini", "cohere"],
+        fallbacks: ["airouter", "chatgpt", "groq", "gemini", "cohere"],
       },
       airouter: {
         adapter: airouterAdapter,
@@ -73,7 +71,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["fable", "chatgpt", "groq", "agnes", "gemini", "cohere"],
+        fallbacks: ["fable", "chatgpt", "groq", "gemini", "cohere"],
       },
       groq: {
         adapter: groqAdapter,
@@ -85,19 +83,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["airouter", "chatgpt", "agnes", "gemini", "cohere"],
-      },
-      agnes: {
-        adapter: agnesAdapter,
-        weight: 100,
-        score: 100,
-        latency: 0,
-        successRate: 1,
-        consecutiveErrors: 0,
-        isSuspended: false,
-        lastFailure: 0,
-        cooldown: 20000,
-        fallbacks: ["airouter", "groq", "gemini", "cohere"],
+        fallbacks: ["airouter", "chatgpt", "gemini", "cohere"],
       },
       gemini: {
         adapter: geminiAdapter,
@@ -109,7 +95,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["airouter", "groq", "agnes", "cohere"],
+        fallbacks: ["airouter", "groq", "cohere"],
       },
       sarvam: {
         adapter: sarvamAdapter,
@@ -129,7 +115,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["airouter", "groq", "agnes", "gemini", "cohere"],
+        fallbacks: ["airouter", "groq", "gemini", "cohere"],
       },
       cohere: {
         adapter: cohereAdapter,
@@ -144,7 +130,7 @@ class ProviderManager {
         isSuspended: false,
         lastFailure: 0,
         cooldown: 20000,
-        fallbacks: ["airouter", "groq", "agnes", "gemini"],
+        fallbacks: ["airouter", "groq", "gemini"],
       },
     };
 
@@ -161,7 +147,6 @@ class ProviderManager {
       chatgpt: Boolean(config.chatgptApiKey),
       fable: Boolean(config.fableRapidApiKey),
       groq: Boolean(config.groqApiKey),
-      agnes: Boolean(config.agnesApiKey),
       gemini: Boolean(config.geminiApiKey),
       cohere: Boolean(config.cohereApiKey),
       sarvam: Boolean(config.sarvamApiKey),
@@ -273,7 +258,7 @@ class ProviderManager {
 
   getFallbackProvider(failedProvider, excludedProviders = []) {
     const p = this.providers[failedProvider];
-    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["airouter", "gemini", "groq", "agnes", "cohere"];
+    const fallbackList = (p && p.fallbacks) ? p.fallbacks : ["airouter", "gemini", "groq", "cohere"];
     const excluded = new Set([failedProvider, ...excludedProviders]);
 
     // Auto-expire cooled-down suspensions first

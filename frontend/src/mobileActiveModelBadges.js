@@ -20,7 +20,8 @@ const MODEL_ICON_RULES = [
   [/sarvam/i, '/model-icons/sarvam.svg'],
   [/deepseek/i, '/model-icons/deepseek.svg'],
   [/^groq$/i, '/model-icons/groq.svg'],
-  [/agnes|vetro/i, '/favicon.svg'],
+  [/vetro/i, '/favicon.svg'],
+  [/mercury/i, '/model-icons/mercury.svg'],
   [/local|ollama/i, '/model-icons/local.svg'],
 ];
 

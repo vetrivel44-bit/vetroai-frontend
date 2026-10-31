@@ -1339,8 +1339,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
   providerLabel(name) {
     const labels = {
-      chatgpt: "ChatGPT", fable: "Claude Fable 5", airouter: "DeepSeek V4.1 Flash", groq: "Groq",
-      agnes: "Agnes", gemini: "Gemini", cohere: "Cohere", sarvam: "Sarvam",
+      chatgpt: "ChatGPT", fable: "Claude Fable 5", airouter: "AI Router", groq: "Groq",
+      gemini: "Gemini", cohere: "Cohere", sarvam: "Sarvam",
     };
     return labels[name] || name || "The AI model";
   }
@@ -1553,7 +1553,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           stream.on("error", reject);
         });
       }
-      // 3. Handle Web Streams with getReader (Agnes uses this)
+      // 3. Handle Web Streams with getReader 
       else if (stream.getReader && typeof stream.getReader === "function") {
         reader = stream.getReader();
         try {
@@ -1707,7 +1707,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
 
     // If using SSE provider, ignore comments or heartbeats that carry no data frame
-    if (["groq", "agnes", "airouter", "sarvam"].includes(provider)) {
+    if (["groq", "airouter", "sarvam"].includes(provider)) {
       return empty;
     }
 

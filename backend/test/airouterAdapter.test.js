@@ -50,7 +50,7 @@ test("the key fingerprint shows only the last 4 characters and the length", () =
   }
 });
 
-test("a model asked for by the caller is ignored: AI Router only serves DeepSeek V4.1 Flash", withFetch([OK], async (calls) => {
+test("a model name meant for another provider is never sent to AI Router", withFetch([OK], async (calls) => {
   await airouter.generateStream([{ role: "user", content: "hi" }], { model: "openai/gpt-5" });
   assert.equal(calls[0].body.model, airouter.MODEL);
 }));
@@ -114,3 +114,21 @@ test("complete() returns the reply text for short side tasks", withFetch([
   assert.equal(calls[0].body.stream, false);
   assert.equal(calls[0].body.max_tokens, 10);
 }));
+
+test("the picker label picks the AI Router model", () => {
+  assert.equal(airouter.modelFor("Mercury 2.5"), "inception/mercury-2.5");
+  assert.equal(airouter.modelFor("DeepSeek V4.1 Flash"), airouter.MODEL);
+  assert.equal(airouter.modelFor("Groq"), null);
+});
+
+test("Mercury 2.5 is sent when picked, and DeepSeek otherwise", withFetch([OK, OK], async (calls) => {
+  await airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.modelFor("Mercury 2.5") });
+  await airouter.generateStream([{ role: "user", content: "hi" }]);
+  assert.deepEqual(calls.map((c) => c.body.model), ["inception/mercury-2.5", "deepseek/deepseek-v4.1-flash"]);
+}));
+
+test("VetroAI is Qwen 3.7 Flash on AI Router", () => {
+  assert.equal(airouter.modelFor("VetroAI"), "qwen/qwen3.7-flash");
+  assert.equal(airouter.modelFor("vetroai"), "qwen/qwen3.7-flash");
+  assert.equal(airouter.modelFor("VetroAI Computer"), null, "only the exact model name");
+});

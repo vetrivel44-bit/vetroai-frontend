@@ -44,8 +44,8 @@ const pick = (rng, arr) => arr[Math.floor(rng() * arr.length) % arr.length];
 // tolerance — how much eval it will give up for a move that fits its style,
 //             in centipawns. Also the blunder-veto threshold.
 export const PERSONAS = {
-  agnes: {
-    label: "Agnes 2.0",
+  vetroai: {
+    label: "VetroAI",
     school: "Universal — Karpov's squeeze with Kasparov's punch",
     thinkMs: 900,
     discipline: 0.86,
@@ -145,7 +145,7 @@ export const PERSONAS = {
 };
 
 export function getPersona(id) {
-  return PERSONAS[id] || PERSONAS.agnes;
+  return PERSONAS[id] || PERSONAS.vetroai;
 }
 
 // ─── per-game moods ─────────────────────────────────────────────────────────

@@ -819,15 +819,19 @@ const PUTER_MODEL_IDS = {
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
-// DeepSeek V4.1 Flash, served by AI Router (airouter.in) on the backend
-// (providers/airouterAdapter.js).
+// AI Router (airouter.in) models, on the backend (providers/airouterAdapter.js),
+// which picks the model from the label sent as modelLabel.
 const AIROUTER_PROVIDER = "DeepSeek V4.1 Flash";
+const MERCURY_PROVIDER = "Mercury 2.5";
+// Qwen 3.7 Flash, shown as VetroAI's own model.
+const VETROAI_PROVIDER = "VetroAI";
+const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, MERCURY_PROVIDER, VETROAI_PROVIDER]);
 const GROK_PROVIDER = "Grok 4.6";
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
 // sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
 const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, AIROUTER_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER, "Agnes"];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, MERCURY_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3267,13 +3271,14 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     "GPT-5.6 Luna": ["L", "Fast · lightweight tasks"],
     "GPT-5.3 Codex": ["</>", "Primary coding model"],
     [CLAUDE_FABLE_PROVIDER]: ["C", "Frontier reasoning · RapidAPI"],
+    [VETROAI_PROVIDER]: ["V", "VetroAI · fast everyday model"],
     [AIROUTER_PROVIDER]: ["D", "DeepSeek · fast, via AI Router"],
+    [MERCURY_PROVIDER]: ["M", "Inception · ultra-fast diffusion"],
     [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],
     [SARVAM_105B_CHAT_PROVIDER]: ["स", "Sarvam AI · quick conversations"],
-    Agnes: ["A", "VetroAI creative model"],
   };
 
   return (
@@ -6131,7 +6136,7 @@ export default function App() {
   };
 
   const MULTI_AI_MODELS = [
-    { name: "Agnes 2.0",  id: "agnes",     color: "#3b82f6" },
+    { name: "VetroAI",    id: "vetroai",   color: "#3b82f6" },
     { name: "DeepSeek",   id: "airouter",  color: "#4d6bfe" },
     { name: "Groq",       id: "groq",      color: "#10b981" },
     { name: "Gemini",     id: "gemini",    color: "#8b5cf6" },
@@ -6208,10 +6213,10 @@ export default function App() {
     const runWebSearch = async (idx) => {
       const fd = new FormData();
       for (let [k, v] of baseFd.entries()) fd.append(k, v);
-      fd.set("provider", "agnes");
+      fd.set("provider", "vetroai");
       fd.set("mode", "normal");
       fd.set("webSearch", "true");
-      fd.set("modelLabel", "Agnes 2.0");
+      fd.set("modelLabel", "VetroAI");
       const t0 = Date.now();
       updateModel(idx, "", "streaming", { startTime: t0 });
       try {
@@ -6269,8 +6274,8 @@ ${responseSummary}
 Write the definitive, comprehensive answer with proper markdown formatting (headers, bold, lists, etc.).`);
     consensusFd.append("messages", JSON.stringify([{ role: "user", content: "Synthesize the best answer." }]));
     consensusFd.append("mode", "normal");
-    consensusFd.append("provider", "agnes");
-    consensusFd.append("modelLabel", "Agnes 2.0");
+    consensusFd.append("provider", "vetroai");
+    consensusFd.append("modelLabel", "VetroAI");
     consensusFd.append("temperature", "0.3");
     consensusFd.append("maxTokens", "8000");
 
@@ -6385,7 +6390,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append(
       "provider",
       requestProvider === CLAUDE_FABLE_PROVIDER ? "fable"
-        : requestProvider === AIROUTER_PROVIDER ? "airouter"
+        : AIROUTER_PROVIDERS.has(requestProvider) ? "airouter"
         : requestProvider
     );
     // The model as the user knows it, for usage limits (Settings → Usage).
@@ -7613,7 +7618,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           if (lastPending !== -1) {
             u[lastPending] = {
               role: "assistant",
-              content: `Here's your generated video of **"${vidPrompt}"**:\n\n<video controls width="100%" src="${videoUrl}"></video>\n\n[Download Video](${videoUrl})\n\n*Powered by Agnes AI*`,
+              content: `Here's your generated video of **"${vidPrompt}"**:\n\n<video controls width="100%" src="${videoUrl}"></video>\n\n[Download Video](${videoUrl})\n\n*Generated by VetroAI*`,
               timestamp: ts, isVideoGen: true,
             };
           }
