@@ -81,6 +81,12 @@ function historyWithinBudget(messages, maxChars = HISTORY_CHAR_BUDGET) {
 }
 
 const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
+// Providers that get the lean prompt (no ~7k-token inline-visuals guide) on a
+// light turn — a greeting, "who are you", a few words — where there is nothing
+// to chart. AI Router's models read the whole prompt before the first word, so
+// "hi" took 6–15s with the full ~10k-token prompt while Groq, on the lean one,
+// answered in under a second.
+const LEAN_WHEN_LIGHT_PROVIDERS = new Set(["airouter"]);
 // A hand-drawn sketch is 20–80 shapes (~2-4K tokens) plus a few short notes.
 // The floor stops a low effort setting cutting the sketch off half-drawn (paid
 // for and useless); the ceiling stops a runaway reply burning credits. Only the
@@ -995,7 +1001,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           ...withSearchInQuestion(history, webContext, params.clock),
         ];
       }
-      const base = TIGHT_BUDGET_PROVIDERS.has(providerName) ? (compactSysPrompt || tightSysPrompt) : finalSysPrompt;
+      const lean = TIGHT_BUDGET_PROVIDERS.has(providerName) || (light && LEAN_WHEN_LIGHT_PROVIDERS.has(providerName));
+      const base = lean ? (compactSysPrompt || tightSysPrompt) : finalSysPrompt;
       return [{ role: "system", content: base + thinking + astrologyPrompt }, ...history];
     };
 
