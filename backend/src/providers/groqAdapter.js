@@ -122,6 +122,9 @@ async function generateStream(messages, options = {}) {
 
 module.exports = {
   generateStream,
+  // Live search results go with the question, not inside the system prompt:
+  // there Groq answered from its own out-of-date training, as Sarvam did.
+  searchResultsWithQuestion: () => true,
   fitRequest,
   estimateTokens,
 };

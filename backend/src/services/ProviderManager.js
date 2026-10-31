@@ -75,8 +75,11 @@ class ProviderManager {
       },
       groq: {
         adapter: groqAdapter,
-        weight: 80,
-        score: 80,
+        // First in Auto: the highest weight. Design mode still boosts Claude
+        // and GPT above it — a whole hand-styled site doesn't fit Groq's
+        // request cap anyway.
+        weight: 110,
+        score: 110,
         latency: 0,
         successRate: 1,
         consecutiveErrors: 0,
@@ -102,12 +105,6 @@ class ProviderManager {
         // Below the general-purpose providers, so Auto keeps its current
         // picks; it answers when chosen in the picker.
         weight: 60,
-        // Picked in the model picker, Sarvam answers alone: every message
-        // starts with Sarvam even if an earlier one failed, and a timeout or
-        // busy moment is retried on Sarvam rather than handed to another
-        // model (AIOrchestrator, pickedAlone). Auto keeps skipping a failing
-        // Sarvam and falls back as usual.
-        retryWhenPicked: true,
         score: 60,
         latency: 0,
         successRate: 1,
@@ -180,13 +177,18 @@ class ProviderManager {
   }
 
   /**
-   * The provider the user picked, when it is one that answers alone once
-   * picked (retryWhenPicked) and is configured; otherwise null.
+   * The provider the user picked in the model picker, when it is configured;
+   * null for Auto (or nothing picked). A picked model answers alone: every
+   * message starts with it even if an earlier one failed, and a timeout or a
+   * busy moment is retried on the same model rather than handed to another
+   * (AIOrchestrator). Only Auto walks the fallback chain. A picked model with
+   * no key configured can never answer, so it still falls back.
    */
   pickedAlone(preferredProvider) {
-    const name = resolveProviderName(preferredProvider);
-    const p = this.providers[name];
-    return p?.retryWhenPicked && this.isConfigured(name) ? name : null;
+    const text = String(preferredProvider || "").trim();
+    if (!text || ["auto", "undefined"].includes(text.toLowerCase())) return null;
+    const name = resolveProviderName(text);
+    return this.providers[name] && this.isConfigured(name) ? name : null;
   }
 
   getBestProvider(mode, preferredProvider) {
@@ -194,10 +196,10 @@ class ProviderManager {
     if (preferredProvider && !["undefined", "auto"].includes(preferredProvider.toLowerCase())) {
       const pref = resolveProviderName(preferredProvider);
       if (this.providers[pref] && this.isConfigured(pref)) {
-        // Unsuspend if cooldown has passed, or straight away for a provider
-        // that is always retried when picked.
+        // A picked model is always tried, even if an earlier message parked
+        // it: it answers alone (pickedAlone), so there is no one else to ask.
         const p = this.providers[pref];
-        if (p.isSuspended && (p.retryWhenPicked || this.cooledDown(p))) {
+        if (p.isSuspended) {
           p.isSuspended = false;
           p.consecutiveErrors = 0;
         }
