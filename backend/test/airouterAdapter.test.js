@@ -12,7 +12,6 @@ function withFetch(responses, fn) {
     config.airouterApiKey = "test-key";
     config.airouterModel = "";
     airouter.resetResolvedModels();
-    airouter.resetReasoning();
     global.fetch = async (url, init) => {
       calls.push({ url, body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
       const next = responses.shift();
@@ -130,8 +129,8 @@ test("Mercury 2.5 is sent when picked, and DeepSeek otherwise", withFetch([OK, O
 }));
 
 test("VetroAI is Qwen 3.7 Flash on AI Router", () => {
-  assert.equal(airouter.modelFor("VetroAI"), "qwen/qwen3.7-flash");
-  assert.equal(airouter.modelFor("vetroai"), "qwen/qwen3.7-flash");
+  assert.equal(airouter.modelFor("VetroAI"), "alibaba/qwen3.7-flash");
+  assert.equal(airouter.modelFor("vetroai"), "alibaba/qwen3.7-flash");
   assert.equal(airouter.modelFor("VetroAI Computer"), null, "only the exact model name");
 });
 
@@ -157,7 +156,7 @@ test("with no matching model in the list, the original error reaches the orchest
 }));
 
 test("model names match across AI Router's naming styles", () => {
-  assert.equal(airouter.matchModel("qwen/qwen3.7-flash", ["qwen-3.7-plus", "qwen-3.7-flash"]), "qwen-3.7-flash");
+  assert.equal(airouter.matchModel("alibaba/qwen3.7-flash", ["qwen-3.7-plus", "qwen-3.7-flash"]), "qwen-3.7-flash");
   assert.equal(airouter.matchModel("inception/mercury-2.5", ["inception/mercury-coder", "Mercury 2.5"]), "Mercury 2.5");
   assert.equal(airouter.matchModel("deepseek/deepseek-v4.1-flash", ["openai/gpt-5"]), null);
 });
@@ -169,24 +168,7 @@ test("each AI Router model's reply is labelled with its own picker name", () => 
   assert.equal(airouter.displayName(undefined), "DeepSeek V4.1 Flash", "a fallback to AI Router uses DeepSeek");
 });
 
-test("light reasoning by default, and more for Deep or Max", withFetch([OK, OK, OK], async (calls) => {
-  await airouter.generateStream([{ role: "user", content: "hi" }]);
-  await airouter.generateStream([{ role: "user", content: "hi" }], { effort: "deep" });
-  await airouter.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
-  assert.deepEqual(calls.map((c) => c.body.reasoning_effort), ["low", "medium", "high"]);
-}));
 
-test("a model that refuses reasoning_effort is retried without it, and not sent it again", withFetch([
-  { status: 400, body: '{"error":{"message":"reasoning_effort is not supported for this model"}}' }, OK, OK,
-], async (calls) => {
-  const picked = { airouterModel: airouter.MERCURY_MODEL };
-  await airouter.generateStream([{ role: "user", content: "hi" }], picked);
-  assert.equal(calls[0].body.reasoning_effort, "low");
-  assert.equal(calls[1].body.reasoning_effort, undefined);
-  await airouter.generateStream([{ role: "user", content: "again" }], picked);
-  assert.equal(calls.length, 3);
-  assert.equal(calls[2].body.reasoning_effort, undefined);
-}));
 
 test("a long reply keeps streaming past the start timeout", async () => {
   const originalFetch = global.fetch;
@@ -207,3 +189,8 @@ test("a long reply keeps streaming past the start timeout", async () => {
     config.airouterApiKey = saved;
   }
 });
+
+test("no reasoning_effort is sent (airouter.in stalled on it)", withFetch([OK], async (calls) => {
+  await airouter.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
+  assert.equal(calls[0].body.reasoning_effort, undefined);
+}));
