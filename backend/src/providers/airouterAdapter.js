@@ -35,6 +35,13 @@ function retryDelay(res, fallbackMs) {
 }
 
 // Tolerates the usual paste mistakes in the env var: whitespace, quotes, "Bearer ".
+// Last 4 characters and length only, so the logs can confirm which key is
+// loaded without exposing it.
+function keyFingerprint() {
+  const key = String(config.airouterApiKey || "").trim().replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "").trim();
+  return key ? `…${key.slice(-4)} (${key.length} chars)` : "";
+}
+
 function apiKey() {
   const key = String(config.airouterApiKey || "").trim().replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "").trim();
   if (!key) {
@@ -50,6 +57,8 @@ async function send(body, { stream, timeoutMs }) {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
+      // Some routers read the key from x-api-key instead of Authorization.
+      "x-api-key": key,
       "Content-Type": "application/json",
       ...(stream ? { Accept: "text/event-stream" } : {}),
     },
@@ -68,6 +77,7 @@ async function send(body, { stream, timeoutMs }) {
     detail = res.ok ? "" : await res.text();
   }
   if (!res.ok) {
+    if (res.status === 401) logger.warn("airouterAdapter.keyRejected", { key: keyFingerprint(), url: endpoint() });
     throw new ApiError(res.status, `AI Router service error: ${res.status} ${detail.slice(0, 300)}`);
   }
   return res;
@@ -100,6 +110,7 @@ module.exports = {
   generateStream,
   complete,
   MODEL,
+  keyFingerprint,
   // Tests shorten the pauses between rate-limit retries.
   setRateLimitDelays: (delays) => { rateLimitDelaysMs = delays; },
 };

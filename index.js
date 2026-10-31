@@ -4,6 +4,7 @@ require("dotenv").config({ path: path.join(__dirname, "backend", ".env") });
 const app = require("./backend/src/app");
 const { config } = require("./backend/src/config/env");
 const logger = require("./backend/src/utils/logger");
+const airouter = require("./backend/src/providers/airouterAdapter");
 
 const PORT = process.env.PORT || config.port || 3000;
 
@@ -13,6 +14,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
     env: config.nodeEnv,
     groqKey: process.env.GROQ_API_KEY ? "✅ configured" : "⚠️ missing",
     firecrawlKey: process.env.FIRECRAWL_API_KEY ? "✅ configured" : "⚠️ missing",
+    airouterKey: airouter.keyFingerprint() ? `✅ configured ${airouter.keyFingerprint()}` : "⚠️ missing",
     mongodb: "removed (offline mode)",
   });
 });
