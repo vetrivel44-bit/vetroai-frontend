@@ -17,7 +17,7 @@ const PROVIDER_ALIASES = [
   [/claude|fable/i, "fable"],
   [/gemini|google/i, "gemini"],
   [/^groq$/i, "groq"],
-  [/ai[\s_-]?router|deepseek|mercury|qwen|^vetro\s?ai$/i, "airouter"],
+  [/ai[\s_-]?router|deepseek|\bling\b|qwen|^vetro\s?ai$/i, "airouter"],
   [/cohere/i, "cohere"],
   [/sarvam/i, "sarvam"],
 ];

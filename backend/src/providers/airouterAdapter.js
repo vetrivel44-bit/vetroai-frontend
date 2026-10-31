@@ -3,11 +3,11 @@ const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
 
 // AI Router serves three models for VetroAI, picked by name in the model picker:
-// DeepSeek V4.1 Flash (the default), Mercury 2.5, and Qwen 3.7 Flash (shown as
-// "VetroAI"). AIROUTER_MODEL, AIROUTER_MERCURY_MODEL and AIROUTER_QWEN_MODEL
+// DeepSeek V4.1 Flash (the default), Ling 3.0 Flash, and Qwen 3.7 Flash (shown as
+// "VetroAI"). AIROUTER_MODEL, AIROUTER_LING_MODEL and AIROUTER_QWEN_MODEL
 // override the ids only if AI Router names them differently.
 const MODEL = "deepseek/deepseek-v4.1-flash";
-const MERCURY_MODEL = "inception/mercury-2.5";
+const LING_MODEL = "inclusionai/ling-3.0-flash";
 const QWEN_MODEL = "alibaba/qwen3.7-flash";
 
 // AI Router (airouter.in) exposes an OpenAI-compatible /chat/completions endpoint,
@@ -23,12 +23,12 @@ function defaultModel() {
 }
 
 /**
- * "Mercury 2.5" → Mercury, "VetroAI" / "Qwen…" → Qwen 3.7 Flash,
+ * "Ling 3.0 Flash" → Ling, "VetroAI" / "Qwen…" → Qwen 3.7 Flash,
  * "DeepSeek V4.1 Flash" / "AI Router" → DeepSeek, else null.
  */
 function modelFor(label) {
   const text = String(label || "").trim();
-  if (/mercury/i.test(text)) return config.airouterMercuryModel || MERCURY_MODEL;
+  if (/\bling\b/i.test(text)) return config.airouterLingModel || LING_MODEL;
   if (/qwen|^vetro\s?ai$/i.test(text)) return config.airouterQwenModel || QWEN_MODEL;
   if (/deepseek|ai[\s_-]?router/i.test(text)) return defaultModel();
   return null;
@@ -37,7 +37,7 @@ function modelFor(label) {
 /** The picker name of an AI Router model id, for labelling the reply. */
 function displayName(modelId) {
   const id = String(modelId || defaultModel());
-  if (/mercury/i.test(id)) return "Mercury 2.5";
+  if (/(^|\/)ling-/i.test(id)) return "Ling 3.0 Flash";
   if (/qwen/i.test(id)) return "VetroAI";
   return "DeepSeek V4.1 Flash";
 }
@@ -80,8 +80,8 @@ function isUnknownModelError(status, detail) {
 
 // The model ids above are VetroAI's best guess at AI Router's names. When AI
 // Router rejects one, its model list (/v1/models) is fetched once and the
-// closest match is used from then on, so a differently named id ("mercury-2.5",
-// "qwen3.7-flash", "inception/mercury-2-5"…) still works without a config change.
+// closest match is used from then on, so a differently named id ("ling-3.0-flash",
+// "qwen3.7-flash", "inclusionai/ling-3-0-flash"…) still works without a config change.
 const resolvedModels = new Map();
 let modelListCache = null;
 
@@ -243,7 +243,7 @@ module.exports = {
   generateStream,
   complete,
   MODEL,
-  MERCURY_MODEL,
+  LING_MODEL,
   QWEN_MODEL,
   modelFor,
   displayName,

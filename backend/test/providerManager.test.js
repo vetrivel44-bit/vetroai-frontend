@@ -95,9 +95,9 @@ test("a key or billing problem parks the provider longer than a normal failure",
   }
 });
 
-test("Mercury 2.5 and DeepSeek V4.1 Flash are both answered by AI Router", () => {
+test("Ling 3.0 Flash and DeepSeek V4.1 Flash are both answered by AI Router", () => {
   configureMany(["airouter", "groq"]);
-  assert.equal(providerManager.getBestProvider("normal", "Mercury 2.5"), "airouter");
+  assert.equal(providerManager.getBestProvider("normal", "Ling 3.0 Flash"), "airouter");
   assert.equal(providerManager.getBestProvider("normal", "DeepSeek V4.1 Flash"), "airouter");
 });
 

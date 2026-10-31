@@ -5,16 +5,16 @@
 const MOBILE_MODEL_QUERY = window.matchMedia('(max-width: 768px)');
 
 const MODEL_TASKS = {
-  writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'VetroAI', 'Mercury 2.5', 'Grok 4.6']),
+  writing: new Set(['Auto', 'GPT-5.6 Sol', 'GPT-5.6 Terra', 'GPT-5.6 Luna', 'Claude Fable 5', 'VetroAI', 'Ling 3.0 Flash', 'Grok 4.6']),
   research: new Set(['GPT-5.6 Sol', 'Claude Fable 5', 'Groq', 'Sonar Pro Research', 'Gemini', 'DeepSeek V4.1 Flash', 'Grok 4.6']),
-  coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Groq', 'Gemini', 'DeepSeek V4.1 Flash', 'Mercury 2.5']),
+  coding: new Set(['GPT-5.6 Sol', 'GPT-5.3 Codex', 'Claude Fable 5', 'Groq', 'Gemini', 'DeepSeek V4.1 Flash', 'Ling 3.0 Flash']),
 };
 
 // Single source of truth for provider/model branding on mobile. Never fall back
 // to unrelated Lucide action icons (the old Mistral briefcase regression).
 const MODEL_ICON_RULES = [
   [/^auto$|vetro/i, '/model-icons/vetro.svg'],
-  [/mercury/i, '/model-icons/mercury.svg'],
+  [/\bling\b/i, '/model-icons/ling.svg'],
   [/^gpt-|openai|codex/i, '/model-icons/openai.svg'],
   [/claude/i, '/model-icons/claude.svg'],
   [/grok|xai/i, '/model-icons/grok.svg'],
