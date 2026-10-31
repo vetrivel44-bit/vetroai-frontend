@@ -25,6 +25,7 @@ const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
 const airouterModelFor = airouterAdapter.modelFor;
+const { decideSearch } = require("../services/searchIntentService");
 const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
@@ -471,4 +472,14 @@ async function textToSpeech(req, res) {
   return res.send(buffer);
 }
 
-module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext };
+// Browser models search in the app: it asks here whether a message needs a web
+// search, so they get the same judge as the backend's models (AIOrchestrator).
+async function searchIntent(req, res) {
+  const query = String(req.body?.query || "").trim().slice(0, 2000);
+  const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
+  const mode = String(req.body?.mode || "normal").slice(0, 40);
+  const decision = await decideSearch({ query, history, mode, clock: clientClock(req.body || {}) });
+  return successResponse(res, "Search decision", { search: decision.search, by: decision.by });
+}
+
+module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, searchIntent };

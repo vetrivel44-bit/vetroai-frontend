@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-import { LIVE_INFO_PATTERNS, CHAT_REFERENCE_PATTERNS, LOOKUP_PATTERNS, TIMELESS_PATTERNS, TIMELESS_MODES, ABOUT_SELF, needsLiveInfo } from "../src/lib/liveInfoIntent.js";
+import { FEELINGS_PATTERN, LIVE_INFO_PATTERNS, CHAT_REFERENCE_PATTERNS, LOOKUP_PATTERNS, TIMELESS_PATTERNS, TIMELESS_MODES, ABOUT_SELF, needsLiveInfo } from "../src/lib/liveInfoIntent.js";
 
 const require = createRequire(import.meta.url);
 const backend = require("../../backend/src/services/liveInfoIntent.js");
@@ -23,6 +23,7 @@ test("the app and the backend use the same patterns", () => {
   assert.deepEqual(TIMELESS_PATTERNS.map(String), backend.TIMELESS_PATTERNS.map(String));
   assert.deepEqual([...TIMELESS_MODES], [...backend.TIMELESS_MODES]);
   assert.equal(String(ABOUT_SELF), String(backend.ABOUT_SELF));
+  assert.equal(String(FEELINGS_PATTERN), String(backend.FEELINGS_PATTERN));
 });
 
 test("browser models search questions without a time word too, as the backend does", () => {

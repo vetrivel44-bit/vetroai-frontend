@@ -77,10 +77,15 @@ const TIMELESS_PATTERNS = [
   // "What is DBMS", "what are enzymes": a short concept, no digits or versions
   /^(what|who) (is|are) (a |an |the )?[a-z][a-z-]*( [a-z][a-z-]*)?\s*\??$/i,
   // The user's own life, small talk
-  /^(i|i'm|im|i am|i've|my|we|we're|our|me|let's|lets)\b/i,
+  /^(i|iam|i'm|im|i am|i've|ive|my|we|we're|our|me|let's|lets)\b/i,
   /^(hi|hii+|hello|hey|yo|thanks|thank you|thx|ok|okay|k|cool|nice|great|good|awesome|wow|yes|yeah|yep|no|nope|sure|continue|go on|more|again|why|how so|really|lol|haha|bye|good (morning|afternoon|evening|night)|love you|help me|are you there|you there)\b/i,
   /\b(how are you|what can you do|tell me a joke|motivate me|cheer me up|pretend|role ?play|let's play|let us play)\b/i,
 ];
+
+// A short message about how the user feels ("iam happy", "i'm so tired
+// today"): talk, not a lookup, even with a time word in it. Searching "I am
+// happy" once answered with facts about Pharrell Williams' song.
+const FEELINGS_PATTERN = /^(i|iam|i'm|im|i am|i feel|i'm feeling|im feeling|i am feeling|feeling|me|my mood is)\b.{0,40}\b(happy|sad|bored|tired|angry|upset|excited|lonely|stressed|depressed|anxious|nervous|hungry|sleepy|sick|fine|good|great|okay|ok|alright|better|worse|confused|scared|proud|grateful|in love|blessed|relaxed|calm|annoyed|frustrated|worried)\b/i;
 
 // Modes for making or explaining things: only clearly-current questions search.
 const TIMELESS_MODES = new Set(["code", "coding", "debugger", "creative", "design", "summarize", "analyst", "computer_use", "code_exec", "data_analysis"]);
@@ -99,6 +104,7 @@ const matches = (patterns, text) => patterns.some((rx) => rx.test(text));
 function needsLiveInfo(query, { mode } = {}) {
   const q = String(query || "").trim();
   if (!q || ABOUT_SELF.test(q)) return false;
+  if (q.split(/\s+/).length <= 8 && FEELINGS_PATTERN.test(q)) return false;
   if (matches(LIVE_INFO_PATTERNS, q)) return true;
   if (TIMELESS_MODES.has(String(mode || "").toLowerCase())) return false;
   if (matches(CHAT_REFERENCE_PATTERNS, q)) return false;
@@ -110,5 +116,5 @@ function needsLiveInfo(query, { mode } = {}) {
 }
 
 module.exports = {
-  LIVE_INFO_PATTERNS, CHAT_REFERENCE_PATTERNS, LOOKUP_PATTERNS, TIMELESS_PATTERNS, TIMELESS_MODES, ABOUT_SELF, needsLiveInfo,
+  FEELINGS_PATTERN, LIVE_INFO_PATTERNS, CHAT_REFERENCE_PATTERNS, LOOKUP_PATTERNS, TIMELESS_PATTERNS, TIMELESS_MODES, ABOUT_SELF, needsLiveInfo,
 };

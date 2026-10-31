@@ -96,3 +96,8 @@ test("in coding, creative and similar modes only clearly-current questions searc
   assert.equal(orchestrator.needsWebSearch("tamil nadu cm", "normal"), true);
   assert.equal(orchestrator.needsWebSearch("tamil nadu cm", "summarize"), false);
 });
+
+test("the fallback word list never searches a short message about how the user feels", () => {
+  for (const q of ["iam happy", "I am happy", "i am so tired today", "feeling sad", "im bored"]) assert.equal(needsLiveInfo(q), false, q);
+  assert.equal(needsLiveInfo("I am happy with the new iphone 17 price compared to last year"), true);
+});

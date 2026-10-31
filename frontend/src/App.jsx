@@ -51,6 +51,7 @@ import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, P
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo } from "./lib/liveInfoIntent";
+import { askSearchIntent } from "./lib/searchIntent";
 import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
@@ -6476,14 +6477,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
-    // For browser models the app does the searching itself, so it applies the
-    // backend's rule: explicit search asks always search, but the auto-search
-    // setting is only permission — it searches when the question looks like
-    // it needs live information. Otherwise every message ran a web search
-    // first, and a failed search sent the turn to a backend model instead.
+    // For browser models the app does the searching itself. Explicit search
+    // asks always search; with auto-search on, the server's judge decides
+    // (askSearchIntent, below — the same one backend models get), so "I am
+    // happy" isn't searched. Backend models are judged on the server, so the
+    // activity line only promises a search for an explicit ask.
     const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
-    const browserSearch = !humanizing && (explicitSearch || (autoWebSearchRef.current && needsLiveInfo(userQuery, { mode: selectedMode })));
-    if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: browserSearch }));
+    if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: explicitSearch }));
 
     const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
     // Shown above the reply: map, place cards and directions (NearbyMapCard).
@@ -6876,7 +6876,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ).join("\n\n");
         return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, results, who holds which job — so wherever they cover the question, answer from them, even where they contradict what you remember. "
-          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. " + GROUNDING_RULE;
+          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE;
       };
 
       // `requireSummary`: only answer when the search itself wrote a summary
@@ -7148,7 +7148,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // backend doesn't know them — it used to answer with its own top-weighted
       // model instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
-      if (puterModelId && browserSearch && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider)) {
+      const canSearchFirst = puterModelId && !humanizing && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider);
+      const browserSearch = canSearchFirst && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
+        query: userQuery, history: hist, mode: selectedMode, timeZone: userTimeZone(),
+      }, { fallback: () => needsLiveInfo(userQuery, { mode: selectedMode }) })));
+      if (!isActive()) return;
+      if (browserSearch) {
         let web = null;
         try {
           web = await fetchWebResults();
