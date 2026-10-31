@@ -12,6 +12,7 @@ function withFetch(responses, fn) {
     config.airouterApiKey = "test-key";
     config.airouterModel = "";
     airouter.resetResolvedModels();
+    airouter.resetReasoning();
     global.fetch = async (url, init) => {
       calls.push({ url, body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
       const next = responses.shift();
@@ -166,4 +167,43 @@ test("each AI Router model's reply is labelled with its own picker name", () => 
   assert.equal(airouter.displayName(airouter.modelFor("VetroAI")), "VetroAI");
   assert.equal(airouter.displayName(airouter.modelFor("DeepSeek V4.1 Flash")), "DeepSeek V4.1 Flash");
   assert.equal(airouter.displayName(undefined), "DeepSeek V4.1 Flash", "a fallback to AI Router uses DeepSeek");
+});
+
+test("light reasoning by default, and more for Deep or Max", withFetch([OK, OK, OK], async (calls) => {
+  await airouter.generateStream([{ role: "user", content: "hi" }]);
+  await airouter.generateStream([{ role: "user", content: "hi" }], { effort: "deep" });
+  await airouter.generateStream([{ role: "user", content: "hi" }], { effort: "max" });
+  assert.deepEqual(calls.map((c) => c.body.reasoning_effort), ["low", "medium", "high"]);
+}));
+
+test("a model that refuses reasoning_effort is retried without it, and not sent it again", withFetch([
+  { status: 400, body: '{"error":{"message":"reasoning_effort is not supported for this model"}}' }, OK, OK,
+], async (calls) => {
+  const picked = { airouterModel: airouter.MERCURY_MODEL };
+  await airouter.generateStream([{ role: "user", content: "hi" }], picked);
+  assert.equal(calls[0].body.reasoning_effort, "low");
+  assert.equal(calls[1].body.reasoning_effort, undefined);
+  await airouter.generateStream([{ role: "user", content: "again" }], picked);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].body.reasoning_effort, undefined);
+}));
+
+test("a long reply keeps streaming past the start timeout", async () => {
+  const originalFetch = global.fetch;
+  const saved = config.airouterApiKey;
+  config.airouterApiKey = "test-key";
+  let signal;
+  global.fetch = async (url, init) => {
+    signal = init.signal;
+    return new Response("data: [DONE]\n\n", { status: 200 });
+  };
+  try {
+    const stream = await airouter.generateStream([{ role: "user", content: "hi" }]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(signal.aborted, false, "the start timer is cleared once AI Router responds");
+    assert.match(await new Response(stream).text(), /DONE/);
+  } finally {
+    global.fetch = originalFetch;
+    config.airouterApiKey = saved;
+  }
 });

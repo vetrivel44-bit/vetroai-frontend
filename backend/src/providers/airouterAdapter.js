@@ -135,26 +135,59 @@ async function resolveRejectedModel(key, model) {
   }
 }
 
+// DeepSeek V4.1 Flash, Qwen 3.7 Flash and Mercury 2.5 can all reason before
+// answering, and with no setting they reason at their default depth even for
+// "hi" — the main reason replies were slow. The user's effort setting picks the
+// depth instead, kept light by default. A model that refuses the setting is
+// retried once without it, and not sent it again.
+const REASONING_EFFORT = { quick: "low", balanced: "low", deep: "medium", max: "high" };
+const rejectedReasoning = new Set();
+
+function isReasoningRejected(status, detail) {
+  return [400, 422].includes(status) && /reasoning/i.test(detail);
+}
+
 // Sends one request, retrying a short-lived rate limit. Returns the ok Response.
-async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel() }) {
+// For a stream, timeoutMs bounds only the wait for the reply to start: a long
+// answer may keep streaming past it (the orchestrator's idle watchdog guards a
+// stalled stream). It used to abort the whole reply at 30s.
+async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel(), effort } = {}) {
   const key = apiKey();
   let model = resolvedModels.get(wantedModel) || wantedModel;
-  const request = () => fetch(endpoint(), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      // Some routers read the key from x-api-key instead of Authorization.
-      "x-api-key": key,
-      "Content-Type": "application/json",
-      ...(stream ? { Accept: "text/event-stream" } : {}),
-    },
-    body: JSON.stringify({ ...body, model, stream }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const reasoningFor = (m) => (effort !== undefined && !rejectedReasoning.has(m)
+    ? REASONING_EFFORT[effort] || REASONING_EFFORT.balanced : null);
+  const request = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`AI Router did not respond within ${timeoutMs / 1000}s`)), timeoutMs);
+    const reasoningEffort = reasoningFor(model);
+    try {
+      return await fetch(endpoint(), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          // Some routers read the key from x-api-key instead of Authorization.
+          "x-api-key": key,
+          "Content-Type": "application/json",
+          ...(stream ? { Accept: "text/event-stream" } : {}),
+        },
+        body: JSON.stringify({ ...body, model, stream, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}) }),
+        signal: controller.signal,
+      });
+    } finally {
+      if (stream) clearTimeout(timer);
+      else timer.unref?.();
+    }
+  };
 
-  logger.info("airouterAdapter.request", { model, stream });
+  logger.info("airouterAdapter.request", { model, stream, reasoningEffort: reasoningFor(model) || "default" });
   let res = await request();
   let detail = res.ok ? "" : await res.text();
+  if (!res.ok && reasoningFor(model) && isReasoningRejected(res.status, detail)) {
+    logger.warn("airouterAdapter.reasoningRejected", { model, status: res.status });
+    rejectedReasoning.add(model);
+    res = await request();
+    detail = res.ok ? "" : await res.text();
+  }
   if (!res.ok && isUnknownModelError(res.status, detail)) {
     const match = await resolveRejectedModel(key, model);
     if (match) {
@@ -182,24 +215,45 @@ async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel
 async function generateStream(messages, options = {}) {
   // airouterModel is set only when this provider was picked by name; a
   // fallback from another provider gets the default model.
-  const { temperature, maxTokens, airouterModel } = options;
+  const { temperature, maxTokens, airouterModel, effort } = options;
   try {
+    const startedAt = Date.now();
+    const model = airouterModel || defaultModel();
     const res = await send({
       messages,
       temperature: temperature ?? config.airouterTemperature ?? 0.7,
       max_tokens: maxTokens ?? config.airouterMaxTokens ?? 8192,
-    }, { stream: true, timeoutMs: 30000, model: airouterModel || defaultModel() });
-    return res.body;
+    }, { stream: true, timeoutMs: 30000, model, effort: effort || "balanced" });
+    return timed(res.body, model, startedAt, Date.now() - startedAt);
   } catch (err) {
     logger.error("airouterAdapter.generateStream", { error: err.message });
     throw err;
   }
 }
 
+// Logs where a reply's time goes: until AI Router answered, until the first
+// streamed bytes, and until the end — so a slow reply shows whether the wait
+// was before the model started or while it wrote.
+function timed(body, model, startedAt, headersMs) {
+  if (!body?.pipeThrough) return body;
+  let firstChunkMs = null;
+  let bytes = 0;
+  return body.pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      if (firstChunkMs === null) firstChunkMs = Date.now() - startedAt;
+      bytes += chunk?.byteLength || 0;
+      controller.enqueue(chunk);
+    },
+    flush() {
+      logger.info("airouterAdapter.timing", { model, headersMs, firstChunkMs, totalMs: Date.now() - startedAt, bytes });
+    },
+  }));
+}
+
 // Non-streaming completion for short side tasks (chat titles, follow-ups,
 // research planning).
 async function complete(messages, { temperature = 0.4, maxTokens = 120 } = {}) {
-  const res = await send({ messages, temperature, max_tokens: maxTokens }, { stream: false, timeoutMs: 15000 });
+  const res = await send({ messages, temperature, max_tokens: maxTokens }, { stream: false, timeoutMs: 15000, effort: "quick" });
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
@@ -212,6 +266,7 @@ module.exports = {
   QWEN_MODEL,
   modelFor,
   displayName,
+  resetReasoning: () => rejectedReasoning.clear(),
   matchModel,
   keyFingerprint,
   resetResolvedModels: () => { resolvedModels.clear(); modelListCache = null; },
