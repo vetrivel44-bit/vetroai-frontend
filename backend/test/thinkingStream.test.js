@@ -222,3 +222,19 @@ test("the mid-stream silence limit comes from the provider's adapter", async () 
     config.airouterIdleTimeoutMs = saved;
   }
 });
+
+test("gpt-oss's 【5†L1-L4】 citations become [5], even split across chunks", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([
+    dataLine({ content: "Pope Leo XIV was elected in May 2025 【" }),
+    dataLine({ content: "5†L1-L4】【3†L1" }),
+    dataLine({ content: "-L4】. More at 【2†source】 and 【news†L3】." }),
+  ]), res, "groq");
+  assert.equal(joined(res.events, "content"), "Pope Leo XIV was elected in May 2025 [5][3]. More at [2] and .");
+});
+
+test("brackets that aren't citations are left alone, and an unclosed one is not lost", async () => {
+  const res = makeRes();
+  await orchestrator.pipeStream(sseLines([dataLine({ content: "【重要】 Read this. Then 【" })]), res, "groq");
+  assert.equal(joined(res.events, "content"), "【重要】 Read this. Then 【");
+});
