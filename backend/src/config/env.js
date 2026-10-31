@@ -63,6 +63,8 @@ module.exports = {
     airouterModel:       getEnv("AIROUTER_MODEL",        "deepseek/deepseek-v4.1-flash"),
     airouterLingModel:   getEnv("AIROUTER_LING_MODEL",   "inclusionai/ling-3.0-flash"),
     airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "alibaba/qwen3.7-flash"),
+    airouterStartTimeoutMs: Number(getEnv("AIROUTER_START_TIMEOUT_MS", "90000")),
+    airouterIdleTimeoutMs:  Number(getEnv("AIROUTER_IDLE_TIMEOUT_MS",  "90000")),
     airouterTemperature: Number(getEnv("AIROUTER_TEMPERATURE", "0.7")),
     airouterMaxTokens:   Number(getEnv("AIROUTER_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.

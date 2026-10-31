@@ -18,6 +18,22 @@ function endpoint() {
   return `${base}/chat/completions`;
 }
 
+// Time limits for AI Router's models. airouter.in can take 6–15s before the
+// first word even for "hi", and longer under load or on a long prompt, so the
+// general 30s start budget (and 45s mid-stream silence limit) cut replies off
+// and handed them to another model. AIROUTER_START_TIMEOUT_MS and
+// AIROUTER_IDLE_TIMEOUT_MS override these.
+const START_TIMEOUT_MS = 90000;
+const IDLE_TIMEOUT_MS = 90000;
+const COMPLETE_TIMEOUT_MS = 30000;
+const positive = (value, fallback) => (Number(value) > 0 ? Number(value) : fallback);
+function startTimeoutMs() {
+  return positive(config.airouterStartTimeoutMs, START_TIMEOUT_MS);
+}
+function idleTimeoutMs() {
+  return positive(config.airouterIdleTimeoutMs, IDLE_TIMEOUT_MS);
+}
+
 function defaultModel() {
   return config.airouterModel || MODEL;
 }
@@ -204,7 +220,7 @@ async function generateStream(messages, options = {}) {
       messages,
       temperature: temperature ?? config.airouterTemperature ?? 0.7,
       max_tokens: maxTokens ?? config.airouterMaxTokens ?? 8192,
-    }, { stream: true, timeoutMs: 30000, model });
+    }, { stream: true, timeoutMs: startTimeoutMs(), model });
     return timed(res.body, model, startedAt, Date.now() - startedAt);
   } catch (err) {
     logger.error("airouterAdapter.generateStream", { error: err.message });
@@ -234,7 +250,7 @@ function timed(body, model, startedAt, headersMs) {
 // Non-streaming completion for short side tasks (chat titles, follow-ups,
 // research planning).
 async function complete(messages, { temperature = 0.4, maxTokens = 120 } = {}) {
-  const res = await send({ messages, temperature, max_tokens: maxTokens }, { stream: false, timeoutMs: 15000 });
+  const res = await send({ messages, temperature, max_tokens: maxTokens }, { stream: false, timeoutMs: COMPLETE_TIMEOUT_MS });
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
@@ -249,6 +265,10 @@ function reasonsNatively() {
 
 module.exports = {
   generateStream,
+  // How long the orchestrator waits for a reply to start, and for the next
+  // chunk once it has (see above). Same as this adapter's own start limit.
+  startTimeoutMs,
+  idleTimeoutMs,
   reasonsNatively,
   complete,
   MODEL,

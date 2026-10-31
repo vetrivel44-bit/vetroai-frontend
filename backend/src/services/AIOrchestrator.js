@@ -1571,7 +1571,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const emitWithActivity = (parts) => { lastActivityAt = Date.now(); emit(parts); };
 
     let reader = null;
-    const IDLE_TIMEOUT_MS = 45000;
+    // An adapter can allow longer (AI Router's models pause longer under load).
+    const IDLE_TIMEOUT_MS = providerManager.getAdapter(provider)?.idleTimeoutMs?.() || 45000;
     let watchdogInterval = null;
     const watchdog = new Promise((_, reject) => {
       watchdogInterval = setInterval(() => {
