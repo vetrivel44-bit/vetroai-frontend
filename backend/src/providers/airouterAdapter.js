@@ -239,8 +239,17 @@ async function complete(messages, { temperature = 0.4, maxTokens = 120 } = {}) {
   return data.choices?.[0]?.message?.content || "";
 }
 
+// DeepSeek V4.1 Flash reasons on its own before answering. Asking it for a
+// <think> block as well (the orchestrator does for models that don't) made it
+// deliberate twice and held up every longer answer, so AI Router's models
+// are never asked for one.
+function reasonsNatively() {
+  return true;
+}
+
 module.exports = {
   generateStream,
+  reasonsNatively,
   complete,
   MODEL,
   LING_MODEL,
