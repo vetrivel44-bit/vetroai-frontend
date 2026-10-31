@@ -62,7 +62,7 @@ module.exports = {
     airouterBaseUrl:     getEnv("AIROUTER_BASE_URL",     "https://api.airouter.in/v1"),
     airouterModel:       getEnv("AIROUTER_MODEL",        "deepseek/deepseek-v4.1-flash"),
     airouterMercuryModel: getEnv("AIROUTER_MERCURY_MODEL", "inception/mercury-2.5"),
-    airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "qwen/qwen3.7-flash"),
+    airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "alibaba/qwen3.7-flash"),
     airouterTemperature: Number(getEnv("AIROUTER_TEMPERATURE", "0.7")),
     airouterMaxTokens:   Number(getEnv("AIROUTER_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.
