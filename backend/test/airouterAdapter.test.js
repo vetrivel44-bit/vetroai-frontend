@@ -35,7 +35,20 @@ test("streams DeepSeek V4.1 Flash from AI Router", withFetch([OK], async (calls)
   assert.equal(calls[0].body.model, "deepseek/deepseek-v4.1-flash");
   assert.equal(calls[0].body.stream, true);
   assert.equal(calls[0].headers.Authorization, "Bearer test-key");
+  assert.equal(calls[0].headers["x-api-key"], "test-key");
 }));
+
+test("the key fingerprint shows only the last 4 characters and the length", () => {
+  const saved = config.airouterApiKey;
+  try {
+    config.airouterApiKey = ' "Bearer sk-abcdef123456" ';
+    assert.equal(airouter.keyFingerprint(), "…3456 (15 chars)");
+    config.airouterApiKey = "";
+    assert.equal(airouter.keyFingerprint(), "");
+  } finally {
+    config.airouterApiKey = saved;
+  }
+});
 
 test("a model asked for by the caller is ignored: AI Router only serves DeepSeek V4.1 Flash", withFetch([OK], async (calls) => {
   await airouter.generateStream([{ role: "user", content: "hi" }], { model: "openai/gpt-5" });
