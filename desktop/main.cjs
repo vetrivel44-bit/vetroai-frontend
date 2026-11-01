@@ -165,11 +165,27 @@ ipcMain.handle("computer:request-control", async () => {
   broadcast();
   return status();
 });
-// A Dispatch task the user already OK'd on their phone (or in Dispatch here):
-// that OK stands in for the dialog above, which nobody may be at the screen to
-// answer. The title bar still says control is active and Ctrl+Shift+X stops it.
-ipcMain.handle("computer:allow-for-dispatch", () => {
-  controlEnabled = true;
+// A Dispatch task (sent from the phone) that needs the mouse and keyboard asks
+// here, the same way location does: allow it this time, or block it. The
+// window comes to the front so the question is seen. The renderer turns
+// control off again when the task ends.
+ipcMain.handle("computer:allow-for-dispatch", async (_event, action) => {
+  const task = String(action?.text || "").replace(/\s+/g, " ").trim().slice(0, 160);
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.flashFrame(true);
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: "question",
+    title: "Allow screen control?",
+    buttons: ["Allow this time", "Block"],
+    defaultId: 1,
+    cancelId: 1,
+    message: "VetroAI wants to control your mouse and keyboard",
+    detail: (task ? `For a task sent from your phone: "${task}"\n\n` : "") + "Press Ctrl+Shift+X at any time to stop it."
+  });
+  mainWindow.flashFrame(false);
+  controlEnabled = result.response === 0;
   stopped = false;
   broadcast();
   return status();

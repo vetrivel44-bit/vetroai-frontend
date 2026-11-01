@@ -1182,9 +1182,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       return;
     }
     const wantsScreen = DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || isLiveSiteRequest(prompt) || YOUTUBE_REQUEST.test(prompt);
-    // Never pops the "allow control?" dialog: nobody may be here to answer it,
-    // and the run would sit waiting on it. Instead the task asks for an OK in
-    // Dispatch, and that OK turns control on for it.
+    // With control off, the computer asks "Allow this time / Block", as it does
+    // for location, and the phone shows that it is waiting on that answer.
     let control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;
     // Control this task's OK turned on goes off again when the task ends.
     let grantedForTask = false;
@@ -1193,13 +1192,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     if (DESKTOP_CONTROL_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt) || isLiveSiteRequest(prompt)) {
       if (!hasDesktop) return fail("This needs mouse and keyboard control, which only the VetroAI desktop app can do — not a browser tab. Turn on Accept tasks in the desktop app, then send it again.");
       if (!control?.enabled) {
-        if (!claimed.approved) {
-          releaseHostRun();
-          await updateDispatch(uid, d.id, { status: "awaiting_approval", approvalReason: "This uses the mouse and keyboard on your computer. OK it and VetroAI takes control while it runs — Ctrl+Shift+X on the computer stops it." }).catch(() => {});
-          return;
-        }
-        control = await window.vetroDesktop.allowForDispatch?.().catch(() => null);
-        if (!control?.enabled) return fail("This desktop app is too old to take screen control for Dispatch. Update VetroAI on your computer, then send this again.");
+        if (!window.vetroDesktop.allowForDispatch) return fail("This desktop app is too old to ask for screen control. Update VetroAI on your computer, then send this again.");
+        await updateDispatch(uid, d.id, { status: "running", progress: "Waiting for you to allow screen control on your computer" }).catch(() => {});
+        control = await window.vetroDesktop.allowForDispatch(prompt).catch(() => null);
+        if (!control?.enabled) return fail("Screen control was blocked on your computer, so VetroAI didn't touch the mouse or keyboard.");
         grantedForTask = true;
       }
     }
