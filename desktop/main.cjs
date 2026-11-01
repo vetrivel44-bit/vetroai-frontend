@@ -34,6 +34,64 @@ function broadcast() {
     mainWindow.webContents.send("computer:status-changed", status());
     mainWindow.setTitle(controlEnabled && !stopped ? "VetroAI — COMPUTER CONTROL ACTIVE" : "VetroAI");
   }
+  showIndicator(controlEnabled && !stopped);
+}
+
+// While VetroAI has the mouse and keyboard, the screen says so even when other
+// apps are on top: a glowing border around the display, and a pill at the top
+// with a Stop button. Both stay above everything and never take focus; the
+// border lets clicks through.
+let indicatorWindows = [];
+const BORDER_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+body{box-sizing:border-box;border:4px solid #f97316;box-shadow:inset 0 0 28px rgba(249,115,22,.55);animation:p 2s ease-in-out infinite}
+@keyframes p{50%{box-shadow:inset 0 0 10px rgba(249,115,22,.3)}}</style>`;
+const PILL_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:600 14px "Segoe UI",system-ui,sans-serif}
+.p{display:flex;align-items:center;gap:10px;height:40px;margin:4px;padding:0 6px 0 14px;border-radius:22px;background:#1c1917;color:#fafaf9;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.d{width:10px;height:10px;border-radius:50%;background:#f97316;animation:b 1s ease-in-out infinite}@keyframes b{50%{opacity:.3}}
+.t{flex:1;white-space:nowrap}.k{font-weight:400;color:#a8a29e;font-size:12px}
+a{color:#fff;background:#dc2626;text-decoration:none;padding:6px 14px;border-radius:16px}</style>
+<div class="p"><span class="d"></span><span class="t">VetroAI is working <span class="k">· Ctrl+Shift+X</span></span><a href="vetro-stop://now">Stop</a></div>`;
+
+function showIndicator(on) {
+  if (!on) {
+    for (const w of indicatorWindows) if (!w.isDestroyed()) w.destroy();
+    indicatorWindows = [];
+    return;
+  }
+  if (indicatorWindows.length) return;
+  const { bounds } = screen.getPrimaryDisplay();
+  const overlay = (opts, html) => {
+    const w = new BrowserWindow({
+      ...opts, frame: false, transparent: true, resizable: false, movable: false,
+      skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, hasShadow: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    });
+    w.setAlwaysOnTop(true, "screen-saver");
+    w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+    w.once("ready-to-show", () => w.showInactive());
+    indicatorWindows.push(w);
+    return w;
+  };
+  const border = overlay({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }, BORDER_HTML);
+  border.setIgnoreMouseEvents(true);
+  const pill = overlay({ x: bounds.x + Math.round(bounds.width / 2) - 170, y: bounds.y + 10, width: 340, height: 48 }, PILL_HTML);
+  pill.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    if (url.startsWith("vetro-stop:")) emergencyStop();
+  });
+}
+
+function emergencyStop() {
+  stopped = true;
+  controlEnabled = false;
+  mouse.stop?.();
+  keyboard.releaseKey?.(...Object.values(Key)).catch?.(() => {});
+  broadcast();
+  dialog.showMessageBox(mainWindow, {
+    type: "warning", title: "Computer control stopped",
+    message: "Emergency stop activated",
+    detail: "VetroAI can no longer move the mouse or type. Enable control again in Computer Mode when you are ready."
+  });
 }
 function requireControl() {
   if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
@@ -69,6 +127,8 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
+  // The indicator windows would otherwise keep the app running with no window.
+  mainWindow.on("closed", () => showIndicator(false));
   const allowedOrigin = new URL(APP_URL).origin;
   const appSession = mainWindow.webContents.session;
   appSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
@@ -135,18 +195,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
-  globalShortcut.register("CommandOrControl+Shift+X", () => {
-    stopped = true;
-    controlEnabled = false;
-    mouse.stop?.();
-    keyboard.releaseKey?.(...Object.values(Key)).catch?.(() => {});
-    broadcast();
-    dialog.showMessageBox(mainWindow, {
-      type: "warning", title: "Computer control stopped",
-      message: "Emergency stop activated",
-      detail: "VetroAI can no longer move the mouse or type. Enable control again in Computer Mode when you are ready."
-    });
-  });
+  globalShortcut.register("CommandOrControl+Shift+X", emergencyStop);
 });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
