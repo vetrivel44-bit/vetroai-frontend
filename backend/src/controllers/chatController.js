@@ -174,6 +174,9 @@ async function chat(req, res) {
 
   // Web search flag from frontend (autoWebSearch toggle or explicit web mode)
   const webSearch = String(req.body?.webSearch || "false") === "true";
+  // VetroAI Computer: when it searches, open and read the pages too
+  // (browseService), reporting each one as it happens.
+  const browse = String(req.body?.browse || "false") === "true";
 
   const files = [
     ...(req.files?.files || []),
@@ -279,6 +282,7 @@ async function chat(req, res) {
       // first, then only what matters (screen-control steps have their own rules).
       systemPrompt: imageFiles.length && mode !== "computer_use" ? `${systemPrompt}\n\n${IMAGE_ANSWER_STYLE}`.trim() : systemPrompt,
       webSearch,
+      browse,
       clock,
       hasAttachments: files.length > 0,
       activePlugins,

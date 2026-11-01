@@ -125,43 +125,170 @@ async function readLimited(response, maxBytes) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+// ── Pages that aren't the page ──────────────────────────────────────────────
+// A sign-in screen, a cookie-consent interstitial or a bot check comes back as
+// an ordinary 200 page with text on it, and was read as if it were the page:
+// "YouTube says: Sign in to confirm you're not a bot" made its way into answers
+// as research. These are recognised and reported as blocked instead.
+
+// Hosts whose pages are always a wall, whatever was asked for.
+const WALL_HOSTS = [
+  [/^accounts\.google\.[a-z.]+$/, "it redirected to a Google sign-in page"],
+  [/^consent\.(youtube|google)\.[a-z.]+$/, "it showed a cookie-consent page instead of the content"],
+  [/^login\.(microsoftonline|live)\.com$/, "it redirected to a Microsoft sign-in page"],
+  [/^challenges\.cloudflare\.com$/, "a Cloudflare bot check stopped the visit"],
+];
+
+const WALL_PATHS = [
+  [/^\/(sorry|recaptcha)\//i, "Google blocked automated access (\"unusual traffic\")"],
+  [/^\/(accounts\/)?(log-?in|sign-?in|signin|authwall)(\/|$|\?)/i, "it redirected to a sign-in page"],
+  [/^\/i\/flow\/login/i, "it redirected to a sign-in page"],
+];
+
+// Phrases that mean the text is a wall, not content. They are only trusted
+// near the top of the text or on a short page: a long article that merely
+// mentions "captcha" is still an article.
+const WALL_PHRASES = [
+  [/sign in to confirm (that )?you[’']?re not a bot/i, "YouTube asked to sign in to confirm it's not a bot"],
+  [/before you continue to (youtube|google)/i, "it showed a cookie-consent page instead of the content"],
+  [/unusual traffic from your computer network/i, "Google blocked automated access (\"unusual traffic\")"],
+  [/checking (if the site connection is secure|your browser before accessing)|enable javascript and cookies to continue|attention required! \| cloudflare|just a moment\.\.\./i, "a bot check (Cloudflare) stopped the visit"],
+  [/verify (that )?you are (a )?human|are you a robot|complete the (security check|captcha)|press (&|and) hold to confirm/i, "a CAPTCHA stopped the visit"],
+  [/(log ?in|sign ?in) to (continue|view|see|read|access)|you must (be )?(log(ged)? ?in|sign(ed)? ?in)|join now to see|log into facebook|please (log|sign) ?in\b/i, "the page asked to sign in"],
+  [/subscribe to (continue|keep) reading|this (article|content) is (only )?(available )?(for|to) subscribers|already a subscriber\? (log|sign) ?in/i, "the article is behind a paywall"],
+  [/you need to enable javascript to run this app|please enable javascript to (view|continue|use)/i, "the page shows nothing without JavaScript"],
+  [/access denied[\s\S]{0,80}(you don[’']?t have permission|reference #)/i, "the site refused the visit (access denied)"],
+];
+const WALL_SCAN_CHARS = 600;
+const SHORT_PAGE_CHARS = 2500;
+
+/**
+ * Why a fetched page isn't the page that was asked for (a sign-in, consent,
+ * bot-check or paywall page), or null when it looks like real content.
+ * Takes the final URL, the page title and its text.
+ */
+function detectWall({ url = "", title = "", text = "" } = {}) {
+  let host = "";
+  let path = "";
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname.toLowerCase();
+    path = parsed.pathname + parsed.search;
+  } catch { /* no URL to judge by */ }
+  for (const [pattern, reason] of WALL_HOSTS) if (host && pattern.test(host)) return reason;
+  for (const [pattern, reason] of WALL_PATHS) if (path && pattern.test(path)) return reason;
+
+  const body = String(text || "");
+  const head = `${title || ""}\n${body.slice(0, WALL_SCAN_CHARS)}`;
+  const scan = body.length <= SHORT_PAGE_CHARS ? `${title || ""}\n${body}` : head;
+  for (const [pattern, reason] of WALL_PHRASES) if (pattern.test(scan)) return reason;
+  return null;
+}
+
+/** The page's <title>, if it has one (bounded, linear). */
+function pageTitle(html) {
+  const s = String(html || "");
+  const lower = s.slice(0, 200000).toLowerCase();
+  const open = lower.indexOf("<title");
+  if (open === -1) return "";
+  const start = lower.indexOf(">", open);
+  const end = start === -1 ? -1 : lower.indexOf("</title", start);
+  if (end === -1) return "";
+  return decodeEntities(stripTags(s.slice(start + 1, end))).replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+function failureReason(err) {
+  if (err?.name === "TimeoutError" || err?.name === "AbortError") return "the page took too long to load";
+  if (err?.code === "ENONPUBLIC" || /public address/i.test(err?.message || "")) return "it isn't a public web address";
+  return "the site could not be reached";
+}
+
+const DEFAULT_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; VetroAI-Research/1.0)",
+  Accept: "text/html,application/xhtml+xml,text/plain;q=0.8",
+};
+
+/**
+ * GETs a public http(s) URL, following up to MAX_REDIRECTS redirects and
+ * re-checking each one. Resolves to { url, response } (url: where it ended
+ * up), { url, wall } when a redirect leads to a sign-in or consent page (not
+ * fetched), { url, stopped } when `signal` fired, or { url, tooManyRedirects }.
+ * Throws when the host isn't public or the request fails.
+ */
+async function openPage(pageUrl, { fetchImpl = guardedFetch, lookup = dns.promises.lookup, timeoutMs = FETCH_TIMEOUT_MS, signal, headers = DEFAULT_HEADERS } = {}) {
+  let current = pageUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (signal?.aborted) return { url: current, stopped: true };
+    const url = await assertPublicHttpUrl(current, lookup);
+    current = url.href;
+    // A redirect to a sign-in or consent page needn't be fetched to be known.
+    const wall = hop > 0 ? detectWall({ url: url.href }) : null;
+    if (wall) return { url: url.href, wall };
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const response = await fetchImpl(url.href, {
+      redirect: "manual",
+      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
+      headers,
+    });
+    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+      current = new URL(response.headers.get("location"), url).href;
+      response.body?.cancel?.().catch(() => {});
+      continue;
+    }
+    return { url: url.href, response };
+  }
+  return { url: current, tooManyRedirects: true };
+}
+
+/**
+ * Opens a page and says what came of it:
+ *   { status: "read", url, title, text }       the page's readable text
+ *   { status: "blocked", url, title, reason }  a sign-in, consent, bot-check or paywall page
+ *   { status: "failed", url, reason }          error status, not a web page, timeout, too little text
+ * `url` is where the page ended up after redirects. Never throws.
+ */
+async function readPage(pageUrl, options = {}) {
+  let current = pageUrl;
+  try {
+    const opened = await openPage(pageUrl, options);
+    current = opened.url;
+    if (opened.stopped) return { status: "failed", url: current, reason: "the research was stopped" };
+    if (opened.wall) return { status: "blocked", url: current, title: "", reason: opened.wall };
+    if (opened.tooManyRedirects) return { status: "failed", url: current, reason: "it redirected too many times" };
+    const { response, url } = opened;
+    const type = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      response.body?.cancel?.().catch(() => {});
+      const code = response.status;
+      if (code === 401) return { status: "blocked", url, title: "", reason: "the page needs a sign-in (HTTP 401)" };
+      if (code === 403 || code === 429) return { status: "blocked", url, title: "", reason: `the site refused automated visits (HTTP ${code})` };
+      return { status: "failed", url, reason: code === 404 ? "the page wasn't found (HTTP 404)" : `the site answered with an error (HTTP ${code})` };
+    }
+    if (!/html|text\/plain/i.test(type)) {
+      response.body?.cancel?.().catch(() => {});
+      return { status: "failed", url, reason: `it isn't a web page (${type.split(";")[0] || "unknown type"})` };
+    }
+    const body = await readLimited(response, MAX_PAGE_BYTES);
+    const html = /html/i.test(type);
+    const title = html ? pageTitle(body) : "";
+    const text = html ? htmlToText(body) : body.trim();
+    const wall = detectWall({ url, title, text });
+    if (wall) return { status: "blocked", url, title, reason: wall };
+    if (text.length < 200) return { status: "failed", url, title, reason: "the page had almost no readable text" };
+    return { status: "read", url, title, text };
+  } catch (err) {
+    return { status: "failed", url: current, reason: failureReason(err) };
+  }
+}
+
 /**
  * Fetches a page and returns its readable text, or null when it can't be read
- * (non-public host, error status, not HTML or plain text, timeout, cancelled).
+ * (non-public host, error status, not HTML or plain text, timeout, cancelled,
+ * or a sign-in, consent or bot-check page instead of the content).
  */
-async function fetchPageText(pageUrl, { fetchImpl = guardedFetch, lookup = dns.promises.lookup, timeoutMs = FETCH_TIMEOUT_MS, signal } = {}) {
-  try {
-    let current = pageUrl;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      if (signal?.aborted) return null;
-      const url = await assertPublicHttpUrl(current, lookup);
-      const timeout = AbortSignal.timeout(timeoutMs);
-      const response = await fetchImpl(url.href, {
-        redirect: "manual",
-        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; VetroAI-Research/1.0)",
-          Accept: "text/html,application/xhtml+xml,text/plain;q=0.8",
-        },
-      });
-      if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
-        current = new URL(response.headers.get("location"), url).href;
-        response.body?.cancel?.().catch(() => {});
-        continue;
-      }
-      const type = response.headers.get("content-type") || "";
-      if (!response.ok || !/html|text\/plain/i.test(type)) {
-        response.body?.cancel?.().catch(() => {});
-        return null;
-      }
-      const body = await readLimited(response, MAX_PAGE_BYTES);
-      const text = /html/i.test(type) ? htmlToText(body) : body.trim();
-      return text.length >= 200 ? text : null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
+async function fetchPageText(pageUrl, options = {}) {
+  const page = await readPage(pageUrl, options);
+  return page.status === "read" ? page.text : null;
 }
 
 // ── HTML to text ────────────────────────────────────────────────────────────
@@ -379,4 +506,4 @@ function pickPassages(indexed, terms, { max = 3, maxChars = 1600 } = {}) {
   };
 }
 
-module.exports = { fetchPageText, guardedFetch, publicOnlyLookup, htmlToText, decodeEntities, keyTerms, splitPassages, scorePassage, bestPassages, indexPassages, pickPassages };
+module.exports = { readPage, openPage, readLimited, fetchPageText, detectWall, pageTitle, guardedFetch, publicOnlyLookup, htmlToText, decodeEntities, keyTerms, splitPassages, scorePassage, bestPassages, indexPassages, pickPassages };

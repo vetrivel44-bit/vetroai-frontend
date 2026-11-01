@@ -84,6 +84,19 @@ test("claims to check keep their query and map S-labels back to sources", () => 
 
 // ── Sources ──────────────────────────────────────────────────────────────────
 
+test("a sign-in or bot-check page the search provider scraped is not page text", () => {
+  const registry = new SourceRegistry();
+  registry.add([
+    { url: "https://www.youtube.com/watch?v=abc123def45", title: "Video", snippet: "Sign in to confirm you’re not a bot", text: "Sign in to confirm you’re not a bot. This helps protect our community." + " ".repeat(500) },
+    { url: "https://news.test/a", title: "A", snippet: "s", text: "Real reporting. ".repeat(60) },
+  ], { angle: 0, query: "q" });
+  const [video, article] = registry.list;
+  assert.equal(video.text, "", "the bot check is not read as the video");
+  assert.equal(video.snippet, "", "nor is the provider's snippet of it");
+  assert.ok(article.text.length > 400);
+  assert.equal(registry.pagesRead, 1);
+});
+
 test("one page is one source, whatever tracking junk is on its URL", () => {
   assert.equal(normalizeUrl("https://www.Example.com/a/?utm_source=x&id=2#top"), normalizeUrl("https://example.com/a?id=2"));
   assert.notEqual(normalizeUrl("https://example.com/a?id=2"), normalizeUrl("https://example.com/a?id=3"));
@@ -390,4 +403,52 @@ test("a cancelled research stops searching, reading and asking the model, and re
   const searched = [];
   await performAgenticSearch("anything", { searchFn: async (q) => { searched.push(q); return []; }, plannerFn: fn, readFn: async () => null, signal: before.signal });
   assert.deepEqual(searched, []);
+});
+
+test("the browser log shows each search and each page DeepSearch opened, with what came of it", async () => {
+  const snapshots = [];
+  const LONG = (t) => `${t} `.repeat(30);
+  const results = {
+    "pixel 10 pro review": [
+      { url: "https://reviews.test/a", title: "Review A", snippet: "Pixel 10 Pro review", text: LONG("The Pixel 10 Pro camera review found a sharper telephoto.") },
+      { url: "https://www.youtube.com/watch?v=abcdefghijk", title: "Pixel 10 Pro video", snippet: "Sign in to confirm you’re not a bot", text: "Sign in to confirm you’re not a bot. This helps protect our community." },
+      { url: "https://blog.test/b", title: "Blog B", snippet: "Pixel 10 Pro review battery", text: "" },
+      { url: "https://walled.test/c", title: "C", snippet: "Pixel 10 Pro review notes", text: "" },
+      { url: "https://down.test/d", title: "D", snippet: "Pixel 10 Pro review news", text: "" },
+    ],
+  };
+  const out = await performAgenticSearch("pixel 10 pro review", {
+    searchFn: async (q) => results[q.toLowerCase()] || [],
+    plannerFn: null,
+    readFn: async (url) => (url.includes("blog.test") ? { status: "read", url, title: "Blog B — battery test", text: LONG("The Pixel 10 Pro review battery lasted 9 hours in our test.") }
+      : url.includes("walled.test") ? { status: "blocked", url, title: "", reason: "a bot check (Cloudflare) stopped the visit" }
+      : url.includes("youtube.com") ? { status: "partial", url, title: "Pixel 10 Pro review — 3 months later", text: "YouTube video: Pixel 10 Pro review — 3 months later\nChannel: MKBHD", reason: "YouTube asked to sign in to confirm it's not a bot, so only the title and channel could be read" }
+      : null),
+    onProgress: (snap) => snapshots.push(snap),
+  });
+
+  // The search provider got a bot check for the video: shown as such when the search finished.
+  const searched = snapshots.find((snap) => snap.steps.some((st) => st.id === "search-0" && st.status === "done")).browse;
+  assert.deepEqual(searched.find((e) => e.domain === "youtube.com")?.status, "blocked");
+  // Then DeepSearch opened the pages without text itself, shown as loading.
+  const reading = snapshots.find((snap) => snap.phase === "reading").browse;
+  assert.deepEqual(reading.filter((e) => e.kind === "visit" && e.status === "loading").map((e) => e.domain).sort(), ["blog.test", "down.test", "walled.test", "youtube.com"]);
+
+  const log = snapshots.at(-1).browse;
+  assert.deepEqual(log[0], { id: "search-0", kind: "search", query: "pixel 10 pro review", status: "done", found: 5 });
+  const byDomain = Object.fromEntries(log.filter((e) => e.kind === "visit").map((e) => [e.domain, e]));
+  assert.deepEqual(Object.keys(byDomain).sort(), ["blog.test", "down.test", "walled.test", "youtube.com"], "pages whose text came with the results aren't opened again");
+  assert.equal(byDomain["blog.test"].status, "read");
+  assert.equal(byDomain["blog.test"].title, "Blog B — battery test");
+  assert.match(byDomain["blog.test"].excerpt, /battery lasted 9 hours/);
+  assert.equal(byDomain["youtube.com"].status, "partial");
+  assert.match(byDomain["youtube.com"].reason, /only the title and channel/);
+  assert.deepEqual([byDomain["walled.test"].status, byDomain["walled.test"].reason], ["blocked", "a bot check (Cloudflare) stopped the visit"]);
+  assert.deepEqual([byDomain["down.test"].status, byDomain["down.test"].reason], ["failed", "the page couldn't be read"]);
+
+  // Nothing of the bot check reaches the report; the pages used carry its numbers.
+  assert.doesNotMatch(out.context, /confirm you’re not a bot/);
+  const cited = new Map(out.results.map((r, i) => [r.url, i + 1]));
+  assert.equal(byDomain["blog.test"].cite, cited.get("https://blog.test/b"));
+  assert.ok(byDomain["blog.test"].cite >= 1);
 });
