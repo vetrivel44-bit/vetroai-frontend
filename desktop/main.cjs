@@ -47,46 +47,66 @@ function broadcast() {
 }
 
 // While VetroAI has the mouse and keyboard, the screen says so even when other
-// apps are on top: a glowing border around the display, and a pill at the top
-// with a Stop button. Both stay above everything and never take focus; the
-// border lets clicks through.
-let indicatorWindows = [];
-const BORDER_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}
-body{box-sizing:border-box;border:2px solid rgba(217,119,87,.55);box-shadow:inset 0 0 6px rgba(217,119,87,.18)}</style>`;
-const PILL_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:600 14px "Segoe UI",system-ui,sans-serif}
-.p{display:flex;align-items:center;gap:10px;height:40px;margin:4px;padding:0 6px 0 14px;border-radius:22px;background:#1c1917;color:#fafaf9;box-shadow:0 4px 18px rgba(0,0,0,.35)}
-.d{width:8px;height:8px;border-radius:50%;background:#d97757;animation:b 1.6s ease-in-out infinite}@keyframes b{50%{opacity:.35}}
-.t{flex:1;white-space:nowrap}.k{font-weight:400;color:#a8a29e;font-size:12px}
-a{color:#fff;background:#dc2626;text-decoration:none;padding:6px 14px;border-radius:16px}</style>
-<div class="p"><span class="d"></span><span class="t">VetroAI is working <span class="k">· Ctrl+Shift+X</span></span><a href="vetro-stop://now">Stop</a></div>`;
+// apps are on top: a small pill at the top of the display with a Stop button.
+// No border around the screen: it read as a glow and got in the way.
+//
+// The pill must never change what the agent sees or does: it is left out of
+// screenshots (content protection), and it gets out of the way of any click,
+// scroll or drag that lands on it, which it would otherwise swallow (it sits
+// over browsers' tab strips and dialogs' title bars).
+let indicatorWindow = null;
+const PILL_SIZE = { width: 300, height: 40 };
+const PILL_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden;-webkit-user-select:none;font:500 13px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif}
+.p{display:flex;align-items:center;gap:9px;height:34px;margin:3px;padding:0 4px 0 13px;border-radius:999px;background:rgba(28,25,23,.94);color:#f5f5f4;border:1px solid rgba(255,255,255,.09);box-shadow:0 2px 10px rgba(0,0,0,.22)}
+.d{width:7px;height:7px;border-radius:50%;background:#d97757;box-shadow:0 0 0 3px rgba(217,119,87,.2)}
+.t{flex:1;white-space:nowrap;letter-spacing:.01em}
+a{color:#f5f5f4;text-decoration:none;font-weight:600;font-size:12px;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.12)}
+a:hover{background:#dc2626}</style>
+<div class="p"><span class="d"></span><span class="t">VetroAI is using your computer</span><a href="vetro-stop://now" title="Stop (Ctrl+Shift+X)">Stop</a></div>`;
 
 function showIndicator(on) {
   if (!on) {
-    for (const w of indicatorWindows) if (!w.isDestroyed()) w.destroy();
-    indicatorWindows = [];
+    if (indicatorWindow && !indicatorWindow.isDestroyed()) indicatorWindow.destroy();
+    indicatorWindow = null;
     return;
   }
-  if (indicatorWindows.length) return;
+  if (indicatorWindow && !indicatorWindow.isDestroyed()) return;
   const { bounds } = screen.getPrimaryDisplay();
-  const overlay = (opts, html) => {
-    const w = new BrowserWindow({
-      ...opts, frame: false, transparent: true, resizable: false, movable: false,
-      skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, hasShadow: false,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
-    });
-    w.setAlwaysOnTop(true, "screen-saver");
-    w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
-    w.once("ready-to-show", () => w.showInactive());
-    indicatorWindows.push(w);
-    return w;
-  };
-  const border = overlay({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }, BORDER_HTML);
-  border.setIgnoreMouseEvents(true);
-  const pill = overlay({ x: bounds.x + Math.round(bounds.width / 2) - 170, y: bounds.y + 10, width: 340, height: 48 }, PILL_HTML);
+  const pill = new BrowserWindow({
+    x: bounds.x + Math.round((bounds.width - PILL_SIZE.width) / 2), y: bounds.y + 8, ...PILL_SIZE,
+    frame: false, transparent: true, resizable: false, movable: false,
+    skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, hasShadow: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  pill.setAlwaysOnTop(true, "screen-saver");
+  // Not in screenshots (Windows 10 2004+, macOS): the agent sees the screen
+  // as it is, without VetroAI's own pill on top of it.
+  pill.setContentProtection(true);
+  pill.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(PILL_HTML));
+  pill.once("ready-to-show", () => { if (!pill.isDestroyed()) pill.showInactive(); });
   pill.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
     if (url.startsWith("vetro-stop:")) emergencyStop();
   });
+  indicatorWindow = pill;
+}
+
+// Runs `act` with the pill hidden when the cursor is on it (or `always`), so
+// the click, scroll or drag reaches the app underneath instead of the pill.
+async function clearOfIndicator(act, { always = false } = {}) {
+  const pill = indicatorWindow && !indicatorWindow.isDestroyed() && indicatorWindow.isVisible() ? indicatorWindow : null;
+  if (!pill) return act();
+  const cursor = screen.getCursorScreenPoint();
+  const b = pill.getBounds();
+  const onPill = cursor.x >= b.x - 6 && cursor.x <= b.x + b.width + 6 && cursor.y >= b.y - 6 && cursor.y <= b.y + b.height + 6;
+  if (!always && !onPill) return act();
+  pill.hide();
+  try {
+    return await act();
+  } finally {
+    // Back once the app has had the input.
+    setTimeout(() => { if (!pill.isDestroyed() && indicatorWindow === pill) pill.showInactive(); }, 150);
+  }
 }
 
 function emergencyStop() {
@@ -138,7 +158,7 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
-  // The indicator windows would otherwise keep the app running with no window.
+  // The indicator window would otherwise keep the app running with no window.
   mainWindow.on("closed", () => showIndicator(false));
   const allowedOrigin = new URL(APP_URL).origin;
   const appSession = mainWindow.webContents.session;
@@ -248,6 +268,15 @@ ipcMain.handle("computer:allow-for-dispatch", async (_event, action) => {
   controlEnabled = result.response === 0;
   stopped = false;
   broadcast();
+  // Out of the way: the task is about the other apps, and a screenshot of
+  // VetroAI's own window gives the agent nothing to work with.
+  if (controlEnabled) mainWindow.minimize();
+  return status();
+});
+// Dispatch runs while you're away from the computer: with control already on,
+// VetroAI still steps aside so the agent sees the desktop, not itself.
+ipcMain.handle("computer:step-aside", () => {
+  if (controlEnabled && !stopped && mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
   return status();
 });
 ipcMain.handle("computer:disable", () => {
@@ -278,7 +307,7 @@ ipcMain.handle("computer:click", async (_event, action) => {
   requireControl();
   const buttons = { left: Button.LEFT, right: Button.RIGHT, middle: Button.MIDDLE };
   const button = buttons[action.button] || Button.LEFT;
-  if (action.double) await mouse.doubleClick(button); else await mouse.click(button);
+  await clearOfIndicator(() => (action.double ? mouse.doubleClick(button) : mouse.click(button)));
   return { ok: true };
 });
 ipcMain.handle("computer:type", async (_event, action) => {
@@ -326,7 +355,7 @@ ipcMain.handle("computer:key", async (_event, action) => {
 ipcMain.handle("computer:scroll", async (_event, action) => {
   requireControl();
   const amount = Math.max(-1200, Math.min(1200, finite(action.amount, "amount")));
-  if (amount > 0) await mouse.scrollDown(amount); else await mouse.scrollUp(Math.abs(amount));
+  await clearOfIndicator(() => (amount > 0 ? mouse.scrollDown(amount) : mouse.scrollUp(Math.abs(amount))));
   return { ok: true };
 });
 ipcMain.handle("computer:drag", async (_event, action) => {
@@ -340,10 +369,13 @@ ipcMain.handle("computer:drag", async (_event, action) => {
     finite(action.toY, "toY") / screenshotScaleFactor
   );
   const duration = Math.max(100, Math.min(2000, finite(action.duration ?? 400, "duration")));
-  await mouse.move(straightTo(new Point(from.x, from.y), 150));
-  await mouse.pressButton(Button.LEFT);
-  await mouse.move(straightTo(new Point(to.x, to.y), duration));
-  await mouse.releaseButton(Button.LEFT);
+  // A drag can start or end anywhere, including under the pill.
+  await clearOfIndicator(async () => {
+    await mouse.move(straightTo(new Point(from.x, from.y), 150));
+    await mouse.pressButton(Button.LEFT);
+    await mouse.move(straightTo(new Point(to.x, to.y), duration));
+    await mouse.releaseButton(Button.LEFT);
+  }, { always: true });
   return { ok: true };
 });
 ipcMain.handle("computer:clipboard-read", () => {

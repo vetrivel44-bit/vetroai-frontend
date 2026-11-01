@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   requestControl: () => ipcRenderer.invoke("computer:request-control"),
   allowForDispatch: (text) => ipcRenderer.invoke("computer:allow-for-dispatch", { text }),
   disableControl: () => ipcRenderer.invoke("computer:disable"),
+  stepAside: () => ipcRenderer.invoke("computer:step-aside"),
   screenshot: () => ipcRenderer.invoke("computer:screenshot"),
   moveMouse: (x, y, duration = 250) => ipcRenderer.invoke("computer:move", { x, y, duration }),
   click: (button = "left", double = false) => ipcRenderer.invoke("computer:click", { button, double }),
