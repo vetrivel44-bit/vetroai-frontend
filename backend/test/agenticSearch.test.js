@@ -84,6 +84,18 @@ test("claims to check keep their query and map S-labels back to sources", () => 
 
 // ── Sources ──────────────────────────────────────────────────────────────────
 
+test("a sign-in or bot-check page the search provider scraped is not page text", () => {
+  const registry = new SourceRegistry();
+  registry.add([
+    { url: "https://www.youtube.com/watch?v=abc123def45", title: "Video", snippet: "A video", text: "Sign in to confirm you’re not a bot. This helps protect our community." + " ".repeat(500) },
+    { url: "https://news.test/a", title: "A", snippet: "s", text: "Real reporting. ".repeat(60) },
+  ], { angle: 0, query: "q" });
+  const [video, article] = registry.list;
+  assert.equal(video.text, "", "the bot check is not read as the video");
+  assert.ok(article.text.length > 400);
+  assert.equal(registry.pagesRead, 1);
+});
+
 test("one page is one source, whatever tracking junk is on its URL", () => {
   assert.equal(normalizeUrl("https://www.Example.com/a/?utm_source=x&id=2#top"), normalizeUrl("https://example.com/a?id=2"));
   assert.notEqual(normalizeUrl("https://example.com/a?id=2"), normalizeUrl("https://example.com/a?id=3"));

@@ -36,7 +36,7 @@ const logger = require("../utils/logger");
 const { withGroqModel } = require("../utils/groqModel");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { describeClock } = require("./clockService");
-const { fetchPageText, keyTerms, indexPassages, pickPassages } = require("./pageReader");
+const { fetchPageText, detectWall, keyTerms, indexPassages, pickPassages } = require("./pageReader");
 const { withTimeout } = require("../utils/withTimeout");
 
 const DEFAULTS = {
@@ -222,12 +222,15 @@ class SourceRegistry {
       if (!r?.url || !/^https?:\/\//i.test(r.url)) return;
       const key = normalizeUrl(r.url);
       let source = this.byKey.get(key);
+      // The search provider's copy of a page can be a sign-in, consent or
+      // bot-check page it was shown instead: that is no text at all.
+      const pageText = typeof r.text === "string" && r.text && !detectWall({ url: r.url, title: r.title, text: r.text }) ? r.text : "";
       if (!source) {
         source = {
           url: r.url,
           title: (r.title || "").trim(),
           snippet: (r.snippet || r.description || r.content || "").trim(),
-          text: typeof r.text === "string" ? r.text.slice(0, MAX_PAGE_CHARS) : "",
+          text: pageText.slice(0, MAX_PAGE_CHARS),
           published: r.published || r.publishedDate || r.published_date || null,
           angles: new Set(),
           claims: new Set(),
@@ -239,7 +242,7 @@ class SourceRegistry {
         this.list.push(source);
         added += 1;
       } else {
-        if (!source.text && r.text) source.text = r.text.slice(0, MAX_PAGE_CHARS);
+        if (!source.text && pageText) source.text = pageText.slice(0, MAX_PAGE_CHARS);
         if (!source.snippet && r.snippet) source.snippet = r.snippet;
         if (!source.published && r.published) source.published = r.published;
         source.bestRank = Math.min(source.bestRank, rank);
