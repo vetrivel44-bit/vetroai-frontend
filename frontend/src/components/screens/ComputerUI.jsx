@@ -984,6 +984,14 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         const raw = await readStream(response, taskId, assistantId);
         const action = parseAgentAction(raw);
         if (!action) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
+        // Only CTRL/SHIFT/ALT are allowed as modifiers, and META (Start) takes
+        // none: "META + CTRL+SHIFT" or "ENTER + META" fire stray shortcuts
+        // instead of opening the Start menu and launching the app.
+        if (action.action === "key") {
+          const key = String(action.key || "").toUpperCase();
+          action.modifiers = key === "META" ? [] : (Array.isArray(action.modifiers) ? action.modifiers : [])
+            .map(m => String(m).toUpperCase()).filter(m => ["CTRL", "SHIFT", "ALT"].includes(m));
+        }
         // Keep the model's coordinates inside the image it was shown.
         for (const [k, max] of [["x", shotWidth], ["fromX", shotWidth], ["toX", shotWidth], ["y", shotHeight], ["fromY", shotHeight], ["toY", shotHeight]]) {
           if (typeof action[k] === "number") action[k] = Math.max(0, Math.min(max - 1, action[k]));

@@ -52,11 +52,10 @@ function broadcast() {
 // border lets clicks through.
 let indicatorWindows = [];
 const BORDER_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}
-body{box-sizing:border-box;border:4px solid #f97316;box-shadow:inset 0 0 28px rgba(249,115,22,.55);animation:p 2s ease-in-out infinite}
-@keyframes p{50%{box-shadow:inset 0 0 10px rgba(249,115,22,.3)}}</style>`;
+body{box-sizing:border-box;border:2px solid rgba(217,119,87,.55);box-shadow:inset 0 0 6px rgba(217,119,87,.18)}</style>`;
 const PILL_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:600 14px "Segoe UI",system-ui,sans-serif}
 .p{display:flex;align-items:center;gap:10px;height:40px;margin:4px;padding:0 6px 0 14px;border-radius:22px;background:#1c1917;color:#fafaf9;box-shadow:0 4px 18px rgba(0,0,0,.35)}
-.d{width:10px;height:10px;border-radius:50%;background:#f97316;animation:b 1s ease-in-out infinite}@keyframes b{50%{opacity:.3}}
+.d{width:8px;height:8px;border-radius:50%;background:#d97757;animation:b 1.6s ease-in-out infinite}@keyframes b{50%{opacity:.35}}
 .t{flex:1;white-space:nowrap}.k{font-weight:400;color:#a8a29e;font-size:12px}
 a{color:#fff;background:#dc2626;text-decoration:none;padding:6px 14px;border-radius:16px}</style>
 <div class="p"><span class="d"></span><span class="t">VetroAI is working <span class="k">· Ctrl+Shift+X</span></span><a href="vetro-stop://now">Stop</a></div>`;
