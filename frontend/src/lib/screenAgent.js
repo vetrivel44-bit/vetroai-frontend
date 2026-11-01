@@ -13,8 +13,11 @@
 /** Model coordinates run from 0 to GRID across the screenshot, in both directions. */
 export const GRID = 1000;
 
-/** How the step prompt explains coordinates to the model. */
-export const GRID_INSTRUCTIONS = `Coordinates are on a 0-${GRID} grid over the screenshot, not pixels: x = 0 is its left edge and x = ${GRID} its right edge; y = 0 is its top and y = ${GRID} its bottom. Point at the centre of what you want to click.`;
+/**
+ * How the step prompt explains coordinates to the model. It wins over the
+ * server's own prompt, which a server not yet updated may still say pixels in.
+ */
+export const GRID_INSTRUCTIONS = `Coordinates are on a 0-${GRID} grid over the screenshot, not pixels, whatever else you were told about them: x = 0 is its left edge and x = ${GRID} its right edge; y = 0 is its top and y = ${GRID} its bottom. Point at the centre of what you want to click.`;
 
 const POINT_KEYS = [["x", "y"], ["fromX", "fromY"], ["toX", "toY"]];
 

@@ -48,7 +48,8 @@ test("a screen-control step asks Gemini for short thinking, and a model that ref
 
 test("the screen-control prompt points on the grid, reports success honestly, and acts on 'nothing changed'", async () => {
   const sys = await orchestrator.buildSystemPrompt("computer_use", { userQuery: "open notepad" });
-  assert.match(sys, /0-1000 grid/);
+  // The step message says which coordinates (app and server deploy separately).
+  assert.match(sys, /coordinates the step message describes/);
   assert.match(sys, /"done": \{success: true\|false, summary\}/);
   assert.match(sys, /success true only when the screenshot you were just given shows the goal achieved/);
   assert.match(sys, /nothing on the screen changed/);
