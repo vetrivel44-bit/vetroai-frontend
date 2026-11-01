@@ -204,6 +204,17 @@ function createWindow() {
   });
 }
 
+// One copy at a time: a second one shares the same sign-in storage, can't open
+// it while the first holds it, and sits on "Restoring your session…" forever.
+// Launching again just brings the open window forward.
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 app.whenReady().then(() => {
   createWindow();
   globalShortcut.register("CommandOrControl+Shift+X", emergencyStop);
