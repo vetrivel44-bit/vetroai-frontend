@@ -984,6 +984,14 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         const raw = await readStream(response, taskId, assistantId);
         const action = parseAgentAction(raw);
         if (!action) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
+        // Keep the model's coordinates inside the image it was shown.
+        for (const [k, max] of [["x", shotWidth], ["fromX", shotWidth], ["toX", shotWidth], ["y", shotHeight], ["fromY", shotHeight], ["toY", shotHeight]]) {
+          if (typeof action[k] === "number") action[k] = Math.max(0, Math.min(max - 1, action[k]));
+        }
+        // Described in the model's own coordinates: this line goes back to it in
+        // "Most recent actions", and a scaled-up copy there gets repeated and
+        // scaled again every step — clicks ran off the screen 1.5x at a time.
+        const description = describeAgentAction(action);
         // The model saw a downscaled image — scale its coordinates back up to
         // real screenshot-pixel space before anything touches the real cursor.
         if (shotScale !== 1) {
@@ -995,7 +1003,6 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           if (typeof action.toY === "number") action.toY *= shotScale;
         }
 
-        const description = describeAgentAction(action);
         log.push(description);
         if (narrate) narrateAction(description);
         // Real screenshot-pixel-space target for the cursor marker overlay —

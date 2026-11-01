@@ -13,6 +13,10 @@ let lastActionAt = 0;
 // HiDPI/Retina display those differ by the OS scale factor (e.g. 2x) — any
 // coordinate the model read off a screenshot has to be divided by this before
 // it's used to move the real cursor, or every click lands off by that factor.
+// Not on Windows: nut-js moves the cursor there in physical pixels too, the
+// same space as the screenshot, so dividing put every click at 1/scale of the
+// way across a 125%/150% display.
+const MOUSE_IN_PHYSICAL_PIXELS = process.platform === "win32";
 let screenshotScaleFactor = 1;
 
 // Google sign-in here is a redirect (see frontend/src/lib/firebaseAuth.js): the
@@ -110,11 +114,14 @@ function finite(value, name) {
   return number;
 }
 function clampPoint(x, y) {
-  const display = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) });
-  const bounds = display.bounds;
+  // Display bounds are in points; on Windows the point is in physical pixels.
+  const probe = MOUSE_IN_PHYSICAL_PIXELS ? screen.screenToDipPoint({ x, y }) : { x, y };
+  const display = screen.getDisplayNearestPoint({ x: Math.round(probe.x), y: Math.round(probe.y) });
+  const f = MOUSE_IN_PHYSICAL_PIXELS ? display.scaleFactor || 1 : 1;
+  const b = display.bounds;
   return {
-    x: Math.max(bounds.x, Math.min(bounds.x + bounds.width - 1, Math.round(x))),
-    y: Math.max(bounds.y, Math.min(bounds.y + bounds.height - 1, Math.round(y)))
+    x: Math.max(Math.round(b.x * f), Math.min(Math.round((b.x + b.width) * f) - 1, Math.round(x))),
+    y: Math.max(Math.round(b.y * f), Math.min(Math.round((b.y + b.height) * f) - 1, Math.round(y)))
   };
 }
 
@@ -255,7 +262,7 @@ ipcMain.handle("computer:screenshot", async () => {
   const image = await screenshot({ format: "png" });
   // Recorded so the next move/click call knows what to divide by — see the
   // comment on screenshotScaleFactor above.
-  screenshotScaleFactor = screen.getPrimaryDisplay().scaleFactor || 1;
+  screenshotScaleFactor = MOUSE_IN_PHYSICAL_PIXELS ? 1 : screen.getPrimaryDisplay().scaleFactor || 1;
   return `data:image/png;base64,${image.toString("base64")}`;
 });
 ipcMain.handle("computer:move", async (_event, action) => {
