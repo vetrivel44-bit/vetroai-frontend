@@ -736,8 +736,9 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         body.append("maxTokens", maxTokens);
         body.append("webSearch", first ? "true" : "false");
         // When it searches, the backend opens and reads the pages too, and
-        // reports each one as it goes (backend browseService.js).
-        body.append("browse", first ? "true" : "false");
+        // reports each one as it goes (backend browseService.js). Not for a
+        // website: its answer is a page, not a cited write-up.
+        body.append("browse", first && !isWebsiteRequest ? "true" : "false");
         // Continuations go to the backend like the first half did, not to
         // the in-browser Gemini bridge (public/gemini-puter-bridge.js).
         if (!first) body.append("route", "backend");
