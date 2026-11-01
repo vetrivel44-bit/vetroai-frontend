@@ -1183,13 +1183,25 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     }
     const wantsScreen = DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || isLiveSiteRequest(prompt) || YOUTUBE_REQUEST.test(prompt);
     // Never pops the "allow control?" dialog: nobody may be here to answer it,
-    // and the run would sit waiting on it. Control has to be on already.
-    const control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;
+    // and the run would sit waiting on it. Instead the task asks for an OK in
+    // Dispatch, and that OK turns control on for it.
+    let control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;
+    // Control this task's OK turned on goes off again when the task ends.
+    let grantedForTask = false;
     // Shopping and food sites too: their prices, ratings and stock only exist
     // on the live page, so a web-search answer would only pretend to have looked.
     if (DESKTOP_CONTROL_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt) || isLiveSiteRequest(prompt)) {
       if (!hasDesktop) return fail("This needs mouse and keyboard control, which only the VetroAI desktop app can do — not a browser tab. Turn on Accept tasks in the desktop app, then send it again.");
-      if (!control?.enabled) return fail("Screen control is off on your computer, so VetroAI didn't touch the mouse or keyboard. In the desktop app, allow screen control in Computer, then send this again.");
+      if (!control?.enabled) {
+        if (!claimed.approved) {
+          releaseHostRun();
+          await updateDispatch(uid, d.id, { status: "awaiting_approval", approvalReason: "This uses the mouse and keyboard on your computer. OK it and VetroAI takes control while it runs — Ctrl+Shift+X on the computer stops it." }).catch(() => {});
+          return;
+        }
+        control = await window.vetroDesktop.allowForDispatch?.().catch(() => null);
+        if (!control?.enabled) return fail("This desktop app is too old to take screen control for Dispatch. Update VetroAI on your computer, then send this again.");
+        grantedForTask = true;
+      }
     }
     if (!(await allowRun())) return fail("This week's Computer tasks are used up, so your computer didn't run this. VetroAI Pro has many more.");
     const task = { ...makeTask(prompt.slice(0, 54)), dispatchId: d.id };
@@ -1197,8 +1209,12 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     setActiveId(task.id);
     hostRun.current = { id: d.id, taskId: task.id };
     await updateDispatch(uid, d.id, { status: "running", taskId: task.id, progress: "Starting…" }).catch(() => {});
-    if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) await runComputerAgent(prompt, { task, preApproved: true });
-    else await execute(prompt, "", { task, files: [], preApproved: true });
+    try {
+      if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) await runComputerAgent(prompt, { task, preApproved: true });
+      else await execute(prompt, "", { task, files: [], preApproved: true });
+    } finally {
+      if (grantedForTask) window.vetroDesktop.disableControl().catch(() => {});
+    }
   };
 
   useEffect(() => {

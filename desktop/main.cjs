@@ -15,6 +15,14 @@ let lastActionAt = 0;
 // it's used to move the real cursor, or every click lands off by that factor.
 let screenshotScaleFactor = 1;
 
+// Google sign-in here is a redirect (see frontend/src/lib/firebaseAuth.js): the
+// window goes to vetroai.firebaseapp.com and back, and on return Firebase reads
+// the result through a hidden firebaseapp.com iframe. Chromium partitions that
+// iframe's storage away from what the top-level visit wrote, so the result is
+// never found — "Restoring your session…" then straight back to sign-in. This
+// window only ever loads our own app, so turn partitioning off.
+app.commandLine.appendSwitch("disable-features", "ThirdPartyStoragePartitioning");
+
 mouse.config.autoDelayMs = 35;
 keyboard.config.autoDelayMs = 25;
 
@@ -153,6 +161,15 @@ ipcMain.handle("computer:request-control", async () => {
     detail: "Only allow this while you can watch the screen. Press Ctrl+Shift+X at any time to stop immediately."
   });
   controlEnabled = result.response === 0;
+  stopped = false;
+  broadcast();
+  return status();
+});
+// A Dispatch task the user already OK'd on their phone (or in Dispatch here):
+// that OK stands in for the dialog above, which nobody may be at the screen to
+// answer. The title bar still says control is active and Ctrl+Shift+X stops it.
+ipcMain.handle("computer:allow-for-dispatch", () => {
+  controlEnabled = true;
   stopped = false;
   broadcast();
   return status();
