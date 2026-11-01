@@ -21,6 +21,9 @@
     "appId": "com.vetroai.desktop",
     "productName": "VetroAI",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/screenshot-desktop/lib/win32/**"
+    ],
     "files": [
       "main.cjs",
       "preload.cjs",

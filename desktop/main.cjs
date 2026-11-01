@@ -23,6 +23,11 @@ let screenshotScaleFactor = 1;
 // window only ever loads our own app, so turn partitioning off.
 app.commandLine.appendSwitch("disable-features", "ThirdPartyStoragePartitioning");
 
+// screenshot-desktop's Windows helper is a .bat that runs the .exe beside it by
+// bare name. With this variable set (some shells and hardened setups do), cmd
+// won't look in the current folder and every screenshot fails.
+delete process.env.NoDefaultCurrentDirectoryInExePath;
+
 mouse.config.autoDelayMs = 35;
 keyboard.config.autoDelayMs = 25;
 
