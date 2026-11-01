@@ -91,9 +91,12 @@ export default function ResearchRun({ message, live, renderReport }) {
         {run.want?.sheet && <Phase state={stateOf(run.sheet)} label="Build the spreadsheet" detail={run.sheet?.error} />}
       </ol>
 
-      {(run.research || run.sources?.length || (live && run.status === "researching")) && (
-        <LiveBrowser research={run.research} sources={run.sources} query={run.title} live={live && run.status === "researching"} />
-      )}
+      {run.research?.browse?.length
+        // What DeepSearch really searched and opened, as it reported it.
+        ? <LiveBrowser log={run.research.browse} running={live && run.status === "researching"} />
+        : (run.research || run.sources?.length || (live && run.status === "researching")) && (
+          <LiveBrowser research={run.research} sources={run.sources} query={run.title} live={live && run.status === "researching"} />
+        )}
       {run.research && <ResearchActivity research={run.research} live={live && run.status === "researching"} answering={!!run.report} />}
       {run.status === "failed" && <p className="cw-folder-note"><TriangleAlert size={14} /> {run.error}</p>}
 

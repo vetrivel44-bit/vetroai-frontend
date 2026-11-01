@@ -50,7 +50,10 @@ function BrowseLogView({ log, running }) {
     if (!current || !isFinal(current)) return undefined;
     const last = step >= entries.length - 1;
     if (last && running) return undefined;
-    const dwell = current.kind === "search" ? DWELL_MS.search : wasRead(current) ? DWELL_MS.read : DWELL_MS.other;
+    // Far behind (DeepSearch runs many searches at once): catch up quicker.
+    const behind = entries.length - 1 - step;
+    const pace = behind > 8 ? 0.3 : behind > 4 ? 0.55 : 1;
+    const dwell = pace * (current.kind === "search" ? DWELL_MS.search : wasRead(current) ? DWELL_MS.read : DWELL_MS.other);
     const timer = setTimeout(() => setStep(last ? null : step + 1), Math.max(0, dwell - (Date.now() - shownAt.current)));
     return () => clearTimeout(timer);
   }, [step, current, entries.length, running]);
@@ -152,12 +155,13 @@ function PageStep({ entry, number }) {
 }
 
 function ReadList({ entries, numbers }) {
-  const search = entries.find((e) => e.kind === "search");
+  const searches = entries.filter((e) => e.kind === "search");
+  const search = searches[0];
   const visits = entries.filter((e) => e.kind === "visit");
   return (
     <div className="lb-list">
       <div className="lb-list-head">
-        Pages VetroAI opened{search ? <> for “{search.query}”</> : null}
+        Pages VetroAI opened{searches.length > 1 ? ` (${searches.length} searches)` : search ? <> for “{search.query}”</> : null}
       </div>
       {!visits.length && <p className="lb-list-empty">{search?.status === "done" ? "The search found no pages to open." : "No pages were opened."}</p>}
       <ol>
@@ -167,13 +171,22 @@ function ReadList({ entries, numbers }) {
             <SourceFavicon domain={e.domain} />
             <div className="lb-list-main">
               <a href={e.url} target="_blank" rel="noopener noreferrer">{e.title || e.domain}</a>
-              <span title={e.reason || undefined}>{e.status === "read" ? `Read · ${e.domain}` : e.status === "loading" ? `Opening… · ${e.domain}` : `${e.status === "partial" ? "Partly read" : e.status === "blocked" ? "Blocked" : "Couldn't open"}: ${e.reason}`}</span>
+              <span title={e.reason || undefined}>{listOutcome(e, numbers.has(e.id))}</span>
             </div>
           </li>
         ))}
       </ol>
     </div>
   );
+}
+
+function listOutcome(e, cited) {
+  if (e.status === "read") return `Read · ${e.domain}`;
+  if (e.status === "loading") return `Opening… · ${e.domain}`;
+  if (e.status === "partial") return `Partly read: ${e.reason}`;
+  const what = e.status === "blocked" ? "Blocked" : "Couldn't open";
+  // DeepSearch can still cite such a page by its search-result snippet.
+  return cited ? `${what} (${e.reason}) — only its search snippet was used` : `${what}: ${e.reason}`;
 }
 
 // ─── the replay ──────────────────────────────────────────────────────────────

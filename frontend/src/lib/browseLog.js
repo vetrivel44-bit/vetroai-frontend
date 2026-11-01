@@ -26,12 +26,19 @@ export function mergeBrowseEvent(log, event) {
 }
 
 /**
- * The [n] each read page is cited as: pages that gave content, numbered in the
- * order they were opened (as the backend numbers them for the answer).
+ * The [n] each page is cited as. DeepSearch numbers its report's sources
+ * itself and puts that on the entries (`cite`); otherwise (Computer) the
+ * pages that gave content are numbered in the order they were opened, as the
+ * backend numbers them for the answer.
  */
 export function citationNumbers(log) {
   const numbers = new Map();
-  for (const entry of log || []) if (wasRead(entry)) numbers.set(entry.id, numbers.size + 1);
+  const entries = log || [];
+  if (entries.some((e) => Number.isInteger(e.cite))) {
+    for (const entry of entries) if (Number.isInteger(entry.cite)) numbers.set(entry.id, entry.cite);
+    return numbers;
+  }
+  for (const entry of entries) if (wasRead(entry)) numbers.set(entry.id, numbers.size + 1);
   return numbers;
 }
 

@@ -36,7 +36,8 @@ const logger = require("../utils/logger");
 const { withGroqModel } = require("../utils/groqModel");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { describeClock } = require("./clockService");
-const { fetchPageText, detectWall, keyTerms, indexPassages, pickPassages } = require("./pageReader");
+const { readPage: readWebPage, detectWall, keyTerms, indexPassages, pickPassages } = require("./pageReader");
+const { readYouTube } = require("./youtubeReader");
 const { withTimeout } = require("../utils/withTimeout");
 
 const DEFAULTS = {
@@ -209,6 +210,30 @@ function normalizeUrl(raw) {
 
 const domainOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
+// The browser's entry for a page (frontend lib/browseLog.js), one per page.
+const pageId = (url) => `page-${normalizeUrl(url)}`;
+const visitEntry = (source, fields) => ({
+  id: pageId(source.url),
+  kind: "visit",
+  url: source.url,
+  domain: domainOf(source.url),
+  title: source.title || domainOf(source.url),
+  ...fields,
+});
+
+/**
+ * What came of reading a page: readPage's result, or, from a test's reader,
+ * page text (read when long enough) or null.
+ */
+function pageOutcome(outcome) {
+  if (!outcome.ok) return { status: "failed", reason: "the page could not be opened" };
+  const value = outcome.value;
+  if (typeof value === "string") return value.length >= 400 ? { status: "read", text: value } : { status: "failed", reason: "the page had almost no readable text" };
+  if (!value) return { status: "failed", reason: "the page couldn't be read" };
+  if (value.status === "read" && !(value.text?.length >= 400)) return { status: "failed", title: value.title, reason: "the page had almost no readable text" };
+  return value;
+}
+
 /** Every page the research has seen, once each, with which angles and queries found it. */
 class SourceRegistry {
   constructor() {
@@ -222,14 +247,18 @@ class SourceRegistry {
       if (!r?.url || !/^https?:\/\//i.test(r.url)) return;
       const key = normalizeUrl(r.url);
       let source = this.byKey.get(key);
-      // The search provider's copy of a page can be a sign-in, consent or
-      // bot-check page it was shown instead: that is no text at all.
-      const pageText = typeof r.text === "string" && r.text && !detectWall({ url: r.url, title: r.title, text: r.text }) ? r.text : "";
+      // The search provider's copy of a page, and its snippet of it, can be a
+      // sign-in, consent or bot-check page it was shown instead: that is no
+      // text at all.
+      const isWall = (text) => Boolean(text) && Boolean(detectWall({ url: r.url, title: r.title, text }));
+      const pageText = typeof r.text === "string" && !isWall(r.text) ? r.text : "";
+      const rawSnippet = (r.snippet || r.description || r.content || "").trim();
+      const snippet = isWall(rawSnippet) ? "" : rawSnippet;
       if (!source) {
         source = {
           url: r.url,
           title: (r.title || "").trim(),
-          snippet: (r.snippet || r.description || r.content || "").trim(),
+          snippet,
           text: pageText.slice(0, MAX_PAGE_CHARS),
           published: r.published || r.publishedDate || r.published_date || null,
           angles: new Set(),
@@ -243,7 +272,7 @@ class SourceRegistry {
         added += 1;
       } else {
         if (!source.text && pageText) source.text = pageText.slice(0, MAX_PAGE_CHARS);
-        if (!source.snippet && r.snippet) source.snippet = r.snippet;
+        if (!source.snippet && snippet) source.snippet = snippet;
         if (!source.published && r.published) source.published = r.published;
         source.bestRank = Math.min(source.bestRank, rank);
       }
@@ -365,13 +394,14 @@ function defaultThinker() {
  */
 function createProgress({ onProgress, onStatus }) {
   const startedAt = Date.now();
-  const state = { phase: "planning", angles: [], angleSources: [], domains: [], steps: [], sources: 0, sites: 0, pagesRead: 0, queries: 0 };
+  const state = { phase: "planning", angles: [], angleSources: [], domains: [], steps: [], sources: 0, sites: 0, pagesRead: 0, queries: 0, browse: [] };
   const snapshot = () => ({
     ...state,
     angles: [...state.angles],
     angleSources: [...state.angleSources],
     domains: [...state.domains],
     steps: state.steps.map((s) => ({ ...s, items: [...s.items] })),
+    browse: state.browse.map((e) => ({ ...e })),
     elapsedMs: Date.now() - startedAt,
   });
   const emit = () => { try { onProgress?.(snapshot()); } catch (err) { logger.warn("research.progress.failed", { error: err.message }); } };
@@ -393,6 +423,15 @@ function createProgress({ onProgress, onStatus }) {
       emit();
     },
     set(fields) { Object.assign(state, fields); },
+    // What the browser shows (frontend lib/browseLog.js): one entry per
+    // search and per page opened, updated in place by id, and sent with the
+    // next snapshot. An update to an entry not there yet is dropped.
+    browse(entry) {
+      const at = state.browse.findIndex((e) => e.id === entry.id);
+      if (at !== -1) state.browse[at] = { ...state.browse[at], ...entry };
+      else if (entry.kind) state.browse.push(entry);
+    },
+    flush: emit,
     snapshot,
   };
 }
@@ -434,7 +473,9 @@ async function performAgenticSearch(query, options = {}) {
   // Once cancelled, no time is left: every phase checks this before starting.
   const timeLeft = () => (opts.signal?.aborted ? 0 : opts.deadlineMs - (Date.now() - startedAt));
   const search = opts.searchFn || ((q) => searchForResearch(q, { clock: opts.clock }));
-  const readPage = opts.readFn || ((url) => fetchPageText(url, { signal: opts.signal }));
+  // url -> readPage's { status, text, title, reason } (tests may give text or
+  // null). A YouTube video is read from its player data (youtubeReader).
+  const readPage = opts.readFn || (async (url) => (await readYouTube(url, { signal: opts.signal })) || readWebPage(url, { signal: opts.signal }));
   const rawThink = "plannerFn" in options ? options.plannerFn : defaultThinker();
   const think = rawThink && ((prompt, maxTokens) => (opts.signal?.aborted
     ? Promise.reject(new Error("Research cancelled"))
@@ -485,11 +526,21 @@ async function performAgenticSearch(query, options = {}) {
   const runSearches = async (jobs) => {
     const cancelled = () => opts.signal?.aborted;
     if (cancelled()) return 0;
+    const first = usedQueries.length;
+    jobs.forEach((job, i) => progress.browse({ id: `search-${first + i}`, kind: "search", query: job.query, status: "searching" }));
+    progress.flush();
     const outcomes = await inPool(jobs, opts.searchConcurrency, (job) => (cancelled() ? null : search(job.query)));
     let found = 0;
     outcomes.forEach((outcome, i) => {
       if (outcome.ok) found += outcome.value ? registry.add(outcome.value, jobs[i]) : 0;
       else logger.warn("research.search.failed", { query: jobs[i].query, error: outcome.error?.message });
+      const list = outcome.ok && Array.isArray(outcome.value) ? outcome.value : [];
+      progress.browse({ id: `search-${first + i}`, kind: "search", query: jobs[i].query, status: "done", found: list.length });
+      // A page the search provider was shown a sign-in or bot check for.
+      for (const r of list) {
+        const reason = r?.url && r.text ? detectWall({ url: r.url, title: r.title, text: r.text }) : null;
+        if (reason) progress.browse(visitEntry(r, { status: "blocked", reason }));
+      }
     });
     usedQueries.push(...jobs.map((j) => j.query));
     syncCounts();
@@ -507,16 +558,27 @@ async function performAgenticSearch(query, options = {}) {
       .slice(0, budget)
       .map(({ s }) => s);
     if (!unread.length) return 0;
+    unread.forEach((s) => progress.browse(visitEntry(s, { status: "loading" })));
     progress.start("read", `Reading ${unread.length} ${unread.length === 1 ? "page" : "pages"}`, "", "reading", unread.map((s) => domainOf(s.url)));
     unread.forEach((s) => { s.fetched = true; });
     fetchedPages += unread.length;
     const outcomes = await inPool(unread, 5, (s) => readPage(s.url));
     let read = 0;
+    const queryTerms = keyTerms(query);
     outcomes.forEach((outcome, i) => {
-      if (outcome.ok && typeof outcome.value === "string" && outcome.value.length >= 400) {
-        unread[i].text = outcome.value;
+      const page = pageOutcome(outcome);
+      const source = unread[i];
+      if (page.status === "read") {
+        source.text = page.text.slice(0, MAX_PAGE_CHARS);
         read += 1;
+      } else if (page.status === "partial" && page.text) {
+        // A video YouTube walled off: its title and channel, as a snippet.
+        source.snippet = page.text;
       }
+      const excerpt = page.status === "read" || page.status === "partial"
+        ? (pickPassages(indexPassages(page.text), queryTerms, { max: 1, maxChars: 240 }).passages[0] || page.text).slice(0, 240)
+        : null;
+      progress.browse(visitEntry(source, { status: page.status, reason: page.reason || null, excerpt, ...(page.title ? { title: page.title } : {}) }));
     });
     syncCounts();
     progress.finish("read", `${read} of ${unread.length} opened`);
@@ -619,10 +681,13 @@ async function performAgenticSearch(query, options = {}) {
 
   // ── 6. Choose and number the sources ──────────────────────────────────────
   const claimTerms = claims.map((c) => termsFor([c.claim, c.query]));
+  // A source with neither page text nor a snippet (a page that was all wall)
+  // has nothing to cite.
+  const usable = (s) => Boolean(s.text || s.snippet);
   const buckets = [
     // Each claim's independent check first: that evidence is the point of it.
-    ...claims.map((c, i) => registry.list.filter((s) => s.claims.has(i)).map((s) => ({ s, ...assess(s, claimTerms[i]) }))),
-    ...plan.angles.map((_, i) => registry.list.filter((s) => s.angles.has(i)).map((s) => ({ s, ...assess(s, angleTerms[i]) }))),
+    ...claims.map((c, i) => registry.list.filter((s) => s.claims.has(i) && usable(s)).map((s) => ({ s, ...assess(s, claimTerms[i]) }))),
+    ...plan.angles.map((_, i) => registry.list.filter((s) => s.angles.has(i) && usable(s)).map((s) => ({ s, ...assess(s, angleTerms[i]) }))),
   ].map((bucket) => bucket.sort((a, b) => b.score - a.score));
 
   const chosen = [];
@@ -654,6 +719,8 @@ async function performAgenticSearch(query, options = {}) {
     }
   }
   const numberOf = new Map(chosen.map(({ s }, i) => [s, i + 1]));
+  // The browser lists each page it opened with the number the report cites it by.
+  for (const [s, n] of numberOf) progress.browse({ id: pageId(s.url), cite: n });
 
   progress.start("write", "Writing the report", `${chosen.length} sources · ${usedQueries.length} searches · ${registry.pagesRead} pages read`, "writing");
 

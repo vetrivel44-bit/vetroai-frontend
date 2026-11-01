@@ -49,3 +49,13 @@ test("each outcome reads as a plain sentence, and blocked pages are said to be u
   assert.equal(isFinal(EVENTS[2]), false);
   assert.equal(wasRead(log[3]), false);
 });
+
+test("DeepSearch's own source numbers are used when the entries carry them", () => {
+  const log = [
+    { id: "search-0", kind: "search", query: "q", status: "done", found: 3 },
+    { id: "page-a", kind: "visit", domain: "a.test", status: "read", cite: 4 },
+    { id: "page-b", kind: "visit", domain: "b.test", status: "read" },
+    { id: "page-c", kind: "visit", domain: "c.test", status: "failed", reason: "the page took too long to load", cite: 1 },
+  ];
+  assert.deepEqual([...citationNumbers(log)], [["page-a", 4], ["page-c", 1]]);
+});
