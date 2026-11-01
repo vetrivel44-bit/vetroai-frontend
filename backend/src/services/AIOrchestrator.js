@@ -4,6 +4,7 @@ const { VISUALS_PROMPT } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
+const { browseWeb, browseQuery, BROWSE_RULES } = require("./browseService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
@@ -69,6 +70,9 @@ Style
 - The numbered sources are shown to the reader as cards next to your answer, so don't add a list of sources or links at the end.`;
 // How long DeepSearch may research before the report is written.
 const RESEARCH_DEADLINE_MS = 150000;
+// Computer's browsing: its own 30 s page deadline plus the search before it;
+// this only guards a hung socket.
+const BROWSE_TIMEOUT_MS = 50000;
 // Writers whose requests are capped tightly (Groq's free tier: ~12k tokens).
 // The newest messages that fit in about 60k characters (~15k tokens), always
 // including the latest one. Groq trims further to its own budget.
@@ -867,6 +871,10 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     let research = null;
     let compactContext = null;
     const isAgentic = mode === "deep_search" || mode === "research";
+    // Computer opens and reads the pages it finds (browseService), and the
+    // answer is held to what was read.
+    const isBrowse = !isAgentic && params.browse === true;
+    let browsed = false;
 
     if (shouldSearch) {
       // DeepSearch runs the full research (agenticSearchService.js): plan,
@@ -877,7 +885,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       this.sendVetroEvent(
         res,
         "status",
-        isAgentic ? "Researching..." : "Searching the web for latest info..."
+        isAgentic ? "Researching..." : isBrowse ? "Searching and opening pages..." : "Searching the web for latest info..."
       );
 
       try {
@@ -900,6 +908,19 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
             RESEARCH_DEADLINE_MS + 20000,
             "Search timeout",
           );
+        } else if (isBrowse) {
+          // Searched as the task itself, without Computer's notes to the model.
+          const history = messages.slice(0, -1).map((m) => (m?.role === "user" && typeof m.content === "string" ? { ...m, content: browseQuery(m.content) } : m));
+          searchRes = await withTimeout(
+            browseWeb(searchQueryFor(browseQuery(userQuery), history), {
+              clock: params.clock,
+              signal: params.signal,
+              onEvent: (entry) => this.sendVetroEvent(res, "browse", entry),
+            }),
+            BROWSE_TIMEOUT_MS,
+            "Search timeout",
+          );
+          browsed = true;
         } else {
           searchRes = await withTimeout(searchWeb(searchQuery, { clock: params.clock }), 10000, "Search timeout");
         }
@@ -946,6 +967,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     if (noRealtimeData) {
       promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, who is in a show or contest, who holds a role, a person's current party or affiliation, or an "as of today/now" claim) as if it were verified — you have no live data backing it. Never guess who a person is or what organisation they founded or lead; if you are not certain, say you are not sure. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current. This is only about live facts: stable reference data (climate averages, historical statistics, census figures, geography) is not real-time, so answer or chart it from what you know, labelled approximate, instead of refusing.`;
     }
+    if (browsed) promptExtras += BROWSE_RULES;
     promptExtras += buildPluginPrompt(params.activePlugins);
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)
