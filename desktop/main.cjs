@@ -270,13 +270,20 @@ ipcMain.handle("computer:allow-for-dispatch", async (_event, action) => {
   broadcast();
   // Out of the way: the task is about the other apps, and a screenshot of
   // VetroAI's own window gives the agent nothing to work with.
-  if (controlEnabled) mainWindow.minimize();
+  if (controlEnabled) await minimizeAndSettle();
   return status();
 });
+// Minimizes VetroAI and waits out the animation, so the agent's first
+// screenshot doesn't catch the window halfway down.
+async function minimizeAndSettle() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
+  mainWindow.minimize();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+}
 // Dispatch runs while you're away from the computer: with control already on,
 // VetroAI still steps aside so the agent sees the desktop, not itself.
-ipcMain.handle("computer:step-aside", () => {
-  if (controlEnabled && !stopped && mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+ipcMain.handle("computer:step-aside", async () => {
+  if (controlEnabled && !stopped) await minimizeAndSettle();
   return status();
 });
 ipcMain.handle("computer:disable", () => {
