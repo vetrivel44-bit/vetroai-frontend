@@ -31,6 +31,7 @@ import { SCHEDULE_REQUEST, schedulesApi } from "../../lib/schedules";
 import { startComputerRun } from "../../lib/usageClient";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
+import { mergeBrowseEvent } from "../../lib/browseLog";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
   ArrowLeft, Bot, CalendarClock, History, SquarePen, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
@@ -565,6 +566,12 @@ export default function ComputerUI({ onClose, onUpgrade }) {
               ...t,
               messages: t.messages.map(m => m.id === assistantId ? { ...m, sources: data } : m)
             }));
+          } else if (type === "browse" && data?.id) {
+            // Each step of the browsing as the backend does it (lib/browseLog.js).
+            patchTask(taskId, t => ({
+              ...t,
+              messages: t.messages.map(m => m.id === assistantId ? { ...m, browse: mergeBrowseEvent(m.browse, data) } : m)
+            }));
           } else if (type === "status" && data) {
             patchTask(taskId, t => {
               const activeIndex = t.steps.findIndex(s => s.status === "active");
@@ -728,6 +735,9 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         body.append("messages", JSON.stringify(messages));
         body.append("maxTokens", maxTokens);
         body.append("webSearch", first ? "true" : "false");
+        // When it searches, the backend opens and reads the pages too, and
+        // reports each one as it goes (backend browseService.js).
+        body.append("browse", first ? "true" : "false");
         // Continuations go to the backend like the first half did, not to
         // the in-browser Gemini bridge (public/gemini-puter-bridge.js).
         if (!first) body.append("route", "backend");
@@ -2018,11 +2028,15 @@ function PublishBar({ published, hasSite, disabled, onPublish }) {
 
 function AssistantTurn(props) {
   const { message, task, live } = props;
-  // The pages it searched and read on the web, played back in a small browser.
-  if (!message.sources?.length || message.website) return <AssistantTurnBody {...props} />;
+  // The web work for this reply in a small browser: what was really searched
+  // and read, step by step (message.browse), or, for tasks from before that
+  // was recorded, a replay of the sources.
+  if ((!message.browse?.length && !message.sources?.length) || message.website) return <AssistantTurnBody {...props} />;
   return (
     <>
-      <LiveBrowser sources={message.sources} query={task.title} live={live && !message.content} />
+      {message.browse?.length
+        ? <LiveBrowser log={message.browse} running={live && !message.content} />
+        : <LiveBrowser sources={message.sources} query={task.title} live={live && !message.content} />}
       <AssistantTurnBody {...props} />
     </>
   );
