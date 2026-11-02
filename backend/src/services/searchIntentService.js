@@ -14,7 +14,7 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const { clockLine } = require("./clockService");
-const { needsLiveInfo, TIMELESS_MODES, normalizeChatSpeak, isAboutSelf, isSmallTalk } = require("./liveInfoIntent");
+const { needsLiveInfo, TIMELESS_MODES, plainReading, isAboutSelf, isSmallTalk, isFollowUpRequest } = require("./liveInfoIntent");
 
 // Waiting longer than this for a yes/no would hold up every reply.
 const DECIDE_TIMEOUT_MS = 2500;
@@ -69,9 +69,9 @@ function withTimeout(promise, ms) {
 const turnText = (m) => (typeof m?.content === "string" ? m.content : "").replace(/\s+/g, " ").trim();
 
 // The message in plain words when it was typed in text-speak, so the judge
-// reads "wat r u" as "what are you".
+// reads "wat is d weather 2day" as "what is d weather today".
 function plainWords(q) {
-  const plain = normalizeChatSpeak(q);
+  const plain = plainReading(q);
   return plain.toLowerCase() !== q.replace(/\s+/g, " ").trim().toLowerCase() ? `\n(In plain words: ${plain.slice(0, 1500)})` : "";
 }
 
@@ -85,9 +85,10 @@ function plainWords(q) {
 async function decideSearch({ query, history = [], mode, clock } = {}) {
   const q = String(query || "").trim();
   const rules = (reason) => ({ search: needsLiveInfo(q, { mode }), by: "rules", reason });
-  // Asking the assistant about itself ("Ur name", "who r u") and small talk
-  // ("how r u", "thank u") are never searched, and need no model to say so.
-  if (!q || isAboutSelf(q) || isSmallTalk(q)) return { search: false, by: "rules" };
+  // Asking the assistant about itself ("Ur name", "who r u"), small talk
+  // ("how r u", "thank u") and asking for the last answer another way ("in
+  // tamil", "in short", "give eg") are never searched, and need no model.
+  if (!q || isAboutSelf(q) || isSmallTalk(q) || isFollowUpRequest(q)) return { search: false, by: "rules" };
   // Coding, writing and similar modes: only clearly-current questions search,
   // which the word list knows well enough.
   if (TIMELESS_MODES.has(String(mode || "").toLowerCase())) return rules("mode");

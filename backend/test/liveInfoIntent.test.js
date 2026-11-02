@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { needsLiveInfo, normalizeChatSpeak, isAboutSelf, isSmallTalk } = require("../src/services/liveInfoIntent");
+const { needsLiveInfo, normalizeChatSpeak, plainReading, isAboutSelf, isSmallTalk, isFollowUpRequest } = require("../src/services/liveInfoIntent");
 const orchestrator = require("../src/services/AIOrchestrator");
 
 const LIVE = [
@@ -156,5 +156,49 @@ test("real lookups that mention a model, an AI, a name or Ur still search", () =
     assert.equal(isAboutSelf(q), false, q);
     assert.equal(isSmallTalk(q), false, q);
     assert.equal(needsLiveInfo(q), true, q);
+  }
+});
+
+// Short follow-ups about the last answer, the way people type them. Searched,
+// "in tamil" found pages about the Tamil language instead of translating.
+const REDO = [
+  "more", "again", "y?", "y", "eg", "eg?", "why?", "explain", "shorter", "simpler", "tldr", "eli5", "in short", "in tamil", "in hindi pls",
+  "in points", "in a table", "in 2 lines", "in 5 points", "explain in tamil", "tell in simple words", "give example", "give an eg",
+  "in detail pls", "translate to hindi", "make it shorter", "explain more", "can u explain again", "ok now in hindi",
+  "say it in tanglish pls", "write that in 5 points", "more details", "tell me more", "what do you mean", "wdym",
+];
+test("asking for the last answer another way is never searched", () => {
+  for (const q of REDO) {
+    assert.equal(isFollowUpRequest(q), true, q);
+    assert.equal(needsLiveInfo(q), false, q);
+  }
+});
+
+test("follow-ups that ask something new still search", () => {
+  for (const q of ["in 2025?", "and in 2025?", "in tamil nadu", "in chennai", "tamil movies this week", "more about the iphone 17 price"]) {
+    assert.equal(isFollowUpRequest(q), false, q);
+    assert.equal(needsLiveInfo(q), true, q);
+  }
+});
+
+test("shorthand made of symbols or several words is read too", () => {
+  assert.equal(normalizeChatSpeak("diff b/w tcp n udp"), "difference between tcp and udp");
+  assert.equal(normalizeChatSpeak("diff btw tcp and udp"), "difference between tcp and udp");
+  assert.equal(normalizeChatSpeak("hw 2 make tea w/o milk"), "how to make tea without milk");
+  assert.equal(needsLiveInfo("diff b/w tcp n udp"), false);
+  assert.equal(isSmallTalk("hru"), true);
+  assert.equal(isSmallTalk("wbu"), true);
+});
+
+// A web search gets the message in plain words, but only where the shorthand
+// can't mean anything else: "ur" and "d" stay as typed.
+test("the plain reading for a search reads only unambiguous shorthand", () => {
+  assert.equal(plainReading("ipl score 2day"), "ipl score today");
+  assert.equal(plainReading("wat is d weather in chennai 2day"), "what is d weather in chennai today");
+  assert.equal(plainReading("weather rn"), "weather right now");
+  assert.equal(plainReading("what abt java"), "what about java");
+  assert.equal(plainReading("tom n jerry cast"), "tom and jerry cast");
+  for (const q of ["ancient city of ur", "vitamin d deficiency", "r programming tutorial", "u2 band tour", "Who won IPL 2024?"]) {
+    assert.equal(plainReading(q), q, q);
   }
 });

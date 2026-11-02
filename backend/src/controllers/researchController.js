@@ -2,6 +2,7 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const AIOrchestrator = require("../services/AIOrchestrator");
 const { performAgenticSearch } = require("../services/agenticSearchService");
+const { plainReading } = require("../services/liveInfoIntent");
 const { clientClock } = require("../services/clockService");
 const { withTimeout } = require("../utils/withTimeout");
 
@@ -44,7 +45,7 @@ async function research(req, res) {
 
   try {
     const result = await withTimeout(
-      performAgenticSearch(query, {
+      performAgenticSearch(plainReading(query), {
         clock: clientClock(req.body),
         history: AIOrchestrator.recentHistory([...messages, { role: "user", content: query }]),
         deadlineMs: AIOrchestrator.RESEARCH_DEADLINE_MS,

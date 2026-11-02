@@ -50,7 +50,8 @@ import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from ".
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
-import { needsLiveInfo, isAboutSelf, isSmallTalk } from "./lib/liveInfoIntent";
+import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
+import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
 import { askSearchIntent } from "./lib/searchIntent";
 import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
@@ -6470,11 +6471,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    // Asking VetroAI about itself ("Ur name", "who r u", "r u a doctor") or
-    // small talk ("how r u", "thank u") is never a lookup: no web search, live
-    // scores or medical mode, whatever mode or plugin is on. "Ur name" used to
-    // be searched, and answered with the history of the ancient city of Ur.
-    const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery);
+    // Asking VetroAI about itself ("Ur name", "who r u", "r u a doctor"),
+    // small talk ("how r u", "thank u") and asking for the last answer another
+    // way ("in tamil", "in short", "give eg") are never lookups: no web search,
+    // live scores or medical mode, whatever mode or plugin is on. "Ur name"
+    // used to be searched, and answered with the history of the ancient city of Ur.
+    const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery) || isFollowUpRequest(userQuery);
     const sportsDetected = !humanizing && !notALookup && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
@@ -6697,7 +6699,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             question: freshImage ? imageQuestion(userQuery) : question,
             imageDataUrl,
             imageTurnsAgo: shared ? shared.turnsAgo : 0,
-            systemPrompt: finalSystemPrompt,
+            systemPrompt: [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt, thisMessageNote(userQuery)].filter(Boolean).join("\n\n"),
           }));
         setIsWebSearching(false);
         setStreamStatus("streaming");
@@ -6802,7 +6804,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
         // Who VetroAI is comes first: without it a browser model knew nothing
         // about VetroAI but its name.
-        const puterSystem = [VETROAI_IDENTITY, finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
+        // How to read short, informal messages ("Ur name", "y?", "in tamil"),
+        // and, for a question about VetroAI itself, a note saying so.
+        const puterSystem = [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt.trim(), extraSystem.trim(), thisMessageNote(userQuery)].filter(Boolean).join("\n\n");
         if (puterSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
           // answers "draw a flowchart" or "chart this" with a visual, not prose.
@@ -6867,7 +6871,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           method: "POST",
           headers: { "Content-Type": "application/json" },
           // A follow-up ("then in 2025?") is searched with the question it follows.
-          body: JSON.stringify({ query: searchQueryFor(userQuery, messagesRef.current), timeZone: userTimeZone() }),
+          // In plain words: "ipl score 2day" is searched as "ipl score today".
+          body: JSON.stringify({ query: searchQueryFor(plainReading(userQuery), messagesRef.current), timeZone: userTimeZone() }),
           signal: ctrl.signal,
         });
         const json = await res.json().catch(() => ({}));

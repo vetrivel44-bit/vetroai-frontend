@@ -109,13 +109,45 @@ const CHAT_SPEAK = {
   kk: "ok", okk: "ok", okie: "ok", okey: "ok", oki: "ok",
   dat: "that", dis: "this", bcz: "because", coz: "because", cuz: "because", ppl: "people",
   hv: "have", hav: "have", cn: "can", cud: "could", shud: "should", wud: "would", knw: "know", kno: "know",
-  "2day": "today", tdy: "today", tmrw: "tomorrow", tmr: "tomorrow", "2moro": "tomorrow", b4: "before",
+  "2day": "today", tdy: "today", tmrw: "tomorrow", tmr: "tomorrow", "2moro": "tomorrow", b4: "before", rn: "right now",
+  hru: "how are you", wbu: "what about you", hbu: "how about you", wyd: "what are you doing", idk: "i do not know", imo: "in my opinion",
+  wdym: "what do you mean", lmk: "let me know", ofc: "of course", smth: "something", sth: "something", tho: "though", nd: "and", wid: "with",
+  bcoz: "because", becoz: "because", becuz: "because", thnk: "thank", thnku: "thank you", thanku: "thank you", thankyou: "thank you",
+  gudnyt: "good night", gdnyt: "good night", msg: "message", bday: "birthday",
 };
 
+// Shorthand made of symbols, or of more than one word, read before the words:
+// "diff b/w tcp n udp" is "difference between tcp and udp".
+const CHAT_SPEAK_PHRASES = [
+  [/\bb\/w\b/gi, "between"],
+  [/\bw\/o\b/gi, "without"],
+  [/\bw\/(?=\s)/gi, "with"],
+  [/\bdiff(?:erence)?\s+(?:btw|bw|betw|bet|between)\b/gi, "difference between"],
+  [/\b(?:how|hw)\s+2\s+(?=[a-z])/gi, "how to "],
+  [/(?<=\b[a-z]{2,})\s+n\s+(?=[a-z]{2,}\b)/gi, " and "],
+];
+const readPhrases = (text) => CHAT_SPEAK_PHRASES.reduce((out, [rx, plain]) => out.replace(rx, plain), String(text || "").replace(/[\u2018\u2019\u02bc]/g, "'"));
+
 function normalizeChatSpeak(text) {
-  return String(text || "")
-    .replace(/[‘’ʼ]/g, "'")
+  return readPhrases(text)
     .replace(/[A-Za-z0-9']+/g, (word) => CHAT_SPEAK[word.toLowerCase()] ?? word)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// The shorthand that means one thing wherever it appears. "ur", "u", "r" and
+// "d" are left alone here: "ancient city of ur" and "vitamin d" are not
+// text-speak.
+const PLAIN_SPEAK = new Set([
+  "wat", "wht", "wut", "wot", "wats", "whats", "what's", "wat's", "whts", "wuts", "hows", "how's", "whos", "who's", "wheres", "where's",
+  "wen", "whr", "frm", "abt", "abut", "pls", "plz", "plss", "plzz", "bcz", "coz", "cuz", "bcoz", "becoz", "becuz", "ppl",
+  "2day", "tdy", "tmrw", "tmr", "2moro", "b4", "rn", "knw", "kno", "shud", "wud", "cud", "hav", "smth", "sth", "nd", "wid",
+]);
+
+/** The message in plain words for a web search: only unambiguous shorthand is read. */
+function plainReading(text) {
+  return readPhrases(text)
+    .replace(/[A-Za-z0-9']+/g, (word) => (PLAIN_SPEAK.has(word.toLowerCase()) ? CHAT_SPEAK[word.toLowerCase()] : word))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -186,6 +218,7 @@ const SMALL_TALK_PHRASES = [
   String.raw`what is up`, String.raw`what are you doing`, String.raw`what are you up to`, String.raw`nothing much`, String.raw`not much`, String.raw`same here`, String.raw`me too`,
   String.raw`nice to meet you`, String.raw`pleased to meet you`, String.raw`good to see you`, String.raw`long time no see`,
   String.raw`(?:i )?miss you`, String.raw`(?:i )?love you`, String.raw`are you there`, String.raw`you there`,
+  String.raw`(?:and |what about |how about )you`,
   String.raw`(?:you are|you're|your|you) (?:so |very |really |too |the |a |an |such an? )?(?:best|smart|funny|cute|great|good|nice|awesome|amazing|helpful|sweet|kind|cool|genius|clever|wrong|right|correct|bad|slow|stupid|dumb|useless|boring|crazy|mad|liar|lying)`,
 ];
 const SMALL_TALK_FILLERS = [
@@ -202,6 +235,26 @@ function isSmallTalk(text) {
   return SMALL_TALK.test(normalizeChatSpeak(text));
 }
 
+// A request to redo the last answer another way, and nothing more: "in tamil",
+// "in short", "in 2 lines", "explain in simple words", "give eg", "more",
+// "y?". Searched, "in tamil" found pages about the Tamil language instead of
+// translating the answer above it. Read after normalizeChatSpeak.
+const REDO_FORMS = String.raw`(?:short|brief|briefly|detail|details|detailed|full|points|point form|bullets?|bullet points|a table|table|tabular form|a list|list|one line|a line|one word|one sentence|a paragraph|\d+ (?:lines?|points?|words?|marks?|sentences?|paragraphs?|steps?)|(?:simple|easy|plain|layman|layman's|basic) (?:words|terms|english|language)|simple|simpler|shorter|longer|easier|steps|step by step|tamil|hindi|english|telugu|kannada|malayalam|marathi|bengali|bangla|gujarati|punjabi|urdu|odia|tanglish|hinglish|french|spanish|german|arabic|japanese|chinese|korean|russian|italian|portuguese)`;
+const REDO_VERBS = String.raw`(?:explain|say|write|tell|give|make|put|show|answer|translate|summari[sz]e|repeat|rewrite|reply|convert|list|present|do)`;
+const REDO_OBJECTS = String.raw`(?: (?:it|this|that|the same|the above|again|me|them|those|the answer|that answer|this answer|the last one))*`;
+const REDO_ALONE = String.raw`(?:more|again|continue|go on|elaborate|expand|tldr|tl;dr|eli5|summary|summari[sz]e(?: it)?|why|y|how|what do you mean|meaning|examples?|eg|e\.g\.?|really|sure|correct|wrong|shorter|simpler|longer|easier|explain|explain (?:more|again|simply|briefly|better|it|that|this|further)|tell (?:me )?more|more (?:details?|info|examples?)|in detail|(?:give|show|tell)(?: me)? (?:an? |some |more |another )?(?:examples?|eg|e\.g\.?|analogy|summary|tldr)|make it (?:shorter|simpler|longer|easier|better|more detailed|clearer|short|simple|brief))`;
+const REDO_LEAD = String.raw`(?:(?:ok|okay|now|and|then|so|also|please|just|no|can you|could you|will you|pls) )*`;
+const REDO_TAIL = String.raw`(?: (?:please|bro|da|again|too|also|now|for me))*(?:[\s?!.,]|\p{Extended_Pictographic})*$`;
+const FOLLOW_UP_REQUEST = new RegExp(
+  String.raw`^${REDO_LEAD}(?:${REDO_ALONE}|(?:${REDO_VERBS}${REDO_OBJECTS} )?(?:in|into|to|as) (?:a |an )?${REDO_FORMS}(?: (?:language|form|format|style|words))?|${REDO_VERBS}${REDO_OBJECTS} ${REDO_FORMS})${REDO_TAIL}`,
+  "iu",
+);
+
+/** Is the whole message a request to redo the last answer another way? */
+function isFollowUpRequest(text) {
+  return FOLLOW_UP_REQUEST.test(normalizeChatSpeak(text));
+}
+
 const matches = (patterns, text) => patterns.some((rx) => rx.test(text));
 
 /**
@@ -211,7 +264,7 @@ const matches = (patterns, text) => patterns.some((rx) => rx.test(text));
  */
 function needsLiveInfo(query, { mode } = {}) {
   const q = normalizeChatSpeak(query);
-  if (!q || isAboutSelf(q) || isSmallTalk(q)) return false;
+  if (!q || isAboutSelf(q) || isSmallTalk(q) || isFollowUpRequest(q)) return false;
   if (q.split(/\s+/).length <= 8 && FEELINGS_PATTERN.test(q)) return false;
   if (matches(LIVE_INFO_PATTERNS, q)) return true;
   if (TIMELESS_MODES.has(String(mode || "").toLowerCase())) return false;
@@ -225,6 +278,6 @@ function needsLiveInfo(query, { mode } = {}) {
 
 module.exports = {
   FEELINGS_PATTERN, LIVE_INFO_PATTERNS, CHAT_REFERENCE_PATTERNS, LOOKUP_PATTERNS, TIMELESS_PATTERNS, TIMELESS_MODES,
-  CHAT_SPEAK, ABOUT_SELF, ABOUT_SELF_SHORT, SMALL_TALK,
-  normalizeChatSpeak, isAboutSelf, isSmallTalk, needsLiveInfo,
+  CHAT_SPEAK, PLAIN_SPEAK, ABOUT_SELF, ABOUT_SELF_SHORT, SMALL_TALK, FOLLOW_UP_REQUEST,
+  normalizeChatSpeak, plainReading, isAboutSelf, isSmallTalk, isFollowUpRequest, needsLiveInfo,
 };

@@ -8,10 +8,11 @@ const { browseWeb, browseQuery, BROWSE_RULES } = require("./browseService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
-const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk } = require("./liveInfoIntent");
+const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } = require("./liveInfoIntent");
 const { decideSearch } = require("./searchIntentService");
 const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
+const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
@@ -234,6 +235,8 @@ If the user asks who/what you are, your name, what model or AI powers you, who b
 
 ${ABOUT_VETROAI}
 
+${READING_THE_USER}
+
 # MOST IMPORTANT RULE
 NEVER reply with unnecessary introductions, capability lists, greetings paragraphs, or "How I can help" sections unless the user explicitly asks.
 
@@ -279,32 +282,6 @@ The conversation should feel:
 - fast and responsive
 
 Never feel robotic or static.
-
----
-
-# STREAMING RESPONSE SYSTEM
-Responses must stream progressively like modern AI systems.
-
-## Rules
-- Start responding instantly
-- Reveal answers chunk-by-chunk
-- Simulate real-time thinking
-- Avoid dumping full paragraphs instantly
-- Continue expanding naturally
-
-Example:
-User: “Explain DBMS”
-Assistant streams:
-“DBMS stands for Database Management System.
-
-It is used to store and manage data efficiently.
-
-Main advantages include:
-• Reduced redundancy
-• Better security
-• Faster retrieval
-
-There are mainly 4 types of DBMS…”
 
 ---
 
@@ -372,19 +349,6 @@ Automatically choose best format.
 - unnecessary headings
 - repetitive structure
 - over-formatting simple answers
-
----
-
-# ANIMATIONS & INTERACTION
-Simulate premium AI interaction:
-- streaming text
-- typing effect
-- smooth section reveal
-- progressive explanation
-- intelligent pauses between chunks
-
-Complex responses should feel like:
-“thinking → reasoning → answering”
 
 ---
 
@@ -808,6 +772,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // answers about VetroAI come from ABOUT VETROAI in the system prompt.
     const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery) || isSmallTalk(userQuery);
     const isIdentityQuestion = isAboutSelf(userQuery);
+    // "in tamil", "in short", "give eg", "y?": the last answer again, another
+    // way. Searched, "in tamil" found pages about the Tamil language.
+    const isRedo = isFollowUpRequest(userQuery);
     // Explicit search-oriented modes always search. The generic "auto web search" flag from the
     // frontend is just permission, not a mandate — it only fires when the query itself looks like
     // it needs live info, otherwise short/conversational messages (e.g. "your name") were being
@@ -838,7 +805,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // (searchIntentService) — the same judge for every model, here and for
     // browser models via /api/search-intent. A word list used to decide, and
     // "I am happy" was searched and answered with facts about a song.
-    const searchAllowed = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments;
+    const searchAllowed = !isGreeting && !isIdentityQuestion && !isRedo && !answeredByClock && !params.hasAttachments;
     let shouldSearch = searchAllowed && (params.forceSearch || isExplicitSearchMode);
     if (searchAllowed && !shouldSearch && autoSearchRequested) {
       const decision = await decideSearch({ query: userQuery, history: messages.slice(0, -1), mode, clock: params.clock });
@@ -847,7 +814,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     let webContext = null;
     // A follow-up ("then in 2025?") is searched with the question it follows.
-    const searchQuery = searchQueryFor(userQuery, messages.slice(0, -1));
+    // Searched in plain words: "ipl score 2day" as "ipl score today".
+    const searchQuery = searchQueryFor(plainReading(userQuery), messages.slice(0, -1));
 
     // Astrology: ProKerala data (and the rasi chart) for every model — the
     // same builder backs /api/astrology/context for browser models.
@@ -860,7 +828,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
     const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
-    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
+    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && !isRedo && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(searchQuery, 4).catch(() => [])
       : Promise.resolve([]);
@@ -897,7 +865,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // The service enforces its own deadline and returns partial evidence
           // rather than throwing, so the outer race only guards a hung socket.
           searchRes = await withTimeout(
-            performAgenticSearch(userQuery, {
+            performAgenticSearch(plainReading(userQuery), {
               clock: params.clock,
               deadlineMs: RESEARCH_DEADLINE_MS,
               signal: params.signal,
@@ -915,7 +883,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // Searched as the task itself, without Computer's notes to the model.
           const history = messages.slice(0, -1).map((m) => (m?.role === "user" && typeof m.content === "string" ? { ...m, content: browseQuery(m.content) } : m));
           searchRes = await withTimeout(
-            browseWeb(searchQueryFor(browseQuery(userQuery), history), {
+            browseWeb(searchQueryFor(plainReading(browseQuery(userQuery)), history), {
               clock: params.clock,
               signal: params.signal,
               onEvent: (entry) => this.sendVetroEvent(res, "browse", entry),
@@ -962,6 +930,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const researched = isAgentic && !!webContext;
     let promptExtras = "";
     if (clockNote) promptExtras += clockNote;
+    const messageNote = thisMessageNote(userQuery);
+    if (messageNote) promptExtras += `\n\n${messageNote}`;
     // Without results the model copied the [1]–[5] citations of an earlier
     // searched reply, citing sources this answer doesn't have.
     if (!webContext) {
@@ -1154,7 +1124,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // Answered from memory and said that memory is out of date ("as of my
         // last update…", "I don't have real-time data"): with auto-search on,
         // clear it, search the web and answer again — once per message.
-        if (!webContext && !params.forceSearch && autoSearchRequested && !isGreeting && !isIdentityQuestion
+        if (!webContext && !params.forceSearch && autoSearchRequested && !isGreeting && !isIdentityQuestion && !isRedo
           && !params.hasAttachments && !drawing && !NO_SEARCH_RETRY_MODES.has(mode) && !params.signal?.aborted
           && this.soundsOutOfDate(soFar)) {
           logger.info("AIOrchestrator.searchAfterOutOfDateAnswer", { reqId, provider: currentProviderName });
