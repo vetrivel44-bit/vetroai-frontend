@@ -25,7 +25,10 @@ isn't code-signed yet. Click **More info → Run anyway**, or use the portable b
 
 - Control is off on every launch and must be approved each session.
 - Windows shows an explicit confirmation dialog before enabling it.
-- Press **Ctrl+Shift+X** at any time for an emergency stop.
+- While VetroAI works, the edges of the screen glow and a pill at the top says what it is
+  doing, with a **Stop** button. Neither appears in the screenshots VetroAI looks at, and
+  both disappear the moment a task ends.
+- Press **Ctrl+Shift+X** (or **Stop** on the pill) at any time for an emergency stop.
 - The agent never takes the final click on installers, admin/UAC prompts, payments,
   credentials, or sending messages — it stops and hands those to you.
 - Renderer code has no direct Node.js access.

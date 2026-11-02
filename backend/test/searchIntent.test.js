@@ -4,8 +4,10 @@ const assert = require("node:assert/strict");
 // A fixed live search, set before the orchestrator is loaded.
 const searchController = require("../src/controllers/searchController");
 let searches = 0;
-searchController.searchWeb = async () => {
+let searchedFor = [];
+searchController.searchWeb = async (query) => {
   searches++;
+  searchedFor.push(query);
   return { context: "SOURCES:\n[1] Pharrell Williams – Happy (song, 2013)", results: [{ title: "Happy (song)", url: "https://example.com/happy", snippet: "Because I'm happy…" }] };
 };
 
@@ -113,4 +115,100 @@ test("POST /api/search-intent gives browser models the same decision", async (t)
   })).json()).data;
   assert.deepEqual(await post("I am happy"), { search: false, by: "model" });
   assert.deepEqual(await post("rbi repo rate"), { search: true, by: "model" });
+});
+
+// "Ur name" was searched with auto-search on, and the reply was about the
+// ancient city of Ur. Questions to VetroAI about itself and small talk, in
+// text-speak or not, never reach the judge or the web.
+const ABOUT_ITSELF = ["Ur name", "ur name?", "wat is ur name", "who r u", "who are you", "which model r u", "r u chatgpt", "who made u", "ur creator", "how old r u", "tera naam kya hai", "un peru enna"];
+const SMALL_TALK = ["how r u", "thank u so much", "ty bro", "r u there", "whats up", "u r smart", "gud mrng", "hmm ok"];
+
+test("questions to VetroAI about itself and small talk are never searched or judged", async (t) => {
+  const asked = withJudge(t, () => "SEARCH");
+  for (const query of [...ABOUT_ITSELF, ...SMALL_TALK]) {
+    assert.deepEqual(await intent.decideSearch({ query }), { search: false, by: "rules" }, query);
+  }
+  assert.equal(asked.length, 0, "the judge was never asked");
+});
+
+test("\"Ur name\" is answered without a search, with auto-search on or in Web Search mode", async (t) => {
+  searches = 0;
+  const asked = withJudge(t, () => "SEARCH");
+  const prompts = [];
+  withGroq(t, async (messages) => { prompts.push(messages); return say("I'm VetroAI."); });
+  await chat("Ur name");
+  await chat("who r u", { mode: "web_search" });
+  await chat("thank u so much", { mode: "deep_search" });
+  assert.equal(searches, 0);
+  assert.equal(asked.length, 0);
+  for (const prompt of prompts) {
+    assert.doesNotMatch(prompt.map((m) => m.content).join("\n"), /LIVE SEARCH RESULTS/);
+    assert.match(prompt[0].content, /VetroAI/, "the answer comes from VetroAI's own facts");
+  }
+});
+
+test("real lookups that mention a model, an AI or Ur are still judged", async (t) => {
+  const asked = withJudge(t, () => "SEARCH");
+  for (const query of ["what model is the iphone 17", "which ai is best for coding", "who is the ceo of google", "ancient city of ur"]) {
+    assert.deepEqual(await intent.decideSearch({ query }), { search: true, by: "model" }, query);
+  }
+  assert.equal(asked.length, 4);
+});
+
+test("the judge reads text-speak in plain words, and knows about it", async (t) => {
+  const asked = withJudge(t, () => "SEARCH");
+  await intent.decideSearch({ query: "wat is the weather in chennai 2day" });
+  const [system, user] = asked[0];
+  assert.match(system.content, /"ur" is "your"/);
+  assert.match(system.content, /questions to the assistant about itself/);
+  assert.match(user.content, /Latest message: wat is the weather in chennai 2day\n\(In plain words: what is the weather in chennai today\)$/);
+  // Ambiguous shorthand is left alone: no "ancient city of your".
+  await intent.decideSearch({ query: "ancient city of ur" });
+  assert.match(asked[1][1].content, /Latest message: ancient city of ur$/);
+});
+
+// The old identity check matched "what model" and "which ai" anywhere, so
+// these were treated as questions about VetroAI and never searched.
+test("questions about a phone's model or the best AI are searched, not taken as about VetroAI", async (t) => {
+  searches = 0;
+  withJudge(t, () => "SEARCH");
+  withGroq(t, async () => say("Here it is [1]."));
+  await chat("what model is the iphone 17");
+  await chat("which ai is best for coding");
+  assert.equal(searches, 2);
+});
+
+test("\"in tamil\" after an answer is not searched, even in Web Search mode", async (t) => {
+  searches = 0;
+  const asked = withJudge(t, () => "SEARCH");
+  withGroq(t, async () => say("தமிழில்…"));
+  const history = [{ role: "user", content: "what is dbms" }, { role: "assistant", content: "A DBMS stores and manages data." }];
+  await chat("in tamil", { messages: [...history, { role: "user", content: "in tamil" }] });
+  await chat("give eg", { mode: "web_search", messages: [...history, { role: "user", content: "give eg" }] });
+  assert.equal(searches, 0);
+  assert.equal(asked.length, 0);
+});
+
+test("a text-speak lookup is searched in plain words", async (t) => {
+  searches = 0;
+  searchedFor = [];
+  withJudge(t, () => "SEARCH");
+  withGroq(t, async () => say("Here it is [1]."));
+  await chat("ipl score 2day");
+  assert.deepEqual(searchedFor, ["ipl score today"]);
+});
+
+// Every model is told how people type, and a question about VetroAI itself
+// gets a note in plain words, so even a small model answers "Ur name".
+test("the system prompt teaches reading text-speak; \"Ur name\" gets a note in plain words", async (t) => {
+  withJudge(t, () => "NO");
+  const prompts = [];
+  withGroq(t, async (messages) => { prompts.push(messages[0].content); return say("ok"); });
+  await chat("Ur name");
+  await chat("what is dbms");
+  assert.match(prompts[0], /# READING THE USER/);
+  assert.match(prompts[0], /"Ur name" asks your name \(not the city of Ur\)/);
+  assert.match(prompts[0], /\[THIS MESSAGE\]\nThe latest message is a question to you about yourself, VetroAI\. In plain words: "your name"\./);
+  assert.match(prompts[1], /# READING THE USER/);
+  assert.doesNotMatch(prompts[1], /\[THIS MESSAGE\]/);
 });

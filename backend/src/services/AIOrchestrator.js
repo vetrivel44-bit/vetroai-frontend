@@ -8,10 +8,11 @@ const { browseWeb, browseQuery, BROWSE_RULES } = require("./browseService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
-const { LIVE_INFO_PATTERNS, ABOUT_SELF, needsLiveInfo } = require("./liveInfoIntent");
+const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } = require("./liveInfoIntent");
 const { decideSearch } = require("./searchIntentService");
 const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
+const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
@@ -234,6 +235,8 @@ If the user asks who/what you are, your name, what model or AI powers you, who b
 
 ${ABOUT_VETROAI}
 
+${READING_THE_USER}
+
 # MOST IMPORTANT RULE
 NEVER reply with unnecessary introductions, capability lists, greetings paragraphs, or "How I can help" sections unless the user explicitly asks.
 
@@ -279,32 +282,6 @@ The conversation should feel:
 - fast and responsive
 
 Never feel robotic or static.
-
----
-
-# STREAMING RESPONSE SYSTEM
-Responses must stream progressively like modern AI systems.
-
-## Rules
-- Start responding instantly
-- Reveal answers chunk-by-chunk
-- Simulate real-time thinking
-- Avoid dumping full paragraphs instantly
-- Continue expanding naturally
-
-Example:
-User: “Explain DBMS”
-Assistant streams:
-“DBMS stands for Database Management System.
-
-It is used to store and manage data efficiently.
-
-Main advantages include:
-• Reduced redundancy
-• Better security
-• Faster retrieval
-
-There are mainly 4 types of DBMS…”
 
 ---
 
@@ -372,19 +349,6 @@ Automatically choose best format.
 - unnecessary headings
 - repetitive structure
 - over-formatting simple answers
-
----
-
-# ANIMATIONS & INTERACTION
-Simulate premium AI interaction:
-- streaming text
-- typing effect
-- smooth section reveal
-- progressive explanation
-- intelligent pauses between chunks
-
-Complex responses should feel like:
-“thinking → reasoning → answering”
 
 ---
 
@@ -478,28 +442,36 @@ The assistant should feel like:
 
 You are given the user's goal, a plain-text log of the actions already taken this run, and a screenshot of the current screen. Decide the single next action that moves toward the goal.
 
+COORDINATES
+Positions (x, y, fromX, fromY, toX, toY) are in the coordinates the step message describes: a 0-1000 grid laid over the screenshot, or the screenshot's pixels. Follow what it says. Find the element in the screenshot and point at its centre; never guess a position from a usual layout.
+
 OUTPUT FORMAT (strict)
 Respond with ONLY one raw JSON object — no markdown fences, no prose before or after it:
-{"action": "click", "x": 512, "y": 300, "button": "left", "reasoning": "one short sentence"}
+{"action": "click", "x": 412, "y": 87, "button": "left", "reasoning": "one short sentence"}
 
 Allowed "action" values and their fields:
 - "move": {x, y}
-- "click": {x, y, button: "left"|"right"|"middle" (default left), double: true|false (optional)} — always move to (x, y) then click; estimate coordinates from what is visible in the screenshot.
+- "click": {x, y, button: "left"|"right"|"middle" (default left), double: true|false (optional)} — moves to (x, y), then clicks.
 - "type": {text} — types at the current cursor/focus position, so click into the right field first if needed. Max 2000 characters.
-- "key": {key: one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, META, or a single letter A/C/V/X/Z, modifiers: array of CTRL/SHIFT/ALT (optional)}
-- "scroll": {amount} — positive scrolls down, negative scrolls up, roughly in pixels.
+- "key": {key, modifiers: array of CTRL/SHIFT/ALT (optional)} — key is a letter A-Z, a digit 0-9, F1-F12, or one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, META (pressed alone: opens the Start menu / Spotlight). Ctrl shortcuts work as Cmd on a Mac.
+- "scroll": {amount, x, y (optional)} — positive scrolls down, negative up, roughly in pixels; scrolls at (x, y) when given, else where the cursor is. Point at the part of the page that should scroll.
+- "wait": {seconds} — 0.5 to 10. Use it while a page or app is still loading, instead of clicking at a half-drawn screen.
 - "drag": {fromX, fromY, toX, toY} — presses the left button at (fromX, fromY), moves to (toX, toY), then releases. Use for reordering, drag-selecting text, sliders, or dragging a file/icon.
 - "copy": {} — presses Ctrl+C, then reads back the system clipboard so you can see what was actually copied in the next step's action log. Click/select the source text first.
 - "paste": {text (optional)} — if "text" is given, writes it to the clipboard first, then presses Ctrl+V; with no "text", pastes whatever the clipboard already holds (e.g. from a prior "copy"). Click into the destination field first.
-- "done": {summary} — the goal is reached, or you cannot safely continue; explain why in "summary" and stop.
+- "done": {success: true|false, summary} — stop. success true only when the screenshot you were just given shows the goal achieved; the summary then says what on the screen shows it. success false when you can't or mustn't go on; the summary then says what is in the way, or what the human has to do.
+
+SHORTCUTS (faster and surer than hunting for a small button)
+- Browser: CTRL+L focuses the address bar; then "type" a web address, or words to search the web, and "key" ENTER. CTRL+T opens a new tab, CTRL+W closes this tab, CTRL+TAB goes to the next tab, CTRL+SHIFT+T reopens a closed tab, F5 reloads, CTRL+F finds text on the page, ALT+LEFT goes back.
+- Windows and apps: ALT+TAB switches to the last window; META, then type an app's name, then ENTER opens any app.
 
 RULES
 1. One action per reply. Never invent extra keys or actions outside this list.
-2. You may freely open apps, browse, search, fill in fields, download files, and click through a normal software installer's own screens (Next, Continue, I Agree, Finish, choosing an install location) — none of that needs a pause. To open any app, prefer pressing key META (opens the Start Menu on Windows, Spotlight on macOS, Activities on Linux — it resolves to the right key on whatever OS this is) over hunting for a taskbar/dock icon's pixel position, then "type" the app's name, then "key" ENTER. This is faster and more reliable than clicking a small icon.
-3. There is exactly one category of step you must NEVER take yourself: the final action that actually executes/runs code with real effect on this machine or account — running a downloaded installer's last "Install"/"Run"/"Open" button, approving an OS admin/UAC/security elevation prompt, entering payment or account-credential details, sending a message/email, or submitting a form with real-world consequences. The moment you are about to take that specific step, STOP and reply "done", stating plainly what the human needs to click themselves and why. Getting everything ready right up to that click is fine and expected; taking the click itself is not.
-4. If the screenshot doesn't match what you expect (wrong app in focus, an unexpected dialog, a login screen, something that looks like it might not be the software the user actually asked for), reply "done" and explain what you see rather than guessing blindly.
-5. Coordinates are pixels within the screenshot you were given — read them from what's actually visible, don't assume a fixed layout.
-6. If you've made no visible progress for several steps in a row, reply "done" rather than repeating the same action.`;
+2. You may freely open apps, browse, search, fill in fields, download files, and click through a normal software installer's own screens (Next, Continue, I Agree, Finish, choosing an install location) — none of that needs a pause. To open any app, prefer pressing key META (opens the Start Menu on Windows, Spotlight on macOS, Activities on Linux — it resolves to the right key on whatever OS this is) over hunting for a taskbar/dock icon, then "type" the app's name, then "key" ENTER. This is faster and more reliable than clicking a small icon.
+3. There is exactly one category of step you must NEVER take yourself: the final action that actually executes/runs code with real effect on this machine or account — running a downloaded installer's last "Install"/"Run"/"Open" button, approving an OS admin/UAC/security elevation prompt, entering payment or account-credential details, sending a message/email, or submitting a form with real-world consequences. The moment you are about to take that specific step, STOP and reply "done" with success false, stating plainly what the human needs to click themselves and why. Getting everything ready right up to that click is fine and expected; taking the click itself is not.
+4. If the screenshot doesn't match what you expect (wrong app in focus, an unexpected dialog, a login screen, something that looks like it might not be the software the user actually asked for), reply "done" with success false and say what you see rather than guessing blindly.
+5. Before choosing, look in the screenshot for the effect of your last action: did the menu open, the text appear, the page change? When the action log says nothing on the screen changed after an action, it missed or did nothing: look again and pick a different point, or another way there (a keyboard shortcut, a search box, the Start menu). Never repeat unchanged an action that changed nothing.
+6. Never count an action as the result: typing a message isn't sending it, clicking Download isn't a finished download, and a page still loading isn't the answer. If you've made no visible progress for several steps in a row, reply "done" with success false rather than repeating yourself.`;
     } else if (mode === "design") {
       sys += `\n\n[MODE: DESIGN] You are a senior product/UI designer producing portfolio-quality, production-grade interfaces — the bar is "this looks like it shipped from a top-tier design studio," never a wireframe, and never raw unstyled HTML.
 
@@ -705,12 +677,15 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     let { options } = params;
     const userQuery = messages[messages.length - 1]?.content || "";
 
-    // Every screen-control step is a full network round trip, and the reply is
-    // just one small JSON object — capping generation length is one of the
-    // biggest levers on how sluggish the loop feels, so ignore whatever
-    // maxTokens the caller sent for this mode and use a small fixed budget.
+    // A screen-control step's reply is one small JSON object, so whatever
+    // maxTokens the caller sent is replaced with a fixed budget. Not a tight
+    // one: Gemini thinks before it answers and those tokens come out of the
+    // same budget, so at the old 220 a step could be left with nothing for
+    // the action, come back empty and fall through to a weaker vision model
+    // that then aimed the clicks. `thinking: "low"` (geminiAdapter) keeps the
+    // thinking short; the rest of the budget is room for the reply.
     if (mode === "computer_use") {
-      options = { ...options, maxTokens: 220 };
+      options = { ...options, maxTokens: 1024, thinking: "low" };
     }
 
     // A request carrying an image can only go to a provider whose adapter reads
@@ -801,10 +776,16 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
 
     // Intent detection — also support explicit webSearch flag from frontend
-    const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery);
-    const isIdentityQuestion = /\b(who are you|what are you|your name|introduce yourself|tell me about yourself|what model|which (ai|model|llm)|who (made|built|created|trained|developed) you|are you (chatgpt|gpt|gemini|claude|llama|bard|human|real|a bot|an ai))\b/i.test(userQuery.trim())
-      // About VetroAI itself (its CEO, company, features): answered from ABOUT VETROAI.
-      || ABOUT_SELF.test(userQuery);
+    // Small talk ("how r u", "thank u so much") and questions to VetroAI about
+    // itself ("Ur name", "who r u", "which model r u", its CEO or features),
+    // typed in text-speak or not, are answered without a web search: searched,
+    // "Ur name" came back as the history of the ancient city of Ur. The
+    // answers about VetroAI come from ABOUT VETROAI in the system prompt.
+    const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery) || isSmallTalk(userQuery);
+    const isIdentityQuestion = isAboutSelf(userQuery);
+    // "in tamil", "in short", "give eg", "y?": the last answer again, another
+    // way. Searched, "in tamil" found pages about the Tamil language.
+    const isRedo = isFollowUpRequest(userQuery);
     // Explicit search-oriented modes always search. The generic "auto web search" flag from the
     // frontend is just permission, not a mandate — it only fires when the query itself looks like
     // it needs live info, otherwise short/conversational messages (e.g. "your name") were being
@@ -835,7 +816,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // (searchIntentService) — the same judge for every model, here and for
     // browser models via /api/search-intent. A word list used to decide, and
     // "I am happy" was searched and answered with facts about a song.
-    const searchAllowed = !isGreeting && !isIdentityQuestion && !answeredByClock && !params.hasAttachments;
+    const searchAllowed = !isGreeting && !isIdentityQuestion && !isRedo && !answeredByClock && !params.hasAttachments;
     let shouldSearch = searchAllowed && (params.forceSearch || isExplicitSearchMode);
     if (searchAllowed && !shouldSearch && autoSearchRequested) {
       const decision = await decideSearch({ query: userQuery, history: messages.slice(0, -1), mode, clock: params.clock });
@@ -844,7 +825,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     let webContext = null;
     // A follow-up ("then in 2025?") is searched with the question it follows.
-    const searchQuery = searchQueryFor(userQuery, messages.slice(0, -1));
+    // Searched in plain words: "ipl score 2day" as "ipl score today".
+    const searchQuery = searchQueryFor(plainReading(userQuery), messages.slice(0, -1));
 
     // Astrology: ProKerala data (and the rasi chart) for every model — the
     // same builder backs /api/astrology/context for browser models.
@@ -857,7 +839,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
     const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
-    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && this.needsImageSearch(userQuery);
+    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && !isRedo && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(searchQuery, 4).catch(() => [])
       : Promise.resolve([]);
@@ -894,7 +876,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // The service enforces its own deadline and returns partial evidence
           // rather than throwing, so the outer race only guards a hung socket.
           searchRes = await withTimeout(
-            performAgenticSearch(userQuery, {
+            performAgenticSearch(plainReading(userQuery), {
               clock: params.clock,
               deadlineMs: RESEARCH_DEADLINE_MS,
               signal: params.signal,
@@ -912,7 +894,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // Searched as the task itself, without Computer's notes to the model.
           const history = messages.slice(0, -1).map((m) => (m?.role === "user" && typeof m.content === "string" ? { ...m, content: browseQuery(m.content) } : m));
           searchRes = await withTimeout(
-            browseWeb(searchQueryFor(browseQuery(userQuery), history), {
+            browseWeb(searchQueryFor(plainReading(browseQuery(userQuery)), history), {
               clock: params.clock,
               signal: params.signal,
               onEvent: (entry) => this.sendVetroEvent(res, "browse", entry),
@@ -959,6 +941,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const researched = isAgentic && !!webContext;
     let promptExtras = "";
     if (clockNote) promptExtras += clockNote;
+    const messageNote = thisMessageNote(userQuery);
+    if (messageNote) promptExtras += `\n\n${messageNote}`;
     // Without results the model copied the [1]–[5] citations of an earlier
     // searched reply, citing sources this answer doesn't have.
     if (!webContext) {
@@ -1151,7 +1135,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // Answered from memory and said that memory is out of date ("as of my
         // last update…", "I don't have real-time data"): with auto-search on,
         // clear it, search the web and answer again — once per message.
-        if (!webContext && !params.forceSearch && autoSearchRequested && !isGreeting && !isIdentityQuestion
+        if (!webContext && !params.forceSearch && autoSearchRequested && !isGreeting && !isIdentityQuestion && !isRedo
           && !params.hasAttachments && !drawing && !NO_SEARCH_RETRY_MODES.has(mode) && !params.signal?.aborted
           && this.soundsOutOfDate(soFar)) {
           logger.info("AIOrchestrator.searchAfterOutOfDateAnswer", { reqId, provider: currentProviderName });

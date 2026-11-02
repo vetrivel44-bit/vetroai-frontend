@@ -14,7 +14,7 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const { clockLine } = require("./clockService");
-const { needsLiveInfo, TIMELESS_MODES, ABOUT_SELF } = require("./liveInfoIntent");
+const { needsLiveInfo, TIMELESS_MODES, plainReading, isAboutSelf, isSmallTalk, isFollowUpRequest } = require("./liveInfoIntent");
 
 // Waiting longer than this for a yes/no would hold up every reply.
 const DECIDE_TIMEOUT_MS = 2500;
@@ -25,7 +25,9 @@ const INSTRUCTIONS = `You decide whether an AI assistant must search the web bef
 
 Answer SEARCH when a good reply depends on facts that may have changed or that the assistant may not know: news and events; prices, rates, fees and salaries; who currently holds a job, office or title; sports results and schedules; weather; phones, gadgets, apps, AI models and other products or releases; specific companies, people, places, shows or films named in the message; laws, exams, admissions and government schemes; rankings, statistics and "best"/"top" lists; local businesses, addresses and timings.
 
-Answer NO when the reply needs no outside facts: greetings, thanks, feelings and small talk ("I am happy", "I'm bored", "good night"); jokes, stories, poems and other writing; translating, summarising or rewriting text; code, maths and logic; explaining well-established concepts (what DBMS is, how photosynthesis works); opinions, advice and plans that don't depend on current facts; questions about this conversation or an attached file.
+Answer NO when the reply needs no outside facts: questions to the assistant about itself (its name, who made it, what model it is, what it can do) — it already knows those; greetings, thanks, feelings and small talk ("I am happy", "I'm bored", "good night"); jokes, stories, poems and other writing; translating, summarising or rewriting text; code, maths and logic; explaining well-established concepts (what DBMS is, how photosynthesis works); opinions, advice and plans that don't depend on current facts; questions about this conversation or an attached file.
+
+People often type in text-speak: "u" is "you", "ur" is "your", "r" is "are" — so "Ur name" asks the assistant its name, and is not about the ancient city of Ur.
 
 Reply with exactly one word: SEARCH or NO.`;
 
@@ -66,6 +68,13 @@ function withTimeout(promise, ms) {
 
 const turnText = (m) => (typeof m?.content === "string" ? m.content : "").replace(/\s+/g, " ").trim();
 
+// The message in plain words when it was typed in text-speak, so the judge
+// reads "wat is d weather 2day" as "what is d weather today".
+function plainWords(q) {
+  const plain = plainReading(q);
+  return plain.toLowerCase() !== q.replace(/\s+/g, " ").trim().toLowerCase() ? `\n(In plain words: ${plain.slice(0, 1500)})` : "";
+}
+
 /**
  * Whether to search the web for `query` before answering it.
  * `history` is the conversation before it ({ role, content }), `mode` the chat
@@ -76,7 +85,10 @@ const turnText = (m) => (typeof m?.content === "string" ? m.content : "").replac
 async function decideSearch({ query, history = [], mode, clock } = {}) {
   const q = String(query || "").trim();
   const rules = (reason) => ({ search: needsLiveInfo(q, { mode }), by: "rules", reason });
-  if (!q || ABOUT_SELF.test(q)) return { search: false, by: "rules" };
+  // Asking the assistant about itself ("Ur name", "who r u"), small talk
+  // ("how r u", "thank u") and asking for the last answer another way ("in
+  // tamil", "in short", "give eg") are never searched, and need no model.
+  if (!q || isAboutSelf(q) || isSmallTalk(q) || isFollowUpRequest(q)) return { search: false, by: "rules" };
   // Coding, writing and similar modes: only clearly-current questions search,
   // which the word list knows well enough.
   if (TIMELESS_MODES.has(String(mode || "").toLowerCase())) return rules("mode");
@@ -93,7 +105,7 @@ async function decideSearch({ query, history = [], mode, clock } = {}) {
     { role: "system", content: `${INSTRUCTIONS}\n\n${clockLine(clock || {})}` },
     {
       role: "user",
-      content: `${recent.length ? `Conversation so far:\n${recent.join("\n")}\n\n` : ""}Latest message: ${q.slice(0, 1500)}`,
+      content: `${recent.length ? `Conversation so far:\n${recent.join("\n")}\n\n` : ""}Latest message: ${q.slice(0, 1500)}${plainWords(q)}`,
     },
   ];
   try {
