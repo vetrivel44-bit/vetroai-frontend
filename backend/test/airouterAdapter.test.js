@@ -231,3 +231,14 @@ test("a reply that starts after 30s is still waited for", withFetch([OK], async 
   assert.ok(!delays.includes(30000));
   assert.equal(calls.length, 1);
 }));
+
+test("Grok 4.20 Non-Reasoning is sent to AI Router", withFetch([OK], async (calls) => {
+  assert.equal(airouter.modelFor("Grok 4.20 Non-Reasoning"), "spacexai/grok-4.20-non-reasoning");
+  await airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.modelFor("Grok 4.20 Non-Reasoning") });
+  assert.equal(calls[0].body.model, "spacexai/grok-4.20-non-reasoning");
+  assert.equal(airouter.displayName(airouter.GROK_MODEL), "Grok 4.20 Non-Reasoning");
+  // The other AI Router models are unchanged.
+  assert.equal(airouter.modelFor("Ling 3.0 Flash"), airouter.LING_MODEL);
+  assert.equal(airouter.modelFor("VetroAI"), airouter.QWEN_MODEL);
+  assert.equal(airouter.modelFor("DeepSeek V4.1 Flash"), airouter.MODEL);
+}));

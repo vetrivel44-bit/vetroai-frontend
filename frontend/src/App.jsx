@@ -822,7 +822,6 @@ const PUTER_MODEL_IDS = {
   "GPT-5.6 Terra": "gpt-5.6-terra",
   "GPT-5.6 Luna": "gpt-5.6-luna",
   "GPT-5.3 Codex": "openai/gpt-5.3-codex",
-  "Grok 4.6": "x-ai/grok-4.6",
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
@@ -832,13 +831,14 @@ const AIROUTER_PROVIDER = "DeepSeek V4.1 Flash";
 const LING_PROVIDER = "Ling 3.0 Flash";
 // Qwen 3.7 Flash, shown as VetroAI's own model.
 const VETROAI_PROVIDER = "VetroAI";
-const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, LING_PROVIDER, VETROAI_PROVIDER]);
-const GROK_PROVIDER = "Grok 4.6";
+// xAI's Grok 4.20 (spacexai/grok-4.20-non-reasoning) on AI Router.
+const GROK_420_PROVIDER = "Grok 4.20 Non-Reasoning";
+const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, VETROAI_PROVIDER]);
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
 // sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
 const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3281,7 +3281,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     [VETROAI_PROVIDER]: ["V", "VetroAI · fast everyday model"],
     [AIROUTER_PROVIDER]: ["D", "DeepSeek · fast, via AI Router"],
     [LING_PROVIDER]: ["L", "inclusionAI · fast and efficient"],
-    [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
+    [GROK_420_PROVIDER]: ["G", "xAI · fast answers, via AI Router"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],

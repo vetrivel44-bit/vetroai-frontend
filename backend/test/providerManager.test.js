@@ -101,6 +101,11 @@ test("Ling 3.0 Flash and DeepSeek V4.1 Flash are both answered by AI Router", ()
   assert.equal(providerManager.getBestProvider("normal", "DeepSeek V4.1 Flash"), "airouter");
 });
 
+test("Grok 4.20 Non-Reasoning is answered by AI Router", () => {
+  configureMany(["airouter", "groq"]);
+  assert.equal(providerManager.getBestProvider("normal", "Grok 4.20 Non-Reasoning"), "airouter");
+});
+
 test("VetroAI (Qwen 3.7 Flash) is answered by AI Router", () => {
   configureMany(["airouter", "groq"]);
   assert.equal(providerManager.getBestProvider("normal", "VetroAI"), "airouter");
