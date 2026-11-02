@@ -6402,9 +6402,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
 
-    // Hand-drawn diagrams ("draw the heart") always go to Sarvam 105B, whatever
-    // model is picked; every other request uses the picked model.
-    const requestProvider = isDrawingRequest(userQuery) ? SARVAM_105B_PROVIDER : selectedProvider;
+    // Hand-drawn diagrams ("draw the heart") go to Sarvam 105B only on Auto. A
+    // model picked in the picker draws them itself — forcing Sarvam meant
+    // picking a stronger model (Grok, GPT, Claude) never changed the drawing.
+    const requestProvider = isDrawingRequest(userQuery) && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
     const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
