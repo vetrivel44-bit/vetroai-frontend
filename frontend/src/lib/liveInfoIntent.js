@@ -90,9 +90,117 @@ export const FEELINGS_PATTERN = /^(i|iam|i'm|im|i am|i feel|i'm feeling|im feeli
 // Modes for making or explaining things: only clearly-current questions search.
 export const TIMELESS_MODES = new Set(["code", "coding", "debugger", "creative", "design", "summarize", "analyst", "computer_use", "code_exec", "data_analysis"]);
 
-// Questions about VetroAI itself ("tell about VetroAI ceo") are answered from
-// its own facts (lib/aboutVetroAI); a web search only found noise.
-export const ABOUT_SELF = /\bvetro ?ai\b|\byour (ceo|founder|creator|owner|company|team)\b|\bwho (made|built|created|founded|owns|runs) you\b/i;
+// People write to the assistant the way they text: "Ur name", "who r u",
+// "how r u", "thank u". Every pattern here is written for plain words, so a
+// message is read through this first. It is only for deciding: the message
+// itself, and anything searched for it, keeps the user's own words.
+export const CHAT_SPEAK = {
+  u: "you", yu: "you", yoo: "you",
+  ur: "your", urs: "yours", urself: "yourself", urslf: "yourself", yourslf: "yourself", yrself: "yourself",
+  r: "are", ru: "are you", youre: "you are", ure: "you are",
+  wat: "what", wht: "what", wut: "what", wot: "what", wats: "what is", whats: "what is", "what's": "what is", "wat's": "what is", whts: "what is", wuts: "what is",
+  hw: "how", hws: "how is", hows: "how is", "how's": "how is",
+  hu: "who", whos: "who is", "who's": "who is", wheres: "where is", "where's": "where is",
+  wer: "where", whr: "where", wen: "when", frm: "from", abt: "about", abut: "about",
+  pls: "please", plz: "please", plss: "please", plzz: "please",
+  thx: "thanks", thnx: "thanks", thanx: "thanks", thnks: "thanks", tnx: "thanks", tq: "thanks", ty: "thanks", tqsm: "thanks so much", tysm: "thanks so much", tqu: "thank you", tku: "thank you",
+  gud: "good", gd: "good", mrng: "morning", mrg: "morning", morng: "morning", mornin: "morning", nite: "night", nyt: "night", gn: "good night", gm: "good morning",
+  luv: "love", wassup: "what is up", wazzup: "what is up", whatsup: "what is up", sup: "what is up",
+  kk: "ok", okk: "ok", okie: "ok", okey: "ok", oki: "ok",
+  dat: "that", dis: "this", bcz: "because", coz: "because", cuz: "because", ppl: "people",
+  hv: "have", hav: "have", cn: "can", cud: "could", shud: "should", wud: "would", knw: "know", kno: "know",
+  "2day": "today", tdy: "today", tmrw: "tomorrow", tmr: "tomorrow", "2moro": "tomorrow", b4: "before",
+};
+
+export function normalizeChatSpeak(text) {
+  return String(text || "")
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[A-Za-z0-9']+/g, (word) => CHAT_SPEAK[word.toLowerCase()] ?? word)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Questions to the assistant about itself: its name, who made it, what model
+// it is, where it's from ("Ur name", "who r u", "r u chatgpt", "tera naam kya
+// hai", "un peru enna"). They are answered from VetroAI's own facts
+// (lib/aboutVetroAI). Searched, "Ur name" came back as the history of
+// the ancient city of Ur. Read after normalizeChatSpeak.
+export const ABOUT_SELF = new RegExp([
+  String.raw`\bvetro ?ai\b`,
+  String.raw`\byour (?:good |full |real |actual |official |nick ?)?name\b(?! (?:movie|film|anime|song|lyrics|ost|book|manga|novel|series))`,
+  String.raw`\b(?:do|did) you (?:have|got) (?:a |any )?name\b`,
+  String.raw`\b(?:what|how) (?:should|can|do|shall|may|must) (?:i|we) (?:call|address|name) you\b`,
+  String.raw`\bwho are you\b`,
+  String.raw`\bwho am i (?:talking|chatting|speaking) (?:to|with)\b`,
+  String.raw`^(?:and |so |but )?what are you(?: exactly| really| actually)?[\s?!.]*$`,
+  String.raw`\bwhat (?:kind|type|sort) of (?:an? )?(?:ai|bot|chatbot|assistant|model|program|thing) (?:are you|is this)\b`,
+  String.raw`\b(?:introduce|describe|explain) (?:yourself|your self)\b`,
+  String.raw`\b(?:about|of) yourself\b`,
+  String.raw`\bwho (?:made|built|created|developed|designed|trained|programmed|coded|invented|founded|owns|runs|make|build|create|develop|design|train|program|own|run|owned|launched|started) you\b`,
+  String.raw`\byour (?:creators?|makers?|developers?|devs?|owners?|founders?|co-?founders?|ceo|cto|parent company|inventors?|programmers?|author|architect)\b`,
+  String.raw`\b(?:who|what|which) (?:is|are|was|were) your (?:company|team|boss|father|mother|dad|mom|daddy|mommy|parents?|family|origin|history|story)\b`,
+  String.raw`\b(?:what|which) (?:ai |language |llm |gpt |base |underlying )?(?:model|llm|ai|version|engine|chatbot|bot|assistant|language model|ai model|technology|tech) (?:are you|is this|do you (?:use|run on|run)|powers you|runs you|is behind you|is powering you)\b`,
+  String.raw`\byour (?:model|llm|ai model|language model|base model|architecture|parameters|training data|knowledge cut-?off|cut-?off date|system prompt)\b`,
+  String.raw`\bare you (?:an? |the )?(?:chatgpt|chat gpt|gpt[\w.-]*|openai|gemini|bard|claude|anthropic|llama|meta ai|grok|deepseek|qwen|mistral|copilot|siri|alexa|cortana|perplexity|sarvam|human|real|robot|bot|ai|machine|computer|program|person|alive|sentient|conscious|self[- ]aware|male|female|boy|girl|man|woman|doctor|lawyer|teacher|god|single|married|free|paid|better than)\b`,
+  String.raw`\b(?:is this|are you) (?:using|based on|built on|running on|powered by|made by|owned by|a product of|connected to)\b`,
+  String.raw`\bhow old are you\b`,
+  String.raw`\bwhen (?:were|was|are) you (?:made|born|created|built|launched|released|trained|founded|developed|updated)\b`,
+  String.raw`\bwhere (?:are you|were you) (?:from|located|based|made|hosted|living|staying|running|born|created|built|developed)\b`,
+  String.raw`\bwhere do you (?:live|come from|stay|run|work)\b`,
+  String.raw`\b(?:what can you do|how do you work)\b`,
+  String.raw`\bwhat are your (?:features|capabilities|abilities|skills|powers|limits|limitations|rules)\b`,
+  // Hindi and Tamil, typed in English letters
+  String.raw`\b(?:tera|tumhara|tumhra|tumara|aapka|apka|aapki|apki|tumhari|teri) (?:naam|name)\b`,
+  String.raw`\b(?:tum|tu|aap|ap) (?:kaun|kon|koun) (?:ho|hai|he|h)\b`,
+  String.raw`\b(?:tumhe|tujhe|aapko|apko) (?:kisne|kis ne) (?:banaya|bnaya|banaaya|create kiya)\b`,
+  String.raw`\b(?:un|unga|ungal|ungaloda|unnoda|unoda|onga|onnoda|nee|mee) (?:per|peru|peyar|peyaru|pear|name)\b`,
+  String.raw`\b(?:nee|ni|neenga|nenga|neengal|ninga) (?:yaaru|yaru|yaar|yar|yaarunga|yarunga)\b`,
+  String.raw`\b(?:unna|unga|ungala|onna) (?:yaaru|yaru|yar|yaar) (?:create|uruvakkunathu|uruvaakkinathu|senjathu|senjanga|pannathu|pannanga|made|built)\b`,
+].join("|"), "i");
+
+// Short questions that are about the assistant only when that's all they say:
+// "ur age" is, "how to change your language on instagram" isn't.
+export const ABOUT_SELF_SHORT = /\byour (?:age|birthday|birth ?date|gender|location|home|hometown|nationality|country|city|languages?|religion|health|favou?rite\b|purpose|job|work|features?|capabilities|abilities|skills|limits|limitations|rules|hobby|hobbies|personality|mood|feelings?|iq|salary|price|pricing|plans?)\b/i;
+
+const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
+
+/** Is the message a question to the assistant about itself? */
+export function isAboutSelf(text) {
+  const q = normalizeChatSpeak(text);
+  if (!q) return false;
+  return ABOUT_SELF.test(q) || (wordCount(q) <= 6 && ABOUT_SELF_SHORT.test(q));
+}
+
+// A message that is only small talk, start to end: "how r u", "thank u so
+// much", "ok bye", "u r smart", "good morning bro". Searching those answered
+// with whatever the web had for the words. Read after normalizeChatSpeak.
+const SMALL_TALK_PHRASES = [
+  String.raw`hi+`, String.raw`hello+`, String.raw`hey+`, String.raw`hai`, String.raw`helo`, String.raw`yo`, String.raw`hola`, String.raw`namaste`, String.raw`vanakkam`,
+  String.raw`good (?:morning|afternoon|evening|night|day)`, String.raw`morning`,
+  String.raw`thanks?(?: you)?(?: so much| very much| a lot)?`, String.raw`thank you`,
+  String.raw`ok(?:ay)?`, String.raw`k`, String.raw`cool`, String.raw`nice`, String.raw`great`, String.raw`awesome`, String.raw`wow`,
+  String.raw`yes`, String.raw`yeah`, String.raw`yep`, String.raw`no`, String.raw`nope`, String.raw`sure`, String.raw`fine`,
+  String.raw`lol`, String.raw`lmao`, String.raw`(?:ha)+h?`, String.raw`(?:he)+`, String.raw`hm+`, String.raw`o+h+`, String.raw`a+h+`, String.raw`aw+`, String.raw`omg`,
+  String.raw`bye`, String.raw`goodbye`, String.raw`see you(?: later| soon)?`, String.raw`take care`,
+  String.raw`how are you(?: doing)?`, String.raw`how is it going`, String.raw`how is your day(?: going)?`, String.raw`how was your day`, String.raw`how do you do`, String.raw`how are things`,
+  String.raw`what is up`, String.raw`what are you doing`, String.raw`what are you up to`, String.raw`nothing much`, String.raw`not much`, String.raw`same here`, String.raw`me too`,
+  String.raw`nice to meet you`, String.raw`pleased to meet you`, String.raw`good to see you`, String.raw`long time no see`,
+  String.raw`(?:i )?miss you`, String.raw`(?:i )?love you`, String.raw`are you there`, String.raw`you there`,
+  String.raw`(?:you are|you're|your|you) (?:so |very |really |too |the |a |an |such an? )?(?:best|smart|funny|cute|great|good|nice|awesome|amazing|helpful|sweet|kind|cool|genius|clever|wrong|right|correct|bad|slow|stupid|dumb|useless|boring|crazy|mad|liar|lying)`,
+];
+const SMALL_TALK_FILLERS = [
+  "bro", "brother", "da", "dude", "buddy", "man", "machan", "macha", "mate", "anna", "bhai", "yaar", "sir", "madam", "mam", "maam",
+  "friend", "dear", "ai", "bot", "vetro ?ai", "again", "too", "so much", "very much", "a lot", "today", "now", "tonight", "there", "please",
+];
+export const SMALL_TALK = new RegExp(
+  String.raw`^(?:${SMALL_TALK_PHRASES.join("|")})(?:[\s,.!?]+(?:${[...SMALL_TALK_PHRASES, ...SMALL_TALK_FILLERS].join("|")}))*(?:[\s,.!?~:)(]|\p{Extended_Pictographic}|‍|️)*$`,
+  "iu",
+);
+
+/** Is the whole message small talk? */
+export function isSmallTalk(text) {
+  return SMALL_TALK.test(normalizeChatSpeak(text));
+}
 
 const matches = (patterns, text) => patterns.some((rx) => rx.test(text));
 
@@ -102,8 +210,8 @@ const matches = (patterns, text) => patterns.some((rx) => rx.test(text));
  * search.
  */
 export function needsLiveInfo(query, { mode } = {}) {
-  const q = String(query || "").trim();
-  if (!q || ABOUT_SELF.test(q)) return false;
+  const q = normalizeChatSpeak(query);
+  if (!q || isAboutSelf(q) || isSmallTalk(q)) return false;
   if (q.split(/\s+/).length <= 8 && FEELINGS_PATTERN.test(q)) return false;
   if (matches(LIVE_INFO_PATTERNS, q)) return true;
   if (TIMELESS_MODES.has(String(mode || "").toLowerCase())) return false;

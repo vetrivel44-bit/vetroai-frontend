@@ -50,7 +50,7 @@ import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from ".
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
-import { needsLiveInfo } from "./lib/liveInfoIntent";
+import { needsLiveInfo, isAboutSelf, isSmallTalk } from "./lib/liveInfoIntent";
 import { askSearchIntent } from "./lib/searchIntent";
 import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
@@ -6470,7 +6470,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    const sportsDetected = !humanizing && isSportsQuery(userQuery);
+    // Asking VetroAI about itself ("Ur name", "who r u", "r u a doctor") or
+    // small talk ("how r u", "thank u") is never a lookup: no web search, live
+    // scores or medical mode, whatever mode or plugin is on. "Ur name" used to
+    // be searched, and answered with the history of the ancient city of Ur.
+    const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery);
+    const sportsDetected = !humanizing && !notALookup && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -6479,8 +6484,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
-    const medicalDetected = !humanizing && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = !humanizing && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const medicalDetected = !humanizing && !notALookup && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
+    const shouldWebSearch = !humanizing && !notALookup && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -6489,7 +6494,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // (askSearchIntent, below — the same one backend models get), so "I am
     // happy" isn't searched. Backend models are judged on the server, so the
     // activity line only promises a search for an explicit ask.
-    const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
+    const explicitSearch = !notALookup && (requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: explicitSearch }));
 
     const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
@@ -7055,7 +7060,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Web Search with "Auto": the user wants the web's answer, not a chat
       // model's — so answer straight from the search (its summary plus the
       // source cards). Only if that finds nothing does a model get the turn.
-      if (selectedMode === "web_search" && requestProvider === "Auto" && fileCount === 0) {
+      if (selectedMode === "web_search" && requestProvider === "Auto" && fileCount === 0 && !notALookup) {
         if (await answerWithDirectSearch({ requireSummary: true })) return;
         if (!isActive()) return;
         // No search summary: the backend searches (with its own fallbacks) and
@@ -7066,7 +7071,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // search every angle, read the pages, fill gaps, cross-check) and
       // streams its activity log; then the chosen model writes the report
       // from those findings, with the same brief the backend's models get.
-      const isResearchMode = isDeepSearch || selectedMode === "research";
+      const isResearchMode = (isDeepSearch || selectedMode === "research") && !notALookup;
       // Set when the chosen model failed to write the report; then the backend
       // researches and writes it instead (below).
       let researchWriterFailed = false;
@@ -7156,7 +7161,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // model instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
       const canSearchFirst = puterModelId && !humanizing && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider);
-      const browserSearch = canSearchFirst && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
+      const browserSearch = canSearchFirst && !notALookup && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
         query: userQuery, history: hist, mode: selectedMode, timeZone: userTimeZone(),
       }, { fallback: () => needsLiveInfo(userQuery, { mode: selectedMode }) })));
       if (!isActive()) return;
@@ -7405,7 +7410,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (backendFailure) {
-        if (selectedMode === "web_search" && fileCount === 0) {
+        if (selectedMode === "web_search" && fileCount === 0 && !notALookup) {
           setMessages((previous) => {
             const next = [...previous];
             next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };

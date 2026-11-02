@@ -116,13 +116,25 @@ export function savePluginState(state) {
   localStorage.setItem(PLUGIN_STORAGE_KEY, JSON.stringify(state));
 }
 
+// A trigger counts as a whole word (or with a plain ending: "matches",
+// "studying"). Matched anywhere in the text, "live" set off Web Search for
+// "are you alive" and "deliver", "exam" for "example", "graph" for "paragraph".
+const triggerPatterns = new Map();
+function triggerPattern(trigger) {
+  if (!triggerPatterns.has(trigger)) {
+    const word = trigger.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    triggerPatterns.set(trigger, new RegExp(`(?<![a-z0-9])${word}(?:s|es|ed|d|ing)?(?![a-z0-9])`, "i"));
+  }
+  return triggerPatterns.get(trigger);
+}
+
 export function pluginsForPrompt(state, prompt = "") {
   const low = prompt.toLowerCase();
   return PLUGIN_CATALOG.filter((plugin) => {
     const status = state[plugin.id];
     if (!status?.installed || status.enabled === false) return false;
     const mentioned = plugin.aliases.some((alias) => low.includes(`@${alias.toLowerCase()}`));
-    const relevant = plugin.triggers.some((trigger) => low.includes(trigger));
+    const relevant = plugin.triggers.some((trigger) => triggerPattern(trigger).test(low));
     return mentioned || relevant;
   }).map((plugin) => plugin.id);
 }

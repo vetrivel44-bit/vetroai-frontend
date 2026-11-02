@@ -8,7 +8,7 @@ const { browseWeb, browseQuery, BROWSE_RULES } = require("./browseService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
-const { LIVE_INFO_PATTERNS, ABOUT_SELF, needsLiveInfo } = require("./liveInfoIntent");
+const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk } = require("./liveInfoIntent");
 const { decideSearch } = require("./searchIntentService");
 const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
@@ -801,10 +801,13 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
 
     // Intent detection — also support explicit webSearch flag from frontend
-    const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery);
-    const isIdentityQuestion = /\b(who are you|what are you|your name|introduce yourself|tell me about yourself|what model|which (ai|model|llm)|who (made|built|created|trained|developed) you|are you (chatgpt|gpt|gemini|claude|llama|bard|human|real|a bot|an ai))\b/i.test(userQuery.trim())
-      // About VetroAI itself (its CEO, company, features): answered from ABOUT VETROAI.
-      || ABOUT_SELF.test(userQuery);
+    // Small talk ("how r u", "thank u so much") and questions to VetroAI about
+    // itself ("Ur name", "who r u", "which model r u", its CEO or features),
+    // typed in text-speak or not, are answered without a web search: searched,
+    // "Ur name" came back as the history of the ancient city of Ur. The
+    // answers about VetroAI come from ABOUT VETROAI in the system prompt.
+    const isGreeting = /^\s*(hi|hello|hey|greetings|good morning|good afternoon|good evening|yo)[.,!?\s]*$/i.test(userQuery) || isSmallTalk(userQuery);
+    const isIdentityQuestion = isAboutSelf(userQuery);
     // Explicit search-oriented modes always search. The generic "auto web search" flag from the
     // frontend is just permission, not a mandate — it only fires when the query itself looks like
     // it needs live info, otherwise short/conversational messages (e.g. "your name") were being
