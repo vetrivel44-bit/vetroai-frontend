@@ -48,3 +48,12 @@ test("browser image prompt leads with the main subject and keeps the question", 
   assert.match(imageQuestion("x", 1, 3), /image 2 of 3/);
   assert.doesNotMatch(imageQuestion("x"), /in detail/i);
 });
+
+test("after a reload, documents come back from the text saved with them", async () => {
+  const saved = { role: "user", content: "fill it out", files: [{ name: "worksheet.txt", size: 40, preview: null, text: "[PDF: worksheet.pdf]\n\nQ1. Hypothesis: ____" }] };
+  const files = filesOfTurn(saved);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].name, "worksheet.txt");
+  assert.equal(files[0].type, "text/plain");
+  assert.equal(await files[0].text(), "[PDF: worksheet.pdf]\n\nQ1. Hypothesis: ____");
+});

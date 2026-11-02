@@ -31,6 +31,7 @@ const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
 const { clientClock } = require("../services/clockService");
 const { verifyAccessToken } = require("../utils/token");
+const { extractPdfText, isPdf } = require("../services/pdfText");
 
 // Best-effort: resolves a Mongo user id from the bearer token if one is present.
 // Never throws — chat must keep working for offline/local-mode users with no DB account.
@@ -48,6 +49,10 @@ function resolveBillingUserId(req) {
 }
 
 const SYSTEM_PROMPT_LIMIT = 30000;
+// One attached file's text, and the text of files attached earlier in the
+// chat that follow-up turns still see (see earlierDocuments).
+const ATTACHMENT_CHAR_LIMIT = 20000;
+const EARLIER_DOCUMENTS_CHAR_LIMIT = 20000;
 
 const SAFE_PATTERNS = [
   /ignore (all|previous|prior) instructions/gi,
@@ -71,10 +76,10 @@ function normalizeMessages(rawMessages, input) {
   // looked like it "forgot". 50 keeps a much longer conversation in view
   // while staying well inside every provider's context window at the 12000
   // char/message cap below.
-  const clean = parsed
+  const kept = parsed
     .filter((m) => m && typeof m.content === "string" && ["system", "user", "assistant"].includes(m.role))
-    .slice(-50)
-    .map((m) => ({ role: m.role, content: m.content.slice(0, 12000) }));
+    .slice(-50);
+  const clean = kept.map((m) => ({ role: m.role, content: m.content.slice(0, 12000) }));
 
   if (input && typeof input === "string" && input.trim()) {
     const last = clean[clean.length - 1];
@@ -82,7 +87,49 @@ function normalizeMessages(rawMessages, input) {
       clean.push({ role: "user", content: input.trim().slice(0, 12000) });
     }
   }
+
+  // A file attached earlier in the chat comes back with the message it was
+  // sent with. Only the turn it was attached on used to see it, so a follow-up
+  // ("now fill in the worksheet") reached the model without the file, and it
+  // said it couldn't read the attachment. Their words stay first: the search
+  // judge and follow-up searches read the start of earlier messages.
+  earlierDocuments(kept).forEach((blocks, i) => {
+    clean[i].content = `${clean[i].content || "(no message)"}\n\n[Files the user attached with this message]\n${blocks.join("\n\n")}`;
+  });
   return clean;
+}
+
+// This turn's file text, ahead of the user's question about it.
+function withAttachments(blocks, content) {
+  return `${blocks.join("\n\n")}\n\nUser's question about the file${blocks.length > 1 ? "s" : ""}: ${content || "Summarise it."}`;
+}
+
+// Index -> text blocks for user messages whose `files` carry their text (the
+// web app saves each document's text with the message it was attached to).
+// The newest files get the room first; older ones past it are named, so the
+// model can ask for them again instead of guessing what they said.
+function earlierDocuments(messages) {
+  const found = new Map();
+  let room = EARLIER_DOCUMENTS_CHAR_LIMIT;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user" || !Array.isArray(message.files)) continue;
+    const blocks = [];
+    for (const file of message.files.slice(0, 10)) {
+      const text = typeof file?.text === "string" ? file.text.trim() : "";
+      if (!text) continue;
+      const name = String(file.name || "file").slice(0, 200);
+      if (room <= 0) {
+        blocks.push(`[Earlier the user attached "${name}". Its text is no longer in view; if the answer needs it, say so and ask them to attach it again.]`);
+        continue;
+      }
+      const piece = text.slice(0, Math.min(room, ATTACHMENT_CHAR_LIMIT));
+      room -= piece.length;
+      blocks.push(`Attached file (${name}):\n${piece}${piece.length < text.length ? "\n[…the rest of this file was cut to fit. If the answer may be in the missing part, say so.]" : ""}`);
+    }
+    if (blocks.length) found.set(i, blocks);
+  }
+  return found;
 }
 
 function sanitizePrompt(input, safeMode) {
@@ -92,25 +139,45 @@ function sanitizePrompt(input, safeMode) {
   return out;
 }
 
-function getAttachmentContext(file) {
-  if (!file) return null;
-  if (file.mimetype.startsWith("image/")) {
-    return null; // Images travel on the message itself (see `images` below).
+// What the model is told about one attached file: its text, or a plain note
+// saying why there is none (so it says so rather than guessing). Images return
+// null; they travel on the message itself (see `images` below). The text of a
+// PDF read here is also added to `readHere`, to be sent back to the app.
+async function getAttachmentContext(file, readHere = null) {
+  if (!file?.buffer) return null;
+  if (String(file.mimetype || "").startsWith("image/")) return null;
+  const name = file.originalname || "file";
+  // PDFs are read here. The web app sends a PDF's text, but the Computer tab,
+  // the desktop app and a PDF the browser couldn't read arrive as the PDF
+  // itself, and refusing those had the model tell the user it could not read
+  // the PDF they had just attached.
+  if (isPdf(file)) {
+    try {
+      const { text, pages, pagesRead } = await extractPdfText(file.buffer, { limit: ATTACHMENT_CHAR_LIMIT });
+      if (text) {
+        readHere?.push({ name, text });
+        const partial = pagesRead < pages ? `; only the first ${pagesRead} of ${pages} pages were read` : "";
+        return `Attached file (${name}, PDF, ${pages} page${pages === 1 ? "" : "s"}${partial}):\n${text}`;
+      }
+      return `[The user attached "${name}", a scanned PDF: its pages are pictures with no text layer, so its words could not be read here. Say so, and ask them to attach the pages as images (screenshots or photos) or paste the text.]`;
+    } catch (err) {
+      logger.warn("chat.attachment.pdf", { name, error: err?.message });
+      const locked = err?.name === "PasswordException";
+      return `[The user attached "${name}", but the PDF could not be opened (${locked ? "it is protected by a password" : "it may be damaged"}). Say so, and ask them to ${locked ? "remove the password and attach it again" : "attach it again"}, or to paste the text.]`;
+    }
   }
-  // A PDF's or Office file's raw bytes are not text: decoding them as UTF-8
-  // handed the model pages of binary noise. The web app converts PDFs, Word,
-  // PowerPoint and Excel files to text before sending; anything still binary
-  // here is reported plainly instead. Text with an unusual MIME type (a .tsx
-  // file is "video/mp2t", many code files are "application/octet-stream") is
-  // judged by its bytes, not refused.
-  const head = file.buffer.subarray(0, 4096);
-  const isBinary = file.buffer.subarray(0, 5).toString("latin1") === "%PDF-" || head.includes(0);
-  if (isBinary) {
-    return `[The user attached "${file.originalname}", but its text could not be extracted here (it is a binary or scanned file). Say so and ask them to paste the text, or attach it as a PDF, Word, PowerPoint or Excel file or an image.]`;
+  // Office files' raw bytes are not text: decoding them as UTF-8 handed the
+  // model pages of binary noise. The web app converts Word, PowerPoint and
+  // Excel files to text before sending; anything still binary here is reported
+  // plainly instead. Text with an unusual MIME type (a .tsx file is
+  // "video/mp2t", many code files are "application/octet-stream") is judged by
+  // its bytes, not refused.
+  if (file.buffer.subarray(0, 4096).includes(0)) {
+    return `[The user attached "${name}", but its text could not be extracted here (it is a binary file). Say so and ask them to paste the text, or attach it as a PDF, Word, PowerPoint or Excel file or an image.]`;
   }
   const text = file.buffer.toString("utf-8").trim();
   if (!text) return null;
-  return `Attached file (${file.originalname}):\n${text.slice(0, 20000)}`;
+  return `Attached file (${name}):\n${text.slice(0, ATTACHMENT_CHAR_LIMIT)}`;
 }
 
 async function withRetry(operation, retries = 2, delay = 1000) {
@@ -191,11 +258,12 @@ async function chat(req, res) {
   // File text goes into the user's own message, ahead of their question. As a
   // separate trailing message it became "the latest question" (search and
   // intent checks ran on the file's text) and left the actual question behind it.
-  const attachmentBlocks = textFiles.map(getAttachmentContext).filter(Boolean);
+  const readHere = [];
+  const attachmentBlocks = (await Promise.all(textFiles.map((file) => getAttachmentContext(file, readHere)))).filter(Boolean);
   if (attachmentBlocks.length) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (lastUser) {
-      lastUser.content = `${attachmentBlocks.join("\n\n")}\n\nUser's question about the file${attachmentBlocks.length > 1 ? "s" : ""}: ${lastUser.content || "Summarise it."}`;
+      lastUser.content = withAttachments(attachmentBlocks, lastUser.content);
     } else {
       messages.push({ role: "user", content: attachmentBlocks.join("\n\n") });
     }
@@ -238,6 +306,12 @@ async function chat(req, res) {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
+
+  // The text of PDFs read here, so the app can save it with the message and
+  // later turns still have the file (it only had the PDF itself).
+  if (readHere.length) {
+    res.write(`data: ${JSON.stringify({ type: "attachments", data: readHere })}\n\n`);
+  }
 
   if (billingUserId && creditService.isDbAvailable()) {
     const status = await creditService.getBillingStatus(billingUserId);
@@ -486,4 +560,4 @@ async function searchIntent(req, res) {
   return successResponse(res, "Search decision", { search: decision.search, by: decision.by });
 }
 
-module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, searchIntent };
+module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, normalizeMessages, searchIntent };

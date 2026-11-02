@@ -4,7 +4,8 @@
 //
 // The original File objects are kept in memory, keyed by the message object.
 // After a reload only the saved message is left: its images come back from the
-// data: URL previews it keeps; other files' contents are never saved.
+// data: URL previews it keeps, and documents from the text saved with them
+// (`files[].text`, see documentHistory.js).
 
 const sentFiles = new WeakMap();
 
@@ -24,10 +25,12 @@ export function filesOfTurn(message) {
   if (!message) return null;
   const kept = sentFiles.get(message);
   if (kept?.length) return kept;
-  const images = (message.files || [])
-    .filter((f) => typeof f?.preview === "string" && f.preview.startsWith("data:image/"))
-    .map((f) => dataUrlToFile(f.preview, f.name || "image"));
-  return images.length ? images : null;
+  const restored = (message.files || []).map((f) => {
+    if (typeof f?.preview === "string" && f.preview.startsWith("data:image/")) return dataUrlToFile(f.preview, f.name || "image");
+    if (typeof f?.text === "string" && f.text.trim()) return new File([f.text], f.name || "file.txt", { type: "text/plain" });
+    return null;
+  }).filter(Boolean);
+  return restored.length ? restored : null;
 }
 
 // An edited message replaces the original: it keeps the attachments.

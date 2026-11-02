@@ -107,14 +107,16 @@ import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
 import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
 import { imageQuestion } from "./lib/imagePrompt";
 import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
+import { documentText, historyForServer, withEarlierDocuments, withServerText } from "./lib/documentHistory";
 import { authHeaders, checkUsage, recordUsage, UsageLimitError } from "./lib/usageClient";
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
 import UserAvatar from "./components/UserAvatar";
 
 // Text of files the visitor's local model has read, keyed by the user message
-// they came with, so follow-up questions can include them again. Kept in
-// memory only: saved chats never store file contents.
+// they came with, so follow-up questions can include them again. (Every
+// document's text is also saved with its message, `files[].text`, for the
+// other models: lib/documentHistory.js.)
 const localDocMemory = new WeakMap();
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -193,6 +195,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("model", data);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
+      } else if (type === "attachments" && Array.isArray(data)) {
+        // The text of PDFs the server read itself.
+        onMeta?.("attachments", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
       } else if ((type === "research" || type === "research_result") && data) {
@@ -6073,7 +6078,11 @@ export default function App() {
             addToast(`📄 ${f.name} is scanned — attached ${pages.length} page image${pages.length === 1 ? "" : "s"} to read`, "success", 3500);
           }
         } catch {
-          addToast(`⚠️ Could not read ${f.name}`, "error");
+          // Attached as it is: VetroAI's server reads it (or tells the model
+          // why it can't). Dropping it left a message about "the attached PDF"
+          // with nothing attached, and the model said it couldn't read it.
+          ready.push(f);
+          addToast(`📄 ${f.name} attached — it will be read when you send it`, "info", 3000);
         }
       } else if (kind === "legacy") {
         addToast(`⚠️ ${f.name} is an old Office format — save it as .docx, .pptx or .xlsx (or PDF) and attach it again`, "error", 6000);
@@ -6403,11 +6412,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // Was slice(-12) — only 6 exchanges of context, so anything said earlier
     // in a longer conversation silently dropped off and the model looked like
     // it forgot. 50 matches the backend's own window (chatController.js).
-    fd.append("messages", JSON.stringify(sendHist.slice(-50).map(m => {
-      if (!m.files) return m;
-      const { files, ...rest } = m;
-      return { ...rest, files: files.map(f => ({ name: f.name })) };
-    })));
+    // Files attached on earlier turns are sent again as their text, so a
+    // follow-up about them ("now fill it in") still has them.
+    fd.append("messages", JSON.stringify(historyForServer(sendHist.slice(-50))));
     fd.append("mode", selectedMode);
     fd.append(
       "provider",
@@ -6779,7 +6786,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
         }
 
-        const puterMessages = sendHist
+        const puterMessages = withEarlierDocuments(sendHist)
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
           .slice(-50)
           .map(({ role, content }) => ({ role, content }));
@@ -7315,6 +7322,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               setMessages(prev => {
                 if (prev.length === 0) return prev;
                 const u = [...prev];
+                if (metaType === "attachments") {
+                  // Saved with the user's message, so later turns have the file.
+                  const asked = u[u.length - 2];
+                  const files = asked?.role === "user" ? withServerText(asked.files, metaData) : null;
+                  if (!files || files === asked.files) return prev;
+                  u[u.length - 2] = { ...asked, files };
+                  carryTurnFiles(asked, u[u.length - 2]);
+                  return u;
+                }
                 const last = { ...u[u.length - 1] };
                 if (metaType === "sources") last.sources = metaData;
                 // The model that really answered, which may be a fallback.
@@ -7759,7 +7775,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         || (f.type.startsWith("image/") ? await fileToDataUrl(f).catch(() => null) : null);
       // A small copy for the on-device chat cache, which drops big previews.
       const thumb = preview ? await makeThumbnail(preview) : null;
-      return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}) };
+      // A document's text, so later turns (and Retry after a reload) still
+      // have it: lib/documentHistory.js.
+      const text = await documentText(f);
+      return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}), ...(text ? { text } : {}) };
     })) : null;
     const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
     rememberTurnFiles(userMsg, filesToSend);

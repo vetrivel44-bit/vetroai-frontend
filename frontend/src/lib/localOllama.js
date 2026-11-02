@@ -148,6 +148,9 @@ export async function readDocuments(files) {
     }
     const sample = text.slice(0, 4000);
     if (/\u0000/.test(sample) || (sample.match(/\uFFFD/g) || []).length > 20) return null; // binary
+    // A PDF the browser couldn't read is sent as it is, for the server to
+    // read; its syntax can pass for text, but it isn't the document's words.
+    if (file.type === "application/pdf" || sample.slice(0, 1024).includes("%PDF-")) return null;
     docs.push({ name: file.name || "file", text: text.trim() });
   }
   return docs;
