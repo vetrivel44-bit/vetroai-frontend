@@ -55,3 +55,41 @@ test("the screen-control prompt points on the grid, reports success honestly, an
   assert.match(sys, /nothing on the screen changed/);
   assert.doesNotMatch(sys, /Coordinates are pixels/);
 });
+
+// A screen-control run is counted once when it starts. Counting each step as
+// a chat message as well ended runs part-way: 40 steps are a free plan's
+// whole 5-hour limit.
+test("screen-control steps aren't counted as chat messages; ordinary chat still is", async (t) => {
+  const usage = require("../src/services/usageService");
+  const calls = { check: 0, record: 0 };
+  const saved = { check: usage.check, record: usage.record, processRequest: orchestrator.processRequest };
+  usage.check = async () => { calls.check++; return { allowed: true }; };
+  usage.record = async () => { calls.record++; };
+  orchestrator.processRequest = async (_id, _params, res) => { res.write(`data: ${JSON.stringify({ type: "content", data: "{}" })}\n\n`); return true; };
+  t.after(() => { usage.check = saved.check; usage.record = saved.record; orchestrator.processRequest = saved.processRequest; });
+
+  const app = require("../src/app");
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  const post = async (mode) => (await fetch(`http://127.0.0.1:${server.address().port}/api/chat`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input: "next step", mode, provider: "auto" }),
+  })).text();
+
+  await post("computer_use");
+  await post("computer_use");
+  assert.deepEqual(calls, { check: 0, record: 0 });
+  await post("normal");
+  assert.deepEqual(calls, { check: 1, record: 1 });
+});
+
+test("the screen agent is told the keys, shortcuts and waiting it can use", async () => {
+  const prompt = await orchestrator.buildSystemPrompt("computer_use", { userQuery: "open a new tab", clock: {} });
+  assert.match(prompt, /key is a letter A-Z, a digit 0-9, F1-F12/);
+  assert.match(prompt, /CTRL\+L focuses the address bar; then "type" a web address, or words to search the web/);
+  assert.match(prompt, /CTRL\+T opens a new tab/);
+  assert.match(prompt, /ALT\+TAB switches to the last window/);
+  assert.match(prompt, /"wait": \{seconds\}/);
+  assert.match(prompt, /"scroll": \{amount, x, y \(optional\)\}/);
+  assert.doesNotMatch(prompt, /a single letter A\/C\/V\/X\/Z/);
+});

@@ -118,3 +118,97 @@ export function finalMessage({ outcome, summary = "", steps = [] }) {
   const skipped = steps.length - shown.length;
   return `${head}\n\n**Steps**\n${skipped ? `_(${skipped} earlier step${skipped > 1 ? "s" : ""} not shown)_\n` : ""}${shown.map((s, i) => `${skipped + i + 1}. ${s}`).join("\n")}`;
 }
+
+/** A short line for each action, in the model's own (grid) coordinates. */
+export function describeAgentAction(action) {
+  const at = (x, y) => `(${Math.round(x)}, ${Math.round(y)})`;
+  switch (action.action) {
+    case "click": return `${action.double ? "Double-click" : "Click"} ${action.button || "left"} at ${at(action.x, action.y)}`;
+    case "move": return `Move to ${at(action.x, action.y)}`;
+    case "type": return `Type "${String(action.text || "").slice(0, 40)}"`;
+    case "key": return `Press ${[...(action.modifiers || []), action.key].join("+")}`;
+    case "scroll": return `Scroll ${Number(action.amount) > 0 ? "down" : "up"}${typeof action.x === "number" && typeof action.y === "number" ? ` at ${at(action.x, action.y)}` : ""}`;
+    case "drag": return `Drag from ${at(action.fromX, action.fromY)} to ${at(action.toX, action.toY)}`;
+    case "copy": return "Copy to clipboard";
+    case "paste": return action.text ? `Paste "${String(action.text).slice(0, 40)}"` : "Paste from clipboard";
+    case "wait": return `Wait ${waitSeconds(action)}s for the screen to settle`;
+    case "done": return action.summary || "Done";
+    default: return `Unrecognized action: ${action.action}`;
+  }
+}
+
+/** How long a "wait" action waits: 0.5 to 10 seconds, 2 by default. */
+export function waitSeconds(action) {
+  const s = Number(action?.seconds);
+  return Number.isFinite(s) ? Math.max(0.5, Math.min(10, Math.round(s * 10) / 10)) : 2;
+}
+
+/**
+ * A "key" action as the desktop app takes it. Only CTRL/SHIFT/ALT are held,
+ * and META (Start) is pressed alone: "META + CTRL+SHIFT" or "ENTER + META"
+ * fire stray shortcuts instead of opening the Start menu.
+ */
+export function normalizeKeyAction(action) {
+  if (action?.action !== "key") return action;
+  const [key, ...inKey] = String(action.key || "").split("+").map((p) => p.trim()).filter(Boolean).reverse();
+  const name = String(key || action.key || "").toUpperCase();
+  const mods = [...inKey.reverse(), ...(Array.isArray(action.modifiers) ? action.modifiers : [])]
+    .map((m) => String(m).toUpperCase()).map((m) => (m === "CONTROL" ? "CTRL" : m))
+    .filter((m, i, all) => ["CTRL", "SHIFT", "ALT"].includes(m) && all.indexOf(m) === i);
+  return { ...action, key: name, modifiers: ["META", "WIN", "CMD", "SUPER", "START"].includes(name) ? [] : mods };
+}
+
+/**
+ * Carries out one action on the desktop app (`desktop` = window.vetroDesktop).
+ * Coordinates are already real screenshot pixels. "wait" only waits.
+ */
+export async function performDesktopAction(desktop, action, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  switch (action.action) {
+    case "move": return desktop.moveMouse(Number(action.x), Number(action.y), action.duration);
+    case "click":
+      await desktop.moveMouse(Number(action.x), Number(action.y), 150);
+      return desktop.click(action.button || "left", Boolean(action.double));
+    case "type": return desktop.typeText(String(action.text || "").slice(0, 2000));
+    case "key": return desktop.pressKey(action.key, action.modifiers || []);
+    case "scroll": {
+      const amount = Number(action.amount) || 0;
+      const at = typeof action.x === "number" && typeof action.y === "number";
+      // An older desktop app scrolls wherever the cursor is: point it first.
+      if (at && desktop.version && desktop.version < "1.1.0") await desktop.moveMouse(action.x, action.y, 120);
+      return at ? desktop.scroll(amount, action.x, action.y) : desktop.scroll(amount);
+    }
+    case "drag": return desktop.drag(Number(action.fromX), Number(action.fromY), Number(action.toX), Number(action.toY), action.duration);
+    case "copy": {
+      if (desktop.copy) return desktop.copy();
+      await desktop.pressKey("C", ["CTRL"]);
+      await sleep(150);
+      return desktop.readClipboard();
+    }
+    case "paste": {
+      if (desktop.paste) return desktop.paste(action.text ? String(action.text) : "");
+      if (action.text) await desktop.writeClipboard(String(action.text));
+      return desktop.pressKey("V", ["CTRL"]);
+    }
+    case "wait": return sleep(waitSeconds(action) * 1000);
+    default: throw new Error(`"${action.action}" isn't an action VetroAI can take`);
+  }
+}
+
+/** The desktop app refused because control was turned off (Stop, Ctrl+Shift+X). */
+export const isControlStopped = (error) => /computer control is disabled/i.test(String(error?.message || error || ""));
+
+/** The useful part of an error from the desktop app ("Error invoking remote method 'computer:key': Error: …"). */
+export const actionErrorText = (error) => String(error?.message || error || "it failed").replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, "").replace(/\.$/, "");
+
+/** Actions in a row that may fail (the model is told why) before the run stops. */
+export const MAX_ACTION_ERRORS = 3;
+
+/** A step request worth trying again: busy, rate limited, or the network blinked. */
+export const retryableStatus = (status) => status === 408 || status === 429 || status === 502 || status === 503 || status === 504;
+export const STEP_RETRY_DELAYS_MS = [1500, 3000, 6000];
+
+/** What the pill on the screen says for an action: the model's own reason, or the action. */
+export function stepLabel(action, description) {
+  const reason = String(action?.reasoning || "").replace(/\s+/g, " ").trim();
+  return (reason || description || "").slice(0, 80);
+}

@@ -32,7 +32,11 @@ import { startComputerRun } from "../../lib/usageClient";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
 import { mergeBrowseEvent } from "../../lib/browseLog";
-import { CONFIRM_PROMPT, GRID_INSTRUCTIONS, THUMB, UNCHANGED_AT_MOST, changedPixels, doneVerdict, finalMessage, grayscale, gridToPixels, isStuck } from "../../lib/screenAgent";
+import {
+  CONFIRM_PROMPT, GRID_INSTRUCTIONS, MAX_ACTION_ERRORS, STEP_RETRY_DELAYS_MS, THUMB, UNCHANGED_AT_MOST, actionErrorText, changedPixels, describeAgentAction,
+  doneVerdict, finalMessage, grayscale, gridToPixels, isControlStopped, isStuck, normalizeKeyAction, performDesktopAction, retryableStatus, stepLabel,
+} from "../../lib/screenAgent";
+import { DESKTOP_CONTROL_REQUEST, LIVE_BROWSE_REQUEST, wantsScreenControl } from "../../lib/screenIntent";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
   ArrowLeft, Bot, CalendarClock, History, SquarePen, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
@@ -106,22 +110,7 @@ const YOUTUBE_REQUEST = /(?:\b(?:open|go to)\s+youtube\b[\s\S]*?\bplay\s+(.+)|\b
 const WORD_REQUEST = /\b(?:word document|word doc|microsoft word)\b|\.docx?\b/i;
 const SHEET_REQUEST = /\b(?:spreadsheet|excel|csv|google sheets?)\b|\.xlsx?\b/i;
 const WEBSITE_REQUEST = /\b(?:build|make|create|design|generate|code)\b[\s\S]{0,40}\b(?:website|web ?site|site|landing page|web ?page|home ?page|web ?app|online (?:store|shop)|e-?commerce|storefront)\b/i;
-// Asks that need a real mouse and keyboard. In a normal browser tab there is
-// no way to do these — the page is sandboxed away from the OS — so they get an
-// explanation and the download link instead of being quietly routed to the
-// generic task path, which answers about the work rather than doing it.
-// The app name has to directly follow the verb. A loose "verb within 50
-// characters of a noun" window matched plenty of things this workspace does
-// handle — "open the excel file I attached and summarize it" is file analysis,
-// not app control.
-const DESKTOP_CONTROL_REQUEST = /\b(?:open|launch|start|run|close)\s+(?:the\s+|a\s+|an\s+|my\s+)?(?:ms ?word|microsoft word|word|excel|powerpoint|notepad|calculator|file explorer|finder|terminal|command prompt|control panel|settings|chrome|edge|firefox|spotify|whatsapp|outlook|paint|vs ?code)\b|\b(?:open|launch|start)\s+(?:an?\s+)?(?:app|application|program|software)\b|\b(?:click|double.?click|scroll|drag)\b[\s\S]{0,40}\b(?:on|in)\s+my\s+(?:desktop|computer|screen|pc|laptop)\b|\bcontrol my (?:mouse|keyboard|screen|computer|desktop|pc)\b/i;
-// Asks for live, interactive-site data (bus/flight/train fares, hotel
-// prices, real-time schedules) that no plain-chat model can answer — the
-// numbers only exist behind a search form on the booking site itself. These
-// need the same real mouse/keyboard as app control, so they route through
-// the identical "needs desktop" / agent-loop path rather than falling
-// through to a chat answer that can only say it has no live browsing.
-const LIVE_BROWSE_REQUEST = /\b(?:redbus|irctc|makemytrip|goibibo|ixigo|abhibus|ticketgoose|yatra|cleartrip|skyscanner|expedia|booking\.com|airbnb)\b|\b(?:bus|flight|train|hotel|cab|taxi)(?:es)?\b[\s\S]{0,60}\b(?:price|prices|fare|fares|schedule|schedules|ticket|tickets)\b[\s\S]{0,40}\b(?:today|tomorrow|from\s.+\bto\b)\b|\b(?:price|prices|fare|fares|schedule|schedules|ticket|tickets)\b[\s\S]{0,60}\b(?:bus|flight|train|hotel|cab|taxi)(?:es)?\b[\s\S]{0,40}\b(?:today|tomorrow|from\s.+\bto\b)\b/i;
+// Asks that need a real mouse and keyboard are recognised in lib/screenIntent.js.
 // Content the browser workspace can genuinely work with, even when the
 // sentence starts with "open" — these must not be diverted to the desktop app.
 const FILE_CONTENT_REQUEST = /\b(?:file|files|document|documents|doc|docs|spreadsheet|sheet|attachment|attached|upload(?:ed)?|pdf)\b/i;
@@ -302,44 +291,6 @@ function parseAgentAction(text) {
     return action && typeof action.action === "string" ? action : null;
   } catch {
     return null;
-  }
-}
-
-function describeAgentAction(action) {
-  switch (action.action) {
-    case "click": return `Click ${action.button || "left"} at (${Math.round(action.x)}, ${Math.round(action.y)})`;
-    case "move": return `Move to (${Math.round(action.x)}, ${Math.round(action.y)})`;
-    case "type": return `Type "${String(action.text || "").slice(0, 40)}"`;
-    case "key": return `Press ${action.key}${action.modifiers?.length ? ` + ${action.modifiers.join("+")}` : ""}`;
-    case "scroll": return `Scroll ${action.amount > 0 ? "down" : "up"}`;
-    case "drag": return `Drag from (${Math.round(action.fromX)}, ${Math.round(action.fromY)}) to (${Math.round(action.toX)}, ${Math.round(action.toY)})`;
-    case "copy": return "Copy to clipboard";
-    case "paste": return action.text ? `Paste "${String(action.text).slice(0, 40)}"` : "Paste from clipboard";
-    case "done": return action.summary || "Done";
-    default: return `Unrecognized action: ${action.action}`;
-  }
-}
-
-async function performDesktopAction(desktop, action) {
-  switch (action.action) {
-    case "move": return desktop.moveMouse(Number(action.x), Number(action.y), action.duration);
-    case "click":
-      await desktop.moveMouse(Number(action.x), Number(action.y), 150);
-      return desktop.click(action.button || "left", Boolean(action.double));
-    case "type": return desktop.typeText(String(action.text || "").slice(0, 2000));
-    case "key": return desktop.pressKey(action.key, action.modifiers || []);
-    case "scroll": return desktop.scroll(Number(action.amount) || 0);
-    case "drag": return desktop.drag(Number(action.fromX), Number(action.fromY), Number(action.toX), Number(action.toY), action.duration);
-    case "copy": {
-      await desktop.pressKey("C", ["CTRL"]);
-      await new Promise(resolve => setTimeout(resolve, 120));
-      return desktop.readClipboard();
-    }
-    case "paste": {
-      if (action.text) await desktop.writeClipboard(String(action.text));
-      return desktop.pressKey("V", ["CTRL"]);
-    }
-    default: return null;
   }
 }
 
@@ -546,7 +497,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   // `prefix` is the text already shown for this reply: a continuation of a
   // cut-off answer streams onto the end of it. `stepsFor`, when given, works
   // out the task's progress steps from the text so far.
-  const readStream = async (response, taskId, assistantId, prefix = "", stepsFor = null) => {
+  // `quiet`: nothing is shown as it streams (a screen-control step's raw JSON).
+  const readStream = async (response, taskId, assistantId, prefix = "", stepsFor = null, { quiet = false } = {}) => {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("The server did not return a stream.");
     const decoder = new TextDecoder();
@@ -568,7 +520,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           const data = event.data ?? event.content;
           if (type === "content" && data) {
             content += data;
-            patchTask(taskId, t => ({
+            if (!quiet) patchTask(taskId, t => ({
               ...t,
               ...(stepsFor ? { steps: stepsFor(content, t.steps) } : {}),
               messages: t.messages.map(m => m.id === assistantId ? { ...m, content } : m)
@@ -577,7 +529,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
             // Backend is retrying with a fallback provider after the previous
             // one failed or stalled — drop whatever partial text it streamed.
             content = prefix;
-            patchTask(taskId, t => ({
+            if (!quiet) patchTask(taskId, t => ({
               ...t,
               messages: t.messages.map(m => m.id === assistantId ? { ...m, content: prefix } : m)
             }));
@@ -950,6 +902,14 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       return;
     }
     patchTask(taskId, t => ({ ...t, steps: t.steps.map((s, i) => i === 0 ? { ...s, status: "done" } : i === 1 ? { ...s, status: "active" } : s) }));
+    // The screen glows and the pill says what VetroAI is doing, only while it
+    // works; Stop there (or Ctrl+Shift+X) ends the run at once, as "Stopped".
+    const setWorking = (label) => desktop.setWorking?.(true, label).catch(() => {});
+    setWorking("Looking at the screen…");
+    const stopWatch = desktop.onStatus?.((s) => { if (!s?.enabled) controller.abort(); });
+    // VetroAI steps aside so the agent sees the desktop and its apps, not
+    // VetroAI's own window (with its live copy of the screen inside it).
+    if (desktop.stepAside) await desktop.stepAside().catch(() => {});
 
     const log = [];
     // Chat bubble stays readable on a long run — the live agentView panel below
@@ -968,6 +928,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     // before that is believed.
     let confirming = false;
     let outcome = null; // { kind: "done" | "failed", summary }
+    let actionErrors = 0;
 
     try {
       // One step past the limit only to check a "done" given on the last step.
@@ -1023,22 +984,32 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         body.append("safeMode", "true");
         body.append("files", shotBlob, "screen.jpg");
 
-        const response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.message || `Server error: ${response.status}`);
+        // One busy moment (a 429, a server waking up, a dropped connection)
+        // used to end the whole run; the step is tried again first.
+        let response = null;
+        for (let attempt = 0; ; attempt++) {
+          let retryable = false;
+          try {
+            response = await fetch(`${API}/chat`, { method: "POST", body, signal: controller.signal });
+            if (response.ok) break;
+            retryable = retryableStatus(response.status);
+            if (!retryable || attempt >= STEP_RETRY_DELAYS_MS.length) {
+              const data = await response.json().catch(() => ({}));
+              throw new Error(data.message || `Server error: ${response.status}`);
+            }
+          } catch (error) {
+            if (error.name === "AbortError" || controller.signal.aborted) throw error;
+            // fetch itself failing is the network; anything else is final.
+            if (!(retryable || error instanceof TypeError) || attempt >= STEP_RETRY_DELAYS_MS.length) throw error;
+          }
+          setWorking("Connection busy, trying again…");
+          await new Promise(resolve => setTimeout(resolve, STEP_RETRY_DELAYS_MS[attempt]));
+          if (controller.signal.aborted) throw new DOMException("Stopped", "AbortError");
         }
-        const raw = await readStream(response, taskId, assistantId);
-        const action = parseAgentAction(raw);
-        if (!action) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
-        // Only CTRL/SHIFT/ALT are allowed as modifiers, and META (Start) takes
-        // none: "META + CTRL+SHIFT" or "ENTER + META" fire stray shortcuts
-        // instead of opening the Start menu and launching the app.
-        if (action.action === "key") {
-          const key = String(action.key || "").toUpperCase();
-          action.modifiers = key === "META" ? [] : (Array.isArray(action.modifiers) ? action.modifiers : [])
-            .map(m => String(m).toUpperCase()).filter(m => ["CTRL", "SHIFT", "ALT"].includes(m));
-        }
+        const raw = await readStream(response, taskId, assistantId, "", null, { quiet: true });
+        const parsed = parseAgentAction(raw);
+        if (!parsed) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
+        const action = normalizeKeyAction(parsed);
 
         if (action.action === "done") {
           const failed = doneVerdict(action) === "failure";
@@ -1094,9 +1065,23 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           actionHistory: [...(t.actionHistory || []), historyEntry]
         }));
 
-        const result = await performDesktopAction(desktop, target);
-        // A copy changes the clipboard, not the screen: nothing to check.
-        if (action.action !== "copy") history.push({ action, changed: null, logIndex: log.length - 1 });
+        setWorking(stepLabel(action, description));
+        let result = null;
+        try {
+          result = await performDesktopAction(desktop, target);
+          actionErrors = 0;
+        } catch (error) {
+          if (isControlStopped(error) || controller.signal.aborted) throw new DOMException("Stopped", "AbortError");
+          // A key it can't press, a bad position: the model is told and tries
+          // another way, instead of the whole run ending on one refusal.
+          actionErrors++;
+          log[log.length - 1] += ` — failed: ${actionErrorText(error)}`;
+          if (actionErrors >= MAX_ACTION_ERRORS) throw new Error(`${MAX_ACTION_ERRORS} actions in a row failed (last: ${actionErrorText(error)})`);
+          continue;
+        }
+        // A copy changes the clipboard, not the screen, and a wait is allowed
+        // to change nothing: neither is checked for a change.
+        if (action.action !== "copy" && action.action !== "wait") history.push({ action, changed: null, logIndex: log.length - 1 });
         // Lets the model see what it actually copied on the next step, instead
         // of guessing blindly at what a Ctrl+C grabbed.
         if (action.action === "copy" && result?.text) {
@@ -1115,7 +1100,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         messages: t.messages.map(m => m.id === assistantId ? { ...m, content: finalMessage({ outcome: outcome.kind, summary: outcome.summary, steps: log }), finishedAt: Date.now() } : m)
       }));
     } catch (error) {
-      const stopped = error.name === "AbortError";
+      // Stop in the app, on the pill, or Ctrl+Shift+X: "Stopped", not a failure.
+      const stopped = error.name === "AbortError" || isControlStopped(error);
       patchTask(taskId, t => ({
         ...t,
         status: stopped ? "stopped" : "failed",
@@ -1126,6 +1112,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       }));
     } finally {
       abortRef.current = null;
+      stopWatch?.();
+      // The glow goes, and VetroAI comes back to the front with what it did.
+      desktop.setWorking?.(false).catch(() => {});
+      if (desktop.comeBack) desktop.comeBack().catch(() => {});
       // Leave the last frame on screen for a moment so you can see how it
       // ended, then clear it — an old screenshot lingering after the run is
       // over reads as "still working" when it isn't.
@@ -1173,6 +1163,14 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     const prompt = (suggestion || query).trim();
     if (!prompt || running || starting) return;
     if (screenControl && hasDesktop) {
+      runComputerAgent(prompt);
+      return;
+    }
+    // In the desktop app, an ask to work the computer ("open telegram", "go to
+    // amazon.in", "open a new tab") goes to the screen agent even with Screen
+    // control off; it asks to allow control first. As a chat answer it could
+    // only describe doing it. YouTube has its own path below.
+    if (hasDesktop && !files.length && !YOUTUBE_REQUEST.test(prompt) && wantsScreenControl(prompt)) {
       runComputerAgent(prompt);
       return;
     }
@@ -1227,6 +1225,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
   }, [accepting]);
   const hosting = accepting && isComputer && Boolean(uid) && dispatchReady();
   const [remote, setRemote] = useState(null);
+  // The latest requests, for a run already under way to look at (a Cancel
+  // pressed on the phone while this computer was asking to allow control).
+  const remoteRef = useRef(null);
+  useEffect(() => { remoteRef.current = remote; }, [remote]);
   const [dispatchPending, setDispatchPending] = useState(0);
   // { id, taskId } of the request running here. A ref, so a second snapshot
   // arriving mid-start can't start a second run.
@@ -1263,15 +1265,16 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       await updateDispatch(uid, d.id, { status: "awaiting_approval", approvalReason: "This may open, send, post, buy, delete or change something for you." }).catch(() => {});
       return;
     }
-    const wantsScreen = DESKTOP_CONTROL_REQUEST.test(prompt) || LIVE_BROWSE_REQUEST.test(prompt) || isLiveSiteRequest(prompt) || YOUTUBE_REQUEST.test(prompt);
+    // Anything that has to work the computer itself: apps, sites, tabs,
+    // folders, live booking and shopping pages, YouTube.
+    const wantsScreen = wantsScreenControl(prompt) || YOUTUBE_REQUEST.test(prompt);
     // With control off, the computer asks "Allow this time / Block", as it does
     // for location, and the phone shows that it is waiting on that answer.
     let control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;
     // Control this task's OK turned on goes off again when the task ends.
     let grantedForTask = false;
-    // Shopping and food sites too: their prices, ratings and stock only exist
-    // on the live page, so a web-search answer would only pretend to have looked.
-    if (DESKTOP_CONTROL_REQUEST.test(prompt) || YOUTUBE_REQUEST.test(prompt) || isLiveSiteRequest(prompt)) {
+    const cancelledMeanwhile = () => Boolean(remoteRef.current?.find(x => x.id === d.id)?.cancelRequested);
+    if (wantsScreen) {
       if (!hasDesktop) return fail("This needs mouse and keyboard control, which only the VetroAI desktop app can do — not a browser tab. Turn on Accept tasks in the desktop app, then send it again.");
       if (!control?.enabled) {
         if (!window.vetroDesktop.allowForDispatch) return fail("This desktop app is too old to ask for screen control. Update VetroAI on your computer, then send this again.");
@@ -1279,6 +1282,14 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         control = await window.vetroDesktop.allowForDispatch(prompt).catch(() => null);
         if (!control?.enabled) return fail("Screen control was blocked on your computer, so VetroAI didn't touch the mouse or keyboard.");
         grantedForTask = true;
+      }
+      // Cancelled on the phone while the computer was asking: nothing runs.
+      if (cancelledMeanwhile()) {
+        if (grantedForTask) window.vetroDesktop.disableControl().catch(() => {});
+        window.vetroDesktop.comeBack?.().catch(() => {});
+        releaseHostRun();
+        await updateDispatch(uid, d.id, { status: "cancelled", progress: "" }).catch(() => {});
+        return;
       }
     }
     if (!(await allowRun())) return fail("This week's Computer tasks are used up, so your computer didn't run this. VetroAI Pro has many more.");
@@ -1288,11 +1299,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     hostRun.current = { id: d.id, taskId: task.id };
     await updateDispatch(uid, d.id, { status: "running", taskId: task.id, progress: "Starting…" }).catch(() => {});
     try {
-      if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) {
-        // Out of the agent's way: it should see the apps, not VetroAI's window.
-        if (window.vetroDesktop.stepAside) await window.vetroDesktop.stepAside().catch(() => {});
-        await runComputerAgent(prompt, { task, preApproved: true });
-      }
+      // runComputerAgent steps VetroAI aside, so the agent sees the apps.
+      if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) await runComputerAgent(prompt, { task, preApproved: true });
       else await execute(prompt, "", { task, files: [], preApproved: true });
     } finally {
       if (grantedForTask) window.vetroDesktop.disableControl().catch(() => {});

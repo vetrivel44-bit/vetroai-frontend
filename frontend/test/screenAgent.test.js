@@ -71,3 +71,79 @@ test("the reply leads with the outcome, then the steps", () => {
   assert.match(text, /_\(5 earlier steps not shown\)_\n6\. Step 6/);
   assert.match(text, /30\. Step 30$/);
 });
+
+// ── Actions on the desktop app ────────────────────────────────────────────
+import {
+  describeAgentAction, normalizeKeyAction, performDesktopAction, waitSeconds, isControlStopped, actionErrorText, retryableStatus, stepLabel,
+} from "../src/lib/screenAgent.js";
+
+function fakeDesktop(extra = {}) {
+  const calls = [];
+  const record = (name) => async (...args) => { calls.push([name, ...args]); return name === "readClipboard" || name === "copy" ? { ok: true, text: "copied" } : { ok: true }; };
+  const desktop = { version: "1.1.0", calls };
+  for (const name of ["moveMouse", "click", "typeText", "pressKey", "scroll", "drag", "readClipboard", "writeClipboard", "copy", "paste"]) desktop[name] = record(name);
+  return Object.assign(desktop, extra);
+}
+
+test("a key action keeps only CTRL/SHIFT/ALT, reads \"ctrl+l\" as a combo, and presses META alone", () => {
+  assert.deepEqual(normalizeKeyAction({ action: "key", key: "ctrl+l" }), { action: "key", key: "L", modifiers: ["CTRL"] });
+  assert.deepEqual(normalizeKeyAction({ action: "key", key: "t", modifiers: ["control", "shift", "ctrl"] }), { action: "key", key: "T", modifiers: ["CTRL", "SHIFT"] });
+  assert.deepEqual(normalizeKeyAction({ action: "key", key: "META", modifiers: ["CTRL", "SHIFT"] }), { action: "key", key: "META", modifiers: [] });
+  assert.deepEqual(normalizeKeyAction({ action: "key", key: "ENTER", modifiers: ["META"] }).modifiers, []);
+  assert.deepEqual(normalizeKeyAction({ action: "click", x: 1 }), { action: "click", x: 1 });
+});
+
+test("scroll goes where it is pointed; wait only waits; copy and paste use the app's own calls", async () => {
+  const desktop = fakeDesktop();
+  const slept = [];
+  const sleep = async (ms) => { slept.push(ms); };
+  await performDesktopAction(desktop, { action: "scroll", amount: 300, x: 640, y: 400 }, { sleep });
+  await performDesktopAction(desktop, { action: "scroll", amount: -200 }, { sleep });
+  await performDesktopAction(desktop, { action: "wait", seconds: 3 }, { sleep });
+  const copied = await performDesktopAction(desktop, { action: "copy" }, { sleep });
+  await performDesktopAction(desktop, { action: "paste", text: "வணக்கம்" }, { sleep });
+  await performDesktopAction(desktop, { action: "click", x: 10, y: 20, double: true }, { sleep });
+  assert.deepEqual(desktop.calls, [
+    ["scroll", 300, 640, 400], ["scroll", -200], ["copy"], ["paste", "வணக்கம்"], ["moveMouse", 10, 20, 150], ["click", "left", true],
+  ]);
+  assert.deepEqual(slept, [3000]);
+  assert.equal(copied.text, "copied");
+});
+
+test("an older desktop app still copies, pastes and scrolls at a point", async () => {
+  const desktop = fakeDesktop({ version: "1.0.0", copy: undefined, paste: undefined });
+  await performDesktopAction(desktop, { action: "scroll", amount: 300, x: 5, y: 6 }, { sleep: async () => {} });
+  await performDesktopAction(desktop, { action: "copy" }, { sleep: async () => {} });
+  await performDesktopAction(desktop, { action: "paste", text: "hi" }, { sleep: async () => {} });
+  assert.deepEqual(desktop.calls, [
+    ["moveMouse", 5, 6, 120], ["scroll", 300, 5, 6], ["pressKey", "C", ["CTRL"]], ["readClipboard"], ["writeClipboard", "hi"], ["pressKey", "V", ["CTRL"]],
+  ]);
+});
+
+test("an action it doesn't know is refused, so the model is told instead of nothing happening", async () => {
+  await assert.rejects(performDesktopAction(fakeDesktop(), { action: "fly" }), /"fly" isn't an action/);
+});
+
+test("waits are 0.5 to 10 seconds, 2 by default", () => {
+  assert.equal(waitSeconds({ seconds: 3 }), 3);
+  assert.equal(waitSeconds({ seconds: 60 }), 10);
+  assert.equal(waitSeconds({ seconds: 0 }), 0.5);
+  assert.equal(waitSeconds({}), 2);
+  assert.equal(describeAgentAction({ action: "wait", seconds: 4 }), "Wait 4s for the screen to settle");
+  assert.equal(describeAgentAction({ action: "key", key: "L", modifiers: ["CTRL"] }), "Press CTRL+L");
+  assert.equal(describeAgentAction({ action: "scroll", amount: 300, x: 500, y: 600 }), "Scroll down at (500, 600)");
+  assert.equal(describeAgentAction({ action: "click", x: 1, y: 2, double: true }), "Double-click left at (1, 2)");
+});
+
+// Stop on the pill or Ctrl+Shift+X made every next call fail with "Computer
+// control is disabled", and the run was reported as failed with that text.
+test("a stop from the desktop app is recognised; its errors read plainly", () => {
+  assert.equal(isControlStopped(new Error("Error invoking remote method 'computer:screenshot': Error: Computer control is disabled.")), true);
+  assert.equal(isControlStopped(new Error("Key not pressed")), false);
+  assert.equal(actionErrorText(new Error("Error invoking remote method 'computer:key': Error: Key not pressed: Alt+F4 isn't allowed.")), "Key not pressed: Alt+F4 isn't allowed");
+  assert.equal(retryableStatus(429), true);
+  assert.equal(retryableStatus(503), true);
+  assert.equal(retryableStatus(400), false);
+  assert.equal(stepLabel({ reasoning: "Open the Start menu to find Notepad" }, "Press META"), "Open the Start menu to find Notepad");
+  assert.equal(stepLabel({}, "Press META"), "Press META");
+});

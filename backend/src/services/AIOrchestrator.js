@@ -453,12 +453,17 @@ Allowed "action" values and their fields:
 - "move": {x, y}
 - "click": {x, y, button: "left"|"right"|"middle" (default left), double: true|false (optional)} — moves to (x, y), then clicks.
 - "type": {text} — types at the current cursor/focus position, so click into the right field first if needed. Max 2000 characters.
-- "key": {key: one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, META, or a single letter A/C/V/X/Z, modifiers: array of CTRL/SHIFT/ALT (optional)}
-- "scroll": {amount} — positive scrolls down, negative scrolls up, roughly in pixels.
+- "key": {key, modifiers: array of CTRL/SHIFT/ALT (optional)} — key is a letter A-Z, a digit 0-9, F1-F12, or one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, META (pressed alone: opens the Start menu / Spotlight). Ctrl shortcuts work as Cmd on a Mac.
+- "scroll": {amount, x, y (optional)} — positive scrolls down, negative up, roughly in pixels; scrolls at (x, y) when given, else where the cursor is. Point at the part of the page that should scroll.
+- "wait": {seconds} — 0.5 to 10. Use it while a page or app is still loading, instead of clicking at a half-drawn screen.
 - "drag": {fromX, fromY, toX, toY} — presses the left button at (fromX, fromY), moves to (toX, toY), then releases. Use for reordering, drag-selecting text, sliders, or dragging a file/icon.
 - "copy": {} — presses Ctrl+C, then reads back the system clipboard so you can see what was actually copied in the next step's action log. Click/select the source text first.
 - "paste": {text (optional)} — if "text" is given, writes it to the clipboard first, then presses Ctrl+V; with no "text", pastes whatever the clipboard already holds (e.g. from a prior "copy"). Click into the destination field first.
 - "done": {success: true|false, summary} — stop. success true only when the screenshot you were just given shows the goal achieved; the summary then says what on the screen shows it. success false when you can't or mustn't go on; the summary then says what is in the way, or what the human has to do.
+
+SHORTCUTS (faster and surer than hunting for a small button)
+- Browser: CTRL+L focuses the address bar; then "type" a web address, or words to search the web, and "key" ENTER. CTRL+T opens a new tab, CTRL+W closes this tab, CTRL+TAB goes to the next tab, CTRL+SHIFT+T reopens a closed tab, F5 reloads, CTRL+F finds text on the page, ALT+LEFT goes back.
+- Windows and apps: ALT+TAB switches to the last window; META, then type an app's name, then ENTER opens any app.
 
 RULES
 1. One action per reply. Never invent extra keys or actions outside this list.

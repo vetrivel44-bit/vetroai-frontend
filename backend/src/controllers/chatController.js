@@ -328,8 +328,13 @@ async function chat(req, res) {
   const usageModel = ["research", "deep_search", "deepsearch"].includes(String(mode || "").toLowerCase())
     ? "DeepSearch"
     : modelOf(req.body?.modelLabel || provider);
+  // A screen-control step is one move of a Computer run, and the run was
+  // counted once when it started (POST /api/usage/computer). Counting every
+  // step as a message too ended runs part-way: a 40-step run is the whole of
+  // a free plan's 5-hour limit.
+  const screenStep = String(mode || "").toLowerCase() === "computer_use";
   try {
-    const gate = await usage.check(usageId.key, usageId.plan, usageModel, Date.now(), usageId.cloud);
+    const gate = screenStep ? { allowed: true } : await usage.check(usageId.key, usageId.plan, usageModel, Date.now(), usageId.cloud);
     if (!gate.allowed) {
       res.write(`data: ${JSON.stringify({ type: "error", code: "USAGE_LIMIT", data: usage.limitMessage(gate.block, usageModel), usage: { ...gate.block, model: usageModel } })}\n\n`);
       return res.end();
@@ -384,13 +389,13 @@ async function chat(req, res) {
     cleanup();
     // Only bill a turn that actually produced an answer — a request that
     // exhausted every provider, or failed outright, is free.
-    if (answered) {
+    if (answered && !screenStep) {
       // Counted against the model that actually answered: when the one picked
       // failed and another took over, the one that did the work is charged.
       const answeredBy = usageModel === "DeepSearch" ? usageModel : modelOf(res.locals?.answeredBy || usageModel);
       usage.record(usageId.key, usageId.plan, answeredBy, Date.now(), usageId.cloud).catch((err) => logger.warn("usage.recordFailed", { reqId, error: err.message }));
     }
-    if (billingUserId && answered) {
+    if (billingUserId && answered && !screenStep) {
       creditService.consumeCredit(billingUserId, 1, "chat_message", { reqId, mode, provider }).catch(() => {});
     }
     res.end();

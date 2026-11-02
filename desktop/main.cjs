@@ -1,13 +1,26 @@
 const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen, clipboard } = require("electron");
 const screenshot = require("screenshot-desktop");
 const { mouse, keyboard, Button, Key, Point, straightTo } = require("@nut-tree-fork/nut-js");
+const os = require("os");
+const {
+  GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel, resolveKeys, shouldPaste, scrollAmount, glideSpeed, createPacer, canExcludeFromCapture,
+} = require("./control.cjs");
 
 const APP_URL = process.env.VETROAI_URL || "https://vetroai-frontend.pages.dev";
 let mainWindow;
 let youtubeWindow;
 let controlEnabled = false;
 let stopped = false;
-let lastActionAt = 0;
+// Whether a screen-control run is going right now. The glow and the pill show
+// only then, not for as long as control stays allowed: "Allow for this
+// session" used to leave "VetroAI is working" on screen with nothing running.
+// null until the app says (an older web app never does): then they follow
+// control, as before.
+let working = null;
+const pace = createPacer(20);
+// Left out of screen captures where the OS can; elsewhere hidden for the
+// moment of each screenshot instead.
+const EXCLUDE_FROM_CAPTURE = canExcludeFromCapture(process.platform, os.release());
 // screenshot-desktop captures at the display's physical-pixel resolution, but
 // Electron's screen/mouse APIs work in logical (DPI-independent) points. On a
 // HiDPI/Retina display those differ by the OS scale factor (e.g. 2x) — any
@@ -36,59 +49,89 @@ mouse.config.autoDelayMs = 35;
 keyboard.config.autoDelayMs = 25;
 
 function status() {
-  return { available: true, enabled: controlEnabled && !stopped, stopped, emergencyShortcut: "Ctrl+Shift+X" };
+  return { available: true, enabled: controlEnabled && !stopped, stopped, working: Boolean(working), emergencyShortcut: "Ctrl+Shift+X" };
 }
 function broadcast() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("computer:status-changed", status());
     mainWindow.setTitle(controlEnabled && !stopped ? "VetroAI — COMPUTER CONTROL ACTIVE" : "VetroAI");
   }
-  showIndicator(controlEnabled && !stopped);
+  showIndicator(controlEnabled && !stopped && working !== false);
 }
 
-// While VetroAI has the mouse and keyboard, the screen says so even when other
-// apps are on top: a small pill at the top of the display with a Stop button.
-// No border around the screen: it read as a glow and got in the way.
+// While VetroAI works on the computer, the screen says so even when other apps
+// are on top: the edges glow in VetroAI's coral, the way Claude and other
+// agents show they are at work, and a pill at the top says what it is doing,
+// with a Stop button (control.cjs has both). Neither takes focus; the glow
+// lets every click through.
 //
-// The pill must never change what the agent sees or does: it is left out of
-// screenshots (content protection), and it gets out of the way of any click,
-// scroll or drag that lands on it, which it would otherwise swallow (it sits
-// over browsers' tab strips and dialogs' title bars).
+// Neither may change what the agent sees or does: both are left out of
+// screenshots (content protection, or hidden for the moment of the capture
+// where the OS can't), and the pill gets out of the way of any click, scroll
+// or drag that lands on it, which it would otherwise swallow (it sits over
+// browsers' tab strips and dialogs' title bars).
+let glowWindow = null;
 let indicatorWindow = null;
-const PILL_SIZE = { width: 300, height: 40 };
-const PILL_HTML = `<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden;-webkit-user-select:none;font:500 13px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif}
-.p{display:flex;align-items:center;gap:9px;height:34px;margin:3px;padding:0 4px 0 13px;border-radius:999px;background:rgba(28,25,23,.94);color:#f5f5f4;border:1px solid rgba(255,255,255,.09);box-shadow:0 2px 10px rgba(0,0,0,.22)}
-.d{width:7px;height:7px;border-radius:50%;background:#d97757;box-shadow:0 0 0 3px rgba(217,119,87,.2)}
-.t{flex:1;white-space:nowrap;letter-spacing:.01em}
-a{color:#f5f5f4;text-decoration:none;font-weight:600;font-size:12px;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.12)}
-a:hover{background:#dc2626}</style>
-<div class="p"><span class="d"></span><span class="t">VetroAI is using your computer</span><a href="vetro-stop://now" title="Stop (Ctrl+Shift+X)">Stop</a></div>`;
+let pillText = pillLabel("");
+
+function overlayWindow(bounds, html) {
+  const win = new BrowserWindow({
+    ...bounds,
+    frame: false, transparent: true, resizable: false, movable: false, minimizable: false, maximizable: false,
+    skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, hasShadow: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
+  if (EXCLUDE_FROM_CAPTURE) win.setContentProtection(true);
+  win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  win.once("ready-to-show", () => { if (!win.isDestroyed()) win.showInactive(); });
+  return win;
+}
 
 function showIndicator(on) {
   if (!on) {
-    if (indicatorWindow && !indicatorWindow.isDestroyed()) indicatorWindow.destroy();
+    for (const win of [glowWindow, indicatorWindow]) if (win && !win.isDestroyed()) win.destroy();
+    glowWindow = null;
     indicatorWindow = null;
     return;
   }
   if (indicatorWindow && !indicatorWindow.isDestroyed()) return;
   const { bounds } = screen.getPrimaryDisplay();
-  const pill = new BrowserWindow({
-    x: bounds.x + Math.round((bounds.width - PILL_SIZE.width) / 2), y: bounds.y + 8, ...PILL_SIZE,
-    frame: false, transparent: true, resizable: false, movable: false,
-    skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, hasShadow: false,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
-  });
-  pill.setAlwaysOnTop(true, "screen-saver");
-  // Not in screenshots (Windows 10 2004+, macOS): the agent sees the screen
-  // as it is, without VetroAI's own pill on top of it.
-  pill.setContentProtection(true);
-  pill.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(PILL_HTML));
-  pill.once("ready-to-show", () => { if (!pill.isDestroyed()) pill.showInactive(); });
+  glowWindow = overlayWindow(bounds, GLOW_HTML);
+  glowWindow.setIgnoreMouseEvents(true);
+  const pill = overlayWindow({ x: bounds.x + Math.round((bounds.width - PILL_SIZE.width) / 2), y: bounds.y + 8, ...PILL_SIZE }, PILL_HTML);
+  pill.webContents.on("did-finish-load", () => setPillText(pillText));
   pill.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
     if (url.startsWith("vetro-stop:")) emergencyStop();
   });
+  pill.on("page-title-updated", (event, title) => {
+    event.preventDefault();
+    if (title === STOP_TITLE) emergencyStop();
+  });
   indicatorWindow = pill;
+}
+
+function setPillText(text) {
+  pillText = text;
+  const pill = indicatorWindow;
+  if (!pill || pill.isDestroyed() || pill.webContents.isLoading()) return;
+  pill.webContents.executeJavaScript(`document.getElementById("t").textContent = ${JSON.stringify(text)}`).catch(() => {});
+}
+
+// Runs `capture` with the glow and pill out of the picture where the OS can't
+// leave them out of captures by itself.
+async function withoutOverlays(capture) {
+  const shown = [glowWindow, indicatorWindow].filter((w) => w && !w.isDestroyed() && w.isVisible());
+  if (EXCLUDE_FROM_CAPTURE || !shown.length) return capture();
+  for (const w of shown) w.hide();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  try {
+    return await capture();
+  } finally {
+    for (const w of shown) if (!w.isDestroyed()) w.showInactive();
+  }
 }
 
 // Runs `act` with the pill hidden when the cursor is on it (or `always`), so
@@ -112,20 +155,33 @@ async function clearOfIndicator(act, { always = false } = {}) {
 function emergencyStop() {
   stopped = true;
   controlEnabled = false;
-  mouse.stop?.();
-  keyboard.releaseKey?.(...Object.values(Key)).catch?.(() => {});
+  working = working === null ? null : false;
+  keyboard.releaseKey(Key.LeftControl, Key.LeftShift, Key.LeftAlt).catch(() => {});
   broadcast();
+  // Back in front, so the stop (and what VetroAI did) is seen.
+  comeBack();
   dialog.showMessageBox(mainWindow, {
     type: "warning", title: "Computer control stopped",
     message: "Emergency stop activated",
     detail: "VetroAI can no longer move the mouse or type. Enable control again in Computer Mode when you are ready."
   });
 }
-function requireControl() {
+// Every action checks control is still allowed, then waits its turn (at
+// least 20 ms after the last one) instead of being refused for coming fast.
+async function requireControl() {
   if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
-  const now = Date.now();
-  if (now - lastActionAt < 20) throw new Error("Action rate limit exceeded.");
-  lastActionAt = now;
+  await pace();
+  if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
+}
+// Glides the cursor to a point in about `durationMs`. nut-js's own speed is
+// fixed at 1000 px a second, busy-waiting the whole way: a click across a 4K
+// screen took three seconds of a CPU core.
+async function glideTo(point, durationMs) {
+  const from = await mouse.getPosition();
+  const distance = Math.hypot(point.x - from.x, point.y - from.y);
+  if (distance < 3) return mouse.setPosition(new Point(point.x, point.y));
+  mouse.config.mouseSpeed = glideSpeed(distance, durationMs);
+  return mouse.move(straightTo(new Point(point.x, point.y)));
 }
 function finite(value, name) {
   const number = Number(value);
@@ -158,8 +214,13 @@ function createWindow() {
     }
   });
   mainWindow.removeMenu();
-  // The indicator window would otherwise keep the app running with no window.
+  // The indicator windows would otherwise keep the app running with no window.
   mainWindow.on("closed", () => showIndicator(false));
+  // A reload or a crash of the app ends any run it had going: no glow left
+  // saying VetroAI is working when nothing is.
+  const runEnded = () => { if (working) { working = false; broadcast(); } };
+  mainWindow.webContents.on("did-navigate", runEnded);
+  mainWindow.webContents.on("render-process-gone", runEnded);
   const allowedOrigin = new URL(APP_URL).origin;
   const appSession = mainWindow.webContents.session;
   appSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
@@ -280,10 +341,34 @@ async function minimizeAndSettle() {
   mainWindow.minimize();
   await new Promise((resolve) => setTimeout(resolve, 350));
 }
-// Dispatch runs while you're away from the computer: with control already on,
-// VetroAI still steps aside so the agent sees the desktop, not itself.
+// VetroAI back in front, with what it did, when a run ends.
+function comeBack() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+// Every screen-control run, from the composer or from the phone: VetroAI steps
+// aside so the agent sees the desktop and the apps, not VetroAI's own window
+// (with its live copy of the screen inside it).
 ipcMain.handle("computer:step-aside", async () => {
   if (controlEnabled && !stopped) await minimizeAndSettle();
+  return status();
+});
+ipcMain.handle("computer:come-back", () => {
+  comeBack();
+  return status();
+});
+// The app says when a run starts and ends, and what it is doing now: the glow
+// and the pill show only while it works, and the pill says the step.
+ipcMain.handle("computer:working", (_event, info) => {
+  const on = Boolean(info?.on);
+  if (on) setPillText(pillLabel(info?.label));
+  if (working !== on) {
+    working = on;
+    if (!on) pillText = pillLabel("");
+    broadcast();
+  }
   return status();
 });
 ipcMain.handle("computer:disable", () => {
@@ -293,113 +378,130 @@ ipcMain.handle("computer:disable", () => {
   return status();
 });
 ipcMain.handle("computer:screenshot", async () => {
-  requireControl();
-  const image = await screenshot({ format: "png" });
+  await requireControl();
+  const image = await withoutOverlays(() => screenshot({ format: "png" }));
   // Recorded so the next move/click call knows what to divide by — see the
   // comment on screenshotScaleFactor above.
   screenshotScaleFactor = MOUSE_IN_PHYSICAL_PIXELS ? 1 : screen.getPrimaryDisplay().scaleFactor || 1;
   return `data:image/png;base64,${image.toString("base64")}`;
 });
+function screenPoint(x, y, nameX = "x", nameY = "y") {
+  return clampPoint(finite(x, nameX) / screenshotScaleFactor, finite(y, nameY) / screenshotScaleFactor);
+}
 ipcMain.handle("computer:move", async (_event, action) => {
-  requireControl();
-  const point = clampPoint(
-    finite(action.x, "x") / screenshotScaleFactor,
-    finite(action.y, "y") / screenshotScaleFactor
-  );
+  await requireControl();
+  const point = screenPoint(action.x, action.y);
   const duration = Math.max(50, Math.min(1500, finite(action.duration ?? 250, "duration")));
-  await mouse.move(straightTo(new Point(point.x, point.y), duration));
+  await glideTo(point, duration);
   return { ok: true, ...point };
 });
 ipcMain.handle("computer:click", async (_event, action) => {
-  requireControl();
+  await requireControl();
   const buttons = { left: Button.LEFT, right: Button.RIGHT, middle: Button.MIDDLE };
   const button = buttons[action.button] || Button.LEFT;
   await clearOfIndicator(() => (action.double ? mouse.doubleClick(button) : mouse.click(button)));
   return { ok: true };
 });
+// Ctrl+V, or Cmd+V on a Mac.
+function pasteKeys() {
+  return [process.platform === "darwin" ? Key.LeftCmd : Key.LeftControl, Key.V];
+}
+async function pressCombo(modifiers, key) {
+  if (modifiers.length) await keyboard.pressKey(...modifiers);
+  try {
+    await keyboard.type(key);
+  } finally {
+    if (modifiers.length) await keyboard.releaseKey(...[...modifiers].reverse());
+  }
+}
+// Pastes `text` where the cursor is, then puts back what the clipboard held.
+async function pasteText(text) {
+  const saved = { text: clipboard.readText(), image: clipboard.readImage() };
+  clipboard.writeText(text);
+  const [modifier, key] = pasteKeys();
+  await pressCombo([modifier], key);
+  // The app reads the clipboard as the keys arrive; give it a moment first.
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  if (!saved.image.isEmpty()) clipboard.writeImage(saved.image);
+  else clipboard.writeText(saved.text);
+}
 ipcMain.handle("computer:type", async (_event, action) => {
-  requireControl();
+  await requireControl();
   const text = String(action.text || "");
   if (!text || text.length > 2000) throw new Error("Typing is limited to 2,000 characters per action.");
-  await keyboard.type(text);
+  // Long text, or text beyond plain ASCII (Tamil, Hindi, emoji), is pasted:
+  // typing goes a key at a time and can't always make those characters.
+  if (shouldPaste(text)) await pasteText(text);
+  else await keyboard.type(text);
   return { ok: true, length: text.length };
 });
 ipcMain.handle("computer:key", async (_event, action) => {
-  requireControl();
-  // @nut-tree-fork/nut-js's Key enum uses PascalCase members (Key.Enter, not
-  // Key.ENTER) and at least one value is legitimately 0 (Key.Escape) — verified
-  // directly against the installed package, since the previous SCREAMING_CASE
-  // names here all resolved to `undefined`, silently rejecting every key press
-  // except the five bare letters below (whose names happen to already match).
-  // META is the one key whose actual enum member differs per OS — Key.LeftWin,
-  // Key.LeftCmd, and Key.LeftSuper are three distinct nut-js key codes, not
-  // aliases of each other. Resolving it here means the model can ask for the
-  // same "META" on every platform to open the OS app launcher/search
-  // (Start Menu / Spotlight / Activities) instead of having to hunt for a
-  // taskbar or dock icon's pixel position in the screenshot.
-  const metaKey = process.platform === "darwin" ? Key.LeftCmd
-    : process.platform === "win32" ? Key.LeftWin
-    : Key.LeftSuper;
-  const allowed = {
-    ENTER: Key.Enter, TAB: Key.Tab, ESCAPE: Key.Escape, BACKSPACE: Key.Backspace,
-    DELETE: Key.Delete, SPACE: Key.Space, UP: Key.Up, DOWN: Key.Down,
-    LEFT: Key.Left, RIGHT: Key.Right, HOME: Key.Home, END: Key.End,
-    PAGEUP: Key.PageUp, PAGEDOWN: Key.PageDown,
-    CTRL: Key.LeftControl, SHIFT: Key.LeftShift, ALT: Key.LeftAlt, META: metaKey,
-    A: Key.A, C: Key.C, V: Key.V, X: Key.X, Z: Key.Z
-  };
-  const key = allowed[String(action.key || "").toUpperCase()];
-  if (key === undefined) throw new Error("Key is not allowed.");
-  const modifiers = (action.modifiers || [])
-    .map(k => allowed[String(k).toUpperCase()])
-    .filter(k => k !== undefined)
-    .slice(0, 3);
-  if (modifiers.length) await keyboard.pressKey(...modifiers);
-  await keyboard.type(key);
-  if (modifiers.length) await keyboard.releaseKey(...modifiers.reverse());
+  await requireControl();
+  // control.cjs turns the model's key names into nut-js Key members (Key.Enter,
+  // not Key.ENTER; Key.Escape is 0), resolves META to the Start/Cmd/Super key
+  // of this OS, and refuses what isn't allowed with a reason the agent is told.
+  const keys = resolveKeys(Key, action.key, action.modifiers, process.platform);
+  if (keys.error) throw new Error(`Key not pressed: ${keys.error}.`);
+  await pressCombo(keys.modifiers, keys.key);
   return { ok: true };
 });
 ipcMain.handle("computer:scroll", async (_event, action) => {
-  requireControl();
-  const amount = Math.max(-1200, Math.min(1200, finite(action.amount, "amount")));
+  await requireControl();
+  // Scrolls where it is pointed, when a point is given: a page scrolls only
+  // under the cursor, which might be over a sidebar.
+  if (action.x !== undefined && action.y !== undefined) await glideTo(screenPoint(action.x, action.y), 120);
+  const amount = scrollAmount(finite(action.amount, "amount"), process.platform);
   await clearOfIndicator(() => (amount > 0 ? mouse.scrollDown(amount) : mouse.scrollUp(Math.abs(amount))));
   return { ok: true };
 });
 ipcMain.handle("computer:drag", async (_event, action) => {
-  requireControl();
-  const from = clampPoint(
-    finite(action.fromX, "fromX") / screenshotScaleFactor,
-    finite(action.fromY, "fromY") / screenshotScaleFactor
-  );
-  const to = clampPoint(
-    finite(action.toX, "toX") / screenshotScaleFactor,
-    finite(action.toY, "toY") / screenshotScaleFactor
-  );
+  await requireControl();
+  const from = screenPoint(action.fromX, action.fromY, "fromX", "fromY");
+  const to = screenPoint(action.toX, action.toY, "toX", "toY");
   const duration = Math.max(100, Math.min(2000, finite(action.duration ?? 400, "duration")));
   // A drag can start or end anywhere, including under the pill.
   await clearOfIndicator(async () => {
-    await mouse.move(straightTo(new Point(from.x, from.y), 150));
+    await glideTo(from, 150);
     await mouse.pressButton(Button.LEFT);
-    await mouse.move(straightTo(new Point(to.x, to.y), duration));
-    await mouse.releaseButton(Button.LEFT);
+    try {
+      await glideTo(to, duration);
+    } finally {
+      await mouse.releaseButton(Button.LEFT);
+    }
   }, { always: true });
   return { ok: true };
 });
-ipcMain.handle("computer:clipboard-read", () => {
-  requireControl();
+ipcMain.handle("computer:clipboard-read", async () => {
+  await requireControl();
   // Capped well under the 2,000-char typing limit — a step's action log is
   // meant to tell the model what it just copied, not carry a whole document.
   return { ok: true, text: clipboard.readText().slice(0, 2000) };
 });
-ipcMain.handle("computer:clipboard-write", (_event, action) => {
-  requireControl();
+ipcMain.handle("computer:clipboard-write", async (_event, action) => {
+  await requireControl();
   const text = String(action?.text || "").slice(0, 2000);
   clipboard.writeText(text);
   return { ok: true, length: text.length };
 });
+// Copy (Ctrl+C, Cmd+C on a Mac) and read back what it copied.
+ipcMain.handle("computer:copy", async () => {
+  await requireControl();
+  await pressCombo([process.platform === "darwin" ? Key.LeftCmd : Key.LeftControl], Key.C);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  return { ok: true, text: clipboard.readText().slice(0, 2000) };
+});
+// Paste: `text` if given (and the clipboard is put back after), or whatever
+// the clipboard holds.
+ipcMain.handle("computer:paste", async (_event, action) => {
+  await requireControl();
+  const text = String(action?.text || "").slice(0, 2000);
+  if (text) await pasteText(text);
+  else await pressCombo([pasteKeys()[0]], Key.V);
+  return { ok: true };
+});
 
 ipcMain.handle("computer:youtube-play", async (_event, action) => {
-  requireControl();
+  await requireControl();
   const query = String(action?.query || "").trim().slice(0, 180);
   if (!query) throw new Error("A YouTube search query is required.");
 
