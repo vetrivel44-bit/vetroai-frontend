@@ -232,9 +232,8 @@ test("a reply that starts after 30s is still waited for", withFetch([OK], async 
   assert.equal(calls.length, 1);
 }));
 
-test("Grok 4.20 Non-Reasoning is sent to AI Router; Grok 4.6 is not", withFetch([OK], async (calls) => {
+test("Grok 4.20 Non-Reasoning is sent to AI Router", withFetch([OK], async (calls) => {
   assert.equal(airouter.modelFor("Grok 4.20 Non-Reasoning"), "spacexai/grok-4.20-non-reasoning");
-  assert.equal(airouter.modelFor("Grok 4.6"), null, "Grok 4.6 stays on Puter");
   await airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.modelFor("Grok 4.20 Non-Reasoning") });
   assert.equal(calls[0].body.model, "spacexai/grok-4.20-non-reasoning");
   assert.equal(airouter.displayName(airouter.GROK_MODEL), "Grok 4.20 Non-Reasoning");

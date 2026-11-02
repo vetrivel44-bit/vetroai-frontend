@@ -11,7 +11,6 @@ const MODEL = "deepseek/deepseek-v4.1-flash";
 const LING_MODEL = "inclusionai/ling-3.0-flash";
 const QWEN_MODEL = "alibaba/qwen3.7-flash";
 const GROK_MODEL = "spacexai/grok-4.20-non-reasoning";
-// Only Grok 4.20 goes to AI Router; "Grok 4.6" stays on Puter in the browser.
 const GROK_420_RE = /grok[\s_-]*4\.20\b/i;
 
 // AI Router (airouter.in) exposes an OpenAI-compatible /chat/completions endpoint,
