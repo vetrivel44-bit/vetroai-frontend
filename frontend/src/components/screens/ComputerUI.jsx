@@ -32,6 +32,7 @@ import { startComputerRun } from "../../lib/usageClient";
 import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheetMarkdown, slidesCode, topicTitle, wantedFiles } from "../../lib/researchDeliverables";
 import { settleResearch } from "../../lib/research";
 import { mergeBrowseEvent } from "../../lib/browseLog";
+import { CONFIRM_PROMPT, GRID_INSTRUCTIONS, THUMB, UNCHANGED_AT_MOST, changedPixels, doneVerdict, finalMessage, grayscale, gridToPixels, isStuck } from "../../lib/screenAgent";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
   ArrowLeft, Bot, CalendarClock, History, SquarePen, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
@@ -184,6 +185,25 @@ async function prepareScreenshotForModel(dataUrl) {
   // uncompressed screenshot rather than losing the step.
   const blob = await (await fetch(dataUrl)).blob();
   return { blob, scale: 1, width: naturalWidth, height: naturalHeight };
+}
+
+// A smaller grayscale copy of a screenshot, to tell whether the last action
+// changed anything on the screen (lib/screenAgent.js changedPixels).
+async function screenThumb(dataUrl) {
+  try {
+    const img = await loadImageElement(dataUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = THUMB.width;
+    canvas.height = THUMB.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    // Averaged, not sampled: a thin caret or a check mark mustn't fall between samples.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, THUMB.width, THUMB.height);
+    return grayscale(ctx.getImageData(0, 0, THUMB.width, THUMB.height).data);
+  } catch {
+    return null;
+  }
 }
 
 function extractHtmlDocument(markdown) {
@@ -940,23 +960,50 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       const lines = tail.map((line, i) => `${skipped + i + 1}. ${line}`);
       return (skipped ? `_(${skipped} earlier step${skipped > 1 ? "s" : ""} not shown)_\n` : "") + lines.join("\n");
     };
+    // Each action taken (in the model's grid coordinates) and whether the
+    // next screenshot showed any change, for spotting a run that is stuck.
+    const history = [];
+    let previousThumb = null;
+    // The model said it's finished: the next step looks at a fresh screenshot
+    // before that is believed.
+    let confirming = false;
+    let outcome = null; // { kind: "done" | "failed", summary }
 
     try {
-      for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+      // One step past the limit only to check a "done" given on the last step.
+      for (let step = 0; (step < MAX_AGENT_STEPS || confirming) && !outcome; step++) {
         if (controller.signal.aborted) throw new DOMException("Stopped", "AbortError");
 
         const shotDataUrl = await desktop.screenshot();
         setAgentView({ taskId, screenshot: shotDataUrl, action: null, step: step + 1 });
-        const { blob: shotBlob, scale: shotScale, width: shotWidth, height: shotHeight } = await prepareScreenshotForModel(shotDataUrl);
+        const [{ blob: shotBlob, scale: shotScale, width: shotWidth, height: shotHeight }, thumb] = await Promise.all([
+          prepareScreenshotForModel(shotDataUrl),
+          screenThumb(shotDataUrl),
+        ]);
+        // Did the last action change anything? The model is told, so a click
+        // that missed isn't taken for one that worked.
+        const last = history[history.length - 1];
+        if (last && last.changed === null && thumb && previousThumb) {
+          last.changed = changedPixels(previousThumb, thumb) > UNCHANGED_AT_MOST;
+          if (!last.changed) log[last.logIndex] += " — nothing on the screen changed";
+        }
+        previousThumb = thumb;
+        if (isStuck(history)) {
+          const tried = log[history[history.length - 1].logIndex].replace(/ — nothing on the screen changed$/, "");
+          outcome = { kind: "failed", summary: `it tried the same thing three times (${tried}) and nothing on the screen changed, so it stopped instead of guessing on.` };
+          setAgentView(prev => (prev ? { ...prev, action: "Stopped: the same action changed nothing three times", target: null } : prev));
+          break;
+        }
 
         const recentLog = log.length > AGENT_LOG_WINDOW ? log.slice(log.length - AGENT_LOG_WINDOW) : log;
         const skippedCount = log.length - recentLog.length;
         const stepPrompt = [
           `Goal: ${goal}`,
-          `The attached screenshot is exactly ${shotWidth}x${shotHeight} pixels — give x,y within that size.`,
+          GRID_INSTRUCTIONS,
           recentLog.length
             ? `${skippedCount ? `(${skippedCount} earlier step${skippedCount > 1 ? "s" : ""} omitted)\n` : ""}Most recent actions:\n${recentLog.map((line, i) => `${skippedCount + i + 1}. ${line}`).join("\n")}`
             : "No actions taken yet — this is the first step.",
+          ...(confirming ? [CONFIRM_PROMPT] : []),
           "Reply with exactly one JSON action for the next step, per your instructions."
         ].join("\n\n");
 
@@ -992,34 +1039,50 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           action.modifiers = key === "META" ? [] : (Array.isArray(action.modifiers) ? action.modifiers : [])
             .map(m => String(m).toUpperCase()).filter(m => ["CTRL", "SHIFT", "ALT"].includes(m));
         }
-        // Keep the model's coordinates inside the image it was shown.
-        for (const [k, max] of [["x", shotWidth], ["fromX", shotWidth], ["toX", shotWidth], ["y", shotHeight], ["fromY", shotHeight], ["toY", shotHeight]]) {
-          if (typeof action[k] === "number") action[k] = Math.max(0, Math.min(max - 1, action[k]));
+
+        if (action.action === "done") {
+          const failed = doneVerdict(action) === "failure";
+          const description = failed ? `Stopped: ${action.summary || "it couldn't go on"}`
+            : confirming ? "Checked a fresh screenshot: the goal is reached"
+            : "Said the goal is reached — checking the screen again";
+          log.push(description);
+          setAgentView(prev => (prev ? { ...prev, action: description, target: null } : prev));
+          patchTask(taskId, t => ({
+            ...t,
+            steps: t.steps.map(s => s.id === "agent" ? { ...s, detail: description } : s),
+            messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() } : m),
+            actionHistory: [...(t.actionHistory || []), { index: step + 1, description, screenshot: shotDataUrl }]
+          }));
+          if (failed) outcome = { kind: "failed", summary: action.summary || "it couldn't go on." };
+          else if (confirming) outcome = { kind: "done", summary: action.summary || "" };
+          else {
+            // Believed only when a fresh screenshot shows it too.
+            confirming = true;
+            await new Promise(resolve => setTimeout(resolve, 900));
+          }
+          continue;
         }
-        // Described in the model's own coordinates: this line goes back to it in
-        // "Most recent actions", and a scaled-up copy there gets repeated and
-        // scaled again every step — clicks ran off the screen 1.5x at a time.
+        confirming = false;
+
+        // Described in the model's own grid coordinates: this line goes back to
+        // it in "Most recent actions", and a scaled-up copy there gets repeated
+        // and scaled again every step — clicks ran off the screen.
         const description = describeAgentAction(action);
-        // The model saw a downscaled image — scale its coordinates back up to
-        // real screenshot-pixel space before anything touches the real cursor.
+        // Grid -> pixels of the image it saw -> real screenshot pixels.
+        const target = gridToPixels(action, shotWidth, shotHeight);
         if (shotScale !== 1) {
-          if (typeof action.x === "number") action.x *= shotScale;
-          if (typeof action.y === "number") action.y *= shotScale;
-          if (typeof action.fromX === "number") action.fromX *= shotScale;
-          if (typeof action.fromY === "number") action.fromY *= shotScale;
-          if (typeof action.toX === "number") action.toX *= shotScale;
-          if (typeof action.toY === "number") action.toY *= shotScale;
+          for (const k of ["x", "y", "fromX", "fromY", "toX", "toY"]) if (typeof target[k] === "number") target[k] *= shotScale;
         }
 
         log.push(description);
         if (narrate) narrateAction(description);
         // Real screenshot-pixel-space target for the cursor marker overlay —
-        // undefined for actions with no coordinates (type/key/scroll/done),
+        // undefined for actions with no coordinates (type/key/scroll),
         // which just clears any marker left over from the previous step.
-        const target = typeof action.x === "number" && typeof action.y === "number"
-          ? { x: action.x, y: action.y, naturalWidth: shotWidth * shotScale, naturalHeight: shotHeight * shotScale }
+        const marker = typeof target.x === "number" && typeof target.y === "number"
+          ? { x: target.x, y: target.y, naturalWidth: shotWidth * shotScale, naturalHeight: shotHeight * shotScale }
           : null;
-        setAgentView(prev => (prev ? { ...prev, action: description, target } : prev));
+        setAgentView(prev => (prev ? { ...prev, action: description, target: marker } : prev));
         // Kept on the task (not just `log`) so the step list survives a
         // completed/failed run and can still be rewound afterward — the
         // screenshot is the *before* frame, taken at the top of this loop.
@@ -1031,21 +1094,25 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           actionHistory: [...(t.actionHistory || []), historyEntry]
         }));
 
-        if (action.action === "done") break;
-        const result = await performDesktopAction(desktop, action);
+        const result = await performDesktopAction(desktop, target);
+        // A copy changes the clipboard, not the screen: nothing to check.
+        if (action.action !== "copy") history.push({ action, changed: null, logIndex: log.length - 1 });
         // Lets the model see what it actually copied on the next step, instead
         // of guessing blindly at what a Ctrl+C grabbed.
         if (action.action === "copy" && result?.text) {
           log.push(`Clipboard now contains: "${result.text.slice(0, 200)}"`);
         }
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
+      // Running out of steps is not finishing.
+      if (!outcome) outcome = { kind: "failed", summary: `it took ${MAX_AGENT_STEPS} steps without reaching the goal, so it stopped.` };
+      const succeeded = outcome.kind === "done";
       patchTask(taskId, t => ({
         ...t,
-        status: "completed",
-        steps: t.steps.map(s => ({ ...s, status: "done" })),
-        messages: t.messages.map(m => m.id === assistantId ? { ...m, content: renderLog() || "No action was needed." } : m)
+        status: succeeded ? "completed" : "failed",
+        steps: t.steps.map(s => s.id === "agent" ? { ...s, status: succeeded ? "done" : "failed" } : s.status === "active" || s.id === "review" ? { ...s, status: "done" } : s),
+        messages: t.messages.map(m => m.id === assistantId ? { ...m, content: finalMessage({ outcome: outcome.kind, summary: outcome.summary, steps: log }), finishedAt: Date.now() } : m)
       }));
     } catch (error) {
       const stopped = error.name === "AbortError";
@@ -1054,7 +1121,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         status: stopped ? "stopped" : "failed",
         steps: t.steps.map(s => s.status === "active" ? { ...s, status: stopped ? "pending" : "failed" } : s),
         messages: t.messages.map(m => m.id === assistantId
-          ? { ...m, content: `${renderLog()}${log.length ? "\n\n" : ""}${stopped ? "Stopped." : `Stopped driving the screen: ${error.message}`}` }
+          ? { ...m, content: finalMessage({ outcome: stopped ? "stopped" : "failed", summary: stopped ? "" : error.message, steps: log }), finishedAt: Date.now() }
           : m)
       }));
     } finally {
@@ -1221,7 +1288,11 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     hostRun.current = { id: d.id, taskId: task.id };
     await updateDispatch(uid, d.id, { status: "running", taskId: task.id, progress: "Starting…" }).catch(() => {});
     try {
-      if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) await runComputerAgent(prompt, { task, preApproved: true });
+      if (control?.enabled && !YOUTUBE_REQUEST.test(prompt)) {
+        // Out of the agent's way: it should see the apps, not VetroAI's window.
+        if (window.vetroDesktop.stepAside) await window.vetroDesktop.stepAside().catch(() => {});
+        await runComputerAgent(prompt, { task, preApproved: true });
+      }
       else await execute(prompt, "", { task, files: [], preApproved: true });
     } finally {
       if (grantedForTask) window.vetroDesktop.disableControl().catch(() => {});
@@ -1908,7 +1979,9 @@ export default function ComputerUI({ onClose, onUpgrade }) {
                       <div className="mt-2 text-xs text-stone-600 flex items-start gap-1.5">
                         {agentView.action
                           ? <><Monitor size={13} className="mt-0.5 flex-shrink-0" /><span>{agentView.action}</span></>
-                          : <><Loader2 size={13} className="mt-0.5 flex-shrink-0 animate-spin" /><span>Deciding the next move…</span></>}
+                          : agentView.done
+                            ? <><Monitor size={13} className="mt-0.5 flex-shrink-0" /><span>Stopped</span></>
+                            : <><Loader2 size={13} className="mt-0.5 flex-shrink-0 animate-spin" /><span>Deciding the next move…</span></>}
                       </div>
                     </div>
                   )}

@@ -442,28 +442,31 @@ The assistant should feel like:
 
 You are given the user's goal, a plain-text log of the actions already taken this run, and a screenshot of the current screen. Decide the single next action that moves toward the goal.
 
+COORDINATES
+Positions (x, y, fromX, fromY, toX, toY) are in the coordinates the step message describes: a 0-1000 grid laid over the screenshot, or the screenshot's pixels. Follow what it says. Find the element in the screenshot and point at its centre; never guess a position from a usual layout.
+
 OUTPUT FORMAT (strict)
 Respond with ONLY one raw JSON object — no markdown fences, no prose before or after it:
-{"action": "click", "x": 512, "y": 300, "button": "left", "reasoning": "one short sentence"}
+{"action": "click", "x": 412, "y": 87, "button": "left", "reasoning": "one short sentence"}
 
 Allowed "action" values and their fields:
 - "move": {x, y}
-- "click": {x, y, button: "left"|"right"|"middle" (default left), double: true|false (optional)} — always move to (x, y) then click; estimate coordinates from what is visible in the screenshot.
+- "click": {x, y, button: "left"|"right"|"middle" (default left), double: true|false (optional)} — moves to (x, y), then clicks.
 - "type": {text} — types at the current cursor/focus position, so click into the right field first if needed. Max 2000 characters.
 - "key": {key: one of ENTER, TAB, ESCAPE, BACKSPACE, DELETE, SPACE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN, META, or a single letter A/C/V/X/Z, modifiers: array of CTRL/SHIFT/ALT (optional)}
 - "scroll": {amount} — positive scrolls down, negative scrolls up, roughly in pixels.
 - "drag": {fromX, fromY, toX, toY} — presses the left button at (fromX, fromY), moves to (toX, toY), then releases. Use for reordering, drag-selecting text, sliders, or dragging a file/icon.
 - "copy": {} — presses Ctrl+C, then reads back the system clipboard so you can see what was actually copied in the next step's action log. Click/select the source text first.
 - "paste": {text (optional)} — if "text" is given, writes it to the clipboard first, then presses Ctrl+V; with no "text", pastes whatever the clipboard already holds (e.g. from a prior "copy"). Click into the destination field first.
-- "done": {summary} — the goal is reached, or you cannot safely continue; explain why in "summary" and stop.
+- "done": {success: true|false, summary} — stop. success true only when the screenshot you were just given shows the goal achieved; the summary then says what on the screen shows it. success false when you can't or mustn't go on; the summary then says what is in the way, or what the human has to do.
 
 RULES
 1. One action per reply. Never invent extra keys or actions outside this list.
-2. You may freely open apps, browse, search, fill in fields, download files, and click through a normal software installer's own screens (Next, Continue, I Agree, Finish, choosing an install location) — none of that needs a pause. To open any app, prefer pressing key META (opens the Start Menu on Windows, Spotlight on macOS, Activities on Linux — it resolves to the right key on whatever OS this is) over hunting for a taskbar/dock icon's pixel position, then "type" the app's name, then "key" ENTER. This is faster and more reliable than clicking a small icon.
-3. There is exactly one category of step you must NEVER take yourself: the final action that actually executes/runs code with real effect on this machine or account — running a downloaded installer's last "Install"/"Run"/"Open" button, approving an OS admin/UAC/security elevation prompt, entering payment or account-credential details, sending a message/email, or submitting a form with real-world consequences. The moment you are about to take that specific step, STOP and reply "done", stating plainly what the human needs to click themselves and why. Getting everything ready right up to that click is fine and expected; taking the click itself is not.
-4. If the screenshot doesn't match what you expect (wrong app in focus, an unexpected dialog, a login screen, something that looks like it might not be the software the user actually asked for), reply "done" and explain what you see rather than guessing blindly.
-5. Coordinates are pixels within the screenshot you were given — read them from what's actually visible, don't assume a fixed layout.
-6. If you've made no visible progress for several steps in a row, reply "done" rather than repeating the same action.`;
+2. You may freely open apps, browse, search, fill in fields, download files, and click through a normal software installer's own screens (Next, Continue, I Agree, Finish, choosing an install location) — none of that needs a pause. To open any app, prefer pressing key META (opens the Start Menu on Windows, Spotlight on macOS, Activities on Linux — it resolves to the right key on whatever OS this is) over hunting for a taskbar/dock icon, then "type" the app's name, then "key" ENTER. This is faster and more reliable than clicking a small icon.
+3. There is exactly one category of step you must NEVER take yourself: the final action that actually executes/runs code with real effect on this machine or account — running a downloaded installer's last "Install"/"Run"/"Open" button, approving an OS admin/UAC/security elevation prompt, entering payment or account-credential details, sending a message/email, or submitting a form with real-world consequences. The moment you are about to take that specific step, STOP and reply "done" with success false, stating plainly what the human needs to click themselves and why. Getting everything ready right up to that click is fine and expected; taking the click itself is not.
+4. If the screenshot doesn't match what you expect (wrong app in focus, an unexpected dialog, a login screen, something that looks like it might not be the software the user actually asked for), reply "done" with success false and say what you see rather than guessing blindly.
+5. Before choosing, look in the screenshot for the effect of your last action: did the menu open, the text appear, the page change? When the action log says nothing on the screen changed after an action, it missed or did nothing: look again and pick a different point, or another way there (a keyboard shortcut, a search box, the Start menu). Never repeat unchanged an action that changed nothing.
+6. Never count an action as the result: typing a message isn't sending it, clicking Download isn't a finished download, and a page still loading isn't the answer. If you've made no visible progress for several steps in a row, reply "done" with success false rather than repeating yourself.`;
     } else if (mode === "design") {
       sys += `\n\n[MODE: DESIGN] You are a senior product/UI designer producing portfolio-quality, production-grade interfaces — the bar is "this looks like it shipped from a top-tier design studio," never a wireframe, and never raw unstyled HTML.
 
@@ -669,12 +672,15 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     let { options } = params;
     const userQuery = messages[messages.length - 1]?.content || "";
 
-    // Every screen-control step is a full network round trip, and the reply is
-    // just one small JSON object — capping generation length is one of the
-    // biggest levers on how sluggish the loop feels, so ignore whatever
-    // maxTokens the caller sent for this mode and use a small fixed budget.
+    // A screen-control step's reply is one small JSON object, so whatever
+    // maxTokens the caller sent is replaced with a fixed budget. Not a tight
+    // one: Gemini thinks before it answers and those tokens come out of the
+    // same budget, so at the old 220 a step could be left with nothing for
+    // the action, come back empty and fall through to a weaker vision model
+    // that then aimed the clicks. `thinking: "low"` (geminiAdapter) keeps the
+    // thinking short; the rest of the budget is room for the reply.
     if (mode === "computer_use") {
-      options = { ...options, maxTokens: 220 };
+      options = { ...options, maxTokens: 1024, thinking: "low" };
     }
 
     // A request carrying an image can only go to a provider whose adapter reads
