@@ -36,7 +36,7 @@ import {
   CONFIRM_PROMPT, GRID_INSTRUCTIONS, MAX_ACTION_ERRORS, STEP_RETRY_DELAYS_MS, THUMB, UNCHANGED_AT_MOST, actionErrorText, changedPixels, describeAgentAction,
   doneVerdict, finalMessage, grayscale, gridToPixels, isControlStopped, isStuck, normalizeKeyAction, performDesktopAction, retryableStatus, stepLabel,
 } from "../../lib/screenAgent";
-import { DESKTOP_CONTROL_REQUEST, LIVE_BROWSE_REQUEST, wantsScreenControl } from "../../lib/screenIntent";
+import { DESKTOP_CONTROL_REQUEST, LIVE_BROWSE_REQUEST, decideScreenTask, wantsScreenControl } from "../../lib/screenIntent";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
 import {
   ArrowLeft, Bot, CalendarClock, History, SquarePen, Check, CheckCircle2, ChevronDown, Circle, Clock3, Copy as CopyIcon, ExternalLink, MousePointerClick, Share2,
@@ -1158,7 +1158,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     setQuery("");
   };
 
-  const submit = (event, suggestion = "") => {
+  const submit = async (event, suggestion = "") => {
     event?.preventDefault();
     const prompt = (suggestion || query).trim();
     if (!prompt || running || starting) return;
@@ -1199,6 +1199,19 @@ export default function ComputerUI({ onClose, onUpgrade }) {
     if (!files.length && !WEBSITE_REQUEST.test(prompt) && isResearchFileRequest(prompt)) {
       startResearchTask(prompt);
       return;
+    }
+    // Anything the patterns above didn't recognise, in whatever words it came
+    // ("pull up spotify and put on some lofi", "chrome la weather paaru"): a
+    // small model on the server says whether it needs the computer worked.
+    // As a chat answer it could only have described doing it.
+    if (!files.length && !YOUTUBE_REQUEST.test(prompt) && !WEBSITE_REQUEST.test(prompt)) {
+      setStarting(true);
+      const decision = await decideScreenTask(API, prompt).finally(() => setStarting(false));
+      if (decision.screen) {
+        if (hasDesktop) runComputerAgent(prompt);
+        else explainDesktopRequired(prompt);
+        return;
+      }
     }
     if (permission === "ask" && RISKY_ACTION.test(prompt)) {
       setPendingAction(prompt);
@@ -1266,8 +1279,10 @@ export default function ComputerUI({ onClose, onUpgrade }) {
       return;
     }
     // Anything that has to work the computer itself: apps, sites, tabs,
-    // folders, live booking and shopping pages, YouTube.
-    const wantsScreen = wantsScreenControl(prompt) || YOUTUBE_REQUEST.test(prompt);
+    // folders, live booking and shopping pages, YouTube. The patterns catch
+    // the usual wording; the server's judge reads the rest, however it was
+    // put on the phone ("pull up spotify", "chrome la weather paaru").
+    const wantsScreen = YOUTUBE_REQUEST.test(prompt) || (await decideScreenTask(API, prompt)).screen;
     // With control off, the computer asks "Allow this time / Block", as it does
     // for location, and the phone shows that it is waiting on that answer.
     let control = hasDesktop && wantsScreen ? await window.vetroDesktop.getStatus().catch(() => null) : null;

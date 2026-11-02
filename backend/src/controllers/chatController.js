@@ -26,6 +26,7 @@ const airouterAdapter = require("../providers/airouterAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
 const airouterModelFor = airouterAdapter.modelFor;
 const { decideSearch } = require("../services/searchIntentService");
+const { decideScreen } = require("../services/screenIntentService");
 const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
@@ -565,4 +566,12 @@ async function searchIntent(req, res) {
   return successResponse(res, "Search decision", { search: decision.search, by: decision.by });
 }
 
-module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, normalizeMessages, searchIntent };
+// POST /api/screen-intent { text } — does this Computer task (typed here or
+// sent through Dispatch) need the computer operated, or a written reply?
+// screen is null when the judge couldn't say; the app's own patterns decide.
+async function screenIntent(req, res) {
+  const decision = await decideScreen({ text: String(req.body?.text || "").slice(0, 2000) });
+  return successResponse(res, "Screen decision", { screen: decision.screen, by: decision.by });
+}
+
+module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, normalizeMessages, searchIntent, screenIntent };
