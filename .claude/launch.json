@@ -7,6 +7,12 @@
       "runtimeArgs": ["run", "dev", "--", "--port", "5180"],
       "cwd": "frontend",
       "port": 5180
+    },
+    {
+      "name": "book-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5191", "--bind", "127.0.0.1", "--directory", "C:/Users/RAMALI~1/AppData/Local/Temp/claude/C--Users-Ramalingam-workshop-vetroai-frontend/c98470cd-b3be-438b-98f2-942e3c0dcb71/scratchpad/book"],
+      "port": 5191
     }
   ]
 }
