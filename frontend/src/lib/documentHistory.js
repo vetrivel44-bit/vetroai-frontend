@@ -49,9 +49,19 @@ const hasText = (f) => typeof f?.text === "string" && f.text.trim() !== "";
 // The chat as sent to the backend. Earlier messages keep their files' text;
 // the latest keeps names only, because its files are uploaded with it. Big
 // image previews are never sent.
+// A Multi-AI reply keeps its answer in `consensus`, not `content`: sent as
+// it was, it reached the model as an empty reply and was dropped, so the
+// next question lost what had just been answered.
+export function withReplyText(m) {
+  if (m?.role !== "assistant" || (typeof m.content === "string" && m.content.trim())) return m;
+  const text = m.isMultiAi && typeof m.consensus === "string" && m.consensus !== "generating" ? m.consensus.trim() : "";
+  return text ? { ...m, content: text } : m;
+}
+
 export function historyForServer(messages) {
   const last = messages.length - 1;
-  return messages.map((m, i) => {
+  return messages.map((original, i) => {
+    const m = withReplyText(original);
     if (!m?.files) return m;
     const { files, ...rest } = m;
     return {
@@ -67,7 +77,7 @@ export function historyForServer(messages) {
 // can ask for them again instead of guessing what they said.
 export function withEarlierDocuments(messages, limit = EARLIER_DOCS_LIMIT) {
   let room = limit;
-  const out = [...messages];
+  const out = messages.map(withReplyText);
   for (let i = out.length - 2; i >= 0; i--) {
     const m = out[i];
     if (m?.role !== "user" || !Array.isArray(m.files)) continue;

@@ -212,3 +212,70 @@ test("the system prompt teaches reading text-speak; \"Ur name\" gets a note in p
   assert.match(prompts[1], /# READING THE USER/);
   assert.doesNotMatch(prompts[1], /\[THIS MESSAGE\]/);
 });
+
+// The bug report: "Ramayana collection till now" → "Total" → "Is the reviews
+// good for this movie" was searched on its own words and answered with
+// reviews of another film.
+const RAMAYANA = [
+  { role: "user", content: "Ramayana collection till now" },
+  { role: "assistant", content: "Ramayana has grossed about ₹200 crore worldwide [1]." },
+  { role: "user", content: "Total" },
+  { role: "assistant", content: "Total worldwide gross (till 5 Nov 2026): ≈ ₹200 crore." },
+  { role: "user", content: "Is the reviews good for this movie" },
+];
+const judgeAndRewriter = (rewrite) => (messages) => (/Rewrite the user's latest message/.test(messages[0].content) ? rewrite : "SEARCH");
+
+test("a follow-up is searched as a query naming its subject, and the answer is told to stay on it", async (t) => {
+  searchedFor = [];
+  const asked = withJudge(t, judgeAndRewriter("Ramayana 2026 movie reviews"));
+  let prompt = null;
+  withGroq(t, async (messages) => { prompt = messages; return say("Reviews for Ramayana are mostly positive [1]."); });
+  await chat("Is the reviews good for this movie", { messages: RAMAYANA });
+  assert.deepEqual(searchedFor, ["Ramayana 2026 movie reviews"]);
+  const rewrite = asked.find((m) => /Rewrite the user's latest message/.test(m[0].content));
+  assert.match(rewrite[1].content, /User: Ramayana collection till now/);
+  assert.match(rewrite[1].content, /Latest message: Is the reviews good for this movie/);
+  const sent = JSON.stringify(prompt);
+  assert.match(sent, /This message continues the conversation above/);
+  assert.match(sent, /Ramayana collection till now/, "the earlier turns are still sent");
+});
+
+test("when the rewriter is unavailable, the word rules name the subject", async (t) => {
+  intent.clearCache();
+  intent.setModel(async (messages) => {
+    if (/Rewrite the user's latest message/.test(messages[0].content)) throw new Error("rate limited");
+    return "SEARCH";
+  });
+  t.after(() => { intent.setModel(async () => { throw new Error("no model in tests"); }); intent.clearCache(); });
+  const turn = await intent.searchQueryForTurn({ query: "Is the reviews good for this movie", history: RAMAYANA.slice(0, -1) });
+  assert.deepEqual(turn, { query: "Ramayana collection till now — Is the reviews good for this movie", by: "rules", reason: "rate limited" });
+});
+
+test("a first message is searched as typed, without asking the rewriter", async (t) => {
+  const asked = withJudge(t, () => "something else");
+  assert.deepEqual(await intent.searchQueryForTurn({ query: "Ramayana collection till now", history: [] }), { query: "Ramayana collection till now", by: "as-is" });
+  assert.equal(asked.length, 0);
+});
+
+test("a rewriter reply with quotes or a label is cleaned; an empty one falls back", async (t) => {
+  withJudge(t, () => 'Query: "Ramayana movie reviews"');
+  assert.equal((await intent.searchQueryForTurn({ query: "reviews?", history: RAMAYANA.slice(0, 2) })).query, "Ramayana movie reviews");
+  withJudge(t, () => "   ");
+  assert.equal((await intent.searchQueryForTurn({ query: "reviews?", history: RAMAYANA.slice(0, 2) })).by, "rules");
+});
+
+test("POST /api/web-search rewrites a browser model's follow-up from the conversation", async (t) => {
+  const asked = withJudge(t, judgeAndRewriter("Ramayana 2026 movie reviews"));
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+  // The search itself may find nothing offline; the rewrite happens first.
+  await fetch(`http://127.0.0.1:${server.address().port}/api/web-search`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "Ramayana collection till now — Is the reviews good for this movie", question: "Is the reviews good for this movie", history: RAMAYANA.slice(0, -1) }),
+  });
+  const rewrite = asked.find((m) => /Rewrite the user's latest message/.test(m[0].content));
+  assert.ok(rewrite, "the rewriter was asked");
+  assert.match(rewrite[1].content, /User: Ramayana collection till now/);
+  assert.match(rewrite[1].content, /Latest message: Is the reviews good for this movie$/, "the typed question, not the browser's combined query");
+});

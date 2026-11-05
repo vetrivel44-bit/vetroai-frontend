@@ -4,6 +4,7 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const { searchKeyless, tavilySearch } = require("./searchController");
+const { searchQueryForTurn } = require("../services/searchIntentService");
 
 function normalizeResults(results) {
   return (results || []).slice(0, 10).map((r) => ({
@@ -22,8 +23,27 @@ function normalizeResults(results) {
 // an error and web search silently stopped working.
 async function performStructuredSearch(req, res) {
   const raw = req.body?.query || req.query?.query;
-  const query = String(raw || "").trim();
+  let query = String(raw || "").trim();
   if (!query) throw new ApiError(400, "Query is required");
+  // A browser model's follow-up ("is the reviews good for this movie") comes
+  // with the conversation, and is searched as a query naming its subject —
+  // the same rewrite the server's own models get (searchIntentService).
+  const history = Array.isArray(req.body?.history)
+    ? req.body.history
+      .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
+      .slice(-6)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 600) }))
+    : [];
+  if (history.length) {
+    try {
+      // `question` is the message as typed; `query` may already carry the
+      // earlier question the browser added, and isn't rewritten twice.
+      const question = String(req.body?.question || "").trim() || query;
+      query = (await searchQueryForTurn({ query: question, history })).query || query;
+    } catch (err) {
+      logger.warn("web-search.rewriteFailed", { message: err.message });
+    }
+  }
 
   const started = Date.now();
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
@@ -68,8 +88,27 @@ async function performStructuredSearch(req, res) {
 // Optional companion endpoint: image results for the same query (Tavily only).
 async function performStructuredImageSearch(req, res) {
   const raw = req.body?.query || req.query?.query;
-  const query = String(raw || "").trim();
+  let query = String(raw || "").trim();
   if (!query) throw new ApiError(400, "Query is required");
+  // A browser model's follow-up ("is the reviews good for this movie") comes
+  // with the conversation, and is searched as a query naming its subject —
+  // the same rewrite the server's own models get (searchIntentService).
+  const history = Array.isArray(req.body?.history)
+    ? req.body.history
+      .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
+      .slice(-6)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 600) }))
+    : [];
+  if (history.length) {
+    try {
+      // `question` is the message as typed; `query` may already carry the
+      // earlier question the browser added, and isn't rewritten twice.
+      const question = String(req.body?.question || "").trim() || query;
+      query = (await searchQueryForTurn({ query: question, history })).query || query;
+    } catch (err) {
+      logger.warn("web-search.rewriteFailed", { message: err.message });
+    }
+  }
 
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
   if (!apiKey) throw new ApiError(503, "Tavily API key not configured");
