@@ -53,7 +53,7 @@ import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
 import { askSearchIntent } from "./lib/searchIntent";
-import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
+import { FOLLOW_UP_NOTE, GROUNDING_RULE, leansOnContext, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -108,7 +108,7 @@ import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
 import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
 import { imageQuestion } from "./lib/imagePrompt";
 import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
-import { documentText, historyForServer, withEarlierDocuments, withServerText } from "./lib/documentHistory";
+import { documentText, historyForServer, withEarlierDocuments, withReplyText, withServerText } from "./lib/documentHistory";
 import { authHeaders, checkUsage, recordUsage, UsageLimitError } from "./lib/usageClient";
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
@@ -6285,6 +6285,14 @@ export default function App() {
       `[${r.provider.toUpperCase()} — ${r.elapsed}s]\n${r.content.slice(0, 4000)}`
     ).join("\n\n---\n\n");
 
+    // The synthesizer sees only this prompt, so it gets the recent conversation
+    // too: without it a follow-up ("is the reviews good for this movie") was
+    // synthesized with no idea which movie.
+    const conversationSoFar = historyForServer(hist.slice(0, -1))
+      .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim())
+      .slice(-6)
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.replace(/\s+/g, " ").slice(0, m.role === "user" ? 400 : 600)}`)
+      .join("\n");
     const consensusFd = new FormData();
     consensusFd.append("input", `You are the chief synthesizer in VetroAI's multi-AI council. ${validResults.length} sources (5 AI models + live web search) have independently answered the user's question. Your job is to produce the SINGLE DEFINITIVE answer.
 
@@ -6298,7 +6306,10 @@ INSTRUCTIONS:
 7. If sources provide URLs or citations, include the most relevant ones.
 8. Do NOT mention the individual AI models or say "according to Model X". Write as one authoritative voice.
 
-USER QUESTION: "${userQuery}"
+${conversationSoFar ? `CONVERSATION SO FAR (the question below continues it — "it", "this movie", "he", "total" refer to what was being discussed; keep the answer about that subject):
+${conversationSoFar}
+
+` : ""}USER QUESTION: "${userQuery}"
 
 SOURCE RESPONSES:
 ${responseSummary}
@@ -6402,9 +6413,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
 
-    // Hand-drawn diagrams ("draw the heart") always go to Sarvam 105B, whatever
-    // model is picked; every other request uses the picked model.
-    const requestProvider = isDrawingRequest(userQuery) ? SARVAM_105B_PROVIDER : selectedProvider;
+    // Hand-drawn diagrams ("draw the heart") go to Sarvam 105B only on Auto. A
+    // model picked in the picker draws them itself — forcing Sarvam meant
+    // picking a stronger model (Grok, GPT, Claude) never changed the drawing.
+    const requestProvider = isDrawingRequest(userQuery) && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
     const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
@@ -6872,7 +6884,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           headers: { "Content-Type": "application/json" },
           // A follow-up ("then in 2025?") is searched with the question it follows.
           // In plain words: "ipl score 2day" is searched as "ipl score today".
-          body: JSON.stringify({ query: searchQueryFor(plainReading(userQuery), messagesRef.current), timeZone: userTimeZone() }),
+          // The conversation goes too, so the server can rewrite a follow-up
+          // ("is the reviews good for this movie") into a search naming its subject.
+          body: JSON.stringify({
+            query: searchQueryFor(plainReading(userQuery), sendHist.slice(0, -1)),
+            question: plainReading(userQuery),
+            history: sendHist.slice(0, -1).filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim()).slice(-6).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })),
+            timeZone: userTimeZone(),
+          }),
           signal: ctrl.signal,
         });
         const json = await res.json().catch(() => ({}));
@@ -6893,7 +6912,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ).join("\n\n");
         return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, results, who holds which job — so wherever they cover the question, answer from them, even where they contradict what you remember. "
-          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE;
+          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE
+          + (sendHist.length > 1 && leansOnContext(userQuery) ? ` ${FOLLOW_UP_NOTE}` : "");
       };
 
       // `requireSummary`: only answer when the search itself wrote a summary
@@ -7167,7 +7187,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // the backend, then let the chosen model answer from those results.
       const canSearchFirst = puterModelId && !humanizing && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider);
       const browserSearch = canSearchFirst && !notALookup && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
-        query: userQuery, history: hist, mode: selectedMode, timeZone: userTimeZone(),
+        query: userQuery, history: hist.slice(0, -1).map(withReplyText), mode: selectedMode, timeZone: userTimeZone(),
       }, { fallback: () => needsLiveInfo(userQuery, { mode: selectedMode }) })));
       if (!isActive()) return;
       if (browserSearch) {

@@ -33,3 +33,16 @@ test("only real image links make it into a gallery", () => {
     "",
   ]) assert.equal(isLikelyImageUrl(url), false, url);
 });
+
+test("a follow-up after another follow-up names the film it is about", async () => {
+  const { searchQueryFor: q, leansOnContext } = await import("../src/lib/searchGrounding.js");
+  const ramayana = [
+    { role: "user", content: "Ramayana collection till now" },
+    { role: "assistant", content: "About ₹200 crore [1]." },
+    { role: "user", content: "Total" },
+    { role: "assistant", content: "≈ ₹200 crore." },
+  ];
+  assert.equal(q("Is the reviews good for this movie", ramayana), "Ramayana collection till now — Is the reviews good for this movie");
+  assert.equal(q("weather in chennai today", ramayana), "weather in chennai today");
+  assert.equal(leansOnContext("is it hit or flop"), true);
+});

@@ -14,6 +14,7 @@ const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const { clockLine } = require("./clockService");
+const { searchQueryFor } = require("./searchGrounding");
 const { needsLiveInfo, TIMELESS_MODES, plainReading, isAboutSelf, isSmallTalk, isFollowUpRequest } = require("./liveInfoIntent");
 
 // Waiting longer than this for a yes/no would hold up every reply.
@@ -43,14 +44,14 @@ function groqClient() {
 }
 
 /** Asks the model; resolves to the raw reply text. Tests replace it. */
-let askModel = async (messages) => {
+let askModel = async (messages, { maxTokens = 16 } = {}) => {
   const groq = groqClient();
   if (!groq) throw new Error("no Groq key");
   const completion = await withGroqModel(groq, config.searchPlannerModel, (model) => groq.chat.completions.create({
     model,
     messages,
     temperature: 0,
-    max_tokens: 16,
+    max_tokens: maxTokens,
     ...quietReasoning(model),
   }));
   return completion?.choices?.[0]?.message?.content || "";
@@ -121,10 +122,62 @@ async function decideSearch({ query, history = [], mode, clock } = {}) {
   }
 }
 
+// A follow-up ("Is the reviews good for this movie", "and his wife?") searched
+// on its own words finds pages about something else. The same small model
+// rewrites it into a search that names the subject, from the conversation.
+const REWRITE_TIMEOUT_MS = 2500;
+const REWRITE_INSTRUCTIONS = `Rewrite the user's latest message as ONE self-contained web search query, using the conversation to fill in what it refers to: "it", "this movie", "he", "the price", "total", "reviews" and the like become the actual name being discussed (the film, person, team, product or place).
+
+- If the latest message is already self-contained, or starts a new subject, return it unchanged.
+- Keep names, numbers, years and the user's language; fix text-speak ("2day" → "today").
+- Short and specific, like something typed into a search engine. No answer, no explanation, no quotes.
+
+Reply with the query only.`;
+const rewriteCache = new Map();
+
+function cleanQuery(reply, fallback) {
+  const line = String(reply || "").split(/\r?\n/).map((l) => l.trim()).find(Boolean) || "";
+  const q = line.replace(/^(search\s*)?query\s*:\s*/i, "").replace(/^["'`“”]+|["'`“”]+$/g, "").trim();
+  return q.length >= 2 && q.length <= 200 ? q : fallback;
+}
+
+/**
+ * The web search to run for `query`: a follow-up rewritten (by the model, or
+ * the word rules when it is unavailable) to name what it is about. A message
+ * with no earlier question is searched as it is.
+ * Resolves to { query, by }: by is "model", "rules" or "as-is".
+ */
+async function searchQueryForTurn({ query, history = [], clock } = {}) {
+  const q = String(query || "").trim();
+  const turns = (Array.isArray(history) ? history : []).filter((m) => (m?.role === "user" || m?.role === "assistant") && turnText(m));
+  const rules = searchQueryFor(q, turns);
+  if (!q || !turns.some((m) => m.role === "user") || q.split(/\s+/).length > 25) return { query: rules, by: rules === q ? "as-is" : "rules" };
+
+  const recent = turns.slice(-6).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${turnText(m).slice(0, m.role === "user" ? 300 : 200)}`);
+  const key = `${recent.join("\n")}\n${q.toLowerCase()}`;
+  const hit = rewriteCache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return { query: hit.query, by: "model", cached: true };
+  try {
+    const reply = await withTimeout(askModel([
+      { role: "system", content: `${REWRITE_INSTRUCTIONS}\n\n${clockLine(clock || {})}` },
+      { role: "user", content: `Conversation so far:\n${recent.join("\n")}\n\nLatest message: ${q.slice(0, 600)}${plainWords(q)}` },
+    ], { maxTokens: 60 }), REWRITE_TIMEOUT_MS);
+    const rewritten = cleanQuery(reply, null);
+    if (!rewritten) return { query: rules, by: "rules", reason: "unclear reply" };
+    if (rewriteCache.size >= CACHE_MAX) rewriteCache.delete(rewriteCache.keys().next().value);
+    rewriteCache.set(key, { query: rewritten, at: Date.now() });
+    return { query: rewritten, by: "model" };
+  } catch (err) {
+    logger.warn("searchIntent.rewriteFallbackToRules", { error: err.message });
+    return { query: rules, by: "rules", reason: err.message };
+  }
+}
+
 module.exports = {
   decideSearch,
+  searchQueryForTurn,
   DECIDE_TIMEOUT_MS,
   // Tests stand in for the model, and start from an empty cache.
   setModel: (fn) => { askModel = fn; },
-  clearCache: () => cache.clear(),
+  clearCache: () => { cache.clear(); rewriteCache.clear(); },
 };

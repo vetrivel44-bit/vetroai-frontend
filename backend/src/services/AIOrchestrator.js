@@ -9,8 +9,8 @@ const { searchWeb, searchImages } = require("../controllers/searchController");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } = require("./liveInfoIntent");
-const { decideSearch } = require("./searchIntentService");
-const { GROUNDING_RULE, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
+const { decideSearch, searchQueryForTurn } = require("./searchIntentService");
+const { GROUNDING_RULE, FOLLOW_UP_NOTE, leansOnContext, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
 const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser");
 const { config } = require("../config/env");
@@ -90,6 +90,9 @@ function historyWithinBudget(messages, maxChars = HISTORY_CHAR_BUDGET) {
   return kept;
 }
 
+// Modes where a picture gallery suits the answer (not design, code or data work).
+const galleryEligibleModeFor = (mode) => !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
+
 const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
 // Providers that get the lean prompt (no ~7k-token inline-visuals guide) on a
 // light turn — a greeting, "who are you", a few words — where there is nothing
@@ -112,7 +115,7 @@ const RESEARCH_MIN_TOKENS = 8192;
  * memory. For writers that gave results in the system prompt less weight than
  * their training (see searchResultsWithQuestion on an adapter).
  */
-function withSearchInQuestion(history, webContext, clock) {
+function withSearchInQuestion(history, webContext, clock, followUp = false) {
   const at = history.map((m) => m.role).lastIndexOf("user");
   if (at < 0 || typeof history[at].content !== "string") return history;
   const turn = [
@@ -121,6 +124,7 @@ function withSearchInQuestion(history, webContext, clock) {
     "",
     "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. If they are unrelated to my question, ignore them. If my message is small talk or about how I feel, just reply to me naturally and leave the results out — don't explain what they say.",
     GROUNDING_RULE,
+    ...(followUp ? [FOLLOW_UP_NOTE] : []),
     "",
     `My question: ${history[at].content}`,
   ].join("\n");
@@ -219,7 +223,7 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
     // prompt) for a writer with a small request budget. `inlineVisuals: false`
     // leaves out only the long ```chartjs/```mermaid/… guide (VISUALS_PROMPT,
     // ~7k tokens) and keeps the structured chart/map/timeline blocks.
-    const { userQuery, webContext, personaPrompt, customInstructions, memories = [], clock, lean = false, researched = false, inlineVisuals = true } = context;
+    const { userQuery, webContext, followUp = false, personaPrompt, customInstructions, memories = [], clock, lean = false, researched = false, inlineVisuals = true } = context;
 
     // ── Core system prompt ──
     // The date is the user's, in their own timezone (clockService) — the
@@ -519,7 +523,7 @@ Before finishing, mentally check: every class referenced in the HTML has a match
 
     // Web context
     if (webContext) {
-      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question. If a SOURCES list is present, cite it inline by number — [1], [2] — on the specific claims those sources support, and never cite a number that is not in that list. Where the results disagree with each other, say so rather than silently picking one. If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply. ${GROUNDING_RULE}`;
+      sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question. If a SOURCES list is present, cite it inline by number — [1], [2] — on the specific claims those sources support, and never cite a number that is not in that list. Where the results disagree with each other, say so rather than silently picking one. If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply. ${GROUNDING_RULE}${followUp ? ` ${FOLLOW_UP_NOTE}` : ""}`;
     }
 
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with
@@ -824,9 +828,21 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       logger.info("AIOrchestrator.searchDecision", { reqId, search: decision.search, by: decision.by, ...(decision.reason ? { reason: decision.reason } : {}) });
     }
     let webContext = null;
-    // A follow-up ("then in 2025?") is searched with the question it follows.
-    // Searched in plain words: "ipl score 2day" as "ipl score today".
-    const searchQuery = searchQueryFor(plainReading(userQuery), messages.slice(0, -1));
+    const shouldFetchImages = galleryEligibleModeFor(mode) && !isGreeting && !isIdentityQuestion && !isRedo && this.needsImageSearch(userQuery);
+    // A follow-up ("then in 2025?", "is the reviews good for this movie") is
+    // searched as a query that names its subject, rewritten from the
+    // conversation (searchIntentService); searched on its own words it found
+    // another film's reviews. In plain words: "ipl score 2day" as "ipl score today".
+    let searchQuery = searchQueryFor(plainReading(userQuery), messages.slice(0, -1));
+    const isAgenticMode = mode === "deep_search" || mode === "research";
+    if ((shouldSearch && params.browse !== true) || shouldFetchImages) {
+      const turn = await searchQueryForTurn({ query: plainReading(userQuery), history: messages.slice(0, -1), clock: params.clock });
+      searchQuery = turn.query;
+      if (searchQuery !== userQuery) logger.info("AIOrchestrator.searchQuery", { reqId, query: searchQuery, by: turn.by });
+    }
+    // Whether this message leans on the conversation for its subject; the
+    // answer is then told to read it in that context.
+    const isFollowUp = messages.length > 1 && (leansOnContext(userQuery) || (searchQuery !== userQuery && searchQuery !== plainReading(userQuery)));
 
     // Astrology: ProKerala data (and the rasi chart) for every model — the
     // same builder backs /api/astrology/context for browser models.
@@ -838,8 +854,6 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
     // Kick off image lookup in parallel with everything else — only for modes where
     // an inline gallery makes sense (skip design/code/data-analysis style modes).
-    const galleryEligibleMode = !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
-    const shouldFetchImages = galleryEligibleMode && !isGreeting && !isIdentityQuestion && !isRedo && this.needsImageSearch(userQuery);
     const imagesPromise = shouldFetchImages
       ? searchImages(searchQuery, 4).catch(() => [])
       : Promise.resolve([]);
@@ -852,7 +866,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // once the report has been written.
     let research = null;
     let compactContext = null;
-    const isAgentic = mode === "deep_search" || mode === "research";
+    const isAgentic = isAgenticMode;
     // Computer opens and reads the pages it finds (browseService), and the
     // answer is held to what was read.
     const isBrowse = !isAgentic && params.browse === true;
@@ -876,7 +890,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // The service enforces its own deadline and returns partial evidence
           // rather than throwing, so the outer race only guards a hung socket.
           searchRes = await withTimeout(
-            performAgenticSearch(plainReading(userQuery), {
+            performAgenticSearch(searchQuery, {
               clock: params.clock,
               deadlineMs: RESEARCH_DEADLINE_MS,
               signal: params.signal,
@@ -893,8 +907,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         } else if (isBrowse) {
           // Searched as the task itself, without Computer's notes to the model.
           const history = messages.slice(0, -1).map((m) => (m?.role === "user" && typeof m.content === "string" ? { ...m, content: browseQuery(m.content) } : m));
+          const browseTurn = await searchQueryForTurn({ query: plainReading(browseQuery(userQuery)), history, clock: params.clock });
           searchRes = await withTimeout(
-            browseWeb(searchQueryFor(plainReading(browseQuery(userQuery)), history), {
+            browseWeb(browseTurn.query, {
               clock: params.clock,
               signal: params.signal,
               onEvent: (entry) => this.sendVetroEvent(res, "browse", entry),
@@ -953,38 +968,38 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     if (browsed) promptExtras += BROWSE_RULES;
     promptExtras += buildPluginPrompt(params.activePlugins);
-    const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
+    const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)
     // gets the search results with the question instead: inside the system
     // prompt they sit ~14% into ~8K tokens of rules, and Sarvam 105B answered
     // from its own out-of-date training instead of them.
     const sysPromptWithoutSearch = webContext
-      ? await this.buildSystemPrompt(mode, { userQuery, webContext: null, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras
+      ? await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext: null, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras
       : null;
     // Groq's free tier refuses any request over ~12k tokens, and a full
     // research context alone is about that. Its writer gets the compact
     // evidence (same sources and numbers, one short passage each) and a lean
     // prompt instead; every other writer gets everything.
     const compactSysPrompt = isAgentic && compactContext
-      ? await this.buildSystemPrompt(mode, { userQuery, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
+      ? await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext: compactContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
       : null;
     // The full prompt is ~10k tokens (~12k with search results), so Groq
     // turned down nearly every chat with "Request too large" and the smaller
     // retry failed the same way. Groq gets it without the long inline-visuals
     // guide (~3k tokens, ~5k with results); it still draws charts, maps and
     // timelines through the structured blocks.
-    const tightSysPrompt = await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras;
+    const tightSysPrompt = await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras;
     // The same, without the search results, for a tight-budget writer that
     // takes them with the question instead (Groq).
     const tightSysPromptWithoutSearch = webContext
-      ? await this.buildSystemPrompt(mode, { userQuery, webContext: null, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras
+      ? await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext: null, memories, customInstructions: params.systemPrompt, clock: params.clock, researched, inlineVisuals: false }) + promptExtras
       : null;
     // A drawing carries its own sketch rules (the app's drawing instruction), so
     // it gets the lean prompt without the chart/diagram/table rules: about a
     // third of the input tokens, on every try.
     const drawing = Boolean(options?.drawing);
     const drawingSysPrompt = drawing
-      ? await this.buildSystemPrompt(mode, { userQuery, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
+      ? await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, lean: true, researched }) + promptExtras
       : null;
     if (drawing) {
       options = { ...options, maxTokens: Math.min(Math.max(Number(options.maxTokens) || 0, DRAWING_MIN_TOKENS), DRAWING_MAX_TOKENS) };
@@ -1051,7 +1066,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       if (sysPromptWithoutSearch && resultsWithQuestion && !(tight && compactSysPrompt)) {
         return [
           { role: "system", content: (tight ? tightSysPromptWithoutSearch : sysPromptWithoutSearch) + thinking + astrologyPrompt },
-          ...withSearchInQuestion(history, webContext, params.clock),
+          ...withSearchInQuestion(history, webContext, params.clock, isFollowUp),
         ];
       }
       const lean = TIGHT_BUDGET_PROVIDERS.has(providerName) || (light && LEAN_WHEN_LIGHT_PROVIDERS.has(providerName));

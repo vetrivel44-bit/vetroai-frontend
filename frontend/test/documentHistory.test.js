@@ -82,3 +82,13 @@ test("text the server read is saved onto the files it came from", () => {
   const already = [{ name: "a.pdf", text: "kept" }];
   assert.equal(withServerText(already, [{ name: "a.pdf", text: "new" }]), already);
 });
+
+test("a Multi-AI reply is sent to later turns with its answer, not as an empty reply", () => {
+  const multi = { role: "assistant", isMultiAi: true, consensus: "Ramayana has grossed ₹200 crore.", models: [] };
+  const sent = historyForServer([{ role: "user", content: "Ramayana collection" }, multi, { role: "user", content: "reviews?" }]);
+  assert.equal(sent[1].content, "Ramayana has grossed ₹200 crore.");
+  const browser = withEarlierDocuments([{ role: "user", content: "Ramayana collection" }, multi, { role: "user", content: "reviews?" }]);
+  assert.equal(browser[1].content, "Ramayana has grossed ₹200 crore.");
+  const unfinished = historyForServer([{ ...multi, consensus: "generating" }]);
+  assert.equal(unfinished[0].content, undefined, "a synthesis still running isn't sent as text");
+});
