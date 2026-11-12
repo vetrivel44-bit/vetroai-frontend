@@ -242,3 +242,11 @@ test("Grok 4.20 Non-Reasoning is sent to AI Router", withFetch([OK], async (call
   assert.equal(airouter.modelFor("VetroAI"), airouter.QWEN_MODEL);
   assert.equal(airouter.modelFor("DeepSeek V4.1 Flash"), airouter.MODEL);
 }));
+
+test("Claude Haiku 5.5 is sent to AI Router", withFetch([OK], async (calls) => {
+  assert.equal(airouter.modelFor("Claude Haiku 5.5"), "anthropic/claude-haiku-5.5");
+  assert.equal(airouter.modelFor("Claude Fable 5"), null, "other Claude models are not AI Router's");
+  await airouter.generateStream([{ role: "user", content: "hi" }], { airouterModel: airouter.modelFor("Claude Haiku 5.5") });
+  assert.equal(calls[0].body.model, "anthropic/claude-haiku-5.5");
+  assert.equal(airouter.displayName(airouter.HAIKU_MODEL), "Claude Haiku 5.5");
+}));

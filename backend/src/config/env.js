@@ -63,6 +63,7 @@ module.exports = {
     airouterModel:       getEnv("AIROUTER_MODEL",        "deepseek/deepseek-v4.1-flash"),
     airouterLingModel:   getEnv("AIROUTER_LING_MODEL",   "inclusionai/ling-3.0-flash"),
     airouterGrokModel:   getEnv("AIROUTER_GROK_MODEL",   "spacexai/grok-4.20-non-reasoning"),
+    airouterHaikuModel:  getEnv("AIROUTER_HAIKU_MODEL",  "anthropic/claude-haiku-5.5"),
     airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "alibaba/qwen3.7-flash"),
     // The only image generator: Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite).
     airouterImageModel:  getEnv("AIROUTER_IMAGE_MODEL",  "google/gemini-3.1-flash-lite-image"),

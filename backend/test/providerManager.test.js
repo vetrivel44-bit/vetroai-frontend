@@ -111,3 +111,9 @@ test("VetroAI (Qwen 3.7 Flash) is answered by AI Router", () => {
   assert.equal(providerManager.getBestProvider("normal", "VetroAI"), "airouter");
   assert.equal(providerManager.getBestProvider("normal", "vetroai"), "airouter");
 });
+
+test("Claude Haiku 5.5 is answered by AI Router, other Claude models are not", () => {
+  configureMany(["airouter", "fable"]);
+  assert.equal(providerManager.getBestProvider("normal", "Claude Haiku 5.5"), "airouter");
+  assert.equal(providerManager.getBestProvider("normal", "Claude Fable 5"), "fable");
+});

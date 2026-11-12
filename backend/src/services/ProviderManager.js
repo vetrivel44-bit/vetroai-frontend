@@ -14,6 +14,7 @@ const sarvamAdapter = require("../providers/sarvamAdapter");
 // highest weight — so every browser-model web search was answered by the top-weighted gateway.
 const PROVIDER_ALIASES = [
   [/^gpt[-\s]|openai|codex|chatgpt/i, "chatgpt"],
+  [/claude[\s_-]*haiku[\s_-]*5\.5\b/i, "airouter"],
   [/claude|fable/i, "fable"],
   [/gemini|google/i, "gemini"],
   [/^groq$/i, "groq"],

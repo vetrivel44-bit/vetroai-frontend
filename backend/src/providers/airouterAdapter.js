@@ -11,6 +11,9 @@ const MODEL = "deepseek/deepseek-v4.1-flash";
 const LING_MODEL = "inclusionai/ling-3.0-flash";
 const QWEN_MODEL = "alibaba/qwen3.7-flash";
 const GROK_MODEL = "spacexai/grok-4.20-non-reasoning";
+// Anthropic's Claude Haiku 5.5 on AI Router. Other Claude names stay on their own providers.
+const HAIKU_MODEL = "anthropic/claude-haiku-5.5";
+const HAIKU_55_RE = /claude[\s_-]*haiku[\s_-]*5\.5\b/i;
 const GROK_420_RE = /grok[\s_-]*4\.20\b/i;
 
 // AI Router (airouter.in) exposes an OpenAI-compatible /chat/completions endpoint,
@@ -43,6 +46,7 @@ function defaultModel() {
 
 /**
  * "Ling 3.0 Flash" → Ling, "Grok 4.20 Non-Reasoning" → Grok 4.20,
+ * "Claude Haiku 5.5" → Claude Haiku 5.5,
  * "VetroAI" / "Qwen…" → Qwen 3.7 Flash,
  * "DeepSeek V4.1 Flash" / "AI Router" → DeepSeek, else null.
  */
@@ -50,6 +54,7 @@ function modelFor(label) {
   const text = String(label || "").trim();
   if (/\bling\b/i.test(text)) return config.airouterLingModel || LING_MODEL;
   if (GROK_420_RE.test(text)) return config.airouterGrokModel || GROK_MODEL;
+  if (HAIKU_55_RE.test(text)) return config.airouterHaikuModel || HAIKU_MODEL;
   if (/qwen|^vetro\s?ai$/i.test(text)) return config.airouterQwenModel || QWEN_MODEL;
   if (/deepseek|ai[\s_-]?router/i.test(text)) return defaultModel();
   return null;
@@ -60,6 +65,7 @@ function displayName(modelId) {
   const id = String(modelId || defaultModel());
   if (/(^|\/)ling-/i.test(id)) return "Ling 3.0 Flash";
   if (/grok/i.test(id)) return "Grok 4.20 Non-Reasoning";
+  if (/haiku/i.test(id)) return "Claude Haiku 5.5";
   if (/qwen/i.test(id)) return "VetroAI";
   return "DeepSeek V4.1 Flash";
 }
@@ -280,6 +286,7 @@ module.exports = {
   MODEL,
   LING_MODEL,
   GROK_MODEL,
+  HAIKU_MODEL,
   QWEN_MODEL,
   modelFor,
   displayName,

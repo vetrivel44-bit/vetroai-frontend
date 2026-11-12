@@ -13,7 +13,7 @@ let n = 0;
 const key = () => `test:${process.pid}:${++n}`;
 
 test("models are weighted by how heavy they are", () => {
-  assert.deepEqual(["Groq", "GPT-5.6 Luna", "Claude Haiku 4.5", "Auto"].map((m) => tierFor(m).weight), [1, 1, 1, 1]);
+  assert.deepEqual(["Groq", "GPT-5.6 Luna", "Claude Haiku 5.5", "Auto"].map((m) => tierFor(m).weight), [1, 1, 1, 1]);
   assert.deepEqual(["Claude Sonnet 5", "GPT-5.6 Terra", "DeepSeek V4.1 Flash"].map((m) => tierFor(m).weight), [2, 2, 2]);
   assert.deepEqual(["Claude Opus 5", "GPT-5.6 Sol", "DeepSearch", "Claude Fable 5"].map((m) => tierFor(m).tier), ["premium", "premium", "premium", "premium"]);
 });
