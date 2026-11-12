@@ -52,9 +52,10 @@ import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from ".
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
 import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
-import { needsLiveInfo } from "./lib/liveInfoIntent";
+import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
+import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
 import { askSearchIntent } from "./lib/searchIntent";
-import { GROUNDING_RULE, searchQueryFor } from "./lib/searchGrounding";
+import { FOLLOW_UP_NOTE, GROUNDING_RULE, leansOnContext, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -109,14 +110,16 @@ import { officeKind, extractOfficeText, looksLikeText } from "./lib/officeText";
 import { wantsSlides, SLIDES_MAX_TOKENS } from "./lib/slides";
 import { imageQuestion } from "./lib/imagePrompt";
 import { rememberTurnFiles, filesOfTurn, carryTurnFiles } from "./lib/turnFiles";
+import { documentText, historyForServer, withEarlierDocuments, withReplyText, withServerText } from "./lib/documentHistory";
 import { authHeaders, checkUsage, recordUsage, UsageLimitError } from "./lib/usageClient";
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
 import UserAvatar from "./components/UserAvatar";
 
 // Text of files the visitor's local model has read, keyed by the user message
-// they came with, so follow-up questions can include them again. Kept in
-// memory only: saved chats never store file contents.
+// they came with, so follow-up questions can include them again. (Every
+// document's text is also saved with its message, `files[].text`, for the
+// other models: lib/documentHistory.js.)
 const localDocMemory = new WeakMap();
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -195,6 +198,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("model", data);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
+      } else if (type === "attachments" && Array.isArray(data)) {
+        // The text of PDFs the server read itself.
+        onMeta?.("attachments", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
       } else if ((type === "research" || type === "research_result") && data) {
@@ -818,7 +824,6 @@ const PUTER_MODEL_IDS = {
   "GPT-5.6 Terra": "gpt-5.6-terra",
   "GPT-5.6 Luna": "gpt-5.6-luna",
   "GPT-5.3 Codex": "openai/gpt-5.3-codex",
-  "Grok 4.6": "x-ai/grok-4.6",
 };
 const OPENAI_PUTER_PROVIDERS = new Set(["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex"]);
 const PUTER_REASONING_EFFORT = { quick: "low", balanced: "medium", deep: "high", max: "xhigh" };
@@ -828,13 +833,14 @@ const AIROUTER_PROVIDER = "DeepSeek V4.1 Flash";
 const LING_PROVIDER = "Ling 3.0 Flash";
 // Qwen 3.7 Flash, shown as VetroAI's own model.
 const VETROAI_PROVIDER = "VetroAI";
-const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, LING_PROVIDER, VETROAI_PROVIDER]);
-const GROK_PROVIDER = "Grok 4.6";
+// xAI's Grok 4.20 (spacexai/grok-4.20-non-reasoning) on AI Router.
+const GROK_420_PROVIDER = "Grok 4.20 Non-Reasoning";
+const AIROUTER_PROVIDERS = new Set([AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, VETROAI_PROVIDER]);
 // Sarvam AI, on the backend (providers/sarvamAdapter.js) — strong in Indian languages.
 const SARVAM_105B_PROVIDER = "Sarvam 105B";
 // sarvam-105b-conversations: 105B tuned for quick back-and-forth chat.
 const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
-const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
+const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
@@ -3277,7 +3283,7 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     [VETROAI_PROVIDER]: ["V", "VetroAI · fast everyday model"],
     [AIROUTER_PROVIDER]: ["D", "DeepSeek · fast, via AI Router"],
     [LING_PROVIDER]: ["L", "inclusionAI · fast and efficient"],
-    [GROK_PROVIDER]: ["G", "xAI · witty, current events"],
+    [GROK_420_PROVIDER]: ["G", "xAI · fast answers, via AI Router"],
     Groq: ["Q", "Fast responses"],
     Gemini: ["✦", "Google AI"],
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],
@@ -6094,7 +6100,11 @@ export default function App() {
             addToast(`📄 ${f.name} is scanned — attached ${pages.length} page image${pages.length === 1 ? "" : "s"} to read`, "success", 3500);
           }
         } catch {
-          addToast(`⚠️ Could not read ${f.name}`, "error");
+          // Attached as it is: VetroAI's server reads it (or tells the model
+          // why it can't). Dropping it left a message about "the attached PDF"
+          // with nothing attached, and the model said it couldn't read it.
+          ready.push(f);
+          addToast(`📄 ${f.name} attached — it will be read when you send it`, "info", 3000);
         }
       } else if (kind === "legacy") {
         addToast(`⚠️ ${f.name} is an old Office format — save it as .docx, .pptx or .xlsx (or PDF) and attach it again`, "error", 6000);
@@ -6296,6 +6306,14 @@ export default function App() {
       `[${r.provider.toUpperCase()} — ${r.elapsed}s]\n${r.content.slice(0, 4000)}`
     ).join("\n\n---\n\n");
 
+    // The synthesizer sees only this prompt, so it gets the recent conversation
+    // too: without it a follow-up ("is the reviews good for this movie") was
+    // synthesized with no idea which movie.
+    const conversationSoFar = historyForServer(hist.slice(0, -1))
+      .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim())
+      .slice(-6)
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.replace(/\s+/g, " ").slice(0, m.role === "user" ? 400 : 600)}`)
+      .join("\n");
     const consensusFd = new FormData();
     consensusFd.append("input", `You are the chief synthesizer in VetroAI's multi-AI council. ${validResults.length} sources (5 AI models + live web search) have independently answered the user's question. Your job is to produce the SINGLE DEFINITIVE answer.
 
@@ -6309,7 +6327,10 @@ INSTRUCTIONS:
 7. If sources provide URLs or citations, include the most relevant ones.
 8. Do NOT mention the individual AI models or say "according to Model X". Write as one authoritative voice.
 
-USER QUESTION: "${userQuery}"
+${conversationSoFar ? `CONVERSATION SO FAR (the question below continues it — "it", "this movie", "he", "total" refer to what was being discussed; keep the answer about that subject):
+${conversationSoFar}
+
+` : ""}USER QUESTION: "${userQuery}"
 
 SOURCE RESPONSES:
 ${responseSummary}
@@ -6413,9 +6434,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
 
-    // Hand-drawn diagrams ("draw the heart") always go to Sarvam 105B, whatever
-    // model is picked; every other request uses the picked model.
-    const requestProvider = isDrawingRequest(userQuery) ? SARVAM_105B_PROVIDER : selectedProvider;
+    // Hand-drawn diagrams ("draw the heart") go to Sarvam 105B only on Auto. A
+    // model picked in the picker draws them itself — forcing Sarvam meant
+    // picking a stronger model (Grok, GPT, Claude) never changed the drawing.
+    const requestProvider = isDrawingRequest(userQuery) && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
     const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
@@ -6424,11 +6446,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // Was slice(-12) — only 6 exchanges of context, so anything said earlier
     // in a longer conversation silently dropped off and the model looked like
     // it forgot. 50 matches the backend's own window (chatController.js).
-    fd.append("messages", JSON.stringify(sendHist.slice(-50).map(m => {
-      if (!m.files) return m;
-      const { files, ...rest } = m;
-      return { ...rest, files: files.map(f => ({ name: f.name })) };
-    })));
+    // Files attached on earlier turns are sent again as their text, so a
+    // follow-up about them ("now fill it in") still has them.
+    fd.append("messages", JSON.stringify(historyForServer(sendHist.slice(-50))));
     fd.append("mode", selectedMode);
     fd.append(
       "provider",
@@ -6484,7 +6504,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       fd.append("systemPrompt", finalSystemPrompt.trim());
     }
 
-    const sportsDetected = !humanizing && isSportsQuery(userQuery);
+    // Asking VetroAI about itself ("Ur name", "who r u", "r u a doctor"),
+    // small talk ("how r u", "thank u") and asking for the last answer another
+    // way ("in tamil", "in short", "give eg") are never lookups: no web search,
+    // live scores or medical mode, whatever mode or plugin is on. "Ur name"
+    // used to be searched, and answered with the history of the ancient city of Ur.
+    const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery) || isFollowUpRequest(userQuery);
+    const sportsDetected = !humanizing && !notALookup && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -6493,8 +6519,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const maybeLocal = (Array.isArray(filesData) ? filesData : filesData ? [filesData] : []).some((f) => f instanceof Blob)
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
-    const medicalDetected = !humanizing && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = !humanizing && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const medicalDetected = !humanizing && !notALookup && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
+    const shouldWebSearch = !humanizing && !notALookup && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -6503,7 +6529,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // (askSearchIntent, below — the same one backend models get), so "I am
     // happy" isn't searched. Backend models are judged on the server, so the
     // activity line only promises a search for an explicit ask.
-    const explicitSearch = requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected;
+    const explicitSearch = !notALookup && (requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: explicitSearch }));
 
     const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
@@ -6706,7 +6732,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             question: freshImage ? imageQuestion(userQuery) : question,
             imageDataUrl,
             imageTurnsAgo: shared ? shared.turnsAgo : 0,
-            systemPrompt: finalSystemPrompt,
+            systemPrompt: [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt, thisMessageNote(userQuery)].filter(Boolean).join("\n\n"),
           }));
         setIsWebSearching(false);
         setStreamStatus("streaming");
@@ -6800,7 +6826,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           throw new Error(`${providerName} could not load. Check your connection and refresh the page.`);
         }
 
-        const puterMessages = sendHist
+        const puterMessages = withEarlierDocuments(sendHist)
           .filter((message) => message?.content && ["user", "assistant"].includes(message.role))
           .slice(-50)
           .map(({ role, content }) => ({ role, content }));
@@ -6811,7 +6837,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         }
         // Who VetroAI is comes first: without it a browser model knew nothing
         // about VetroAI but its name.
-        const puterSystem = [VETROAI_IDENTITY, finalSystemPrompt.trim(), extraSystem.trim()].filter(Boolean).join("\n\n");
+        // How to read short, informal messages ("Ur name", "y?", "in tamil"),
+        // and, for a question about VetroAI itself, a note saying so.
+        const puterSystem = [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt.trim(), extraSystem.trim(), thisMessageNote(userQuery)].filter(Boolean).join("\n\n");
         if (puterSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
           // answers "draw a flowchart" or "chart this" with a visual, not prose.
@@ -6876,7 +6904,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           method: "POST",
           headers: { "Content-Type": "application/json" },
           // A follow-up ("then in 2025?") is searched with the question it follows.
-          body: JSON.stringify({ query: searchQueryFor(userQuery, messagesRef.current), timeZone: userTimeZone() }),
+          // In plain words: "ipl score 2day" is searched as "ipl score today".
+          // The conversation goes too, so the server can rewrite a follow-up
+          // ("is the reviews good for this movie") into a search naming its subject.
+          body: JSON.stringify({
+            query: searchQueryFor(plainReading(userQuery), sendHist.slice(0, -1)),
+            question: plainReading(userQuery),
+            history: sendHist.slice(0, -1).filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim()).slice(-6).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })),
+            timeZone: userTimeZone(),
+          }),
           signal: ctrl.signal,
         });
         const json = await res.json().catch(() => ({}));
@@ -6897,7 +6933,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ).join("\n\n");
         return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, results, who holds which job — so wherever they cover the question, answer from them, even where they contradict what you remember. "
-          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE;
+          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE
+          + (sendHist.length > 1 && leansOnContext(userQuery) ? ` ${FOLLOW_UP_NOTE}` : "");
       };
 
       // `requireSummary`: only answer when the search itself wrote a summary
@@ -7069,7 +7106,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // Web Search with "Auto": the user wants the web's answer, not a chat
       // model's — so answer straight from the search (its summary plus the
       // source cards). Only if that finds nothing does a model get the turn.
-      if (selectedMode === "web_search" && requestProvider === "Auto" && fileCount === 0) {
+      if (selectedMode === "web_search" && requestProvider === "Auto" && fileCount === 0 && !notALookup) {
         if (await answerWithDirectSearch({ requireSummary: true })) return;
         if (!isActive()) return;
         // No search summary: the backend searches (with its own fallbacks) and
@@ -7080,7 +7117,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // search every angle, read the pages, fill gaps, cross-check) and
       // streams its activity log; then the chosen model writes the report
       // from those findings, with the same brief the backend's models get.
-      const isResearchMode = isDeepSearch || selectedMode === "research";
+      const isResearchMode = (isDeepSearch || selectedMode === "research") && !notALookup;
       // Set when the chosen model failed to write the report; then the backend
       // researches and writes it instead (below).
       let researchWriterFailed = false;
@@ -7170,8 +7207,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // model instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
       const canSearchFirst = puterModelId && !humanizing && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider);
-      const browserSearch = canSearchFirst && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
-        query: userQuery, history: hist, mode: selectedMode, timeZone: userTimeZone(),
+      const browserSearch = canSearchFirst && !notALookup && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
+        query: userQuery, history: hist.slice(0, -1).map(withReplyText), mode: selectedMode, timeZone: userTimeZone(),
       }, { fallback: () => needsLiveInfo(userQuery, { mode: selectedMode }) })));
       if (!isActive()) return;
       if (browserSearch) {
@@ -7336,6 +7373,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               setMessages(prev => {
                 if (prev.length === 0) return prev;
                 const u = [...prev];
+                if (metaType === "attachments") {
+                  // Saved with the user's message, so later turns have the file.
+                  const asked = u[u.length - 2];
+                  const files = asked?.role === "user" ? withServerText(asked.files, metaData) : null;
+                  if (!files || files === asked.files) return prev;
+                  u[u.length - 2] = { ...asked, files };
+                  carryTurnFiles(asked, u[u.length - 2]);
+                  return u;
+                }
                 const last = { ...u[u.length - 1] };
                 if (metaType === "sources") last.sources = metaData;
                 // The model that really answered, which may be a fallback.
@@ -7410,7 +7456,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
 
       if (backendFailure) {
-        if (selectedMode === "web_search" && fileCount === 0) {
+        if (selectedMode === "web_search" && fileCount === 0 && !notALookup) {
           setMessages((previous) => {
             const next = [...previous];
             next[next.length - 1] = { ...next[next.length - 1], content: "", reasoning: undefined, isThinking: false };
@@ -7790,7 +7836,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         || (f.type.startsWith("image/") ? await fileToDataUrl(f).catch(() => null) : null);
       // A small copy for the on-device chat cache, which drops big previews.
       const thumb = preview ? await makeThumbnail(preview) : null;
-      return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}) };
+      // A document's text, so later turns (and Retry after a reload) still
+      // have it: lib/documentHistory.js.
+      const text = await documentText(f);
+      return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}), ...(text ? { text } : {}) };
     })) : null;
     const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
     rememberTurnFiles(userMsg, filesToSend);

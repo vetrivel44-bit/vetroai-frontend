@@ -57,11 +57,12 @@ module.exports = {
     cohereVisionModel:   getEnv("COHERE_VISION_MODEL",   "command-a-vision-07-2025"),
     // Agnes AI — video generation only (videoController); no longer a chat model.
     agnesApiKey:         getEnv("AGNES_API_KEY",         ""),
-    // AI Router (airouter.in) — OpenAI-compatible. VetroAI uses DeepSeek V4.1 Flash, Ling 3.0 Flash and Qwen 3.7 Flash (shown as "VetroAI") there.
+    // AI Router (airouter.in) — OpenAI-compatible. VetroAI uses DeepSeek V4.1 Flash, Ling 3.0 Flash, Grok 4.20 Non-Reasoning and Qwen 3.7 Flash (shown as "VetroAI") there.
     airouterApiKey:      getEnv("AIROUTER_API_KEY",      ""),
     airouterBaseUrl:     getEnv("AIROUTER_BASE_URL",     "https://api.airouter.in/v1"),
     airouterModel:       getEnv("AIROUTER_MODEL",        "deepseek/deepseek-v4.1-flash"),
     airouterLingModel:   getEnv("AIROUTER_LING_MODEL",   "inclusionai/ling-3.0-flash"),
+    airouterGrokModel:   getEnv("AIROUTER_GROK_MODEL",   "spacexai/grok-4.20-non-reasoning"),
     airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "alibaba/qwen3.7-flash"),
     // The only image generator: Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite).
     airouterImageModel:  getEnv("AIROUTER_IMAGE_MODEL",  "google/gemini-3.1-flash-lite-image"),
