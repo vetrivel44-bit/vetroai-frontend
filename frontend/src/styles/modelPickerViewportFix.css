@@ -1,151 +1,106 @@
-/* Desktop model picker: one compact, viewport-safe selector on both the home
-   screen and active chats. Every existing model/effort/mode stays available. */
+/* Desktop model menu, laid out like Claude's: featured models, then Effort and
+   More models opening as side menus. Phones use their own full-screen picker
+   (mobileModelPicker.js), built from the same buttons. */
 @media (min-width: 769px) {
-  .workspace-overlay,
-  .workspace-popup-overlay {
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 14px !important;
-    overflow: hidden !important;
+  .workspace-popup.model-menu {
+    width: 340px !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: none !important;
+    padding: 8px !important;
+    overflow: visible !important;
+    border-radius: 16px !important;
+    border: 1px solid var(--border-med) !important;
+    background: var(--bg-elevated) !important;
+    box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .28), 0 2px 8px rgba(0, 0, 0, .08) !important;
+    display: block !important;
+    color: var(--ink);
   }
 
-  .workspace-popup {
-    position: fixed !important;
-    inset: 50% auto auto 50% !important;
-    transform: translate(-50%, -50%) !important;
-    width: min(920px, calc(100vw - 40px)) !important;
-    max-width: calc(100vw - 40px) !important;
-    height: auto !important;
-    max-height: calc(100dvh - 28px) !important;
-    margin: 0 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-    border-radius: 18px !important;
-  }
+  .model-menu .mm-list { display: flex; flex-direction: column; gap: 2px; }
 
-  .workspace-popup .ws-popup-header {
-    flex: 0 0 auto !important;
-    position: relative !important;
-    z-index: 4;
-    padding: 10px 16px !important;
+  .model-menu .mm-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s;
   }
+  .model-menu .mm-row:hover,
+  .model-menu .mm-row:focus-visible,
+  .model-menu .mm-sub-row.open { background: var(--bg-hover); outline: none; }
 
-  .workspace-popup .ws-popup-scroll {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    height: auto !important;
-    max-height: calc(100dvh - 92px) !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
-    padding: 7px 14px 14px !important;
-  }
+  .model-menu .mm-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .model-menu .mm-copy strong { font-size: .95rem; font-weight: 500; color: var(--ink); }
+  .model-menu .mm-copy small { font-size: .82rem; color: var(--ink-3); line-height: 1.3; }
+  .model-menu .mm-check { flex: 0 0 auto; color: var(--accent, #2f6fe0); }
 
-  .workspace-popup .ws-picker-section {
-    padding-top: 5px !important;
-    padding-bottom: 5px !important;
-  }
+  .model-menu .mm-label { flex: 1; font-size: .95rem; }
+  .model-menu .mm-value { font-size: .88rem; color: var(--ink-3); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .model-menu .mm-chev { color: var(--ink-3); flex: 0 0 auto; }
 
-  /* Four models per row on normal laptops: all current models fit in three
-     short rows instead of the oversized two-column layout in the screenshot. */
-  .workspace-popup .ws-model-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: 7px !important;
-  }
+  .model-menu .mm-sep { height: 1px; margin: 6px 12px; background: var(--border); }
+  .model-menu .mm-foot { margin: 4px 12px 6px; font-size: .78rem; line-height: 1.45; color: var(--ink-4); }
 
-  .workspace-popup .ws-effort-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: 7px !important;
+  /* Side menus: closed ones stay in the DOM (the phone picker reads them). */
+  .model-menu .mm-sub {
+    display: none;
+    position: absolute;
+    bottom: 0;
+    right: calc(100% + 8px);
+    width: 300px;
+    max-height: min(520px, calc(100dvh - 140px));
+    padding: 8px;
+    border-radius: 16px;
+    border: 1px solid var(--border-med);
+    background: var(--bg-elevated);
+    box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .28), 0 2px 8px rgba(0, 0, 0, .08);
+    animation: popUp .12s ease-out;
   }
+  .model-menu .mm-sub.open { display: flex; flex-direction: column; gap: 2px; }
+  .model-menu .mm-sub-models { width: 320px; }
+  .model-menu .mm-back { display: none; }
+  .model-menu .mm-sub-scroll { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; }
 
-  .workspace-popup .ws-mode-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 7px !important;
-  }
+  /* On the home screen the menu opens downward from the left: side menus go right. */
+  .workspace-popup.model-menu.popup-down .mm-sub { bottom: auto; top: 0; right: auto; left: calc(100% + 8px); }
 
-  .workspace-popup .ws-model-option,
-  .workspace-popup .ws-effort-option,
-  .workspace-popup .ws-mode-card {
-    min-height: 0 !important;
-    height: auto !important;
-    box-sizing: border-box !important;
+  .model-menu .ws-model-option {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+    cursor: pointer;
+    text-align: left;
   }
+  .model-menu .ws-model-option:hover { background: var(--bg-hover) !important; }
+  .model-menu .ws-model-option.active { background: var(--bg-hover) !important; }
+  .model-menu .ws-model-mark { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 8px; }
+  .model-menu .ws-model-copy strong { font-size: .88rem !important; font-weight: 500 !important; }
+  .model-menu .ws-model-copy small { font-size: .74rem !important; }
+  .model-menu .ws-choice-check { width: auto !important; height: auto !important; border: 0 !important; background: none !important; color: var(--accent, #2f6fe0); display: grid; place-items: center; }
 
-  .workspace-popup .ws-model-option {
-    padding: 8px 9px !important;
-    gap: 8px !important;
-  }
-
-  .workspace-popup .ws-effort-option,
-  .workspace-popup .ws-mode-card {
-    padding: 8px 10px !important;
-  }
-
-  .workspace-popup .ws-model-copy strong,
-  .workspace-popup .ws-mode-name {
-    font-size: .84rem !important;
-    line-height: 1.15 !important;
-  }
-
-  .workspace-popup .ws-model-copy small,
-  .workspace-popup .ws-mode-desc {
-    font-size: .69rem !important;
-    line-height: 1.2 !important;
-  }
-
-  .workspace-popup .ws-picker-section:last-child {
-    padding-bottom: 10px !important;
-  }
-}
-
-/* Common 1366x768 / 1366x720 laptop screens. */
-@media (min-width: 1001px) and (max-height: 820px) {
-  .workspace-popup {
-    width: min(900px, calc(100vw - 30px)) !important;
-    max-height: calc(100dvh - 18px) !important;
-    border-radius: 15px !important;
-  }
-  .workspace-popup .ws-popup-header { padding: 7px 14px !important; }
-  .workspace-popup .ws-popup-scroll {
-    max-height: calc(100dvh - 70px) !important;
-    padding: 4px 12px 10px !important;
-  }
-  .workspace-popup .ws-picker-section {
-    padding-top: 3px !important;
-    padding-bottom: 3px !important;
-  }
-  .workspace-popup .ws-model-grid,
-  .workspace-popup .ws-effort-grid,
-  .workspace-popup .ws-mode-grid { gap: 6px !important; }
-  .workspace-popup .ws-model-option,
-  .workspace-popup .ws-effort-option,
-  .workspace-popup .ws-mode-card {
-    padding-top: 6px !important;
-    padding-bottom: 6px !important;
-  }
-}
-
-/* Tablet landscape / narrow desktop: use fewer columns rather than clipping. */
-@media (min-width: 769px) and (max-width: 1000px) {
-  .workspace-popup {
-    width: min(760px, calc(100vw - 24px)) !important;
-  }
-  .workspace-popup .ws-model-grid,
-  .workspace-popup .ws-mode-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-}
-
-/* Extremely short windows remain fully reachable by scrolling only the body. */
-@media (min-width: 769px) and (max-height: 620px) {
-  .workspace-popup {
-    max-height: calc(100dvh - 10px) !important;
-  }
-  .workspace-popup .ws-popup-header { padding: 6px 12px !important; }
-  .workspace-popup .ws-popup-scroll {
-    max-height: calc(100dvh - 58px) !important;
-    padding: 3px 10px 8px !important;
+  /* Not enough room on the left of a narrow window: stack the side menu over the main one. */
+  @media (max-width: 1100px) {
+    .workspace-popup.model-menu:not(.popup-down) .mm-sub { right: 0; bottom: 0; width: 100%; }
+    .workspace-popup.model-menu:not(.popup-down) .mm-back,
+    .workspace-popup.model-menu.popup-down .mm-back { display: none; }
+    .workspace-popup.model-menu:not(.popup-down) .mm-sub.open .mm-back {
+      display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0; background: none;
+      color: var(--ink-2); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; border-radius: 8px;
+    }
   }
 }

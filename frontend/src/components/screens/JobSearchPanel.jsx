@@ -868,6 +868,8 @@ export default function JobSearchPanel({ onClose }) {
   const noun = internMode ? { one: "internship", many: "internships", Many: "Internships" } : { one: "job", many: "jobs", Many: "Jobs" };
   // How many listings were dropped as expired/closed in the last search.
   const [hiddenClosed, setHiddenClosed] = useState(0);
+  // Why the last search failed (server not set up, busy…), shown instead of "No jobs found".
+  const [searchError, setSearchError] = useState("");
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
 
@@ -981,7 +983,7 @@ export default function JobSearchPanel({ onClose }) {
     const role = query.trim();
     const internToggle = (overrideFilters || filters).experience === "intern";
     if (!role && !useNear && !internToggle) return;
-    setLoading(true); setSearched(true); setDetail(null); setNoMatch(false);
+    setLoading(true); setSearched(true); setDetail(null); setNoMatch(false); setSearchError("");
     setResultNear(useNear ? nr : null);
     // History remembers an internship search as one, so re-running it from
     // the History tab gives internships again.
@@ -1032,7 +1034,8 @@ export default function JobSearchPanel({ onClose }) {
         setJobs([]);
         setLoading(false); return;
       }
-    } catch { 
+    } catch (err) {
+      setSearchError(err?.message || "Job listings could not be loaded.");
       setNoMatch(true);
       setJobs([]);
       setLoading(false); 
@@ -1400,6 +1403,7 @@ export default function JobSearchPanel({ onClose }) {
                 noMatch ? (resultNear
                   ? <Empty title={`No ${noun.many} within ${resultNear.radius} km`} sub={`Nothing matched around ${resultNear.area || resultNear.place || "you"} right now.`}
                       action={resultNear.radius < RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1] && <button type="button" className="jsp-cta" onClick={() => setRadius(RADIUS_OPTIONS.find(r => r > resultNear.radius))}>Search within {RADIUS_OPTIONS.find(r => r > resultNear.radius)} km</button>} />
+                  : searchError ? <Empty title="Job search isn't working right now" sub={searchError} action={<button type="button" className="jsp-cta" onClick={() => search(q)}>Try again</button>} />
                   : <Empty title={filters.experience === "intern" ? "No open internships found" : "No jobs found"}
                       sub={hiddenClosed > 0
                         ? `${hiddenClosed} matching listing${hiddenClosed === 1 ? " has" : "s have"} expired or closed. Try a wider "Posted" range or different keywords.`

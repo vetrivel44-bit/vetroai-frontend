@@ -7,18 +7,27 @@ const { config } = require("../config/env");
 const { readResume, explainFit } = require("../services/resumeService");
 
 // Job Search.
-//   GET  /api/jobs/search?query=…   JSearch listings (the key stays on the server;
+//   GET  /api/jobs/search?query=…   JSearch listings, from OpenWeb Ninja or RapidAPI (the key stays on the server;
 //                                    it used to be written into the browser code)
 //   POST /api/jobs/resume { text }  → { profile }   the resume read into a profile
 //   POST /api/jobs/fit { profile, job } → { fit }   advice on one job
 const router = express.Router();
 
-const JSEARCH_HOST = "jsearch.p.rapidapi.com";
+// JSearch is sold both by OpenWeb Ninja (keys start "ak_", sent as X-API-Key)
+// and on RapidAPI; the key says which one to call.
+const OPENWEBNINJA_URL = "https://api.openwebninja.com/jsearch/search-v2";
+const RAPIDAPI_HOST = "jsearch.p.rapidapi.com";
+function jsearchRequest(key, params) {
+  if (/^ak_/.test(key) || process.env.JSEARCH_PROVIDER === "openwebninja") {
+    return { url: `${OPENWEBNINJA_URL}?${params}`, headers: { "X-API-Key": key } };
+  }
+  return { url: `https://${RAPIDAPI_HOST}/search-v2?${params}`, headers: { "x-rapidapi-key": key, "x-rapidapi-host": RAPIDAPI_HOST } };
+}
 // Only these go on to JSearch.
 const PASS_THROUGH = ["query", "page", "num_pages", "radius", "date_posted", "employment_types", "job_requirements", "remote_jobs_only", "country", "language"];
 
 router.get("/search", chatLimiter, asyncHandler(async (req, res) => {
-  const key = config.jsearchApiKey || process.env.JSEARCH_API_KEY;
+  const key = String(config.jsearchApiKey || process.env.JSEARCH_API_KEY || process.env.OPENWEBNINJA_API_KEY || "").trim();
   if (!key) throw new ApiError(503, "Job search isn't set up on the server (JSEARCH_API_KEY is missing).");
   const params = new URLSearchParams();
   for (const name of PASS_THROUGH) {
@@ -28,10 +37,8 @@ router.get("/search", chatLimiter, asyncHandler(async (req, res) => {
   if (!params.get("query")) throw new ApiError(400, "query is required");
   let upstream;
   try {
-    upstream = await fetch(`https://${JSEARCH_HOST}/search-v2?${params}`, {
-      headers: { "x-rapidapi-key": key, "x-rapidapi-host": JSEARCH_HOST },
-      signal: AbortSignal.timeout(25000),
-    });
+    const { url, headers } = jsearchRequest(key, params);
+    upstream = await fetch(url, { headers, signal: AbortSignal.timeout(25000) });
   } catch (err) {
     logger.warn("jobs.search.unreachable", { error: err.message });
     throw new ApiError(502, "The job listings service could not be reached.");

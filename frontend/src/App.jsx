@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useCon
 import { createStreamingSpeaker, stopActiveSpeaker } from "./lib/voiceStream.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage } from "./lib/speechLanguage.js";
+import { autoModeFor } from "./lib/autoMode.js";
 import { setActiveAccountKey, looksLikeJwt } from "./lib/storageGuard.js";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -847,10 +848,10 @@ const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 const EFFORT_LEVELS = [
-  { id: "quick", name: "Quick", desc: "Fast, concise answers", icon: Zap, maxTokens: 2048 },
-  { id: "balanced", name: "Balanced", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
-  { id: "deep", name: "Deep", desc: "More analysis and checking", icon: Brain, maxTokens: 8192 },
-  { id: "max", name: "Max", desc: "Hard problems and coding", icon: Rocket, maxTokens: 16384 },
+  { id: "quick", name: "Low", desc: "Fastest, short answers and a light search", icon: Zap, maxTokens: 2048 },
+  { id: "balanced", name: "Medium", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
+  { id: "deep", name: "High", desc: "Thinks longer and searches deeper", icon: Brain, maxTokens: 8192 },
+  { id: "max", name: "Max", desc: "Most thorough, for the hardest problems", icon: Rocket, maxTokens: 16384 },
 ];
 
 const EFFORT_INSTRUCTIONS = {
@@ -3145,12 +3146,6 @@ function SpaceModal({ space, onSave, onClose, onDelete }) {
               <label className="provider-label">Name</label>
               <input className="sys-prompt-textarea" style={{ minHeight: "auto", height: 40 }} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Coding Space" />
             </div>
-            <div style={{ flex: 1 }}>
-              <label className="provider-label">Default Mode</label>
-              <select className="sys-prompt-textarea" style={{ minHeight: "auto", height: 40 }} value={mode} onChange={e => setMode(e.target.value)}>
-                {MODES_LIST.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
           </div>
           <div>
             <label className="provider-label">Icon & Color</label>
@@ -3250,12 +3245,23 @@ function SpacesPanel({ spaces, currentSpaceId, onOpenSpace, onNewSpace, onEditSp
 
 // ─── WORKSPACE POPUP ────────────────────────────────────────────────────────────
 
-function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectMode, onSelectProvider, onSelectEffort, onClose, variant }) {
+// The model menu, laid out like Claude's: a few featured models, then Effort
+// and More models as submenus. There is no Mode menu any more: the app picks
+// the workflow (search, research, code, data, summary) for each message
+// (lib/autoMode.js). Every model is still rendered as a .ws-model-option and
+// every effort as a .ws-effort-option (the More models / Effort submenus are
+// in the DOM even while closed): the phone picker (mobileModelPicker.js)
+// builds its own screen from them.
+const FEATURED_MODELS = ["Auto", CLAUDE_FABLE_PROVIDER, "GPT-5.6 Sol", HAIKU_55_PROVIDER, "Gemini 3.1 Pro"];
+
+function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSelectEffort, onClose, variant }) {
   const [isClosing, setIsClosing] = useState(false);
+  const [submenu, setSubmenu] = useState(null); // "effort" | "models" | null
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === "Escape") handleClose();
+      if (e.key !== "Escape") return;
+      setSubmenu((open) => { if (!open) handleClose(); return null; });
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -3264,16 +3270,6 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
   const handleClose = () => {
     setIsClosing(true);
     setTimeout(onClose, 100);
-  };
-
-  const modeColors = {
-    normal: "rgba(255, 255, 255, 0.12)",
-    web_search: "rgba(34, 211, 238, 0.14)",
-    deep_search: "rgba(59, 130, 246, 0.12)",
-    analyst: "rgba(249, 115, 22, 0.12)",
-    multi_ai: "rgba(16, 185, 129, 0.12)",
-    debugger: "rgba(168, 85, 247, 0.12)",
-    summarize: "rgba(245, 158, 11, 0.12)"
   };
 
   const providerMeta = {
@@ -3293,86 +3289,87 @@ function WorkspacePopup({ currentMode, currentProvider, currentEffort, onSelectM
     [SARVAM_105B_PROVIDER]: ["स", "Sarvam AI · Indian languages"],
     [SARVAM_105B_CHAT_PROVIDER]: ["स", "Sarvam AI · quick conversations"],
   };
+  // Short lines for the featured rows, in the menu's own voice.
+  const featuredDetail = {
+    Auto: "Picks the right model and workflow for each message",
+    [CLAUDE_FABLE_PROVIDER]: "For your toughest challenges",
+    "GPT-5.6 Sol": "For complex work and everyday tasks",
+    [HAIKU_55_PROVIDER]: "Fastest for quick answers",
+    "Gemini 3.1 Pro": "Strong reasoning across text and images",
+  };
+  const featured = FEATURED_MODELS.filter((p) => PROVIDERS.includes(p));
+  const effort = EFFORT_LEVELS.find((item) => item.id === currentEffort) || EFFORT_LEVELS[1];
+  const pick = (provider) => { onSelectProvider(provider); handleClose(); };
+  const inMore = !featured.includes(currentProvider);
 
   return (
     <>
       <div className="overlay" style={{ background: "transparent" }} onClick={handleClose}></div>
-      <div className={`workspace-popup${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`}>
-        <div className="ws-popup-header">
-          <div>
-            <strong>Model & effort</strong>
-            <span>Choose how VetroAI should respond</span>
-          </div>
-          <button type="button" className="ws-popup-close" onClick={handleClose} aria-label="Close model selector"><X size={16} /></button>
+      <div className={`workspace-popup model-menu${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`} role="menu" aria-label="Model and effort">
+        <button type="button" className="ws-popup-close" onClick={handleClose} aria-label="Close model selector" hidden />
+        <div className="mm-list">
+          {featured.map((provider) => (
+            <button type="button" key={provider} role="menuitemradio" aria-checked={currentProvider === provider}
+              className={`mm-row${currentProvider === provider ? " active" : ""}`}
+              onMouseEnter={() => setSubmenu(null)}
+              onClick={(event) => { event.stopPropagation(); pick(provider); }}>
+              <span className="mm-copy"><strong>{provider}</strong><small>{featuredDetail[provider] || providerMeta[provider]?.[1]}</small></span>
+              {currentProvider === provider && <Check size={17} className="mm-check" />}
+            </button>
+          ))}
+        </div>
+        <div className="mm-sep" />
+        <button type="button" className={`mm-row mm-sub-row${submenu === "effort" ? " open" : ""}`} aria-haspopup="menu" aria-expanded={submenu === "effort"}
+          onMouseEnter={() => setSubmenu("effort")}
+          onClick={(event) => { event.stopPropagation(); setSubmenu((v) => (v === "effort" ? null : "effort")); }}>
+          <span className="mm-label">Effort</span>
+          <span className="mm-value">{effort.name}</span>
+          <ChevronRight size={16} className="mm-chev" />
+        </button>
+        <div className="mm-sep" />
+        <button type="button" className={`mm-row mm-sub-row${submenu === "models" ? " open" : ""}`} aria-haspopup="menu" aria-expanded={submenu === "models"}
+          onMouseEnter={() => setSubmenu("models")}
+          onClick={(event) => { event.stopPropagation(); setSubmenu((v) => (v === "models" ? null : "models")); }}>
+          <span className="mm-label">More models</span>
+          {inMore && <span className="mm-value">{currentProvider}</span>}
+          <ChevronRight size={16} className="mm-chev" />
+        </button>
+        <div className="mm-sep" />
+        <p className="mm-foot">Auto sends each message to the right model and decides when to search the web, research, write code or analyse data.</p>
+
+        <div className={`mm-sub mm-sub-effort${submenu === "effort" ? " open" : ""}`} role="menu" aria-label="Effort">
+          <button type="button" className="mm-back" onClick={(event) => { event.stopPropagation(); setSubmenu(null); }}><ChevronLeft size={16} />Effort</button>
+          {EFFORT_LEVELS.map((level) => (
+            <button type="button" key={level.id} role="menuitemradio" aria-checked={currentEffort === level.id}
+              className={`ws-effort-option mm-row${currentEffort === level.id ? " active" : ""}`}
+              onClick={(event) => { event.stopPropagation(); onSelectEffort(level.id); setSubmenu(null); }}>
+              <span className="mm-copy"><strong>{level.name}</strong><small>{level.desc}</small></span>
+              {currentEffort === level.id && <Check size={17} className="mm-check" />}
+            </button>
+          ))}
         </div>
 
-        <div className="ws-popup-scroll">
-          <section className="ws-picker-section">
-            <div className="ws-section-title"><span>Model</span><em>{currentProvider}</em></div>
-            <div className="ws-model-grid">
-              {PROVIDERS.map((provider) => {
-                const [mark, detail] = providerMeta[provider];
-                return (
-                  <button
-                    type="button"
-                    key={provider}
-                    className={`ws-model-option${currentProvider === provider ? " active" : ""}`}
-                    onClick={(event) => { event.stopPropagation(); onSelectProvider(provider); }}
-                  >
-                    <span className={`ws-model-mark model-${provider.toLowerCase().replace(/\s+/g, "-")}`}>{mark}</span>
-                    <span className="ws-model-copy"><strong>{provider}</strong><small>{detail}</small></span>
-                    <span className="ws-choice-check">{currentProvider === provider && <Check size={13} />}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="ws-picker-section ws-effort-section">
-            <div className="ws-section-title"><span>Effort</span><em>Changes speed and depth</em></div>
-            <div className="ws-effort-grid">
-              {EFFORT_LEVELS.map((effort) => {
-                const EffortIcon = effort.icon;
-                return (
-                  <button
-                    type="button"
-                    key={effort.id}
-                    className={`ws-effort-option${currentEffort === effort.id ? " active" : ""}`}
-                    onClick={(event) => { event.stopPropagation(); onSelectEffort(effort.id); }}
-                  >
-                    <EffortIcon size={15} />
-                    <span><strong>{effort.name}</strong><small>{effort.desc}</small></span>
-                    {currentEffort === effort.id && <Check size={13} />}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="ws-picker-section ws-mode-section">
-            <div className="ws-section-title"><span>Mode</span><em>Specialized workflow</em></div>
-            <div className="ws-popup-grid">
-              {MODES_LIST.map(m => (
+        <div className={`mm-sub mm-sub-models${submenu === "models" ? " open" : ""}`} role="menu" aria-label="More models">
+          <button type="button" className="mm-back" onClick={(event) => { event.stopPropagation(); setSubmenu(null); }}><ChevronLeft size={16} />More models</button>
+          <div className="mm-sub-scroll">
+            {PROVIDERS.map((provider) => {
+              const [mark, detail] = providerMeta[provider] || ["•", ""];
+              return (
                 <button
                   type="button"
-                  key={m.id}
-                  className={`ws-mode-card${currentMode === m.id ? " active" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectMode(m.id);
-                    handleClose();
-                  }}
+                  key={provider}
+                  role="menuitemradio"
+                  aria-checked={currentProvider === provider}
+                  className={`ws-model-option${currentProvider === provider ? " active" : ""}${featured.includes(provider) ? " mm-featured" : ""}`}
+                  onClick={(event) => { event.stopPropagation(); pick(provider); }}
                 >
-                  <div className="ws-mode-icon" style={{ background: modeColors[m.id] || modeColors.normal }}>
-                    <ModelIcon id={m.id} size={16} />
-                  </div>
-                  <div className="ws-mode-name">{m.name}</div>
-                  <div className="ws-mode-desc">{m.desc}</div>
-                  {currentMode === m.id && <div className="ws-mode-active-badge"><Check size={11} /></div>}
+                  <span className={`ws-model-mark model-${provider.toLowerCase().replace(/\s+/g, "-")}`}>{mark}</span>
+                  <span className="ws-model-copy"><strong>{provider}</strong><small>{detail}</small></span>
+                  <span className="ws-choice-check">{currentProvider === provider && <Check size={13} />}</span>
                 </button>
-              ))}
-            </div>
-          </section>
+              );
+            })}
+          </div>
         </div>
       </div>
     </>
@@ -5343,7 +5340,6 @@ export default function App() {
     if (activeSpaceId) {
       const sp = spaces.find(s => s.id === activeSpaceId);
       if (sp) {
-        setSelectedMode(sp.mode);
         setSystemPrompt(sp.systemPrompt);
       }
     }
@@ -6409,6 +6405,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const answerLocationAsk = useCallback((choice) => { locationAskRef.current?.(choice); }, []);
 
   const triggerAI = async (hist, filesData = null, ytContext = null) => {
+    // No Mode menu: the workflow for this message is picked from what it asks
+    // (lib/autoMode.js). The web search toggle still forces a search.
+    const lastUserMessage = [...hist].reverse().find((m) => m?.role === "user");
+    const selectedMode = autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
+    const isWebMode = selectedMode === "web_search";
+    const isDeepSearch = selectedMode === "deep_search";
     let replySpeaker = null;
     const reqId = Date.now().toString();
     abortRef.current?.abort();
@@ -7687,10 +7689,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       runAutoMemoryExtraction(text);
     }
 
-    // Auto-detect Code mode suggestion
-    if (selectedMode === "normal" && (text.includes("```") || /function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+/.test(text))) {
-      addToast("Tip: Code detected. Switch to Code mode for optimized coding answers.", "info", 4000);
-    }
     // Image generation intercept
     const imagePluginInvoked = pluginMentioned(pluginState, text, "image-studio");
     const cleanImagePrompt = imagePluginInvoked ? removePluginMention(text, "image-studio") : text;
@@ -8119,22 +8117,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             {/* Model selector */}
             <div className="block" style={{ position: "relative" }}>
               {showModelPicker && <WorkspacePopup
-                currentMode={selectedMode}
                 currentProvider={selectedProvider}
                 currentEffort={selectedEffort}
-                onSelectMode={(next) => {
-                  if (lockModelPerChat && messages.length > 0) {
-                    addToast("Model is locked for this chat. Start a new chat to switch.", "info", 2200);
-                    return;
-                  }
-                  setSelectedMode(next);
-                }}
                 onSelectProvider={setSelectedProvider}
                 onSelectEffort={setSelectedEffort}
                 onClose={() => setShowModelPicker(false)}
               />}
               <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
-                <span className="mode-pill-name">{selectedProvider === "Auto" ? currentMode.name : selectedProvider}</span>
+                <span className="mode-pill-name">{selectedProvider}</span>
                 <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
                 <svg style={{ transform: showModelPicker ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
