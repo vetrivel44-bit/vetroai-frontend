@@ -3,6 +3,7 @@
 // Used by news "Listen" and Computer narration; chat voice mode has its own
 // mic-aware loop in App.jsx that calls the same endpoint.
 import { resolveApiBase } from "./apiBase.js";
+import { detectSpeechLanguage } from "./speechLanguage.js";
 
 const PROD_API = "https://ai-chatbot-backend-gvvz.onrender.com/api";
 const API = resolveApiBase(import.meta.env?.VITE_API_BASE_URL, import.meta.env?.PROD, PROD_API);
@@ -33,7 +34,7 @@ export async function speakText(text, { voice, rate, onEnd } = {}) {
     const res = await fetch(`${API}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: clean, voice }),
+      body: JSON.stringify({ text: clean, voice, lang: detectSpeechLanguage(clean) || undefined }),
     });
     if (!res.ok) throw new Error(`TTS ${res.status}`);
     const blob = await res.blob();
@@ -50,6 +51,8 @@ export async function speakText(text, { voice, rate, onEnd } = {}) {
     if (current !== handle) return;
     if (typeof window === "undefined" || !window.speechSynthesis) { finish(); return; }
     const utterance = new SpeechSynthesisUtterance(clean);
+    const textLang = detectSpeechLanguage(clean);
+    if (textLang) utterance.lang = textLang;
     if (rate) utterance.rate = rate;
     utterance.onend = finish;
     utterance.onerror = finish;

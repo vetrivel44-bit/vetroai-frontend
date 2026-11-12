@@ -7,6 +7,7 @@
 // fetched while the current one plays, and playback stays in order: speech
 // starts about a second after the model starts answering.
 import { pickBrowserVoice, describeTtsVoice } from "../utils/browserVoice.js";
+import { detectSpeechLanguage } from "./speechLanguage.js";
 
 const MAX_SPOKEN_CHARS = 1500; // a spoken reply should not read out an essay
 const MAX_PARALLEL_FETCHES = 3;
@@ -85,7 +86,10 @@ export function stopActiveSpeaker() {
  *   onStop: speech was cut short (error, abort, interrupt).
  */
 // maxChars: how much of the reply to speak (Read aloud speaks a whole reply).
-export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop, maxChars = MAX_SPOKEN_CHARS }) {
+// lang: the reply's language when known (Read aloud detects it on the whole
+// reply); otherwise each sentence's own script decides. A reply that isn't in
+// the picked voice's language is read by a native voice for that language.
+export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop, maxChars = MAX_SPOKEN_CHARS, lang }) {
   active?.stop();
   let abort = new AbortController();
   let queue = [];
@@ -113,7 +117,7 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     const res = await fetch(`${apiBase}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice }),
+      body: JSON.stringify({ text, voice, lang: lang || detectSpeechLanguage(text) || undefined }),
       signal: abort.signal,
     });
     if (!res.ok) throw new Error(`TTS ${res.status}`);
@@ -142,10 +146,13 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     const synth = window.speechSynthesis;
     if (!synth) { resolve(); return; }
     const utterance = new SpeechSynthesisUtterance(text);
+    const textLang = lang || detectSpeechLanguage(text);
     try {
-      const match = pickBrowserVoice(synth.getVoices(), voice);
+      // Text in another language: the browser's own voice for that language.
+      const native = textLang && synth.getVoices().find((v) => v.lang?.toLowerCase().startsWith(textLang));
+      const match = native || (textLang ? null : pickBrowserVoice(synth.getVoices(), voice));
       if (match) utterance.voice = match;
-      utterance.lang = match?.lang || describeTtsVoice(voice).lang;
+      utterance.lang = match?.lang || textLang || describeTtsVoice(voice).lang;
     } catch { /* default voice */ }
     utterance.onend = resolve;
     utterance.onerror = resolve;

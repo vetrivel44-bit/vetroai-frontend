@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
 import { createStreamingSpeaker, stopActiveSpeaker } from "./lib/voiceStream.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
+import { detectSpeechLanguage } from "./lib/speechLanguage.js";
 import { setActiveAccountKey, looksLikeJwt } from "./lib/storageGuard.js";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -5664,7 +5665,7 @@ export default function App() {
     if (wasReading) return;
     setReadingIdx(idx);
     const done = () => { window.isTTSLoading = false; setReadingIdx((cur) => (cur === idx ? null : cur)); };
-    const speaker = createStreamingSpeaker({ apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, onDone: done, onStop: done });
+    const speaker = createStreamingSpeaker({ apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, lang: detectSpeechLanguage(content) || undefined, onDone: done, onStop: done });
     speaker.finish(content);
   };
 
@@ -5854,7 +5855,7 @@ export default function App() {
       const response = await fetch(`${API}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: c, voice: ttsVoiceRef.current })
+        body: JSON.stringify({ text: c, voice: ttsVoiceRef.current, lang: detectSpeechLanguage(c) || undefined })
       });
       
       if (!response.ok) throw new Error("TTS API Failed");

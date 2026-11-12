@@ -540,10 +540,13 @@ async function textToSpeech(req, res) {
   const text = String(req.body?.text || "").trim();
   if (!text) throw new ApiError(400, "text is required");
   const voice = String(req.body?.voice || "en-US-JennyNeural").slice(0, 40);
+  // The text's language ("ta", "hi"…), sent by the app: a reply in another
+  // language than the picked voice is read by a native voice.
+  const lang = String(req.body?.lang || "").slice(0, 3);
 
   let audio;
   try {
-    audio = await ttsService.synthesizeSpeech({ text: text.slice(0, 2000), voice });
+    audio = await ttsService.synthesizeSpeech({ text: text.slice(0, 2000), voice, lang });
   } catch (err) {
     // 503 tells the browser to fall back to its own voice instead of failing.
     throw new ApiError(503, `Text-to-speech is unavailable right now: ${err?.message || "unknown error"}`);
