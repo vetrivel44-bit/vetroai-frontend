@@ -3257,6 +3257,35 @@ const FEATURED_MODELS = ["Auto", CLAUDE_FABLE_PROVIDER, "GPT-5.6 Sol", HAIKU_55_
 function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSelectEffort, onClose, variant }) {
   const [isClosing, setIsClosing] = useState(false);
   const [submenu, setSubmenu] = useState(null); // "effort" | "models" | null
+  // Placed on the page (a portal) where it fits: above the model button when
+  // there is room, else below; side menus open towards the free side. Inside
+  // the composer it was cut off at the top of a short window.
+  const anchorRef = useRef(null);
+  const menuRef = useRef(null);
+  const [place, setPlace] = useState(null);
+  React.useLayoutEffect(() => {
+    const position = () => {
+      const anchor = anchorRef.current?.parentElement;
+      const menu = menuRef.current;
+      if (!anchor || !menu || window.innerWidth <= 768) { setPlace(null); return; }
+      const rect = anchor.getBoundingClientRect();
+      const gap = 8, edge = 10;
+      const w = menu.offsetWidth;
+      const h = menu.scrollHeight;
+      const above = rect.top - gap - edge;
+      const below = window.innerHeight - rect.bottom - gap - edge;
+      const up = above >= h || above >= below;
+      const room = Math.max(up ? above : below, 160);
+      const height = Math.min(h, room);
+      const top = up ? rect.top - gap - height : rect.bottom + gap;
+      const left = Math.min(Math.max(edge, rect.right - w), window.innerWidth - w - edge);
+      const side = left >= 320 ? "left" : window.innerWidth - (left + w) >= 320 ? "right" : "over";
+      setPlace({ top, left, maxHeight: room, up, side, avail: up ? rect.top - gap - edge : window.innerHeight - top - edge });
+    };
+    position();
+    window.addEventListener("resize", position);
+    return () => window.removeEventListener("resize", position);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -3304,8 +3333,12 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
 
   return (
     <>
-      <div className="overlay" style={{ background: "transparent" }} onClick={handleClose}></div>
-      <div className={`workspace-popup model-menu${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`} role="menu" aria-label="Model and effort">
+      <span ref={anchorRef} hidden />
+      {createPortal(<>
+      <div className="overlay" style={{ background: "transparent", backdropFilter: "none", WebkitBackdropFilter: "none", padding: 0 }} onClick={handleClose}></div>
+      <div ref={menuRef} className={`workspace-popup model-menu${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`} role="menu" aria-label="Model and effort"
+        data-side={place?.side || "left"} data-v={place ? (place.up ? "up" : "down") : "up"}
+        style={place ? { position: "fixed", top: place.top, left: place.left, right: "auto", bottom: "auto", "--mm-avail": `${place.avail}px` } : (typeof window !== "undefined" && window.innerWidth > 768 ? { position: "fixed", visibility: "hidden" } : undefined)}>
         <button type="button" className="ws-popup-close" onClick={handleClose} aria-label="Close model selector" hidden />
         <div className="mm-list">
           {featured.map((provider) => (
@@ -3372,6 +3405,7 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
           </div>
         </div>
       </div>
+      </>, document.body)}
     </>
   );
 }

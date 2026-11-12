@@ -23,7 +23,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 9px 12px;
+    padding: 8px 12px;
     border: 0;
     border-radius: 10px;
     background: transparent;
@@ -69,8 +69,15 @@
   .model-menu .mm-back { display: none; }
   .model-menu .mm-sub-scroll { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; }
 
-  /* On the home screen the menu opens downward from the left: side menus go right. */
-  .workspace-popup.model-menu.popup-down .mm-sub { bottom: auto; top: 0; right: auto; left: calc(100% + 8px); }
+  /* Side menus open towards the free side (data-side, set when placed). */
+  .model-menu[data-side="right"] .mm-sub { right: auto; left: calc(100% + 8px); }
+  .model-menu[data-v="down"] .mm-sub { bottom: auto; top: 0; }
+  .model-menu .mm-sub { max-height: min(520px, var(--mm-avail, 520px)); }
+  .model-menu[data-side="over"] .mm-sub { right: 0; left: 0; width: auto; }
+  .model-menu[data-side="over"] .mm-sub.open .mm-back {
+    display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0; background: none;
+    color: var(--ink-2); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; border-radius: 8px;
+  }
 
   .model-menu .ws-model-option {
     width: 100%;
@@ -93,14 +100,4 @@
   .model-menu .ws-model-copy small { font-size: .74rem !important; }
   .model-menu .ws-choice-check { width: auto !important; height: auto !important; border: 0 !important; background: none !important; color: var(--accent, #2f6fe0); display: grid; place-items: center; }
 
-  /* Not enough room on the left of a narrow window: stack the side menu over the main one. */
-  @media (max-width: 1100px) {
-    .workspace-popup.model-menu:not(.popup-down) .mm-sub { right: 0; bottom: 0; width: 100%; }
-    .workspace-popup.model-menu:not(.popup-down) .mm-back,
-    .workspace-popup.model-menu.popup-down .mm-back { display: none; }
-    .workspace-popup.model-menu:not(.popup-down) .mm-sub.open .mm-back {
-      display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0; background: none;
-      color: var(--ink-2); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; border-radius: 8px;
-    }
-  }
 }
