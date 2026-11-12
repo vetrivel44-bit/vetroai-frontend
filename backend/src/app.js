@@ -105,6 +105,7 @@ app.use("/api/voice-cover", require("./routes/voiceCoverRoutes"));
 app.use("/api/call-assistant", require("./routes/callAssistantRoutes"));
 app.use("/api/chess", require("./routes/chessRoutes"));
 app.use("/api/web-search", require("./routes/webSearchRoutes"));
+app.use("/api/jobs", require("./routes/jobRoutes"));
 app.use("/api/memory", require("./routes/memoryRoutes"));
 app.use("/api/time", require("./routes/timeRoutes"));
 app.use("/api/site-image", require("./routes/siteImageRoutes"));

@@ -105,6 +105,8 @@ module.exports = {
     twilioFromNumber:    getEnv("TWILIO_FROM_NUMBER",    ""),
     bookingNotificationPhones: getEnv("BOOKING_NOTIFICATION_PHONES", "8778508652,9994777865"),
     tavilyApiKey:        getEnv("TAVILY_API_KEY",         ""),
+    // Job Search listings (JSearch on RapidAPI). Kept here, not in the browser.
+    jsearchApiKey:       getEnv("JSEARCH_API_KEY",        ""),
     // Scheduled tasks (VetroAI Computer): a scheduler outside the server
     // (.github/workflows/scheduled-tasks.yml) calls POST /api/schedules/run-due
     // with this secret, which also wakes a sleeping free instance.

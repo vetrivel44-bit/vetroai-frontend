@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { matchJob, sortByMatch, completeProfile, resumeQuery } from "../../utils/resumeMatch";
+import { searchJobs, readResumeProfile, explainJobFit } from "../../lib/jobsApi";
+import { extractFileText } from "../../lib/fileText";
 import { cachedCompanyLogo, lookupCompanyLogo } from "../../utils/companyLogos";
 import NearbyMapCard from "../chat/NearbyMapCard";
 import { normalizeJob, closedReason, deadlineLabel, isInternshipQuery, searchParams, POSTED_OPTIONS, MAX_OPEN_DAYS, payPeriodSuffix, missingPayLabel, matchesWorkType } from "../../utils/jobListings";
@@ -588,9 +591,9 @@ const fmtKm = km => km < 1 ? `${Math.max(100, Math.round(km * 10) * 100)} m` : `
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = `
   .jsp-ov{--jbg:var(--bg,#1B1A19);--sf:var(--bg-elevated,#242322);--sf2:var(--bg-hover,#2C2B29);--ln:var(--border,rgba(255,255,255,.08));--ln2:var(--border-med,rgba(255,255,255,.13));--tx:var(--ink,#F2EFEA);--tx2:var(--ink-2,#C9C5BE);--tx3:var(--ink-3,#97938C);--ac:#E08659;--acs:rgba(224,134,89,.13);--acb:rgba(224,134,89,.4);--ok:#5CC98E;--oks:rgba(92,201,142,.12);--sky:#5EC4B6;--skys:rgba(94,196,182,.12);--shA:rgba(255,255,255,.035);--shB:rgba(255,255,255,.08);--sh:0 30px 80px rgba(0,0,0,.55);--lift:0 14px 34px -14px rgba(0,0,0,.6);--scrim:rgba(12,11,10,.68);--scrim2:rgba(0,0,0,.5);--err:#F08A7E;--errs:rgba(240,138,126,.12);
-    position:fixed;inset:0;z-index:9999;background:var(--scrim);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;}
+    position:fixed;inset:0;z-index:9999;background:var(--scrim);backdrop-filter:blur(14px);display:flex;align-items:stretch;justify-content:stretch;padding:0;}
   :root[data-theme="light"] .jsp-ov{--ac:#C25E3B;--acs:rgba(217,119,87,.12);--acb:rgba(217,119,87,.42);--ok:#23834F;--oks:rgba(46,158,98,.11);--sky:#147A6E;--skys:rgba(20,122,110,.09);--shA:rgba(31,30,29,.045);--shB:rgba(31,30,29,.09);--sh:0 24px 64px rgba(60,40,20,.16),0 2px 6px rgba(60,40,20,.06);--lift:0 14px 30px -16px rgba(60,40,20,.3);--scrim:rgba(246,243,237,.78);--scrim2:rgba(31,30,29,.28);--err:#C0392B;--errs:rgba(192,57,43,.08);}
-  .jsp-box{width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;background:var(--jbg);border:1px solid var(--ln);border-radius:20px;box-shadow:var(--sh);overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
+  .jsp-box{width:100%;height:100%;height:100dvh;display:flex;flex-direction:column;background:var(--jbg);border:none;border-radius:0;box-shadow:none;overflow:hidden;position:relative;animation:jIn .25s cubic-bezier(.16,1,.3,1);color:var(--tx);}
   @keyframes jIn{from{opacity:0;transform:scale(.97) translateY(12px)}to{opacity:1;transform:none}}
   @keyframes jUp{from{transform:translateY(100%)}to{transform:none}}
   @keyframes jSpin{to{transform:rotate(360deg)}}
@@ -779,6 +782,32 @@ const S = `
   .jsp-catbadge{padding:2px 9px;border-radius:100px;font-size:10px;font-weight:700;background:var(--sf2);color:var(--tx2);}
 
   /* ── Mobile: full-screen sheet, one-line chips, filters as bottom sheet ── */
+  .jsp-match{display:inline-flex;align-items:center;padding:3px 8px;border-radius:100px;font-size:11px;font-weight:800;letter-spacing:.1px;white-space:nowrap;}
+  .jsp-match.high{background:var(--oks);color:var(--ok);}
+  .jsp-match.mid{background:var(--acs);color:var(--ac);}
+  .jsp-match.low{background:var(--shB);color:var(--tx3);}
+  .jsp-rempty p{margin:2px 0 12px;font-size:12.5px;line-height:1.5;color:var(--tx2);}
+  .jsp-verdict{margin:0 0 10px;font-size:13px;font-weight:600;line-height:1.45;color:var(--tx);}
+  .jsp-fitload{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--tx3);}
+  .jsp-resw{position:relative;display:flex;}
+  .jsp-respop .jsp-cta,.jsp-rempty .jsp-cta{margin-top:0;height:34px;padding:0 14px;}
+  .jsp-resscrim{position:fixed;inset:0;z-index:40;}
+  .jsp-respop{position:absolute;top:calc(100% + 8px);left:0;z-index:41;width:min(380px,calc(100vw - 32px));max-height:min(70vh,520px);overflow-y:auto;padding:16px;border-radius:16px;background:var(--sf);border:1px solid var(--ln2);box-shadow:var(--lift),var(--sh);animation:jIn .18s cubic-bezier(.16,1,.3,1);}
+  .jsp-reshd{margin:0;font-size:15px;font-weight:700;color:var(--tx);}
+  .jsp-resmeta{margin:3px 0 10px;font-size:12px;color:var(--tx3);}
+  .jsp-ressum{margin:0 0 12px;font-size:12.5px;line-height:1.5;color:var(--tx2);}
+  .jsp-respop .jsp-mt{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;}
+  .jsp-resacts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+  .jsp-resrm{margin-left:auto;border:none;background:none;color:var(--err);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;padding:6px;}
+  .jsp-resnote{margin:12px 0 0;font-size:11px;line-height:1.45;color:var(--tx3);}
+  .jsp-reserr{margin:0 0 12px;padding:9px 11px;border-radius:10px;background:var(--errs);color:var(--err);font-size:12.5px;line-height:1.45;}
+  .jsp-reshint{display:block;width:100%;margin:0 0 12px;padding:10px 14px;border-radius:12px;border:1px dashed var(--acb);background:var(--acs);color:var(--tx2);font:inherit;font-size:12.5px;text-align:left;cursor:pointer;}
+  .jsp-reshint b{color:var(--ac);}
+  .jsp-sort{margin-left:auto;display:inline-flex;gap:2px;padding:2px;border-radius:100px;background:var(--shA);border:1px solid var(--ln);}
+  .jsp-sort button{border:none;background:none;color:var(--tx3);font:inherit;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;cursor:pointer;}
+  .jsp-sort button.on{background:var(--sf);color:var(--tx);box-shadow:0 1px 3px rgba(0,0,0,.15);}
+  @media(max-width:760px){ .jsp-respop{position:fixed;left:16px;right:16px;top:auto;bottom:16px;width:auto;} }
+  @media(min-width:1200px){ .jsp-hd{padding:16px 32px;} .jsp-srchbar{padding:4px 32px 16px;} .jsp-tabs{padding:0 32px;} .jsp-main{padding:22px 32px;} }
   @media(max-width:760px){
     .jsp-ov{padding:0;align-items:stretch;}
     .jsp-box{max-width:none;height:100%;height:100dvh;border-radius:0;border:none;}
@@ -841,6 +870,48 @@ export default function JobSearchPanel({ onClose }) {
   const [hiddenClosed, setHiddenClosed] = useState(0);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_saved") || "[]"); } catch { return []; } });
   const [hist, setHist] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_hist") || "[]"); } catch { return []; } });
+
+  // Resume match: the resume read into a profile (kept on this device only;
+  // the resume file itself isn't stored), and each job scored against it.
+  const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem("vsj3_resume") || "null"); } catch { return null; } });
+  const [resumeState, setResumeState] = useState({ busy: false, error: "" });
+  const [showResume, setShowResume] = useState(false);
+  const [sortBy, setSortBy] = useState("match");
+  const [fits, setFits] = useState({}); // job id → AI advice, "loading" or "failed"
+  const resumeInput = useRef(null);
+  useEffect(() => { try { if (profile) localStorage.setItem("vsj3_resume", JSON.stringify(profile)); else localStorage.removeItem("vsj3_resume"); } catch { /* ignore */ } }, [profile]);
+
+  const onResumeFile = async (file) => {
+    if (!file) return;
+    setResumeState({ busy: true, error: "" });
+    try {
+      const text = await extractFileText(file, 20000);
+      if (!text || text.trim().length < 80) throw new Error("Couldn't read text from this file. Try a PDF or Word file that isn't a scanned image.");
+      let read = null;
+      try { read = (await readResumeProfile(text)).profile; } catch { /* the skill scan below still works */ }
+      const next = completeProfile(read, text);
+      if (!next.skills.length && !next.titles?.length) throw new Error("No skills or job titles were found in this resume.");
+      setProfile({ ...next, fileName: file.name, addedAt: new Date().toISOString() });
+      setFits({});
+      setSortBy("match");
+      setResumeState({ busy: false, error: "" });
+      setShowResume(true);
+    } catch (err) {
+      setResumeState({ busy: false, error: err.message || "Couldn't read this resume." });
+      setShowResume(true);
+    }
+  };
+  const pickResume = () => resumeInput.current?.click();
+  const removeResume = () => { setProfile(null); setFits({}); setShowResume(false); };
+
+  // AI advice for the job that is open, once per job.
+  useEffect(() => {
+    if (!detail || !profile || fits[detail.id]) return;
+    setFits(f => ({ ...f, [detail.id]: "loading" }));
+    explainJobFit(profile, detail)
+      .then(({ fit }) => setFits(f => ({ ...f, [detail.id]: fit || "failed" })))
+      .catch(() => setFits(f => ({ ...f, [detail.id]: "failed" })));
+  }, [detail, profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { localStorage.setItem("vsj3_saved", JSON.stringify(saved)); }, [saved]);
   useEffect(() => { localStorage.setItem("vsj3_hist", JSON.stringify(hist)); }, [hist]);
@@ -924,11 +995,8 @@ export default function JobSearchPanel({ onClose }) {
     const apiQuery = useNear && nr.place ? `${roleText || "jobs"} in ${nr.place}` : (roleText || "jobs");
     const radiusParam = useNear ? `&radius=${nr.radius}` : "";
     const fetchJobs = async (extra) => {
-      const res = await fetch(`https://${RAPID_API_HOST}/search-v2?query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}${extra}`, {
-        headers: { "x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST }
-      });
-      if (!res.ok) throw new Error("api");
-      const json = await res.json();
+      // Through the backend, which holds the JSearch key (lib/jobsApi.js).
+      const json = await searchJobs(`query=${encodeURIComponent(apiQuery)}&page=1&num_pages=1${radiusParam}${extra}`);
       return Array.isArray(json.data) ? json.data : (json.data && json.data.jobs) ? json.data.jobs : [];
     };
 
@@ -973,6 +1041,12 @@ export default function JobSearchPanel({ onClose }) {
   };
 
 
+  const MatchBadge = ({ job }) => {
+    const m = profile && matchJob(profile, job);
+    if (!m) return null;
+    return <span className={`jsp-match ${m.tone}`} title={m.matched.length ? `Your skills here: ${m.matched.join(", ")}` : "Few of your skills are mentioned"}>{m.score}% match</span>;
+  };
+
   const Card = ({ job }) => (
     <div className="jsp-card" onClick={() => setDetail(job)}>
       <div className="jsp-ctop">
@@ -986,6 +1060,7 @@ export default function JobSearchPanel({ onClose }) {
         </button>
       </div>
       <div className="jsp-cmeta">
+        <MatchBadge job={job} />
         {closedReason(job) ? <span className="b-x">Closed</span> : deadlineLabel(job) && <span className="b-d">{deadlineLabel(job)}</span>}
         {job.remote && <span className="b-r">Remote</span>}
         <span className="b-t">{job.type}</span>
@@ -1081,13 +1156,13 @@ export default function JobSearchPanel({ onClose }) {
   );
 
   const Detail = ({ job }) => {
-    const user = ["React", "JavaScript", "Python", "SQL", "Communication"];
-    const hay = ((job.skills || []).join(" ")).toLowerCase();
-    // A steady base per listing (was Math.random, so the score changed on every re-render).
-    let score = 50 + [...String(job.id || job.title)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 22;
-    const matched = user.filter(s => hay.includes(s.toLowerCase()));
-    const missing = (job.skills || []).filter(s => !user.includes(s)).slice(0, 2);
-    score = Math.min(score + matched.length * 8, 99);
+    // Scored against the user's resume (utils/resumeMatch.js); without one
+    // the card asks for it instead of showing a made-up number.
+    const m = profile ? matchJob(profile, job) : null;
+    const score = m?.score ?? 0;
+    const matched = m?.matched || [];
+    const missing = m?.missing || [];
+    const fit = fits[job.id];
     const r = 30, cx = 35, cy = 35, circ = 2 * Math.PI * r;
     // Where the job is, and the way there from you: the road route when your
     // location is known (a "near me" search), else the place to get directions to.
@@ -1165,18 +1240,31 @@ export default function JobSearchPanel({ onClose }) {
           </div>
           <div className="jsp-dside">
             <div className="jsp-aic">
-              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">AI Match Score</span></div>
-              <div className="jsp-rw">
-                <svg width="70" height="70" viewBox="0 0 70 70">
-                  <circle cx={cx} cy={cy} r={r} fill="none" className="jsp-rtrack" strokeWidth="7" />
-                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="url(#jg)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ} transform={`rotate(-90 ${cx} ${cy})`} />
-                  <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style={{ stopColor: "var(--ac)", stopOpacity: .65 }} /><stop offset="100%" style={{ stopColor: "var(--ac)" }} /></linearGradient></defs>
-                </svg>
-                <div className="jsp-rn"><span className="jsp-rbig">{score}</span><span className="jsp-rpct">%</span></div>
-              </div>
-              {matched.length > 0 && <div><div className="jsp-ml">Matched</div><div className="jsp-mt">{matched.map(s => <span key={s} className="m-y">✓ {s}</span>)}</div></div>}
-              {missing.length > 0 && <div><div className="jsp-ml">Missing</div><div className="jsp-mt">{missing.map(s => <span key={s} className="m-n">✗ {s}</span>)}</div></div>}
-              {missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Suggestions</div><div className="jsp-sugl">{missing.map((s, i) => <div key={i} className="jsp-sugi"><span style={{ color: "var(--ac)" }}>→</span>{`Learn ${s}`}</div>)}</div></div>}
+              <div className="jsp-aihd"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg><span className="jsp-ailbl">Resume Match</span></div>
+              {!m ? (
+                <div className="jsp-rempty">
+                  <p>See how well you fit this {job.experienceLevel === "Internship" ? "internship" : "job"}: your matching skills, what's missing and what to do before applying.</p>
+                  <button type="button" className="jsp-cta" onClick={pickResume} disabled={resumeState.busy}>{resumeState.busy ? "Reading resume…" : "Add your resume"}</button>
+                </div>
+              ) : (<>
+                <div className="jsp-rw">
+                  <svg width="70" height="70" viewBox="0 0 70 70">
+                    <circle cx={cx} cy={cy} r={r} fill="none" className="jsp-rtrack" strokeWidth="7" />
+                    <circle cx={cx} cy={cy} r={r} fill="none" stroke="url(#jg)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ} transform={`rotate(-90 ${cx} ${cy})`} />
+                    <defs><linearGradient id="jg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style={{ stopColor: "var(--ac)", stopOpacity: .65 }} /><stop offset="100%" style={{ stopColor: "var(--ac)" }} /></linearGradient></defs>
+                  </svg>
+                  <div className="jsp-rn"><span className="jsp-rbig">{score}</span><span className="jsp-rpct">%</span></div>
+                </div>
+                <div style={{ textAlign: "center", marginBottom: 10 }}><span className={`jsp-match ${m.tone}`}>{m.label}</span></div>
+                {fit && typeof fit === "object" && fit.verdict && <p className="jsp-verdict">{fit.verdict}</p>}
+                {matched.length > 0 && <div><div className="jsp-ml">Your matching skills</div><div className="jsp-mt">{matched.map(s => <span key={s} className="m-y">✓ {s}</span>)}</div></div>}
+                {missing.length > 0 && <div><div className="jsp-ml">Not on your resume</div><div className="jsp-mt">{missing.map(s => <span key={s} className="m-n">✗ {s}</span>)}</div></div>}
+                {fit === "loading" && <div className="jsp-fitload"><div className="jsp-spin" />Working out how to stand out…</div>}
+                {fit && typeof fit === "object" && (fit.tips.length > 0 || fit.gaps.length > 0) && (
+                  <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Before you apply</div><div className="jsp-sugl">{(fit.tips.length ? fit.tips : fit.gaps).map((t, i) => <div key={i} className="jsp-sugi"><span style={{ color: "var(--ac)" }}>→</span>{t}</div>)}</div></div>
+                )}
+                {fit === "failed" && missing.length > 0 && <div><div className="jsp-ml" style={{ marginBottom: 6 }}>Before you apply</div><div className="jsp-sugl">{missing.slice(0, 3).map((t, i) => <div key={i} className="jsp-sugi"><span style={{ color: "var(--ac)" }}>→</span>{`Show any ${t} experience, or learn the basics`}</div>)}</div></div>}
+              </>)}
             </div>
             <div className="jsp-coc">
               <p className="jsp-stit" style={{ fontSize: 12, marginBottom: 8 }}>Company Info</p>
@@ -1194,8 +1282,6 @@ export default function JobSearchPanel({ onClose }) {
     );
   };
 
-  const RAPID_API_HOST = "jsearch.p.rapidapi.com";
-  const RAPID_API_KEY = "b8afe4b388mshe2317a4c7eb24bbp17fb60jsn09f0ea443459";
 
   const NEAR_CHIPS = ["Delivery Partner","Driver","Sales Executive","Receptionist","Software Engineer","Nurse","Teacher","Electrician"];
   const nearReady = near.on && near.status === "ready";
@@ -1243,6 +1329,37 @@ export default function JobSearchPanel({ onClose }) {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c3 2 9 2 12 0v-5" /></svg>
                 <span>Internships</span>
               </button>
+              <div className="jsp-resw">
+                <button type="button" className={`jsp-nearbtn ${profile ? "on" : ""}`} aria-expanded={showResume}
+                  onClick={() => (profile || resumeState.error ? setShowResume(v => !v) : pickResume())} disabled={resumeState.busy}>
+                  {resumeState.busy ? <div className="jsp-spin" /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />{profile ? <polyline points="9 15 11 17 15 13" /> : <><line x1="12" y1="18" x2="12" y2="12" /><line x1="9" y1="15" x2="15" y2="15" /></>}</svg>}
+                  <span>{resumeState.busy ? "Reading resume…" : profile ? "Resume match on" : "Match my resume"}</span>
+                </button>
+                <input ref={resumeInput} type="file" hidden accept=".pdf,.docx,.txt,.md,.rtf,application/pdf" onChange={e => { onResumeFile(e.target.files?.[0]); e.target.value = ""; }} />
+                {showResume && (
+                  <>
+                    <div className="jsp-resscrim" onClick={() => setShowResume(false)} />
+                    <div className="jsp-respop" role="dialog" aria-label="Your resume">
+                      {resumeState.error && <p className="jsp-reserr">{resumeState.error}</p>}
+                      {profile ? (<>
+                        <p className="jsp-reshd">{profile.headline || profile.titles?.[0] || "Your resume"}</p>
+                        <p className="jsp-resmeta">{[profile.years != null && `${profile.years} yr${profile.years === 1 ? "" : "s"} experience`, profile.education, profile.fileName].filter(Boolean).join(" · ")}</p>
+                        {profile.summary && <p className="jsp-ressum">{profile.summary}</p>}
+                        <div className="jsp-ml">Skills we match on ({profile.skills.length})</div>
+                        <div className="jsp-mt">{profile.skills.map(s => <span key={s} className="jsp-sk">{s}</span>)}</div>
+                        <div className="jsp-resacts">
+                          {resumeQuery(profile) && <button type="button" className="jsp-cta" onClick={() => { const rq = resumeQuery(profile); setShowResume(false); setQ(rq); setTab("search"); search(rq); }}>Find jobs for me</button>}
+                          <button type="button" className="jsp-cta alt" onClick={pickResume}>Replace</button>
+                          <button type="button" className="jsp-resrm" onClick={removeResume}>Remove</button>
+                        </div>
+                        <p className="jsp-resnote">Your resume is read once to find your skills. Only that summary is kept, on this device.</p>
+                      </>) : (
+                        <div className="jsp-resacts"><button type="button" className="jsp-cta" onClick={pickResume}>Try another file</button></div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
               {nearReady && (
                 <div className="jsp-rads" role="group" aria-label="Search radius">
                   {RADIUS_OPTIONS.map(km => <button key={km} type="button" className={`jsp-rad ${near.radius === km ? "on" : ""}`} onClick={() => setRadius(km)}>{km} km</button>)}
@@ -1293,8 +1410,15 @@ export default function JobSearchPanel({ onClose }) {
                     <span className="jsp-opendot" />
                     {jobs.length} open {filters.experience === "intern" || isInternshipQuery(q) ? `internship${jobs.length === 1 ? "" : "s"}` : `listing${jobs.length === 1 ? "" : "s"}`}
                     {hiddenClosed > 0 && <em> · {hiddenClosed} expired or closed hidden</em>}
+                    {profile && !resultNear && (
+                      <span className="jsp-sort" role="group" aria-label="Sort results">
+                        <button type="button" className={sortBy === "match" ? "on" : ""} onClick={() => setSortBy("match")}>Best match</button>
+                        <button type="button" className={sortBy === "recent" ? "on" : ""} onClick={() => setSortBy("recent")}>Newest</button>
+                      </span>
+                    )}
                   </p>
-                  <div className="jsp-grid">{jobs.map(j => <Card key={j.id} job={j} />)}</div>
+                  {!profile && <button type="button" className="jsp-reshint" onClick={pickResume}><b>New:</b> add your resume to see how well you match each {noun.one}</button>}
+                  <div className="jsp-grid">{(profile && sortBy === "match" && !resultNear ? sortByMatch(jobs, profile) : jobs).map(j => <Card key={j.id} job={j} />)}</div>
                 </>
               )}
               {tab === "saved" && (saved.length === 0 ? <Empty title="No saved jobs or internships" sub="Bookmark any listing to save it here." /> : <div className="jsp-grid">{saved.map(j => <Card key={j.id} job={j} />)}</div>)}
