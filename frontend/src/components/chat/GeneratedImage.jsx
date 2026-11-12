@@ -21,7 +21,7 @@ export function ImageGenLoader({ mode = "create", sourceUrl }) {
   const step = steps[Math.min(Math.floor(seconds / 4), steps.length - 1)];
 
   return (
-    <div className="gi-wrap" role="status" aria-live="polite">
+    <div className="gi-wrap" role="status" aria-live="polite" data-no-image-tools>
       <div className="gi-status">
         <span className="gi-status-text">{mode === "edit" ? "Editing image" : "Creating image"}</span>
         <span className="gi-status-step" key={step}>{step}{seconds >= 3 ? ` · ${seconds}s` : ""}</span>
@@ -56,8 +56,11 @@ export function GeneratedImage({ src, prompt, caption, onEdit, onNotify, busy })
   const [changes, setChanges] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const inputRef = useRef(null);
+  const imgRef = useRef(null);
   const notify = (text, type = "info") => onNotify?.(text, type, 2500);
 
+  // A cached image can finish loading before onLoad is attached.
+  useEffect(() => { if (imgRef.current?.complete && imgRef.current.naturalWidth) setLoaded(true); }, [src]);
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -108,10 +111,11 @@ export function GeneratedImage({ src, prompt, caption, onEdit, onNotify, busy })
   };
 
   return (
-    <div className="gi-wrap">
+    <div className="gi-wrap" data-no-image-tools>
       {caption && <p className="gi-caption">{caption}</p>}
       <div className={`gi-frame${loaded ? " is-loaded" : ""}`}>
         <img
+          ref={imgRef}
           src={src}
           alt={prompt || "Generated image"}
           loading="eager"
