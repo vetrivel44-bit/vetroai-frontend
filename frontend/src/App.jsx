@@ -52,7 +52,7 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
-import { Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
+import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
@@ -7967,12 +7967,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   const handleKeyDown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!isLoading) sendMessage(); } };
 
-  const submitEdit = idx => {
-    if (!editInput.trim()) return; stopSpeak();
+  // Also "Retry" (the same message sent again, for a new answer).
+  const submitEdit = (idx, content = editInput) => {
+    if (!String(content || "").trim()) return; stopSpeak();
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     // The edited message keeps the original's attachments (a picture, a file).
     const original = messages[idx];
-    const edited = { role: "user", content: editInput, files: original?.files || null, timestamp: ts };
+    const edited = { role: "user", content, files: original?.files || null, timestamp: ts, sentAt: Date.now() };
     carryTurnFiles(original, edited);
     const hist = [...messages.slice(0, idx), edited];
     setMessages(hist); setEditIdx(null); triggerAI(hist, filesOfTurn(edited));
@@ -9129,21 +9130,23 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                        {m.role === 'user' ? (
                          <div className="flex flex-col items-end gap-1 group/user">
                            {editIdx === i ? (
-                             <div className="user-edit-wrap">
+                             <div className="user-edit-wrap cl-edit">
                                <textarea
                                  className="user-edit-textarea"
                                  value={editInput}
                                  onChange={e => setEditInput(e.target.value)}
                                  onKeyDown={e => {
-                                   if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); submitEdit(i); }
+                                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (editInput.trim() && editInput !== m.content) submitEdit(i); }
                                    if (e.key === 'Escape') setEditIdx(null);
                                  }}
+                                 onFocus={e => { const v = e.target.value; e.target.setSelectionRange(v.length, v.length); }}
                                  autoFocus
                                  aria-label="Edit your message"
                                />
                                <div className="user-edit-actions">
-                                 <button className="ai-edit-btn-cancel" onClick={() => setEditIdx(null)}>Cancel</button>
-                                 <button className="ai-edit-btn-save" onClick={() => submitEdit(i)}>Save &amp; Send</button>
+                                 <span className="cl-edit-info" title="Saving sends the edited message and replaces the answers after it." aria-label="Saving sends the edited message and replaces the answers after it."><Info size={17} /></span>
+                                 <button type="button" className="cl-edit-btn" onClick={() => setEditIdx(null)}>Cancel</button>
+                                 <button type="button" className="cl-edit-btn save" disabled={!editInput.trim() || editInput === m.content} onClick={() => submitEdit(i)}>Save</button>
                                </div>
                              </div>
                            ) : (
@@ -9165,6 +9168,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <div className="chat-user-bubble">{m.content}</div>
                                <div className="user-msg-acts">
                                  <MessageTime ts={m.sentAt} fallback={m.timestamp} />
+                                 {!isLoading && (
+                                   <button className="msg-action-btn user-msg-icon" onClick={() => submitEdit(i, m.content)} title="Retry" aria-label="Retry this message">
+                                     <RotateCcw size={14} />
+                                   </button>
+                                 )}
                                  <button className="msg-action-btn user-msg-icon" onClick={() => { setEditIdx(i); setEditInput(m.content); }} title="Edit" aria-label="Edit message">
                                    <EditIcon />
                                  </button>

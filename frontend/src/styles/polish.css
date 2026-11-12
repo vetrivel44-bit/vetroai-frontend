@@ -277,3 +277,24 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
 }
 .user-msg-acts .user-msg-icon:hover { background: var(--bg-hover); color: var(--ink); }
 @media (hover: none) { .user-msg-acts { opacity: 1 !important; } }
+
+/* Editing your message, like Claude: the bubble becomes an outlined box of
+   the same shape; small text buttons (Cancel, Save) underneath. */
+.user-edit-wrap.cl-edit { width: auto !important; max-width: min(85%, 620px) !important; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.cl-edit .user-edit-textarea {
+  field-sizing: content;
+  min-width: min(260px, 70vw); max-width: 100%; min-height: 0 !important; max-height: 50vh;
+  padding: 10px 18px !important; margin: 0;
+  border: 1px solid var(--border-med) !important; border-radius: 18px !important;
+  background: var(--bg-elevated) !important; color: var(--ink) !important;
+  font: inherit; font-size: 16px !important; line-height: 1.55 !important;
+  resize: none !important; outline: none; box-shadow: none !important;
+}
+.cl-edit .user-edit-textarea:focus { border-color: var(--ink-4) !important; }
+[data-theme="light"] .cl-edit .user-edit-textarea { background: #fff !important; }
+.cl-edit .user-edit-actions { display: flex; align-items: center; gap: 4px; margin: 0; }
+.cl-edit-info { display: grid; place-items: center; width: 30px; height: 30px; color: var(--ink-3); cursor: help; }
+.cl-edit-btn { border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 15px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.cl-edit-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.cl-edit-btn.save { background: var(--bg-hover); }
+.cl-edit-btn.save:disabled { color: var(--ink-4); cursor: default; }
