@@ -942,6 +942,32 @@ const MicIcon      = () => <Ic size={17} d={<><path d="M12 1a3 3 0 0 0-3 3v8a3 3
 const WaveIcon     = () => <svg width={17} height={17} viewBox="0 0 24 24" fill="currentColor"><rect x="11" y="3" width="2" height="18" rx="1" /><rect x="7" y="8" width="2" height="8" rx="1" /><rect x="15" y="8" width="2" height="8" rx="1" /><rect x="3" y="10" width="2" height="4" rx="1" /><rect x="19" y="10" width="2" height="4" rx="1" /></svg>;
 const StopIcon     = () => <Ic size={15} d={<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />} />;
 const CopyIcon     = () => <Ic size={14} d={<><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>} />;
+// "just now", "5 min ago", "Yesterday 4:10 PM": when a message was sent,
+// under the user's bubble like Claude. Re-reads the clock every minute.
+function messageTimeLabel(ts, now = Date.now()) {
+  const t = typeof ts === "number" ? ts : Date.parse(ts || "");
+  if (!t || Number.isNaN(t)) return "";
+  const sec = Math.round((now - t) / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} min ago`;
+  const date = new Date(t);
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const today = new Date(now);
+  const yesterday = new Date(now - 86400000);
+  if (date.toDateString() === today.toDateString()) return time;
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+  return `${date.toLocaleDateString([], { day: "numeric", month: "short", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) })}, ${time}`;
+}
+function MessageTime({ ts, fallback }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 60000); return () => clearInterval(id); }, []);
+  const label = messageTimeLabel(ts);
+  // Older messages only kept the clock time as text ("11:56 PM").
+  if (!label) return fallback ? <span className="user-msg-time">{fallback}</span> : null;
+  const t = typeof ts === "number" ? ts : Date.parse(ts);
+  return <time className="user-msg-time" dateTime={new Date(t).toISOString()} title={new Date(t).toLocaleString()}>{label}</time>;
+}
 const EditIcon     = () => <Ic size={14} d={<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>} />;
 const SpeakIcon    = () => <Ic size={14} d={<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" /></>} />;
 const ReloadIcon   = () => <Ic size={14} d={<><path d="M21.5 2v6h-6" /><path d="M2.5 22v-6h6" /><path d="M2 11.5a10 10 0 0 1 18.8-4.3" /><path d="M22 12.5a10 10 0 0 1-18.8 4.3" /></>} />;
@@ -3358,9 +3384,13 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
         style={isPhone ? (dragY ? { transform: `translateY(${dragY}px)`, transition: "none" } : undefined)
           : place ? { position: "fixed", top: place.top, left: place.left, right: "auto", bottom: "auto", "--mm-avail": `${place.avail}px` } : { position: "fixed", visibility: "hidden" }}>
         {isPhone && (
-          <div className="mm-grab" onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd}>
-            <span className="mm-grab-bar" />
-            <div className="mm-sheet-title">Model</div>
+          <div className="mm-sheet-head" onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd}>
+            <button type="button" className="mm-head-btn" aria-label={submenu ? "Back" : "Close"}
+              onClick={(event) => { event.stopPropagation(); if (submenu) setSubmenu(null); else handleClose(); }}>
+              {submenu ? <ArrowLeft size={24} /> : <X size={24} />}
+            </button>
+            <div className="mm-sheet-title">{submenu === "effort" ? "Effort" : submenu === "models" ? "More models" : "Select model"}</div>
+            <span className="mm-head-btn" aria-hidden="true" />
           </div>
         )}
         <button type="button" className="ws-popup-close" onClick={handleClose} aria-label="Close model selector" hidden />
@@ -3400,10 +3430,14 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
             <button type="button" key={level.id} role="menuitemradio" aria-checked={currentEffort === level.id}
               className={`ws-effort-option mm-row${currentEffort === level.id ? " active" : ""}`}
               onClick={(event) => { event.stopPropagation(); onSelectEffort(level.id); setSubmenu(null); }}>
-              <span className="mm-copy"><strong>{level.name}</strong><small>{level.desc}</small></span>
+              <span className="mm-copy">
+                <strong>{level.name}{level.id === "balanced" && <em className="mm-badge">Recommended</em>}{level.id === "max" && <em className="mm-badge warn"><AlertTriangle size={12} />Slowest, uses more</em>}</strong>
+                <small>{level.desc}</small>
+              </span>
               {currentEffort === level.id && <Check size={17} className="mm-check" />}
             </button>
           ))}
+          <p className="mm-sub-foot">Higher effort means more thorough answers and deeper searches, but takes longer.</p>
         </div>
 
         <div className={`mm-sub mm-sub-models${submenu === "models" ? " open" : ""}`} role="menu" aria-label="More models">
@@ -7680,7 +7714,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     stopMicRef.current?.({ keepWanted: true });
     transcriptRef.current = "";
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const hist = [...msgsRef.current, { role: "user", content: txt, timestamp: ts }];
+    const hist = [...msgsRef.current, { role: "user", content: txt, timestamp: ts, sentAt: Date.now() }];
     setMessages(hist); setInput(""); triggerAI(hist);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -7692,7 +7726,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const runImageJob = async ({ userText, prompt, sourceUrl }) => {
     const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const isEdit = Boolean(sourceUrl);
-    const userMsg = { role: "user", content: userText, timestamp: ts };
+    const userMsg = { role: "user", content: userText, timestamp: ts, sentAt: Date.now() };
     const pendingBotMsg = {
       role: "assistant", content: isEdit ? "Editing your image..." : "Generating your image...", timestamp: ts,
       isImageGen: true, isPending: true, imageMode: isEdit ? "edit" : "create", sourceImageUrl: sourceUrl,
@@ -7771,7 +7805,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const vidPrompt = detectVideoPrompt(text);
     if (vidPrompt && !selFiles.length) {
       const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const userMsg = { role: "user", content: text, timestamp: ts };
+      const userMsg = { role: "user", content: text, timestamp: ts, sentAt: Date.now() };
       const pendingBotMsg = {
         role: "assistant", content: "🎬 Generating your video... This may take a few minutes.", timestamp: ts, isVideoGen: true, isPending: true,
       };
@@ -7826,7 +7860,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     if (isCourseRequest(text) && !selFiles.length && !isWebMode && !isDeepSearch) {
       const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const courseId = `course_${Date.now()}`;
-      const userMsg = { role: "user", content: text, timestamp: ts };
+      const userMsg = { role: "user", content: text, timestamp: ts, sentAt: Date.now() };
       const botMsg = { role: "assistant", content: "", timestamp: ts, course: { id: courseId, phase: "running", title: "", chapters: [], status: "Planning the course…" } };
       setMessages(prev => [...prev, userMsg, botMsg]);
       setInput("");
@@ -7900,7 +7934,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     if (text === "/test-visual") {
       const testContent = `# Diagnostic Analysis: Infrastructure & Logistics\n\nThis is a premium diagnostic summary of the VetroAI visualization engine.\n\n> [!IMPORTANT]\n> The execution pipeline is active. All components below are rendered dynamically from structured JSON blocks.\n\n## Market Performance Comparison\n\n\`\`\`json\n{\n  "type": "chart",\n  "chartType": "bar",\n  "library": "recharts",\n  "title": "Cloud Infrastructure Revenue (Q4 2023)",\n  "data": [\n    {"label": "AWS", "value": 24.2},\n    {"label": "Azure", "value": 18.5},\n    {"label": "Google Cloud", "value": 9.1}\n  ]\n}\n\`\`\`\n\n## Global Logistics Route\n\n\`\`\`json\n{\n  "type": "route",\n  "origin": "Chennai, Tamil Nadu",\n  "destination": "Bangalore, Karnataka",\n  "summary": "Critical industrial corridor connecting the automobile hub to the tech capital.",\n  "waypoints": ["Vellore", "Hosur"],\n  "details": [\n    {"label": "Distance", "value": "346 km"},\n    {"label": "Est. Time", "value": "6h 15m"}\n  ]\n}\n\`\`\`\n\n## Key Metrics\n\n## Performance Analytics\n\n- **Uptime**: 99.99%\n- **Latency**: 45ms\n- **Throughput**: 1.2GB/s\n\n## Implementation Roadmap\n\n1. **Design System**\nInitial UI/UX tokens and architecture.\n2. **Component Build**\nDeveloping modular structured blocks.\n3. **Orchestration**\nConnecting the AI intent to the rendering layer.\n`;
       setMessages(prev => [...prev,
-        { role: "user", content: text, timestamp: ts },
+        { role: "user", content: text, timestamp: ts, sentAt: Date.now() },
         { role: "assistant", content: testContent, timestamp: ts }
       ]);
       setInput("");
@@ -7921,7 +7955,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const text = await documentText(f);
       return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}), ...(text ? { text } : {}) };
     })) : null;
-    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts };
+    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now() };
     rememberTurnFiles(userMsg, filesToSend);
     const hist = [...messages, userMsg];
     setMessages(hist); setInput("");
@@ -9130,11 +9164,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                )}
                                <div className="chat-user-bubble">{m.content}</div>
                                <div className="user-msg-acts">
-                                 <button className="msg-action-btn" onClick={() => { setEditIdx(i); setEditInput(m.content); }} title="Edit message" aria-label="Edit message">
-                                   <EditIcon /><span>Edit</span>
+                                 <MessageTime ts={m.sentAt} fallback={m.timestamp} />
+                                 <button className="msg-action-btn user-msg-icon" onClick={() => { setEditIdx(i); setEditInput(m.content); }} title="Edit" aria-label="Edit message">
+                                   <EditIcon />
                                  </button>
-                                 <button className="msg-action-btn" onClick={() => copyUserMsg(i, m.content)} title="Copy message" aria-label="Copy message">
-                                   <CopyIcon /><span>{copiedUserIdx === i ? 'Copied!' : 'Copy'}</span>
+                                 <button className="msg-action-btn user-msg-icon" onClick={() => copyUserMsg(i, m.content)} title={copiedUserIdx === i ? "Copied" : "Copy"} aria-label="Copy message">
+                                   {copiedUserIdx === i ? <Check size={14} /> : <CopyIcon />}
                                  </button>
                                </div>
                              </>
