@@ -452,7 +452,17 @@ The assistant should feel like:
 - elegant and highly readable UI experience`;
 
     if (memories.length) {
-      sys += `\nUser context: ${memories.map(m => `• ${m}`).join(" | ")}`;
+      // A single trailing "User context:" line at the end of this long prompt
+      // was routinely ignored ("I don't know anything about you yet"), so the
+      // remembered facts get their own clearly labelled section.
+      sys += `\n\n---\n\n# MEMORY — WHAT YOU REMEMBER ABOUT THIS USER
+These facts come from the user's earlier conversations. Treat them as true and known to you:
+${memories.slice(-50).map(m => `- ${String(m).slice(0, 300)}`).join("\n")}
+
+How to use them:
+- Use them naturally whenever they are relevant (their studies, goals, preferences, how they like answers).
+- If the user asks what you know or remember about them, answer from this list.
+- Do not list them back unprompted, and never claim you have no memory of the user while this list is non-empty.`;
     }
     if (personaPrompt) sys += `\n${personaPrompt}`;
     if (customInstructions) sys += `\n\nUser instructions: ${customInstructions}`;

@@ -9,7 +9,7 @@ import { useDocumentTheme } from "./useDocumentTheme";
 import { useBornLive } from "../../../lib/streamReveal";
 import { isInkColor, parseSketch } from "../../../lib/sketchSvg";
 import { createPen, penSession as getPenSession, planSketch } from "../diagramPen";
-import { generateImageViaPuter } from "../../../lib/puterImage";
+import { generateImage } from "../../../lib/imageGen";
 
 // A ```sketch block: a hand-drawn picture of whatever was asked for — a house,
 // the heart, a plant cell. Each shape the model wrote is redrawn in pencil
@@ -134,7 +134,7 @@ const detailPrompt = (subject) => `A clear hand-drawn pencil illustration of ${s
 
 function detailFor(subject) {
   if (!DETAILS.has(subject)) {
-    const job = generateImageViaPuter(detailPrompt(subject));
+    const job = generateImage(detailPrompt(subject));
     DETAILS.set(subject, job);
     job.catch(() => DETAILS.delete(subject));
   }

@@ -48,6 +48,10 @@ app.post(
   require("./controllers/billingController").webhook
 );
 
+// Image edits carry the attached photos as data URLs, so this route parses
+// bigger bodies than the rest of the API.
+app.use("/api/image", express.json({ limit: "25mb" }), require("./routes/imageRoutes"));
+
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -101,6 +105,7 @@ app.use("/api/voice-cover", require("./routes/voiceCoverRoutes"));
 app.use("/api/call-assistant", require("./routes/callAssistantRoutes"));
 app.use("/api/chess", require("./routes/chessRoutes"));
 app.use("/api/web-search", require("./routes/webSearchRoutes"));
+app.use("/api/memory", require("./routes/memoryRoutes"));
 app.use("/api/time", require("./routes/timeRoutes"));
 app.use("/api/site-image", require("./routes/siteImageRoutes"));
 app.use("/api", require("./routes/externalDataRoutes"));

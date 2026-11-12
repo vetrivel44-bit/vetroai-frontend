@@ -34,7 +34,9 @@ import FileCard from "./components/chat/FileCard";
 import CourseCard from "./components/chat/CourseCard";
 import { isCourseRequest, courseTopic, readCourseEvents, applyCourseEvent } from "./lib/course";
 import ModeSwitch from "./components/ModeSwitch";
-import { generateImageViaPuter, wantsDrawing } from "./lib/puterImage";
+import { generateImage, editImage, wantsDrawing } from "./lib/imageGen";
+import { GeneratedImage, ImageGenLoader } from "./components/chat/GeneratedImage";
+import { isImageFollowUpEdit } from "./utils/imageEditing";
 import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
 const AttachmentViewer = React.lazy(() => import("./components/chat/AttachmentViewer"));
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
@@ -5438,22 +5440,41 @@ export default function App() {
   }, [userKey]);
 
   // Background, best-effort "remembers like ChatGPT" pass — runs after a
-  // message is already sent, never blocks or can fail the chat itself. Uses
-  // the same free Puter bridge as regular chat so it costs nothing server-side.
+  // message is already sent, never blocks or can fail the chat itself. Asks
+  // the backend first, with the free Puter bridge as the fallback.
   const runAutoMemoryExtraction = useCallback(async (text) => {
     if (!looksMemorable(text)) return;
-    await window.whenPuter?.();
-    if (!window.puter?.ai?.chat) return;
     try {
-      const model = window.__VETROAI_GEMINI_MODEL__ || "gemini-3.1-pro-preview";
-      const response = await window.puter.ai.chat(
-        [
-          { role: "system", content: AUTO_MEMORY_SYSTEM_PROMPT },
-          { role: "user", content: text },
-        ],
-        { model }
-      );
-      const facts = parseAutoMemoryResponse(getPuterResponseText(response));
+      // Primary: the backend's /memory/extract (small server-side model) —
+      // works whether or not the browser's Puter bridge loaded. Falls back to
+      // Puter only when the backend call itself fails, not when it finds nothing.
+      let facts = null;
+      try {
+        const res = await fetch(`${API}/memory/extract`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, known: toPromptList(memories) }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json?.data?.facts)) facts = json.data.facts;
+        }
+      } catch (err) {
+        swallowError(err);
+      }
+      if (facts === null) {
+        await window.whenPuter?.();
+        if (!window.puter?.ai?.chat) return;
+        const model = window.__VETROAI_GEMINI_MODEL__ || "gemini-3.1-pro-preview";
+        const response = await window.puter.ai.chat(
+          [
+            { role: "system", content: AUTO_MEMORY_SYSTEM_PROMPT },
+            { role: "user", content: text },
+          ],
+          { model }
+        );
+        facts = parseAutoMemoryResponse(getPuterResponseText(response));
+      }
       for (const fact of facts) {
         if (addMemory(fact, "auto")) {
           addToast(`Remembered: ${fact.slice(0, 60)}${fact.length > 60 ? "…" : ""}`, "success", 3500);
@@ -5462,7 +5483,7 @@ export default function App() {
     } catch (err) {
       swallowError(err);
     }
-  }, [addMemory]);
+  }, [addMemory, memories]);
 
   const deleteSession = (id) => { setConfirmDelete({ ids: [id], message: "Delete this conversation? This cannot be undone." }); };
   const deleteSessions = (ids) => {
@@ -7536,6 +7557,40 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   useEffect(() => { submitVoiceRef.current = submitVoice; }, [submitVoice]);
   useEffect(() => { stopMicRef.current = stopMic; }, [stopMic]);
 
+  // Makes an image with Gemini 3.1 Flash Lite Image, or edits sourceUrl when
+  // given, showing the animated placeholder until it arrives.
+  const runImageJob = async ({ userText, prompt, sourceUrl }) => {
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const isEdit = Boolean(sourceUrl);
+    const userMsg = { role: "user", content: userText, timestamp: ts };
+    const pendingBotMsg = {
+      role: "assistant", content: isEdit ? "Editing your image..." : "Generating your image...", timestamp: ts,
+      isImageGen: true, isPending: true, imageMode: isEdit ? "edit" : "create", sourceImageUrl: sourceUrl,
+    };
+    setMessages(prev => [...prev, userMsg, pendingBotMsg]);
+    if (messages.length === 0) updateSessionTitle(userText);
+    const replace = (next) => setMessages(prev => {
+      const u = [...prev];
+      const idx = u.lastIndexOf(pendingBotMsg);
+      if (idx !== -1) u[idx] = next;
+      return u;
+    });
+    try {
+      const imgUrl = isEdit
+        ? await editImage(`Edit the supplied image. Keep everything that isn't mentioned exactly the same. Make this change: ${prompt}`, [sourceUrl])
+        : await generateImage(prompt);
+      replace({
+        role: "assistant",
+        content: isEdit ? "Here's your edited image:" : `Here's your generated image of **"${prompt}"**:`,
+        generatedImageUrl: imgUrl,
+        generatedImagePrompt: prompt,
+        timestamp: ts, isImageGen: true,
+      });
+    } catch (err) {
+      replace({ role: "assistant", content: `Image ${isEdit ? "edit" : "generation"} failed: ${err.message}`, timestamp: ts });
+    }
+  };
+
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
     setPluginMention((previous) => ({ ...previous, open: false, query: "", start: -1, index: 0 }));
@@ -7570,43 +7625,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const imagePluginInvoked = pluginMentioned(pluginState, text, "image-studio");
     const cleanImagePrompt = imagePluginInvoked ? removePluginMention(text, "image-studio") : text;
     const imgPrompt = imagePluginInvoked ? (detectImagePrompt(cleanImagePrompt) || cleanImagePrompt) : detectImagePrompt(text);
-    if (imgPrompt && !selFiles.length) {
-      const ts      = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const userMsg = { role: "user", content: text, timestamp: ts };
-      const pendingBotMsg = {
-        role: "assistant", content: "Generating your image...", timestamp: ts, isImageGen: true, isPending: true,
-      };
-      setMessages(prev => [...prev, userMsg, pendingBotMsg]);
+    // Right after an image, "make the sky orange" / "add a hat" edits that
+    // image (like ChatGPT) instead of starting a new chat answer.
+    const lastMsg = messages[messages.length - 1];
+    if (!imgPrompt && !selFiles.length && lastMsg?.isImageGen && lastMsg.generatedImageUrl && isImageFollowUpEdit(text)) {
       setInput("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
-      if (messages.length === 0) updateSessionTitle(text);
-
-      try {
-        const imgUrl = await generateImageViaPuter(imgPrompt);
-        setMessages(prev => {
-          const u = [...prev];
-          const idx = u.lastIndexOf(pendingBotMsg);
-          if (idx !== -1) {
-            u[idx] = {
-              role: "assistant",
-              content: `Here's your generated image of **"${imgPrompt}"**:`,
-              generatedImageUrl: imgUrl,
-              generatedImagePrompt: imgPrompt,
-              timestamp: ts, isImageGen: true,
-            };
-          }
-          return u;
-        });
-      } catch (err) {
-        setMessages(prev => {
-          const u = [...prev];
-          const idx = u.lastIndexOf(pendingBotMsg);
-          if (idx !== -1) {
-            u[idx] = { role: "assistant", content: `Image generation failed: ${err.message}`, timestamp: ts };
-          }
-          return u;
-        });
-      }
+      await runImageJob({ userText: text, prompt: text, sourceUrl: lastMsg.generatedImageUrl });
+      return;
+    }
+    if (imgPrompt && !selFiles.length) {
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      await runImageJob({ userText: text, prompt: imgPrompt });
       return;
     }
 
@@ -9025,19 +9056,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                    {m.content && <AssistantBody content={m.content} autoOpen={false} onSaveArtifact={saveArtifact} isStreaming={false} />}
                                  </>
                                : m.isPending && m.isImageGen
-                               ? <MediaGenCard type="image" text={m.content} />
+                               ? <ImageGenLoader mode={m.imageMode} sourceUrl={m.sourceImageUrl} />
                                : m.isPending && m.isVideoGen
                                ? <MediaGenCard type="video" text={m.content} />
                                : m.isImageGen && m.generatedImageUrl
                                ? <div className="generated-image-result">
                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                                   <img
+                                   <GeneratedImage
                                      src={m.generatedImageUrl}
-                                     alt={m.generatedImagePrompt || "Generated image"}
-                                     loading="eager"
-                                     style={{ display: "block", width: "100%", maxWidth: 768, height: "auto", marginTop: 14, borderRadius: 14 }}
+                                     prompt={m.generatedImagePrompt}
+                                     busy={isLoading || messages.some(x => x.isPending && x.isImageGen)}
+                                     onNotify={addToast}
+                                     onEdit={(changes) => runImageJob({ userText: changes, prompt: changes, sourceUrl: m.generatedImageUrl })}
                                    />
-                                   <p style={{ marginTop: 14, fontStyle: "italic", color: "var(--ink-3)" }}>Generated with GPT Image 2</p>
                                  </div>
                                : m.isMultiAi
                                ? (() => {
