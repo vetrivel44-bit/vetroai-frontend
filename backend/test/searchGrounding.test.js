@@ -63,3 +63,15 @@ test("a new subject is not tied to the last one", () => {
   assert.equal(searchQueryFor("iphone 17 price in india", ramayana), "iphone 17 price in india");
   assert.equal(leansOnContext("2026"), false, "a lone number is not a follow-up");
 });
+
+test("search answers are worked out, not hedged or handed back to the user", async () => {
+  // "List the CMs of Tamil Nadu" was answered from one dated video, with its
+  // errors copied, a notes section about them, and "check an official source".
+  assert.match(GROUNDING_RULE, /never repeat its mistakes/);
+  assert.match(GROUNDING_RULE, /no telling the user to verify elsewhere/);
+  assert.match(GROUNDING_RULE, /complete the answer from your own knowledge/);
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const sys = await orchestrator.buildSystemPrompt("chat", { userQuery: "list of tamil nadu chief ministers", webContext: "SOURCES:\n[1] A video — https://example.com", memories: [], clock: {}, inlineVisuals: false });
+  assert.doesNotMatch(sys, /say so rather than silently picking/);
+  assert.match(sys, /give the right one/);
+});

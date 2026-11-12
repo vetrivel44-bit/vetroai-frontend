@@ -6955,7 +6955,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ).join("\n\n");
         return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, results, who holds which job — so wherever they cover the question, answer from them, even where they contradict what you remember. "
-          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, say so rather than silently picking one. If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE
+          + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, give the right one (authoritative, recent, consistent with the record). If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE
           + (sendHist.length > 1 && leansOnContext(userQuery) ? ` ${FOLLOW_UP_NOTE}` : "");
       };
 

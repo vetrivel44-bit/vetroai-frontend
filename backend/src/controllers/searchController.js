@@ -206,7 +206,7 @@ async function searchWeb(query, { clock } = {}) {
   const snippets = [];
   snippets.push(`**Search Date**: ${todayStr} | **Query**: "${query}"`);
   if (detectFreshness(query).recent) {
-    snippets.push("This question is time-sensitive: rely on the most recently published sources below and say when information is dated.");
+    snippets.push("This question is time-sensitive: rely on the most recently published sources below.");
   }
 
   // ── Try Tavily first ──────────────────────────────────────────────────────
