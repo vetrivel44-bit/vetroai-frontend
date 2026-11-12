@@ -682,6 +682,19 @@
   background: var(--structured-accent-soft);
 }
 
+/* Message styles give inline `code` a background; inside a highlighted block
+   that painted a box behind every line. */
+.structured-collapsible-content code,
+.structured-collapsible-content code span {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+.structured-collapsible-content code { display: block; white-space: pre; font-size: .85rem; line-height: 1.6; }
+.structured-collapsible-content > div > div { padding: 14px 18px !important; overflow-x: auto; }
+
 /* ─── FALLBACK SECTIONS ─── */
 
 .structured-section {

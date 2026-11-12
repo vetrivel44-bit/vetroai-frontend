@@ -854,11 +854,15 @@ const EFFORT_LEVELS = [
   { id: "max", name: "Max", desc: "Most thorough, for the hardest problems", icon: Rocket, maxTokens: 16384 },
 ];
 
+// Effort sets how hard the model thinks and how big the answer is. In every
+// case the shape follows the question: a quick fact is a sentence or two, a
+// how-to is steps, code is a code block with a short explanation.
+const ANSWER_SHAPE = "Shape the answer to the question: lead with the direct answer, then only what helps. Use headings only for long answers, bullets for lists of parallel items, numbered steps for procedures, a table only to compare several items on the same points, and a fenced code block with the right language tag for code. No filler intro or closing offer.";
 const EFFORT_INSTRUCTIONS = {
-  quick: "Use low reasoning effort. Answer directly and concisely without unnecessary exploration.",
-  balanced: "Use balanced reasoning effort. Think through the important details and give a clear, complete answer.",
-  deep: "Use high reasoning effort. Analyze alternatives, check assumptions, and verify the result before answering.",
-  max: "Use maximum reasoning effort. Work through the problem thoroughly, test the conclusion, and self-check for mistakes before answering.",
+  quick: `Use low reasoning effort. Keep it short: usually 1-4 sentences or a few bullets; code with at most one line of explanation. ${ANSWER_SHAPE}`,
+  balanced: `Use balanced reasoning effort. Give a clear, complete answer at a normal length, no padding. ${ANSWER_SHAPE}`,
+  deep: `Use high reasoning effort. Analyze alternatives, check assumptions and verify before answering. Be thorough where the question needs it: explain the why, cover edge cases and trade-offs, give a worked example when it helps. ${ANSWER_SHAPE}`,
+  max: `Use maximum reasoning effort. Work the problem through, test the conclusion and self-check for mistakes. Give the most complete, expert answer the question deserves: full reasoning, edge cases, trade-offs, complete runnable code when code is asked for, and a short summary at the end of a long answer. ${ANSWER_SHAPE}`,
 };
 
 const MODES_LIST = [

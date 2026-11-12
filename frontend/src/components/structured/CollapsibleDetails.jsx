@@ -6,7 +6,22 @@ import React, { useState, Suspense } from 'react';
 const CodeHighlighter = React.lazy(() => import('../CodeHighlighter'));
 import '../../styles/StructuredResponse.css';
 
-const CollapsibleDetails = ({ title, content, icon = 'code', delay = 1.0 }) => {
+// The language the model named, else a guess from the text: it was always
+// highlighted as JavaScript, so SQL, shell and logs came out in odd colors.
+export function guessLanguage(content = '', named = '') {
+  if (named) return named;
+  const text = String(content);
+  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|WITH|ALTER)\b/im.test(text)) return 'sql';
+  if (/^\s*[{[]/.test(text) && /"\s*:/.test(text)) return 'json';
+  if (/^\s*(def |import |from \S+ import |class \w+[:(])/m.test(text)) return 'python';
+  if (/^\s*(\$ |sudo |npm |pip |git |curl |docker |kubectl |cd |ls |export )/m.test(text)) return 'bash';
+  if (/^\s*(server|location|upstream)\s+[^{]*\{/m.test(text)) return 'nginx';
+  if (/^\s*[\w.-]+:\s/m.test(text) && !/[;{}]/.test(text)) return 'yaml';
+  if (/(const |let |function |=>|console\.)/.test(text)) return 'javascript';
+  return 'clike';
+}
+
+const CollapsibleDetails = ({ title, content, icon = 'code', language = '', delay = 1.0 }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const icons = {
@@ -62,8 +77,9 @@ const CollapsibleDetails = ({ title, content, icon = 'code', delay = 1.0 }) => {
         <div style={{ padding: '4px' }}>
           <Suspense fallback={<pre style={{ margin: 0, fontSize: '0.85rem', background: 'transparent', whiteSpace: 'pre-wrap' }}>{content}</pre>}>
             <CodeHighlighter
-              raw
-              language="javascript"
+              language={guessLanguage(content, language)}
+              followTheme
+              codeTagProps={{ style: { background: 'transparent', display: 'block' } }}
               customStyle={{
                 margin: 0,
                 borderRadius: '0 0 12px 12px',

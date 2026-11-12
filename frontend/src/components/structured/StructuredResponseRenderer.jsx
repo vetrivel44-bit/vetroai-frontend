@@ -427,7 +427,7 @@ const StructuredResponseRenderer = ({ response, onSubmitCode }) => {
         component = <OnboardingCard key={`onb-${index}`} {...commonProps} step={section.step} question={section.question} options={section.options} onSelect={onSubmitCode} totalSteps={4} />;
         break;
       case 'collapsible':
-        component = <CollapsibleDetails key={`coll-${index}`} {...commonProps} title={section.title} content={section.content} icon={section.icon} />;
+        component = <CollapsibleDetails key={`coll-${index}`} {...commonProps} title={section.title} content={section.content} icon={section.icon} language={section.language} />;
         break;
       case 'section':
         component = <StructuredSection key={`sec-${index}`} {...commonProps} title={section.title} content={section.content} />;
