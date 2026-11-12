@@ -9174,7 +9174,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                    </button>
                                  )}
                                  <button className="msg-action-btn user-msg-icon" onClick={() => { setEditIdx(i); setEditInput(m.content); }} title="Edit" aria-label="Edit message">
-                                   <EditIcon />
+                                   <Pencil size={14} strokeWidth={1.8} />
                                  </button>
                                  <button className="msg-action-btn user-msg-icon" onClick={() => copyUserMsg(i, m.content)} title={copiedUserIdx === i ? "Copied" : "Copy"} aria-label="Copy message">
                                    {copiedUserIdx === i ? <Check size={14} /> : <CopyIcon />}
