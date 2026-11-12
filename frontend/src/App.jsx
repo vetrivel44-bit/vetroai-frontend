@@ -6934,6 +6934,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             question: plainReading(userQuery),
             history: sendHist.slice(0, -1).filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim()).slice(-6).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })),
             timeZone: userTimeZone(),
+            effort: selectedEffort,
           }),
           signal: ctrl.signal,
         });
@@ -7154,6 +7155,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               query: userQuery,
               messages: hist.slice(0, -1).filter((m) => typeof m?.content === "string" && m.content).slice(-8).map(({ role, content }) => ({ role, content })),
               clientTimeZone: userTimeZone(),
+              effort: selectedEffort,
             }),
             signal: ctrl.signal,
           });

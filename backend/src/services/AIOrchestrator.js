@@ -6,6 +6,7 @@ const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { browseWeb, browseQuery, BROWSE_RULES } = require("./browseService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
+const { webSearchProfile, researchProfile } = require("./searchEffort");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } = require("./liveInfoIntent");
@@ -901,6 +902,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // rather than throwing, so the outer race only guards a hung socket.
           searchRes = await withTimeout(
             performAgenticSearch(searchQuery, {
+              ...researchProfile(params.effort),
               clock: params.clock,
               deadlineMs: RESEARCH_DEADLINE_MS,
               signal: params.signal,
@@ -929,7 +931,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           );
           browsed = true;
         } else {
-          searchRes = await withTimeout(searchWeb(searchQuery, { clock: params.clock }), 10000, "Search timeout");
+          // Deep and Max search wider and read more pages (searchEffort.js).
+          searchRes = await withTimeout(searchWeb(searchQuery, { clock: params.clock, effort: params.effort }), webSearchProfile(params.effort).timeoutMs + 2000, "Search timeout");
         }
         webContext = searchRes.context;
         compactContext = searchRes.compactContext || null;

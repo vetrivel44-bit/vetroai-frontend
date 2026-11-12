@@ -5,6 +5,7 @@ const { performAgenticSearch } = require("../services/agenticSearchService");
 const { plainReading } = require("../services/liveInfoIntent");
 const { clientClock } = require("../services/clockService");
 const { withTimeout } = require("../utils/withTimeout");
+const { researchProfile } = require("../services/searchEffort");
 
 // POST /api/research { query, messages?, clientTimeZone? } — server-sent events.
 //
@@ -46,6 +47,8 @@ async function research(req, res) {
   try {
     const result = await withTimeout(
       performAgenticSearch(plainReading(query), {
+        // Quick researches less, Deep and Max more (searchEffort.js).
+        ...researchProfile(req.body?.effort),
         clock: clientClock(req.body),
         history: AIOrchestrator.recentHistory([...messages, { role: "user", content: query }]),
         deadlineMs: AIOrchestrator.RESEARCH_DEADLINE_MS,

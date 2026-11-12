@@ -472,7 +472,8 @@ async function performAgenticSearch(query, options = {}) {
   const startedAt = Date.now();
   // Once cancelled, no time is left: every phase checks this before starting.
   const timeLeft = () => (opts.signal?.aborted ? 0 : opts.deadlineMs - (Date.now() - startedAt));
-  const search = opts.searchFn || ((q) => searchForResearch(q, { clock: opts.clock }));
+  // How deep each search goes follows the effort (searchEffort.js researchProfile).
+  const search = opts.searchFn || ((q) => searchForResearch(q, { clock: opts.clock, depth: opts.searchDepth, maxResults: opts.resultsPerQuery }));
   // url -> readPage's { status, text, title, reason } (tests may give text or
   // null). A YouTube video is read from its player data (youtubeReader).
   const readPage = opts.readFn || (async (url) => (await readYouTube(url, { signal: opts.signal })) || readWebPage(url, { signal: opts.signal }));

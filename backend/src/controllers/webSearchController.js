@@ -5,9 +5,10 @@ const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const { searchKeyless, tavilySearch } = require("./searchController");
 const { searchQueryForTurn } = require("../services/searchIntentService");
+const { webSearchProfile } = require("../services/searchEffort");
 
-function normalizeResults(results) {
-  return (results || []).slice(0, 10).map((r) => ({
+function normalizeResults(results, limit = 10) {
+  return (results || []).slice(0, limit).map((r) => ({
     title: r.title || "(untitled)",
     url: r.url || "",
     snippet: r.snippet || r.description || (typeof r.content === "string" ? r.content.slice(0, 300) : "") || "",
@@ -51,19 +52,24 @@ async function performStructuredSearch(req, res) {
     try {
       // Time-sensitive queries are searched inside a recency window and come
       // back newest first (see tavilySearch).
+      // Quick searches lighter; Deep and Max return more results (searchEffort.js).
+      const effort = req.body?.effort;
+      const profile = webSearchProfile(effort);
+      const quick = profile.effort === "quick";
+      const maxResults = quick ? profile.maxResults : Math.max(10, profile.maxResults);
       const tavilyRes = await tavilySearch(query, {
-        searchDepth: "advanced",   // richer content, better relevance
-        maxResults: 10,
+        searchDepth: quick ? "basic" : "advanced",   // richer content, better relevance
+        maxResults,
         includeAnswer: "advanced", // comprehensive, reasonable depth AI synthesis
         includeRawContent: false,
         includeImages: false,
-      }, 14000);
+      }, quick ? 10000 : 14000);
       if (tavilyRes?.results?.length || tavilyRes?.answer) {
         return successResponse(res, "Search successful", {
           provider: "tavily",
           query,
           answer: tavilyRes.answer || "",
-          results: normalizeResults(tavilyRes.results),
+          results: normalizeResults(tavilyRes.results, maxResults),
           tookMs: Date.now() - started,
         });
       }

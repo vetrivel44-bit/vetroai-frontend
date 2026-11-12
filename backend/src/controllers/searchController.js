@@ -5,6 +5,7 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const { describeClock } = require("../services/clockService");
+const { webSearchProfile } = require("../services/searchEffort");
 const {
   detectFreshness, sortByRecency, GOOGLE_NEWS_WHEN, DDG_TIME, BING_FRESHNESS,
 } = require("../services/searchFreshness");
@@ -55,14 +56,15 @@ async function tavilySearch(query, baseOptions, timeoutMs) {
 }
 
 // ── Primary: Tavily (best real-time AI search) ────────────────────────────────
-async function searchTavily(query) {
+// How many results and how deep come from the effort picked (searchEffort.js).
+async function searchTavily(query, profile = webSearchProfile("balanced")) {
   try {
     return await tavilySearch(query, {
-      searchDepth: "basic",
-      maxResults: 8,
-      includeAnswer: true,
+      searchDepth: profile.depth,
+      maxResults: profile.maxResults,
+      includeAnswer: profile.depth === "advanced" ? "advanced" : true,
       includeRawContent: false,
-    }, 9000);
+    }, profile.timeoutMs - 1000);
   } catch (err) {
     logger.warn("Tavily search failed", { error: err.message });
     return null;
@@ -197,8 +199,9 @@ function datedLabel(r) {
   return ` (published ${new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })})`;
 }
 
-async function searchWeb(query, { clock } = {}) {
+async function searchWeb(query, { clock, effort } = {}) {
   if (!query) throw new Error("Query is required");
+  const profile = webSearchProfile(effort);
 
   // The user's date, not the server's (UTC) — see clockService.
   const todayStr = describeClock(clock || {}).date;
@@ -210,7 +213,7 @@ async function searchWeb(query, { clock } = {}) {
   }
 
   // ── Try Tavily first ──────────────────────────────────────────────────────
-  const tavilyRes = await searchTavily(query);
+  const tavilyRes = await searchTavily(query, profile);
 
   if (tavilyRes) {
     // Tavily provides a direct AI answer
@@ -226,9 +229,9 @@ async function searchWeb(query, { clock } = {}) {
 
       // Include raw content from top results if available
       const fullContent = tavilyRes.results
-        .slice(0, 3)
+        .slice(0, profile.fullPages)
         .filter(r => r.content && r.content.length > 200)
-        .map((r, i) => `**Full Content [${i + 1}] — "${r.title}"**:\n${r.content.slice(0, 3000)}`);
+        .map((r, i) => `**Full Content [${i + 1}] — "${r.title}"**:\n${r.content.slice(0, profile.pageChars)}`);
       fullContent.forEach(c => snippets.push(c));
     }
 
@@ -249,19 +252,38 @@ async function searchWeb(query, { clock } = {}) {
   ).join("\n\n");
   snippets.push(`**Web Results for "${query}"**:\n\n${orgText}`);
 
+  // The keyless engines give snippets only: at Deep and Max effort the top
+  // pages are read too, so the answer rests on more than a line per result.
+  for (const page of await readTopPages(results, profile)) snippets.push(page);
+
   return { context: snippets.join("\n\n---\n\n"), results };
+}
+
+async function readTopPages(results, profile) {
+  if (!profile.readPages) return [];
+  const { readPage } = require("../services/pageReader");
+  const top = results.slice(0, profile.readPages);
+  const pages = await Promise.all(top.map((r) => Promise.race([
+    readPage(r.url).catch(() => null),
+    new Promise((resolve) => setTimeout(() => resolve(null), 6000)),
+  ])));
+  return pages
+    .map((page, i) => (page?.status === "read" && page.text && page.text.length > 200
+      ? `**Full Content [${i + 1}] — "${top[i].title}"**:\n${page.text.slice(0, profile.pageChars)}`
+      : null))
+    .filter(Boolean);
 }
 
 // DeepSearch's search: structured results with each page's full text where
 // the provider has it, instead of a prompt-ready context string. Tavily
 // returns page text at no extra credit cost; the keyless fallbacks give
 // snippets only, and DeepSearch fetches those pages itself (pageReader.js).
-async function searchForResearch(query) {
+async function searchForResearch(query, { depth = "basic", maxResults = 6 } = {}) {
   if (!query) return [];
   try {
     const res = await tavilySearch(query, {
-      searchDepth: "basic",
-      maxResults: 6,
+      searchDepth: depth,
+      maxResults,
       includeAnswer: false,
       includeRawContent: "text",
     }, 12000);
@@ -290,10 +312,11 @@ async function searchForResearch(query) {
 async function performSearch(req, res) {
   const query = req.body?.query;
   if (!query) throw new ApiError(400, "Query is required");
+  const effort = req.body?.effort;
   try {
     const { context } = await Promise.race([
-      searchWeb(query),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Search timed out")), 12000)),
+      searchWeb(query, { effort }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Search timed out")), webSearchProfile(effort).timeoutMs + 2000)),
     ]);
     return successResponse(res, "Search successful", { context });
   } catch (error) {
