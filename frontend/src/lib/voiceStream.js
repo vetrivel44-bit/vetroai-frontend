@@ -84,7 +84,8 @@ export function stopActiveSpeaker() {
  *   onStart: the first audio is about to play. onDone: everything was spoken.
  *   onStop: speech was cut short (error, abort, interrupt).
  */
-export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop }) {
+// maxChars: how much of the reply to speak (Read aloud speaks a whole reply).
+export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop, maxChars = MAX_SPOKEN_CHARS }) {
   active?.stop();
   let abort = new AbortController();
   let queue = [];
@@ -176,8 +177,8 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
   };
 
   const enqueue = (text) => {
-    if (!text || queuedChars >= MAX_SPOKEN_CHARS) return;
-    const clipped = text.slice(0, MAX_SPOKEN_CHARS - queuedChars);
+    if (!text || queuedChars >= maxChars) return;
+    const clipped = text.slice(0, maxChars - queuedChars);
     queuedChars += clipped.length;
     queue.push({ text: clipped, audio: fetchAudio(clipped) });
     pump();

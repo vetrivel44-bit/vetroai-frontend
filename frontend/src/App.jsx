@@ -50,7 +50,7 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
-import { Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
+import { Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
@@ -4959,6 +4959,9 @@ export default function App() {
 
   // ── Voice ─────────────────────────────────────────────────────────────────────
   const [autoSpeak, setAutoSpeak]   = useState(false);
+  // Index of the reply being read aloud by its own button, or null. Reading
+  // one reply never turns on speech for later replies or other chats.
+  const [readingIdx, setReadingIdx] = useState(null);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
   // Voice mode's mute button: the mic stays off until it is turned back on,
@@ -5310,6 +5313,7 @@ export default function App() {
   }, [currentSessionId, user]);
 
   const loadSession = id => {
+    stopSpeak(); // a reply being read aloud stops when another chat opens
     const s = sessions.find(x => x.id === id);
     if (s) {
       // Drop any in-flight answer from the chat we're leaving — without this its
@@ -5648,6 +5652,20 @@ export default function App() {
     }
     window.isTTSLoading = false;
     setIsSpeaking(false);
+    setReadingIdx(null);
+  };
+
+  // "Read aloud" on one reply: the whole reply in the natural voice picked for
+  // voice mode (sentence by sentence, so it starts quickly). Pressing it again,
+  // or opening/starting another chat, stops it.
+  const readAloud = (idx, content) => {
+    const wasReading = readingIdx === idx;
+    stopSpeak();
+    if (wasReading) return;
+    setReadingIdx(idx);
+    const done = () => { window.isTTSLoading = false; setReadingIdx((cur) => (cur === idx ? null : cur)); };
+    const speaker = createStreamingSpeaker({ apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, onDone: done, onStop: done });
+    speaker.finish(content);
   };
 
   // True while any text-to-speech is loading or audible. The mic must stay shut
@@ -9239,6 +9257,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <div className="msg-action-row">
                                <button className="msg-action-btn" onClick={() => copyAiMsg(i, m.content)} title={copiedAiIdx === i ? "Copied" : "Copy"} aria-label="Copy response">
                                  {copiedAiIdx === i ? <CheckIcon /> : <CopyIcon />}
+                               </button>
+                               <button className={`msg-action-btn${readingIdx === i ? ' is-reading' : ''}`} onClick={() => readAloud(i, m.content)} title={readingIdx === i ? "Stop reading" : "Read aloud"} aria-label={readingIdx === i ? "Stop reading" : "Read aloud"} aria-pressed={readingIdx === i}>
+                                 {readingIdx === i ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
                                </button>
                                <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Good response" aria-label="Good response" aria-pressed={msgFeedback[i] === 'up'}>
                                  <ThumbsUpIcon />

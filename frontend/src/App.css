@@ -928,6 +928,10 @@ button:active { transform: scale(0.97); }
 .msg-action-btn span { line-height: 1; }
 .msg-action-btn.feedback-up  { color: #4F7CFF; }
 .msg-action-btn.feedback-down { color: #ef4444; }
+/* Read aloud: the reply being spoken shows a pulsing stop button. */
+.msg-action-btn.is-reading { color: #4F7CFF; animation: msg-reading-pulse 1.4s ease-in-out infinite; }
+@keyframes msg-reading-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .msg-action-btn.is-reading { animation: none; } }
 /* The reply's actions are icons only (copy, good, bad, retry); the labels
    live in the tooltips and aria-labels. */
 .msg-action-row .msg-action-btn {

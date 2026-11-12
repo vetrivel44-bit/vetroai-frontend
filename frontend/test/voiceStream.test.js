@@ -40,3 +40,26 @@ test("short sentences are merged so speech is not choppy", () => {
     "End.",
   ]);
 });
+
+test("Read aloud can speak a whole long reply (maxChars), voice mode stays capped", async () => {
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const saved = { window: globalThis.window, fetch: globalThis.fetch, Audio: globalThis.Audio, URL: globalThis.URL.createObjectURL };
+  const spoken = [];
+  globalThis.window = {};
+  globalThis.fetch = async (_url, init) => { spoken.push(JSON.parse(init.body).text); return { ok: true, blob: async () => ({ size: 1 }) }; };
+  globalThis.URL.createObjectURL = () => "blob:x";
+  globalThis.URL.revokeObjectURL = () => {};
+  globalThis.Audio = class { play() { setTimeout(() => this.onended?.(), 0); return Promise.resolve(); } pause() {} };
+  const reply = Array.from({ length: 120 }, (_, i) => `This is sentence number ${i} of a long answer.`).join(" ");
+  try {
+    for (const [opts, expectAll] of [[{ maxChars: 20000 }, true], [{}, false]]) {
+      spoken.length = 0;
+      await new Promise((resolve) => createStreamingSpeaker({ apiBase: "/api", ...opts, onDone: resolve, onStop: resolve }).finish(reply));
+      const total = spoken.reduce((n, s) => n + s.length, 0);
+      if (expectAll) assert.ok(total >= reply.length - 200, `read ${total} of ${reply.length}`);
+      else assert.ok(total <= 1500, `voice mode read ${total}`);
+    }
+  } finally {
+    globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
+  }
+});
