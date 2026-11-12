@@ -3267,6 +3267,19 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
   const anchorRef = useRef(null);
   const menuRef = useRef(null);
   const [place, setPlace] = useState(null);
+  // Phones get a bottom sheet, like Claude's app; side menus slide in inside it.
+  const [isPhone, setIsPhone] = useState(() => typeof window !== "undefined" && window.innerWidth <= 768);
+  useEffect(() => {
+    const onResize = () => setIsPhone(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // Drag the sheet's handle down to close it.
+  const drag = useRef(null);
+  const [dragY, setDragY] = useState(0);
+  const onDragStart = (e) => { drag.current = e.touches[0].clientY; };
+  const onDragMove = (e) => { if (drag.current != null) setDragY(Math.max(0, e.touches[0].clientY - drag.current)); };
+  const onDragEnd = () => { if (dragY > 90) handleClose(); setDragY(0); drag.current = null; };
   React.useLayoutEffect(() => {
     const position = () => {
       const anchor = anchorRef.current?.parentElement;
@@ -3339,16 +3352,23 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
     <>
       <span ref={anchorRef} hidden />
       {createPortal(<>
-      <div className="overlay" style={{ background: "transparent", backdropFilter: "none", WebkitBackdropFilter: "none", padding: 0 }} onClick={handleClose}></div>
-      <div ref={menuRef} className={`workspace-popup model-menu${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`} role="menu" aria-label="Model and effort"
-        data-side={place?.side || "left"} data-v={place ? (place.up ? "up" : "down") : "up"}
-        style={place ? { position: "fixed", top: place.top, left: place.left, right: "auto", bottom: "auto", "--mm-avail": `${place.avail}px` } : (typeof window !== "undefined" && window.innerWidth > 768 ? { position: "fixed", visibility: "hidden" } : undefined)}>
+      <div className={`overlay${isPhone ? " mm-sheet-scrim" : ""}${isPhone && isClosing ? " closing" : ""}`} style={isPhone ? undefined : { background: "transparent", backdropFilter: "none", WebkitBackdropFilter: "none", padding: 0 }} onClick={handleClose}></div>
+      <div ref={menuRef} className={`workspace-popup model-menu${isPhone ? " is-sheet" : ""}${submenu ? " has-sub" : ""}${variant ? ` ${variant}` : ""}${isClosing ? " closing" : ""}`} role="menu" aria-label="Model and effort"
+        data-side={isPhone ? "over" : place?.side || "left"} data-v={place ? (place.up ? "up" : "down") : "up"}
+        style={isPhone ? (dragY ? { transform: `translateY(${dragY}px)`, transition: "none" } : undefined)
+          : place ? { position: "fixed", top: place.top, left: place.left, right: "auto", bottom: "auto", "--mm-avail": `${place.avail}px` } : { position: "fixed", visibility: "hidden" }}>
+        {isPhone && (
+          <div className="mm-grab" onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd}>
+            <span className="mm-grab-bar" />
+            <div className="mm-sheet-title">Model</div>
+          </div>
+        )}
         <button type="button" className="ws-popup-close" onClick={handleClose} aria-label="Close model selector" hidden />
         <div className="mm-list">
           {featured.map((provider) => (
             <button type="button" key={provider} role="menuitemradio" aria-checked={currentProvider === provider}
               className={`mm-row${currentProvider === provider ? " active" : ""}`}
-              onMouseEnter={() => setSubmenu(null)}
+              onMouseEnter={() => { if (!isPhone) setSubmenu(null); }}
               onClick={(event) => { event.stopPropagation(); pick(provider); }}>
               <span className="mm-copy"><strong>{provider}</strong><small>{featuredDetail[provider] || providerMeta[provider]?.[1]}</small></span>
               {currentProvider === provider && <Check size={17} className="mm-check" />}
@@ -3357,7 +3377,7 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
         </div>
         <div className="mm-sep" />
         <button type="button" className={`mm-row mm-sub-row${submenu === "effort" ? " open" : ""}`} aria-haspopup="menu" aria-expanded={submenu === "effort"}
-          onMouseEnter={() => setSubmenu("effort")}
+          onMouseEnter={() => { if (!isPhone) setSubmenu("effort"); }}
           onClick={(event) => { event.stopPropagation(); setSubmenu((v) => (v === "effort" ? null : "effort")); }}>
           <span className="mm-label">Effort</span>
           <span className="mm-value">{effort.name}</span>
@@ -3365,7 +3385,7 @@ function WorkspacePopup({ currentProvider, currentEffort, onSelectProvider, onSe
         </button>
         <div className="mm-sep" />
         <button type="button" className={`mm-row mm-sub-row${submenu === "models" ? " open" : ""}`} aria-haspopup="menu" aria-expanded={submenu === "models"}
-          onMouseEnter={() => setSubmenu("models")}
+          onMouseEnter={() => { if (!isPhone) setSubmenu("models"); }}
           onClick={(event) => { event.stopPropagation(); setSubmenu((v) => (v === "models" ? null : "models")); }}>
           <span className="mm-label">More models</span>
           {inMore && <span className="mm-value">{currentProvider}</span>}

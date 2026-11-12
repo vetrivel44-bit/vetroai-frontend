@@ -239,6 +239,8 @@ function closeModelScreen({ closeSource = false } = {}) {
 
 function openModelScreen(popup) {
   if (!MOBILE_MODEL_QUERY.matches || !popup || modelScreen) return;
+  // The model menu is its own bottom sheet on phones now (like Claude's app).
+  if (popup.classList.contains('model-menu')) return;
   sourcePopup = popup;
   sourcePopup.classList.add('mobile-model-source-hidden');
   document.documentElement.classList.add('mobile-model-screen-open');
