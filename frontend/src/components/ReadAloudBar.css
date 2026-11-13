@@ -1,0 +1,52 @@
+/* Read aloud controls, under the reply being read (ReadAloudBar.jsx). Uses the
+   app's theme colours, so it follows light and dark. Wraps onto a second line
+   on a narrow phone instead of scrolling sideways. */
+.rab {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  max-width: 100%; box-sizing: border-box;
+  margin: 10px 0 2px; padding: 4px;
+  border: 1px solid var(--border-med, var(--border, rgba(127,127,127,.25)));
+  border-radius: 12px;
+  background: var(--bg-elevated, var(--bg-2, transparent));
+  color: var(--ink-2, var(--ink));
+  font-family: 'Inter', system-ui, sans-serif;
+  width: fit-content;
+  animation: rabIn .18s ease-out both;
+}
+@keyframes rabIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .rab { animation: none; } }
+
+.rab-group, .rab-speeds { display: flex; align-items: center; gap: 2px; }
+.rab-speeds { padding: 2px; border-radius: 9px; background: var(--bg-hover, rgba(127,127,127,.12)); }
+
+.rab-btn, .rab-speed {
+  display: inline-grid; place-items: center;
+  border: 0; background: none; color: inherit; cursor: pointer;
+  font: inherit; line-height: 1;
+  transition: background .12s ease, color .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.rab-btn { width: 34px; height: 34px; border-radius: 9px; }
+.rab-btn:hover, .rab-speed:hover { background: var(--bg-hover, rgba(127,127,127,.14)); color: var(--ink); }
+.rab-main { color: var(--ink); }
+.rab-stop { color: var(--ink-2, var(--ink)); }
+.rab-btn:focus-visible, .rab-speed:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+.rab-speed {
+  min-width: 40px; height: 30px; padding: 0 6px; border-radius: 7px;
+  font-size: 12.5px; font-weight: 550; font-variant-numeric: tabular-nums;
+}
+.rab-speed.is-on, .rab-speed.is-on:hover { background: var(--ink); color: var(--bg-elevated, var(--bg, #fff)); }
+
+@media (max-width: 420px) {
+  .rab { gap: 4px 6px; }
+  .rab-btn { width: 32px; height: 32px; }
+  .rab-speed { min-width: 36px; padding: 0 4px; }
+}
+
+/* The sentence being read, marked in the reply (lib/readAloudHighlight.js). */
+::highlight(read-aloud) {
+  background-color: rgba(250, 204, 21, .32);
+  color: inherit;
+}
+[data-theme="light"] ::highlight(read-aloud) { background-color: rgba(250, 204, 21, .45); }

@@ -6,7 +6,14 @@ import "./VoiceMode.css";
 // "google-…" voices are Google's free voice, both spoken by the backend's /tts.
 // The first four are Microsoft's newer conversational voices, the most like a
 // person talking; Ava is the default (initialVoice in App.jsx).
+// "sarvam-…" voices are the Premium ones: Sarvam's Bulbul, paid, made for
+// Indian English, and the same voice reads Tamil, Hindi and nine other Indian
+// languages (backend sarvamTtsService.js).
 const VOICES = [
+  { id: "sarvam-ishita", name: "Ishita", note: "Natural and expressive", accent: "India", premium: true },
+  { id: "sarvam-ratan", name: "Ratan", note: "Warm and clear", accent: "India", premium: true },
+  { id: "sarvam-priya", name: "Priya", note: "Friendly and bright", accent: "India", premium: true },
+  { id: "sarvam-shubh", name: "Shubh", note: "Calm and steady", accent: "India", premium: true },
   { id: "en-US-AvaMultilingualNeural", name: "Ava", note: "Warm and expressive", accent: "US" },
   { id: "en-US-AndrewMultilingualNeural", name: "Andrew", note: "Relaxed and genuine", accent: "US" },
   { id: "en-US-EmmaMultilingualNeural", name: "Emma", note: "Cheerful and chatty", accent: "US" },
@@ -103,7 +110,10 @@ export default function VoiceMode({
                   onClick={() => { onVoiceChange(v.id); setPicking(false); }}
                   aria-pressed={v.id === current.id}
                 >
-                  <span className="vm-voice-text"><strong>{v.name}</strong><small>{v.note} · {v.accent}</small></span>
+                  <span className="vm-voice-text">
+                    <strong>{v.name}{v.premium && <span className="vm-premium">Premium</span>}</strong>
+                    <small>{v.note} · {v.accent}</small>
+                  </span>
                   <span className="vm-check">{v.id === current.id && <Check size={16} />}</span>
                 </button>
               ))}

@@ -11,8 +11,19 @@ const VOICE_GENDER = {
 const FEMALE = /\b(female|woman|zira|samantha|karen|moira|tessa|serena|susan|hazel|libby|aria|jenny|sonia|victoria|fiona|kate|catherine|allison|ava|joanna|salli|kimberly|emma|amy|michelle|heera|veena)\b/i;
 const MALE = /\b(male|man|david|mark|daniel|alex|fred|george|guy|ryan|steffan|james|tom|oliver|arthur|aaron|rishi|thomas|ravi)\b/i;
 
+// The Premium (Sarvam) voices: Indian English, so the browser's stand-in is
+// an Indian English voice of the same gender (Heera, Ravi, Google's en-IN…).
+const SARVAM_VOICES = {
+  "sarvam-ishita": { lang: "en-IN", name: "", gender: "female" },
+  "sarvam-priya": { lang: "en-IN", name: "", gender: "female" },
+  "sarvam-ratan": { lang: "en-IN", name: "", gender: "male" },
+  "sarvam-shubh": { lang: "en-IN", name: "", gender: "male" },
+};
+
 /** "en-GB-SoniaNeural" → { lang: "en-GB", name: "Sonia", gender: "female" } */
 export function describeTtsVoice(id) {
+  if (SARVAM_VOICES[id]) return { ...SARVAM_VOICES[id] };
+  if (/^sarvam-/.test(String(id || ""))) return { lang: "en-IN", name: "", gender: null };
   const google = /^google-([a-z]{2}-[A-Z]{2})$/.exec(String(id || ""));
   if (google) return { lang: google[1], name: "", gender: "female" };
   const match = /^([a-z]{2}-[A-Z]{2})-([A-Za-z]+?)(?:Multilingual|Expressive)?(?:Neural)?$/.exec(String(id || ""));

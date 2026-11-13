@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
-import { READ_ALOUD_CHUNK_CHARS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
+import { READ_ALOUD_CHUNK_CHARS, READ_SPEEDS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
+import { createReadHighlighter } from "./lib/readAloudHighlight.js";
+import ReadAloudBar from "./components/ReadAloudBar.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -5094,6 +5096,13 @@ export default function App() {
   // Index of the reply being read aloud by its own button, or null. Reading
   // one reply never turns on speech for later replies or other chats.
   const [readingIdx, setReadingIdx] = useState(null);
+  // Read aloud's bar: paused or not, and the speed (kept for next time).
+  const [readPaused, setReadPaused] = useState(false);
+  const [readSpeed, setReadSpeed] = useState(() => {
+    try { const saved = Number(localStorage.getItem("vetro_read_speed")); return READ_SPEEDS.includes(saved) ? saved : 1; } catch { return 1; }
+  });
+  const readerRef = useRef(null);
+  const readHighlightRef = useRef(null);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
   // Voice mode's mute button: the mic stays off until it is turned back on,
@@ -5833,12 +5842,17 @@ export default function App() {
     window.isTTSLoading = false;
     setIsSpeaking(false);
     setReadingIdx(null);
+    readerRef.current = null;
+    readHighlightRef.current?.clear();
+    setReadPaused(false);
   };
 
   // "Read aloud" on one reply: the whole reply in the natural voice picked for
   // voice mode. The first sentence goes on its own so it starts quickly, then
   // a few sentences per clip so it flows (lib/voiceStream.js). Pressing it
-  // again, or opening/starting another chat, stops it.
+  // again, or opening/starting another chat, stops it. While it reads, a bar
+  // under the reply pauses it, moves a sentence back or forward and changes
+  // the speed, and the sentence being heard is highlighted in the reply.
   const readAloud = (idx, content) => {
     const wasReading = readingIdx === idx;
     stopSpeak();
@@ -5846,9 +5860,36 @@ export default function App() {
     // This click is what lets the browser start audio.
     unlockSpeechAudio();
     setReadingIdx(idx);
-    const done = () => { window.isTTSLoading = false; setReadingIdx((cur) => (cur === idx ? null : cur)); };
-    const speaker = createStreamingSpeaker({ apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, chunkChars: READ_ALOUD_CHUNK_CHARS, lang: detectSpeechLanguage(content) || undefined, onDone: done, onStop: done });
+    setReadPaused(false);
+    const highlighter = createReadHighlighter(() => document.querySelector(`[data-read-body="${idx}"]`));
+    readHighlightRef.current = highlighter;
+    let speaker = null;
+    const done = () => {
+      window.isTTSLoading = false;
+      highlighter.clear();
+      if (readerRef.current === speaker) { readerRef.current = null; setReadPaused(false); }
+      setReadingIdx((cur) => (cur === idx ? null : cur));
+    };
+    speaker = createStreamingSpeaker({
+      apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, chunkChars: READ_ALOUD_CHUNK_CHARS,
+      lang: detectSpeechLanguage(content) || undefined, speed: readSpeed,
+      onSentence: (index, sentence) => highlighter.show(index, sentence),
+      onDone: done, onStop: done,
+    });
+    readerRef.current = speaker;
     speaker.finish(content);
+  };
+
+  const toggleReadPause = () => {
+    const speaker = readerRef.current;
+    if (!speaker) return;
+    if (speaker.paused) speaker.resume(); else speaker.pause();
+    setReadPaused(speaker.paused);
+  };
+  const changeReadSpeed = (value) => {
+    setReadSpeed(value);
+    try { localStorage.setItem("vetro_read_speed", String(value)); } catch { /* private mode */ }
+    readerRef.current?.setSpeed(value);
   };
 
   // True while any text-to-speech is loading or audible. The mic must stay shut
@@ -9430,7 +9471,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.sources && m.sources.length > 0 && (
                              <SourceCards sources={m.sources} />
                            )}
-                           <div className="claude-prose" style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
+                           <div className="claude-prose" data-read-body={i} style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.usageLimit
                                ? <UsageLimitNotice limit={m.usageLimit} onOpenUsage={openUsageSettings} />
                                : m.course
@@ -9565,6 +9606,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            )}
                            {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
                              <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           )}
+                           {m.content && readingIdx === i && (
+                             <ReadAloudBar
+                               paused={readPaused}
+                               speed={readSpeed}
+                               onToggle={toggleReadPause}
+                               onBack={() => readerRef.current?.skip(-1)}
+                               onForward={() => readerRef.current?.skip(1)}
+                               onSpeed={changeReadSpeed}
+                               onStop={stopSpeak}
+                             />
                            )}
                            {m.content && !isLoading && (
                              <div className="msg-action-row">
