@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
-import { createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker } from "./lib/voiceStream.js";
-import { canListen, createVoiceListener, looksLikeEcho } from "./lib/voiceListener.js";
+import { READ_ALOUD_CHUNK_CHARS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
+import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
-import { detectSpeechLanguage } from "./lib/speechLanguage.js";
+import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
 import { autoModeFor } from "./lib/autoMode.js";
 import { setActiveAccountKey, looksLikeJwt } from "./lib/storageGuard.js";
 import { createPortal } from "react-dom";
@@ -119,7 +119,7 @@ import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
 import UserAvatar from "./components/UserAvatar";
 import { useDictation } from "./hooks/useDictation";
-import { appendDictated, dictationHints, formatElapsed, micErrorMessage, rememberLanguage, rememberedLanguages, serverDictationAvailable, transcribeRecording } from "./lib/dictation";
+import { SPEECH_LANGUAGES, appendDictated, dictationHints, formatElapsed, joinRecognitionResults, micErrorMessage, recognitionLocale, rememberLanguage, rememberedLanguages, saveSpeechLanguage, savedSpeechLanguage, serverDictationAvailable, transcribeRecording } from "./lib/dictation";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. (Every
@@ -5137,6 +5137,10 @@ export default function App() {
   const serverVoiceRef = useRef(null);
   const [voiceHearing, setVoiceHearing] = useState(false);
   const [voiceTranscribing, setVoiceTranscribing] = useState(false);
+  // The language picked for the microphone (dictation and voice mode), or ""
+  // to let it be worked out. Picking one is the fix when Auto gets it wrong.
+  const [speechLang, setSpeechLangState] = useState(() => savedSpeechLanguage());
+  const speechLangRef = useRef(speechLang);
   // The composer's microphone: speak, and the words land in the message box
   // (hooks/useDictation.js, lib/dictation.js).
   const dictation = useDictation({
@@ -5154,14 +5158,23 @@ export default function App() {
     onError: (message) => addToast(message, "error"),
     onNotice: (message) => addToast(message, "info"),
     getHints: () => speechHints(),
+    getLanguage: () => speechLangRef.current,
   });
+  const changeSpeechLang = (code) => {
+    const next = saveSpeechLanguage(code);
+    speechLangRef.current = next;
+    setSpeechLangState(next);
+    dictation.relisten();
+  };
   // The languages this person speaks, most likely first: any language is
   // heard; these keep a short clip from landing on a close neighbour of the
-  // one spoken (Hindi in Urdu script, Tamil as Malayalam).
+  // one spoken (Hindi in Urdu script, Tamil as Malayalam), or English said
+  // with an accent from being written in Tamil or Hindi script. The language
+  // they type in comes first.
   function speechHints() {
     return dictationHints({
       remembered: rememberedLanguages(),
-      written: detectSpeechLanguage(messagesRef.current.filter((m) => m?.role === "user").slice(-4).map((m) => (typeof m.content === "string" ? m.content : "")).join("\n")),
+      written: typedLanguage(messagesRef.current.filter((m) => m?.role === "user").slice(-4).map((m) => (typeof m.content === "string" ? m.content : "")).join("\n")),
       browser: navigator.languages?.length ? navigator.languages : [navigator.language],
     });
   }
@@ -5823,15 +5836,18 @@ export default function App() {
   };
 
   // "Read aloud" on one reply: the whole reply in the natural voice picked for
-  // voice mode (sentence by sentence, so it starts quickly). Pressing it again,
-  // or opening/starting another chat, stops it.
+  // voice mode. The first sentence goes on its own so it starts quickly, then
+  // a few sentences per clip so it flows (lib/voiceStream.js). Pressing it
+  // again, or opening/starting another chat, stops it.
   const readAloud = (idx, content) => {
     const wasReading = readingIdx === idx;
     stopSpeak();
     if (wasReading) return;
+    // This click is what lets the browser start audio.
+    unlockSpeechAudio();
     setReadingIdx(idx);
     const done = () => { window.isTTSLoading = false; setReadingIdx((cur) => (cur === idx ? null : cur)); };
-    const speaker = createStreamingSpeaker({ apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, lang: detectSpeechLanguage(content) || undefined, onDone: done, onStop: done });
+    const speaker = createStreamingSpeaker({ apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, chunkChars: READ_ALOUD_CHUNK_CHARS, lang: detectSpeechLanguage(content) || undefined, onDone: done, onStop: done });
     speaker.finish(content);
   };
 
@@ -5868,6 +5884,9 @@ export default function App() {
     if (opts.reset !== false) { transcriptRef.current = ""; setInput(""); }
     if (micRunningRef.current || isTTSActive()) return false;
     try {
+      // The language picked, else the one they most likely speak, as a full
+      // locale ("en-IN" in India): the recognizer only hears one.
+      try { sr.lang = recognitionLocale(speechLangRef.current || speechHints()[0] || navigator.language); } catch (err) { swallowError(err); }
       sr.start();
       micRunningRef.current = true;
       setIsListening(true);
@@ -6115,8 +6134,10 @@ export default function App() {
       // than just skipping the render) keeps the assistant's own voice out of the
       // transcript we later submit.
       if (isTTSActive()) { transcriptRef.current = ""; return; }
-      let txt = "";
-      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      // Chrome on Android repeats earlier phrases in each new result; joined
+      // naively, every phrase was sent two or three times.
+      const heard = joinRecognitionResults(e.results);
+      const txt = [heard.final, heard.interim].filter(Boolean).join(" ");
       transcriptRef.current = txt;
       setInput(txt);
       clearTimeout(endOfTurnTimer);
@@ -6232,7 +6253,7 @@ export default function App() {
     setVoiceTranscribing(true);
     let heard = "";
     try {
-      const result = await transcribeRecording(API, wav, { hints: speechHints(), timeoutMs: 30000 });
+      const result = await transcribeRecording(API, wav, { language: speechLangRef.current || undefined, hints: speechHints(), timeoutMs: 30000 });
       heard = result.text;
       if (heard) rememberLanguage(result.language);
     } catch (err) {
@@ -6248,8 +6269,11 @@ export default function App() {
     const words = heard.trim();
     if (!words) { duckReply(false); return; }
     if (isTTSActive()) {
+      // Heard while VetroAI talks: only the person really cutting in stops
+      // it (lib/voiceListener.js interruptsReply). A stray word, a "yeah",
+      // the TV, or its own voice from the speaker lets it carry on.
       const beingSaid = [...msgsRef.current].reverse().find((m) => m?.role === "assistant")?.content || "";
-      if (looksLikeEcho(words, speakableText(beingSaid))) { duckReply(false); return; }
+      if (!interruptsReply(words, speakableText(beingSaid))) { duckReply(false); return; }
       stopSpeak();
     }
     submitVoiceRef.current?.(words);
@@ -6297,6 +6321,8 @@ export default function App() {
     // Priming speech synthesis inside the click keeps the browser-TTS fallback
     // usable later, when no user gesture is in scope.
     window.speechSynthesis?.speak(new SpeechSynthesisUtterance(""));
+    // Likewise the audio that plays VetroAI's voice.
+    unlockSpeechAudio();
     // Wake the free-tier backend now so the first reply isn't a cold start.
     fetch(API + "/health", { cache: "no-store" }).catch(() => {});
     setMuted(false);
@@ -8371,6 +8397,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 {Array.from({ length: WAVE_BARS }, (_, i) => <span key={i} />)}
               </div>
             )}
+            <label className="vc-lang" title="The language you're speaking">
+              <span aria-hidden="true">{SPEECH_LANGUAGES.find((l) => l.code === speechLang)?.short || "Auto"}</span>
+              <select
+                aria-label="The language you're speaking"
+                value={speechLang}
+                onChange={(e) => changeSpeechLang(e.target.value)}
+                disabled={dictation.phase === "transcribing"}
+              >
+                {SPEECH_LANGUAGES.map((l) => <option key={l.code || "auto"} value={l.code}>{l.label}</option>)}
+              </select>
+            </label>
             <span className="vc-time" aria-label="Recording time">{formatElapsed(dictation.elapsed)}</span>
             <button
               type="button"

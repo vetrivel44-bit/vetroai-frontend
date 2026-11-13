@@ -83,7 +83,9 @@ test("a recording is uploaded as 'audio' and its words and language come back", 
 });
 
 test("the languages this person uses go to the server, most likely first", () => {
-  assert.deepEqual(dictationHints({ remembered: ["ta"], written: "hi", browser: ["en-IN", "en-US", "ta-IN"] }), ["ta", "hi", "en"]);
+  // The language they type in comes first: it's how they want words written.
+  assert.deepEqual(dictationHints({ remembered: ["ta"], written: "hi", browser: ["en-IN", "en-US", "ta-IN"] }), ["hi", "ta", "en"]);
+  assert.deepEqual(dictationHints({ remembered: ["ta"], written: "en", browser: ["en-US"] }), ["en", "ta"]);
   assert.deepEqual(dictationHints({ remembered: [], written: null, browser: ["en-US"] }), ["en"]);
   assert.deepEqual(dictationHints({ browser: ["*", "", "zh-Hant-TW", "yue-HK", "fil-PH", "pt-BR", "es"] }), ["zh", "yue", "fil", "pt"]);
   assert.deepEqual(dictationHints(), []);
@@ -136,4 +138,50 @@ test("the app asks once whether the server can type out recordings", async () =>
   assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(404, { message: "Route not found" }) }), false);
   assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(502, {}) }), null);
   assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => { throw new Error("offline"); } }), null);
+});
+
+test("Android's repeated recognition results are typed once", async () => {
+  const { joinRecognitionResults } = await import("../src/lib/dictation.js");
+  const result = (transcript, isFinal) => Object.assign([{ transcript }], { isFinal });
+  // Android: each final repeats everything before it.
+  assert.deepEqual(joinRecognitionResults([result("hello", true), result("hello how are you", true), result("hello how are you doing", false)]), { final: "hello how are you", interim: "doing" });
+  assert.deepEqual(joinRecognitionResults([result("book a table", true), result("book a table", true)]), { final: "book a table", interim: "" });
+  // Desktop Chrome: each final is new words.
+  assert.deepEqual(joinRecognitionResults([result("hello", true), result(" how are you", true), result("fine", false)]), { final: "hello how are you", interim: "fine" });
+  assert.deepEqual(joinRecognitionResults([]), { final: "", interim: "" });
+});
+
+test("the browser's recognizer gets a full locale, Indian English in India", async () => {
+  const { recognitionLocale } = await import("../src/lib/dictation.js");
+  assert.equal(recognitionLocale("en", { languages: ["en-US"], timeZone: "Asia/Kolkata" }), "en-IN");
+  assert.equal(recognitionLocale("en", { languages: ["en-US"], timeZone: "Asia/Calcutta" }), "en-IN");
+  assert.equal(recognitionLocale("en", { languages: ["en-GB", "en"], timeZone: "Europe/London" }), "en-GB");
+  assert.equal(recognitionLocale("ta", { languages: ["en-US"], timeZone: "" }), "ta-IN");
+  assert.equal(recognitionLocale("en-US", { languages: [], timeZone: "" }), "en-US");
+  assert.equal(recognitionLocale("", { languages: [], timeZone: "" }), "en-US");
+});
+
+test("the language picked for the microphone is kept, and Auto clears it", async () => {
+  const { savedSpeechLanguage, saveSpeechLanguage, SPEECH_LANGUAGES } = await import("../src/lib/dictation.js");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  assert.equal(savedSpeechLanguage(storage), "");
+  assert.equal(saveSpeechLanguage("ta", storage), "ta");
+  assert.equal(savedSpeechLanguage(storage), "ta");
+  assert.equal(saveSpeechLanguage("klingon", storage), "");
+  assert.equal(savedSpeechLanguage(storage), "");
+  assert.equal(SPEECH_LANGUAGES[0].code, "", "Auto first");
+  assert.ok(SPEECH_LANGUAGES.some((l) => l.code === "en") && SPEECH_LANGUAGES.some((l) => l.code === "ta"));
+  const broken = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => { throw new Error("blocked"); } };
+  assert.equal(savedSpeechLanguage(broken), "");
+  assert.equal(saveSpeechLanguage("hi", broken), "hi");
+});
+
+test("typing in the Latin alphabet counts as English for the microphone", async () => {
+  const { typedLanguage } = await import("../src/lib/speechLanguage.js");
+  assert.equal(typedLanguage("what's the weather in chennai today"), "en");
+  assert.equal(typedLanguage("enna panra da machan"), "en", "romanised Tamil is written in English letters");
+  assert.equal(typedLanguage("இன்னைக்கு வானிலை எப்படி இருக்கு"), "ta");
+  assert.equal(typedLanguage("ok"), null);
+  assert.equal(typedLanguage(""), null);
 });

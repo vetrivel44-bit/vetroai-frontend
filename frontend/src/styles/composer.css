@@ -230,6 +230,36 @@
 }
 .vc-composer .vc-wave.is-starting span { opacity: 0.35; }
 
+/* The language being spoken: a small pill; a native <select> laid over it
+   opens the system picker (a sheet on phones). */
+.vc-composer .vc-lang {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--vc-fill);
+  color: var(--vc-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.vc-composer .vc-lang:hover { background: var(--vc-fill-hover); color: var(--vc-text); }
+.vc-composer .vc-lang:focus-within { outline: 2px solid var(--vc-focus); outline-offset: 1px; }
+.vc-composer .vc-lang select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px; /* no zoom-on-focus in iOS Safari */
+}
+.vc-composer .vc-lang select:disabled { cursor: default; }
+
 .vc-composer .vc-time {
   font-size: 15px;
   font-variant-numeric: tabular-nums;

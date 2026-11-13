@@ -86,3 +86,18 @@ test("VetroAI's own voice coming back through the mic is told apart from the per
   assert.equal(looksLikeEcho("", said), true, "nothing heard");
   assert.equal(looksLikeEcho("hello", ""), false);
 });
+
+test("only the person really cutting in stops VetroAI mid-reply", async () => {
+  const { interruptsReply } = await import("../src/lib/voiceListener.js");
+  const spoken = "Sure, the weather in Chennai today is hot and sunny with a high of 36 degrees.";
+  // Whisper's words for a cough, a fan or the TV, and listening noises.
+  for (const heard of ["you", "Thank you.", "yeah", "Okay okay.", "hmm", "Bangalore"]) {
+    assert.equal(interruptsReply(heard, spoken), false, heard);
+  }
+  // Its own voice coming back from the speaker.
+  assert.equal(interruptsReply("the weather in Chennai today is hot", spoken), false);
+  // Stop words, however short, and anything the person really says.
+  for (const heard of ["wait", "Stop.", "Okay stop", "hold on", "What about Bangalore?", "tell me more"]) {
+    assert.equal(interruptsReply(heard, spoken), true, heard);
+  }
+});

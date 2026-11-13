@@ -72,3 +72,18 @@ export function detectSpeechLanguage(text) {
   if (top === "en" || topScore < Math.max(2, words.length * 0.15) || topScore <= scores.en) return null;
   return top;
 }
+
+/**
+ * The language someone types in, for the microphone's hints: like
+ * detectSpeechLanguage, except that plain Latin-script writing counts as
+ * English ("en") rather than "unsure", since that's how they'll want spoken
+ * English (or romanised Tamil, Hindi…) written. null with too little to go on.
+ */
+export function typedLanguage(text) {
+  const detected = detectSpeechLanguage(text);
+  if (detected) return detected;
+  const sample = String(text || "").slice(0, 4000);
+  const letters = (sample.match(/\p{L}/gu) || []).length;
+  const latin = (sample.match(/\p{Script=Latin}/gu) || []).length;
+  return letters >= 8 && latin >= letters * 0.8 ? "en" : null;
+}

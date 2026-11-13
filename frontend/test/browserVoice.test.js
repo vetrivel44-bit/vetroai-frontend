@@ -42,3 +42,11 @@ test("the conversational voices are read by name, accent and gender", () => {
   assert.deepEqual(describeTtsVoice("en-US-AvaMultilingualNeural"), { lang: "en-US", name: "Ava", gender: "female" });
   assert.deepEqual(describeTtsVoice("en-US-BrianMultilingualNeural"), { lang: "en-US", name: "Brian", gender: "male" });
 });
+
+test("of two equally good matches, the natural-sounding voice is used", () => {
+  const voices = [
+    { name: "Microsoft Zira - English (United States)", lang: "en-US" },
+    { name: "Microsoft Aria Online (Natural) - English (United States)", lang: "en-US" },
+  ];
+  assert.equal(pickBrowserVoice(voices, "en-US-AvaMultilingualNeural").name, "Microsoft Aria Online (Natural) - English (United States)");
+});

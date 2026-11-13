@@ -121,3 +121,165 @@ test("voice mode can say a short line before the reply, and turn itself down whi
     globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
   }
 });
+
+test("lists, headings and tables are read as separate phrases, not run together", () => {
+  assert.equal(speakableText("## Best places\n- Ooty\n- Kodaikanal\n- Munnar"), "Best places. Ooty. Kodaikanal. Munnar");
+  assert.equal(speakableText("Steps:\n1. Open the app\n2. Tap Start"), "Steps: Open the app. Tap Start");
+  assert.equal(speakableText("| City | Temp |\n|---|---|\n| Chennai | 36°C |\n| Ooty | 18°C |"), "City, Temp. Chennai, 36°C. Ooty, 18°C");
+  assert.equal(speakableText("Chennai → Bangalore takes 6 hours, e.g. by car.\n\n---\n\nDone."), "Chennai to Bangalore takes 6 hours, for example by car. Done.");
+});
+
+test("sentences end at a full stop and a space, not inside numbers or after Dr.", async () => {
+  const { sentencesOf } = await import("../src/lib/voiceStream.js");
+  assert.deepEqual(sentencesOf("It costs 3.5 lakh. Dr. Rao said so! Visit vetroai.com today? Yes").map((s) => s.trim()), [
+    "It costs 3.5 lakh.", "Dr. Rao said so!", "Visit vetroai.com today?", "Yes",
+  ]);
+});
+
+test("Read aloud puts a few sentences in each clip after the first, so it flows", () => {
+  const text = Array.from({ length: 30 }, (_, i) => `This is sentence number ${i} of the answer.`).join(" ");
+  const sizes = (i) => (i === 1 ? 220 : 420);
+  const chunks = splitSentences(text, { first: true, target: sizes });
+  assert.equal(chunks[0], "This is sentence number 0 of the answer.", "the first sentence on its own, to start quickly");
+  assert.ok(chunks[1].length <= 220 && chunks[1].length > 150, `second clip: ${chunks[1].length}`);
+  for (const chunk of chunks.slice(2, -1)) assert.ok(chunk.length <= 420 && chunk.length > 330, `clip: ${chunk.length}`);
+  assert.equal(chunks.join(" "), text, "nothing lost or repeated");
+  assert.ok(chunks.length < 12, `${chunks.length} clips instead of 30`);
+});
+
+test("the silence around each clip is trimmed, keeping a breath of it", async () => {
+  const { speechBounds } = await import("../src/lib/voiceStream.js");
+  const rate = 1000;
+  const samples = new Float32Array(3000); // 3 s: silence, 1 s of speech, silence
+  for (let i = 500; i < 1500; i++) samples[i] = Math.sin(i) * 0.3;
+  const { start, end } = speechBounds(samples, rate);
+  assert.ok(Math.abs(start - 0.47) < 0.02, `start ${start}`);
+  assert.ok(Math.abs(end - 1.58) < 0.02, `end ${end}`);
+  assert.deepEqual(speechBounds(new Float32Array(1000), rate), { start: 0, end: 1 }, "all silence: left as it is");
+});
+
+test("the pause after a clip is a sentence's or a clause's", async () => {
+  const { pauseAfter } = await import("../src/lib/voiceStream.js");
+  assert.ok(pauseAfter("That's it.") > 0.2 && pauseAfter("That's it.") < 0.35);
+  assert.ok(pauseAfter("So the thing is,") < 0.15);
+  assert.ok(pauseAfter("Really?\"") > 0.2);
+});
+
+// A stand-in for the Web Audio API: records when each clip is started.
+function fakeAudioContext(log) {
+  return class {
+    constructor() { this.state = "running"; this.currentTime = 10; this.destination = {}; }
+    resume() { this.state = "running"; return Promise.resolve(); }
+    createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; }
+    decodeAudioData(_data, ok) {
+      const samples = new Float32Array(2000); // 2 s at 1 kHz: 0.5 s silence each side
+      for (let i = 500; i < 1500; i++) samples[i] = 0.4;
+      const buffer = { sampleRate: 1000, duration: 2, getChannelData: () => samples };
+      ok?.(buffer);
+      return Promise.resolve(buffer);
+    }
+    createBufferSource() {
+      const ctx = this;
+      const source = {
+        connect() {}, disconnect() {},
+        start(when, offset, duration) { log.push({ when: when - ctx.currentTime, offset, duration }); setTimeout(() => source.onended?.(), 1); },
+        stop() {},
+      };
+      return source;
+    }
+  };
+}
+
+test("clips play back to back without their silence, with a short pause between sentences", async () => {
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const saved = { window: globalThis.window, fetch: globalThis.fetch };
+  const log = [];
+  globalThis.window = { AudioContext: fakeAudioContext(log) };
+  globalThis.fetch = async () => ({ ok: true, status: 200, blob: async () => ({ size: 10, arrayBuffer: async () => new ArrayBuffer(8) }) });
+  try {
+    await new Promise((resolve) => createStreamingSpeaker({ apiBase: "/api", maxChars: 20000, onDone: resolve, onStop: resolve })
+      .finish("First sentence here. Then the second one comes along. And a third to finish."));
+    assert.ok(log.length >= 2, `${log.length} clips`);
+    assert.equal(log[0].when, 0, "the first starts at once");
+    for (const clip of log) {
+      assert.ok(Math.abs(clip.offset - 0.47) < 0.02, `starts at the speech (${clip.offset})`);
+      assert.ok(clip.duration < 1.2, `ends with the speech (${clip.duration})`);
+    }
+    for (const clip of log.slice(1)) assert.ok(clip.when > 0.2 && clip.when < 0.35, `pause ${clip.when}`);
+  } finally {
+    globalThis.window = saved.window; globalThis.fetch = saved.fetch;
+  }
+});
+
+test("a busy server is asked again instead of switching to the robotic browser voice", async () => {
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const saved = { window: globalThis.window, fetch: globalThis.fetch, Audio: globalThis.Audio, URL: globalThis.URL.createObjectURL };
+  let calls = 0;
+  const spokenByBrowser = [];
+  globalThis.window = { speechSynthesis: { speak: (u) => { spokenByBrowser.push(u.text); u.onend?.(); }, cancel() {}, getVoices: () => [] } };
+  globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+  globalThis.fetch = async () => (++calls === 1 ? { ok: false, status: 503 } : { ok: true, status: 200, blob: async () => ({ size: 1 }) });
+  globalThis.URL.createObjectURL = () => "blob:x";
+  globalThis.URL.revokeObjectURL = () => {};
+  const played = [];
+  globalThis.Audio = class { play() { played.push(1); setTimeout(() => this.onended?.(), 0); return Promise.resolve(); } pause() {} };
+  try {
+    await new Promise((resolve) => createStreamingSpeaker({ apiBase: "/api", onDone: resolve, onStop: resolve }).finish("Just one sentence to say."));
+    assert.equal(calls, 2, "asked again");
+    assert.equal(played.length, 1);
+    assert.deepEqual(spokenByBrowser, []);
+  } finally {
+    globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
+    delete globalThis.SpeechSynthesisUtterance;
+  }
+});
+
+test("Read aloud asks for a few clips ahead of the one playing, not all of them at once", async () => {
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const saved = { window: globalThis.window, fetch: globalThis.fetch, Audio: globalThis.Audio, URL: globalThis.URL.createObjectURL };
+  let requested = 0;
+  let maxAheadSeen = 0;
+  let played = 0;
+  globalThis.window = {};
+  globalThis.fetch = async () => { requested++; maxAheadSeen = Math.max(maxAheadSeen, requested - played); return { ok: true, status: 200, blob: async () => ({ size: 1 }) }; };
+  globalThis.URL.createObjectURL = () => "blob:x";
+  globalThis.URL.revokeObjectURL = () => {};
+  globalThis.Audio = class { play() { setTimeout(() => { played++; this.onended?.(); }, 2); return Promise.resolve(); } pause() {} };
+  const reply = Array.from({ length: 200 }, (_, i) => `This is sentence number ${i} of a very long answer.`).join(" ");
+  try {
+    await new Promise((resolve) => createStreamingSpeaker({ apiBase: "/api", maxChars: 20000, chunkChars: 420, onDone: resolve, onStop: resolve }).finish(reply));
+    assert.ok(maxAheadSeen <= 4, `at most 4 clips requested ahead of playback, saw ${maxAheadSeen}`);
+    assert.equal(requested, played, "every clip asked for was played");
+  } finally {
+    globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
+  }
+});
+
+test("a reply that is retried from scratch never plays a clip from before", async () => {
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const saved = { window: globalThis.window, fetch: globalThis.fetch, Audio: globalThis.Audio, URL: globalThis.URL.createObjectURL };
+  const played = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  globalThis.window = {};
+  globalThis.fetch = async (_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text.startsWith("Old")) await gate;
+    return { ok: true, status: 200, blob: async () => ({ size: 1, text }) };
+  };
+  globalThis.URL.createObjectURL = (blob) => blob.text;
+  globalThis.URL.revokeObjectURL = () => {};
+  globalThis.Audio = class { constructor(url) { this.url = url; } play() { played.push(this.url); setTimeout(() => this.onended?.(), 0); return Promise.resolve(); } pause() {} };
+  try {
+    await new Promise((resolve) => {
+      const speaker = createStreamingSpeaker({ apiBase: "/api", onDone: resolve, onStop: resolve });
+      speaker.push("Old answer that was cut off. ");
+      speaker.restart();
+      release();
+      speaker.finish("New answer from the retry.");
+    });
+    assert.deepEqual(played, ["New answer from the retry."]);
+  } finally {
+    globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
+  }
+});
