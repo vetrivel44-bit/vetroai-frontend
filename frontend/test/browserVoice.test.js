@@ -37,3 +37,8 @@ test("no usable voice: leaves the browser default", () => {
   assert.equal(pickBrowserVoice([], "en-US-JennyNeural"), null);
   assert.equal(pickBrowserVoice([{ name: "Google Deutsch", lang: "de-DE" }], "en-US-JennyNeural"), null);
 });
+
+test("the conversational voices are read by name, accent and gender", () => {
+  assert.deepEqual(describeTtsVoice("en-US-AvaMultilingualNeural"), { lang: "en-US", name: "Ava", gender: "female" });
+  assert.deepEqual(describeTtsVoice("en-US-BrianMultilingualNeural"), { lang: "en-US", name: "Brian", gender: "male" });
+});

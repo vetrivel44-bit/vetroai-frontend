@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
-import { createStreamingSpeaker, stopActiveSpeaker } from "./lib/voiceStream.js";
+import { createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker } from "./lib/voiceStream.js";
+import { canListen, createVoiceListener, looksLikeEcho } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage } from "./lib/speechLanguage.js";
 import { autoModeFor } from "./lib/autoMode.js";
@@ -117,6 +118,8 @@ import { authHeaders, checkUsage, recordUsage, UsageLimitError } from "./lib/usa
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
 import UserAvatar from "./components/UserAvatar";
+import { useDictation } from "./hooks/useDictation";
+import { appendDictated, dictationHints, formatElapsed, micErrorMessage, rememberLanguage, rememberedLanguages, serverDictationAvailable, transcribeRecording } from "./lib/dictation";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. (Every
@@ -847,6 +850,45 @@ const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
 const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, HAIKU_55_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
+// The voice for voice mode and Read aloud. Jenny was the default and was saved
+// for everyone on their first visit, so a saved Jenny is almost always that
+// old default rather than a choice: it moves, once, to Ava, the newer and more
+// natural conversational voice. Any other saved choice is kept.
+const VOICE_DEFAULT = "en-US-AvaMultilingualNeural";
+function initialVoice() {
+  try {
+    const saved = localStorage.getItem("vetro_tts_voice");
+    if (localStorage.getItem("vetro_tts_voice_v2")) return saved || VOICE_DEFAULT;
+    localStorage.setItem("vetro_tts_voice_v2", "1");
+    return !saved || saved === "en-US-JennyNeural" ? VOICE_DEFAULT : saved;
+  } catch {
+    return VOICE_DEFAULT;
+  }
+}
+
+// How VetroAI talks in voice mode. Read with everything else in the system
+// prompt, so it is written to win over the formatting rules for typed chat.
+const VOICE_MODE_PROMPT = `[VOICE MODE: A LIVE CONVERSATION]
+You're on a voice call with the user. They talk to you out loud and hear everything you write read aloud by a voice, so talk the way a close friend does on the phone.
+- Be warm, casual and real. Show feeling that fits the moment: excited for their good news, sympathetic when something's hard, curious, playful when they're joking. React the way a person would ("Oh nice!", "Hmm, good question.", "Aw, that's rough.") when it fits, never as a formula.
+- Everyday words and contractions. No "Certainly!", "Great question!", "As an AI" or other assistant phrases. Don't repeat their question back.
+- Keep each turn short, one to three sentences, like a turn in a real conversation. Give the main thing first; offer more instead of reading out everything. Ask a quick question back when it keeps the conversation going naturally.
+- Everything you write is spoken: no emojis, lists, bullet points, headings, tables, code, links, URLs, source numbers or markdown. Say numbers, dates, times, money and units the way a person says them out loud.
+- Reply in the language they're speaking, and mix languages the way they do (Tanglish, Hinglish and so on).
+- If you looked something up, just tell them what you found, naturally ("Looks like India won by six wickets"), without naming websites unless they ask.
+- If you didn't catch what they meant, say so briefly and ask, like a friend would.`;
+
+// A touch quicker than the voice's reading pace, as people talk.
+const VOICE_MODE_RATE = "+6%";
+
+// Said while a voice reply waits on a web search.
+const LOOKUP_LINES = ["One sec, let me check.", "Let me look that up.", "Hang on, checking that now.", "Give me a second, I'll check."];
+const lookupLine = () => LOOKUP_LINES[Math.floor(Math.random() * LOOKUP_LINES.length)];
+
+// Bars in the dictation waveform: enough to fill the widest composer; on a
+// phone the oldest ones run off the left edge.
+const WAVE_BARS = 120;
+
 const EFFORT_LEVELS = [
   { id: "quick", name: "Low", desc: "Fastest, short answers and a light search", icon: Zap, maxTokens: 2048 },
   { id: "balanced", name: "Medium", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
@@ -5063,8 +5105,7 @@ export default function App() {
   const voiceMutedRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
-  const [isDictating, setIsDictating] = useState(false);
-  const [ttsVoice, setTtsVoice] = useState(localStorage.getItem("vetro_tts_voice") || "en-US-JennyNeural");
+  const [ttsVoice, setTtsVoice] = useState(initialVoice);
 
   // ── Refs ──────────────────────────────────────────────────────────────────────
   const feedRef        = useRef(null);
@@ -5087,7 +5128,44 @@ export default function App() {
   const transcriptRef  = useRef("");
   const speechOkRef    = useRef(true);
   const stopMicRef     = useRef(null);
-  const dictateRef     = useRef(null);
+  // Voice mode's open microphone (lib/voiceListener.js): what the person says
+  // is written down by the server, in any language, and they can talk over
+  // VetroAI to cut in. Null when voice mode runs on the browser's speech
+  // recognition instead (no server speech-to-text, or no audio access).
+  const listenerRef    = useRef(null);
+  // Can the server write down speech? null until asked.
+  const serverVoiceRef = useRef(null);
+  const [voiceHearing, setVoiceHearing] = useState(false);
+  const [voiceTranscribing, setVoiceTranscribing] = useState(false);
+  // The composer's microphone: speak, and the words land in the message box
+  // (hooks/useDictation.js, lib/dictation.js).
+  const dictation = useDictation({
+    apiBase: API,
+    desktop: typeof window !== "undefined" && !!window.vetroDesktop,
+    onText: (spoken) => {
+      setInput((previous) => appendDictated(previous, spoken));
+      requestAnimationFrame(() => {
+        const box = textareaRef.current;
+        if (!box || box.disabled) return;
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      });
+    },
+    onError: (message) => addToast(message, "error"),
+    onNotice: (message) => addToast(message, "info"),
+    getHints: () => speechHints(),
+  });
+  // The languages this person speaks, most likely first: any language is
+  // heard; these keep a short clip from landing on a close neighbour of the
+  // one spoken (Hindi in Urdu script, Tamil as Malayalam).
+  function speechHints() {
+    return dictationHints({
+      remembered: rememberedLanguages(),
+      written: detectSpeechLanguage(messagesRef.current.filter((m) => m?.role === "user").slice(-4).map((m) => (typeof m.content === "string" ? m.content : "")).join("\n")),
+      browser: navigator.languages?.length ? navigator.languages : [navigator.language],
+    });
+  }
+  const isDictating = dictation.phase !== "idle";
   // FIX 1: ref for selectedMode inside async callbacks
   const selectedModeRef  = useRef(selectedMode);
   const systemPromptRef  = useRef(systemPrompt);
@@ -5767,6 +5845,22 @@ export default function App() {
   // Every mic start goes through here. It is idempotent, keeps isListening in
   // sync with the recognizer, and refuses to open the mic while TTS is audible.
   const startMic = useCallback((opts = {}) => {
+    const listener = listenerRef.current;
+    if (listener) {
+      if (voiceMutedRef.current && !opts.unmute) return false;
+      micWantedRef.current = true;
+      if (opts.reset !== false) { transcriptRef.current = ""; setInput(""); }
+      micRunningRef.current = true;
+      setIsListening(true);
+      if (!listener.open) {
+        listener.start().catch((err) => {
+          micRunningRef.current = false;
+          setIsListening(false);
+          voiceMicFailedRef.current?.(err);
+        });
+      } else listener.resume();
+      return true;
+    }
     const sr = recogRef.current;
     if (!sr) return false;
     if (voiceMutedRef.current && !opts.unmute) return false;
@@ -5790,12 +5884,25 @@ export default function App() {
     if (!keepWanted) micWantedRef.current = false;
     micRunningRef.current = false;
     setIsListening(false);
+    const listener = listenerRef.current;
+    if (listener) {
+      // keepWanted: VetroAI is about to answer. The microphone stays open, so
+      // the person can talk over it. Otherwise (mute, closing) let it go.
+      if (!keepWanted) { listener.stop(); setVoiceHearing(false); }
+      return;
+    }
     try { recogRef.current?.stop(); } catch (err) { swallowError(err); }
   }, []);
+  // Set below: what to do when voice mode's microphone fails.
+  const voiceMicFailedRef = useRef(null);
 
   const closeVoice = useCallback(() => {
     setIsVoiceOpen(false);
     voiceRef.current = false;
+    listenerRef.current?.stop();
+    listenerRef.current = null;
+    setVoiceHearing(false);
+    setVoiceTranscribing(false);
     // Normal chat must not keep reading replies aloud after voice mode.
     setAutoSpeak(false);
     // Stop unconditionally: isListening can lag behind a recognizer that is
@@ -5904,9 +6011,9 @@ export default function App() {
     const overlay = composerOverlayRef.current;
     if (!overlay || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver(() => {
-      // The overlay's top 40px is the fade above the composer; the content
-      // should clear the solid part with a 24px gap.
-      const space = Math.max(130, Math.ceil(overlay.getBoundingClientRect().height) - 40 + 24);
+      // The composer floats over the messages (as Claude's does); the end of
+      // the chat should still clear it with a 24px gap.
+      const space = Math.max(130, Math.ceil(overlay.getBoundingClientRect().height) + 24);
       setComposerSpace((prev) => (prev === space ? prev : space));
       if (!isScrolling.current) scrollToBottom();
     });
@@ -5917,17 +6024,9 @@ export default function App() {
   // ── Voice ─────────────────────────────────────────────────────────────────────
   const speak = async txt => {
     stopSpeak();
-    // Strip markdown, JSON code blocks, equations, and excess whitespace before TTS
-    let c = (txt || "")
-      .replace(/```[\s\S]*?```/g, "")         // remove all code/json blocks
-      .replace(/`[^`]+`/g, "")                 // remove inline code
-      .replace(/\$\$[\s\S]*?\$\$/g, "[equation]") // block math
-      .replace(/\$[^$]+\$/g, "[math]")          // inline math
-      .replace(/[*#_~]/g, "")                  // markdown symbols
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // markdown links → just label
-      .replace(/\n{2,}/g, ". ")                // paragraph breaks
-      .replace(/\n/g, " ")
-      .trim();
+    // What can be said out loud: no code, markdown, links, math, emoji or
+    // source numbers (lib/voiceStream.js).
+    let c = speakableText(txt);
     // Limit TTS to first 800 chars to keep latency low
     c = c.slice(0, 800);
     // Nothing speakable (a code-only or emoji-only reply). Hand the turn back to
@@ -5943,7 +6042,7 @@ export default function App() {
       const response = await fetch(`${API}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: c, voice: ttsVoiceRef.current, lang: detectSpeechLanguage(c) || undefined })
+        body: JSON.stringify({ text: c, voice: ttsVoiceRef.current, lang: detectSpeechLanguage(c) || undefined, ...(voiceRef.current ? { rate: VOICE_MODE_RATE } : {}) })
       });
       
       if (!response.ok) throw new Error("TTS API Failed");
@@ -6090,6 +6189,7 @@ export default function App() {
   useEffect(() => {
     if (!isVoiceOpen) return;
     const t = setInterval(() => {
+      if (listenerRef.current) return; // the open microphone needs no restarts
       if (!voiceRef.current || !micWantedRef.current) return;
       if (micRunningRef.current || loadRef.current || isTTSActive()) return;
       startMic({ reset: false });
@@ -6097,10 +6197,94 @@ export default function App() {
     return () => clearInterval(t);
   }, [isVoiceOpen, startMic]);
 
+  // ── Voice mode's open microphone ─────────────────────────────────────────
+  // The person started talking: if VetroAI is speaking, turn it down until
+  // it's clear they're really talking to it.
+  const duckReply = (down) => {
+    duckActiveSpeaker(down);
+    const audio = window.currentAudio;
+    if (audio) { try { audio.volume = down ? 0.18 : 1; } catch (err) { swallowError(err); } }
+  };
+  // Back to the browser's own speech recognition, when the server can't
+  // write speech down.
+  const fallBackToBrowserVoice = () => {
+    listenerRef.current?.stop();
+    listenerRef.current = null;
+    setVoiceHearing(false);
+    if (speechOkRef.current) { startMic({ unmute: true }); return; }
+    addToast("Voice mode isn't available right now. Try again in a moment.", "error");
+    closeVoice();
+  };
+  useEffect(() => {
+    voiceMicFailedRef.current = (err) => {
+      addToast(micErrorMessage(err, { desktop: !!window.vetroDesktop }), "error");
+      closeVoice();
+    };
+  }, [addToast, closeVoice]);
+  // Something the person said, as audio: write it down, then answer it. Said
+  // over VetroAI, it's a new turn (VetroAI stops), unless it was VetroAI's
+  // own voice coming back from the speaker.
+  const handleVoiceUtterance = async (wav) => {
+    setVoiceHearing(false);
+    setVoiceTranscribing(true);
+    let heard = "";
+    try {
+      const result = await transcribeRecording(API, wav, { hints: speechHints(), timeoutMs: 30000 });
+      heard = result.text;
+      if (heard) rememberLanguage(result.language);
+    } catch (err) {
+      setVoiceTranscribing(false);
+      duckReply(false);
+      if (!voiceRef.current) return;
+      if (err?.code === "ASR_NOT_CONFIGURED") { serverVoiceRef.current = false; fallBackToBrowserVoice(); return; }
+      addToast(err?.message || "Couldn't catch that. Try again.", "error");
+      return;
+    }
+    setVoiceTranscribing(false);
+    if (!voiceRef.current) return;
+    const words = heard.trim();
+    if (!words) { duckReply(false); return; }
+    if (isTTSActive()) {
+      const beingSaid = [...msgsRef.current].reverse().find((m) => m?.role === "assistant")?.content || "";
+      if (looksLikeEcho(words, speakableText(beingSaid))) { duckReply(false); return; }
+      stopSpeak();
+    }
+    submitVoiceRef.current?.(words);
+  };
+  const openListener = () => {
+    const listener = createVoiceListener({
+      onSpeechStart: () => {
+        if (voiceMutedRef.current) return;
+        setVoiceHearing(true);
+        if (isTTSActive()) duckReply(true);
+      },
+      onSpeechCancel: () => { setVoiceHearing(false); duckReply(false); },
+      onUtterance: (wav) => { if (!voiceMutedRef.current) handleVoiceUtterance(wav); },
+      onError: (err) => voiceMicFailedRef.current?.(err),
+      isAssistantSpeaking: () => isTTSActive(),
+    });
+    listenerRef.current = listener;
+    micWantedRef.current = true;
+    micRunningRef.current = true;
+    setIsListening(true);
+    listener.start().catch((err) => { if (listenerRef.current === listener) voiceMicFailedRef.current?.(err); });
+    // Asked once, alongside the microphone: without speech-to-text on the
+    // server, voice mode uses the browser's recognition instead.
+    if (serverVoiceRef.current === null) {
+      serverDictationAvailable(API).then((ok) => {
+        if (ok === null) return;
+        serverVoiceRef.current = ok;
+        if (!ok && listenerRef.current === listener) fallBackToBrowserVoice();
+      });
+    }
+  };
+
   const openVoice = e => {
     e.preventDefault();
-    if (!speechOkRef.current) {
-      addToast("⚠️ Voice mode needs a browser with speech recognition (try Chrome or Edge)", "error");
+    if (dictation.phase !== "idle") dictation.cancel();
+    const listen = canListen() && serverVoiceRef.current !== false;
+    if (!listen && !speechOkRef.current) {
+      addToast("⚠️ Voice mode needs microphone access in this browser (try Chrome, Edge or Safari)", "error");
       return;
     }
     if (!window.isSecureContext) {
@@ -6115,7 +6299,8 @@ export default function App() {
     setMuted(false);
     setIsVoiceOpen(true);
     voiceRef.current = true;
-    startMic({ unmute: true });
+    if (listen) openListener();
+    else startMic({ unmute: true });
   };
 
   const setMuted = (value) => { voiceMutedRef.current = value; setVoiceMuted(value); };
@@ -6130,6 +6315,15 @@ export default function App() {
   };
 
   const handleOrb = () => {
+    const listener = listenerRef.current;
+    if (listener) {
+      // The microphone is always open: a tap unmutes, cuts VetroAI off, or
+      // sends what has been said so far without waiting for a pause.
+      if (voiceMutedRef.current) { setMuted(false); startMic({ unmute: true }); return; }
+      if (isTTSActive()) { stopSpeak(); startMic(); return; }
+      if (listener.hearing) listener.flush();
+      return;
+    }
     if (isLoading) return;
     // Tapping the orb while muted means "I want to talk".
     if (voiceMutedRef.current) setMuted(false);
@@ -6500,7 +6694,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // No Mode menu: the workflow for this message is picked from what it asks
     // (lib/autoMode.js). The web search toggle still forces a search.
     const lastUserMessage = [...hist].reverse().find((m) => m?.role === "user");
-    const selectedMode = autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
+    // A turn in voice mode is a conversation: a quick, spoken reply (no
+    // minutes-long research or documents), always free to check the web when
+    // the answer depends on current facts, at Quick effort so it starts
+    // talking fast, whatever effort is picked for typed chat.
+    const voiceTurn = voiceRef.current;
+    const pickedMode = autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
+    const selectedMode = voiceTurn && pickedMode !== "web_search" ? "normal" : pickedMode;
+    const turnEffort = voiceTurn ? "quick" : selectedEffort;
+    const autoSearch = autoWebSearchRef.current || voiceTurn;
     const isWebMode = selectedMode === "web_search";
     const isDeepSearch = selectedMode === "deep_search";
     let replySpeaker = null;
@@ -6515,7 +6717,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setFollowUps([]); setIsContinuing(false);
 
     // Show web searching indicator if web search will be triggered
-    const willWebSearch = autoWebSearchRef.current || isWebMode || isDeepSearch || selectedMode === "research";
+    const willWebSearch = autoSearch || isWebMode || isDeepSearch || selectedMode === "research";
     if (willWebSearch) setIsWebSearching(true);
 
     let userQuery = hist[hist.length - 1]?.content || "";
@@ -6574,21 +6776,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     );
     // The model as the user knows it, for usage limits (Settings → Usage).
     fd.append("modelLabel", requestProvider);
-    const effortConfig = EFFORT_LEVELS.find((item) => item.id === selectedEffort) || EFFORT_LEVELS[1];
+    const effortConfig = EFFORT_LEVELS.find((item) => item.id === turnEffort) || EFFORT_LEVELS[1];
     const effectiveMaxTokens = Math.max(maxTokens, effortConfig.maxTokens, wantsSlides(userQuery) ? SLIDES_MAX_TOKENS : 0);
     fd.append("temperature", String(temperature));
     fd.append("maxTokens", String(effectiveMaxTokens));
-    fd.append("effort", selectedEffort);
+    fd.append("effort", turnEffort);
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(isMemoryEnabled() ? toPromptList(memories) : []));
     fd.append("plugins", JSON.stringify(requestPlugins));
 
     let finalSystemPrompt = systemPromptRef.current || "";
-    finalSystemPrompt = `${finalSystemPrompt}\n\n[REASONING EFFORT: ${selectedEffort.toUpperCase()}]\n${EFFORT_INSTRUCTIONS[selectedEffort] || EFFORT_INSTRUCTIONS.balanced}`.trim();
-    // Voice mode: short, plain replies start speaking sooner and sound natural.
-    if (voiceRef.current) {
-      finalSystemPrompt += "\n\n[VOICE MODE] The user is talking to you out loud and hears your reply spoken. Answer conversationally in one to three short sentences, with no lists, tables, code, links or markdown, unless they ask for more detail.";
-    }
+    finalSystemPrompt = `${finalSystemPrompt}\n\n[REASONING EFFORT: ${turnEffort.toUpperCase()}]\n${EFFORT_INSTRUCTIONS[turnEffort] || EFFORT_INSTRUCTIONS.balanced}`.trim();
+    // Voice mode: a spoken conversation, the way two friends talk.
+    if (voiceTurn) finalSystemPrompt += `\n\n${VOICE_MODE_PROMPT}`;
     if (currentSpaceId) {
       const space = spaces.find(s => s.id === currentSpaceId);
       if (space) {
@@ -6636,7 +6836,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
     const medicalDetected = !humanizing && !notALookup && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = !humanizing && !notALookup && (autoWebSearchRef.current || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const shouldWebSearch = !humanizing && !notALookup && (autoSearch || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -6968,7 +7168,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           max_tokens: effectiveMaxTokens,
         };
         if (OPENAI_PUTER_PROVIDERS.has(providerName)) {
-          puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[selectedEffort] || "medium";
+          puterOptions.reasoning_effort = PUTER_REASONING_EFFORT[turnEffort] || "medium";
         }
 
         setIsTyping(false);
@@ -7028,7 +7228,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             question: plainReading(userQuery),
             history: sendHist.slice(0, -1).filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim()).slice(-6).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })),
             timeZone: userTimeZone(),
-            effort: selectedEffort,
+            effort: turnEffort,
           }),
           signal: ctrl.signal,
         });
@@ -7249,7 +7449,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               query: userQuery,
               messages: hist.slice(0, -1).filter((m) => typeof m?.content === "string" && m.content).slice(-8).map(({ role, content }) => ({ role, content })),
               clientTimeZone: userTimeZone(),
-              effort: selectedEffort,
+              effort: turnEffort,
             }),
             signal: ctrl.signal,
           });
@@ -7325,7 +7525,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // model instead of the one the user picked. So search here via
       // the backend, then let the chosen model answer from those results.
       const canSearchFirst = puterModelId && !humanizing && !researchWriterFailed && fileCount === 0 && !puterOutOfCredits && !puterCreditsExhaustedRef.current.has(effectivePuterProvider);
-      const browserSearch = canSearchFirst && !notALookup && (explicitSearch || (autoWebSearchRef.current && await askSearchIntent(API, {
+      const browserSearch = canSearchFirst && !notALookup && (explicitSearch || (autoSearch && await askSearchIntent(API, {
         query: userQuery, history: hist.slice(0, -1).map(withReplyText), mode: selectedMode, timeZone: userTimeZone(),
       }, { fallback: () => needsLiveInfo(userQuery, { mode: selectedMode }) })));
       if (!isActive()) return;
@@ -7414,6 +7614,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         replySpeaker = createStreamingSpeaker({
           apiBase: API,
           voice: ttsVoiceRef.current,
+          rate: voiceTurn ? VOICE_MODE_RATE : undefined,
           onStart: () => { stopMic({ keepWanted: true }); setIsSpeaking(true); },
           onDone: () => { setIsSpeaking(false); if (voiceRef.current) startMic(); },
           onStop: () => setIsSpeaking(false),
@@ -7461,6 +7662,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             (statusMsg) => {
               if (!isActive()) return;
               setStreamStatus(statusMsg);
+              // Looking something up takes a few seconds: say so, as a
+              // person would, instead of going quiet.
+              if (voiceTurn && /^(searching|checking the web)/i.test(statusMsg)) replySpeaker?.say(lookupLine());
               addDebugLog("SSE.status", { status: statusMsg });
             },
             (errorMsg, code, event) => {
@@ -8041,61 +8245,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     return "Good evening";
   };
 
-    const toggleDictation = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      addToast("Speech recognition is not supported in this browser.", "error");
-      return;
-    }
-
+  const toggleDictation = () => {
     // Dictation and voice mode both want the microphone; running them together
-    // makes the browser abort one of them at random.
+    // makes the browser cut one of them off.
     if (voiceRef.current) {
       addToast("Close voice mode before dictating.", "info");
       return;
     }
-
-    if (isDictating) {
-      // Actually release the microphone. This used to only flip the flag, so
-      // the recognizer kept recording and kept appending to the input.
-      try { dictateRef.current?.stop(); } catch (err) { swallowError(err); }
-      dictateRef.current = null;
-      setIsDictating(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = navigator.language || "en-US";
-
-    recognition.onstart = () => setIsDictating(true);
-    recognition.onend = () => { dictateRef.current = null; setIsDictating(false); };
-    recognition.onerror = (e) => {
-      dictateRef.current = null;
-      setIsDictating(false);
-      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") addToast("⚠️ Microphone access denied", "error");
-      else if (e?.error === "audio-capture") addToast("⚠️ No microphone found", "error");
-    };
-    recognition.onresult = (e) => {
-      let finalTranscript = "";
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        if (e.results[i].isFinal) {
-          finalTranscript += e.results[i][0].transcript;
-        }
-      }
-      if (finalTranscript) {
-        setInput(prev => prev + (prev ? " " : "") + finalTranscript);
-      }
-    };
-    try {
-      dictateRef.current = recognition;
-      recognition.start();
-    } catch (e) {
-      swallowError(e);
-      dictateRef.current = null;
-      setIsDictating(false);
-    }
+    dictation.toggle();
   };
 
   // A clarifying ```choices question in the newest reply docks its options
@@ -8117,7 +8274,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form style={{ position: "relative" }} className={`claude-input-box ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+        <form style={{ position: "relative" }} className={`claude-input-box vc-composer${isDragOver ? " drag-over" : ""}${isDictating ? " is-dictating" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
         <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept={FILE_ACCEPT} multiple />
         {selFiles.length > 0 && (
           <div className="multi-file-previews">
@@ -8143,11 +8300,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           className="claude-input-textarea"
           rows="1"
           placeholder={
-            isDictating ? t.listening || "Listening..." :
+            dictation.phase === "transcribing" ? "Typing out what you said…" :
+            isDictating  ? (t.listening || "Listening…") :
             isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
             isDeepSearch ? "Ask a research question…" :
             isWebMode    ? "Search the web with AI — I fetch real page content…" :
-                           "How can I help you today?"
+            messages.length ? "Reply to VetroAI" : "Chat with VetroAI"
           }
           value={input}
           onChange={(e) => {
@@ -8187,75 +8345,96 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         />
         {renderPluginMentionMenu()}
 
-        <div className="claude-input-footer">
-          <div className="claude-footer-left">
-            <button type="button" className="claude-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload file">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        {/* The toolbar, laid out like Claude's: + and the model on the left;
+            the microphone and one round button on the right that starts
+            voice mode, sends once there is something to send, and stops a
+            reply while it is being written. Web search lives in the header.
+            While dictating it becomes the recording bar: discard, live
+            waveform, time, done. */}
+        {isDictating ? (
+          <div className="vc-footer vc-dictation" role="status" aria-live="polite">
+            <button type="button" className="vc-round vc-fill" onClick={dictation.cancel} title="Discard recording (Esc)" aria-label="Discard recording">
+              <X size={18} strokeWidth={2} />
             </button>
+            {dictation.phase === "transcribing" ? (
+              <div className="vc-dictation-status"><span className="vc-spinner" aria-hidden="true" />Typing out what you said…</div>
+            ) : dictation.usingBrowser ? (
+              <div className="vc-dictation-status vc-dictation-live">
+                <span className="vc-rec-dot" aria-hidden="true" />
+                <span className="vc-dictation-interim">{dictation.interim || "Listening…"}</span>
+              </div>
+            ) : (
+              <div className={`vc-wave${dictation.phase === "starting" ? " is-starting" : ""}`} ref={dictation.meterRef} aria-hidden="true">
+                {Array.from({ length: WAVE_BARS }, (_, i) => <span key={i} />)}
+              </div>
+            )}
+            <span className="vc-time" aria-label="Recording time">{formatElapsed(dictation.elapsed)}</span>
             <button
               type="button"
-              className={`claude-attach-btn ws-modal-trigger-btn${isWebMode ? " active" : ""}`}
-              onClick={() => setSelectedMode(isWebMode ? "normal" : "web_search")}
-              title="Search the web"
+              className="vc-round vc-primary"
+              onClick={dictation.finish}
+              disabled={dictation.phase !== "recording"}
+              title="Done — add what I said to the message"
+              aria-label="Done — add what I said to the message"
             >
-              <Globe size={18} />
-              {/* Labelled so the control reads as a pill rather than an
-                  unexplained icon; hidden on narrow screens where the toolbar
-                  has no room for it. */}
-              <span className="composer-btn-label hidden sm:inline">Search</span>
+              {dictation.phase === "transcribing" || dictation.phase === "starting"
+                ? <span className="vc-spinner" aria-hidden="true" />
+                : <Check size={18} strokeWidth={2.5} />}
             </button>
           </div>
-
-          <div className="claude-footer-right">
-            {/* Model selector */}
-            <div className="block" style={{ position: "relative" }}>
-              {showModelPicker && <WorkspacePopup
-                currentProvider={selectedProvider}
-                currentEffort={selectedEffort}
-                onSelectProvider={setSelectedProvider}
-                onSelectEffort={setSelectedEffort}
-                onClose={() => setShowModelPicker(false)}
-              />}
-              <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
-                <span className="mode-pill-name">{selectedProvider}</span>
-                <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
-                <svg style={{ transform: showModelPicker ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        ) : (
+          <div className="vc-footer">
+            <div className="vc-footer-left">
+              <button type="button" className="vc-round vc-fill vc-plus" onClick={() => fileInputRef.current?.click()} title="Add photos and files" aria-label="Add photos and files">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15" /></svg>
               </button>
+              <div className="vc-model-wrap">
+                {showModelPicker && <WorkspacePopup
+                  currentProvider={selectedProvider}
+                  currentEffort={selectedEffort}
+                  onSelectProvider={setSelectedProvider}
+                  onSelectEffort={setSelectedEffort}
+                  onClose={() => setShowModelPicker(false)}
+                />}
+                <button type="button" className="mode-pill mode-pill-btn vc-model" data-model={selectedProvider} onClick={() => setShowModelPicker(p => !p)} title="Choose model and effort" aria-expanded={showModelPicker}>
+                  <span className="mode-pill-name">{selectedProvider}</span>
+                  <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
+                </button>
+              </div>
             </div>
 
-            {/* Mic Icon - Dictation placeholder */}
-            <button type="button" className={`claude-action-btn ${isDictating ? "active" : ""}`} onClick={toggleDictation} title="Dictate">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDictating ? "var(--accent)" : "currentColor"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-            </button>
+            <div className="vc-footer-right">
+              <button type="button" className="vc-round vc-fill vc-mic" onClick={toggleDictation} title="Dictate" aria-label="Dictate — speak and I'll type it">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="8.6" y="2.75" width="6.8" height="11.5" rx="3.4" /><path d="M5.25 11.25a6.75 6.75 0 0 0 13.5 0" /><path d="M12 18v3" /></svg>
+              </button>
 
-            {/* Voice Mode / Audio Activity Icon */}
-            {isVoiceOpen ? (
-              <button type="button" className="claude-action-btn active voice" onClick={closeVoice} title="Close voice mode">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-            ) : (
-              <button type="button" className="claude-action-btn voice" onClick={openVoice} title={speechSupported ? "Start Voice Mode" : "Voice mode needs Chrome or Edge"} aria-disabled={!speechSupported} style={speechSupported ? undefined : { opacity: 0.45 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14v-4m4 6V8m4 8V6m4 8V8m4 6v-4" /></svg>
-              </button>
-            )}
-
-            {/* Send / Stop Button */}
-            {isLoading ? (
-              <button type="button" className="claude-send-btn active bg-amber-500 md:bg-[var(--ink)] text-slate-900 md:text-[var(--bg)]" onClick={stopGeneration} title="Stop generating">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg>
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className={`claude-send-btn ${(!input.trim() && !selFiles.length) ? "claude-send-btn-empty bg-slate-700 md:bg-transparent text-slate-500 md:text-[var(--ink-4)]" : "active bg-amber-500 md:bg-[var(--ink)] text-slate-900 md:text-[var(--bg)]"}`}
-                disabled={!input.trim() && !selFiles.length}
-                title="Send message"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
-              </button>
-            )}
+              {isLoading ? (
+                <button type="button" className="vc-round vc-primary" onClick={stopGeneration} title="Stop generating" aria-label="Stop generating">
+                  <Square size={13} fill="currentColor" strokeWidth={0} />
+                </button>
+              ) : (input.trim() || selFiles.length) ? (
+                <button type="submit" className="vc-round vc-primary vc-send" title="Send message" aria-label="Send message">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" /></svg>
+                </button>
+              ) : isVoiceOpen ? (
+                <button type="button" className="vc-round vc-primary" onClick={closeVoice} title="Close voice mode" aria-label="Close voice mode">
+                  <X size={18} strokeWidth={2.25} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="vc-round vc-primary vc-voice"
+                  onClick={openVoice}
+                  title={speechSupported || canListen() ? "Start Voice Mode" : "Voice mode needs microphone access"}
+                  aria-label="Start voice mode"
+                  aria-disabled={!speechSupported && !canListen()}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M4.75 12h.01M8.4 9.75v4.5M12 5.5v13M15.6 9.75v4.5M19.25 12h.01" /></svg>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </form>
       </>
     );
@@ -9418,7 +9597,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                  {showScrollDn && (
                    <button
                      type="button"
-                     className="scroll-btn"
+                     className="scroll-btn vc-scroll-btn"
+                     style={{ "--vc-dock": `${Math.max(0, composerSpace - 24)}px` }}
                      onClick={scrollToBottom}
                      title="Jump to latest"
                      aria-label="Scroll to latest message"
@@ -9426,7 +9606,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      <ArrowDown size={16} />
                    </button>
                  )}
-                 <div ref={composerOverlayRef} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 40, paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', background: 'linear-gradient(to top, var(--bg) 55%, transparent)', pointerEvents: 'none' }} className="px-4 sm:px-6">
+                 <div ref={composerOverlayRef} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 0, paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))', background: 'none', pointerEvents: 'none' }} className="px-4 sm:px-6 vc-composer-dock">
                    <div style={{ maxWidth: 720, margin: '0 auto', pointerEvents: 'auto' }}>
                     {renderInputBox()}
                   </div>
@@ -9438,9 +9618,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       {isVoiceOpen && (
         <Suspense fallback={null}>
           <VoiceMode
-            listening={isListening}
+            listening={isListening && !voiceTranscribing}
+            hearing={voiceHearing}
             speaking={isSpeaking}
-            thinking={isLoading && !isSpeaking}
+            thinking={(isLoading || voiceTranscribing) && !isSpeaking}
             muted={voiceMuted}
             voice={ttsVoice}
             onVoiceChange={setTtsVoice}

@@ -4,13 +4,17 @@ import "./VoiceMode.css";
 
 // Every option is free: "…Neural" voices are Microsoft Edge's neural voices and
 // "google-…" voices are Google's free voice, both spoken by the backend's /tts.
+// The first four are Microsoft's newer conversational voices, the most like a
+// person talking; Ava is the default (initialVoice in App.jsx).
 const VOICES = [
+  { id: "en-US-AvaMultilingualNeural", name: "Ava", note: "Warm and expressive", accent: "US" },
+  { id: "en-US-AndrewMultilingualNeural", name: "Andrew", note: "Relaxed and genuine", accent: "US" },
+  { id: "en-US-EmmaMultilingualNeural", name: "Emma", note: "Cheerful and chatty", accent: "US" },
+  { id: "en-US-BrianMultilingualNeural", name: "Brian", note: "Casual and easygoing", accent: "US" },
   { id: "en-US-JennyNeural", name: "Jenny", note: "Warm and friendly", accent: "US" },
   { id: "en-US-AriaNeural", name: "Aria", note: "Bright and expressive", accent: "US" },
   { id: "en-US-GuyNeural", name: "Guy", note: "Calm and steady", accent: "US" },
   { id: "en-US-SteffanNeural", name: "Steffan", note: "Clear and confident", accent: "US" },
-  { id: "en-US-AndrewNeural", name: "Andrew", note: "Natural and relaxed", accent: "US" },
-  { id: "en-US-EmmaNeural", name: "Emma", note: "Cheerful and clear", accent: "US" },
   { id: "en-GB-SoniaNeural", name: "Sonia", note: "Polished and gentle", accent: "UK" },
   { id: "en-GB-RyanNeural", name: "Ryan", note: "Relaxed and easygoing", accent: "UK" },
   { id: "en-IN-NeerjaNeural", name: "Neerja", note: "Clear and cheerful", accent: "India" },
@@ -27,12 +31,13 @@ const VOICES = [
  * line saying which it is, and two small controls.
  */
 export default function VoiceMode({
-  listening, speaking, thinking, muted,
+  listening, hearing, speaking, thinking, muted,
   voice, onVoiceChange, onOrb, onMute, onClose,
 }) {
   const [picking, setPicking] = useState(false);
   const current = VOICES.find((v) => v.id === voice) || VOICES[0];
-  const state = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : muted ? "muted" : "idle";
+  // hearing: the person is talking right now (voice mode's open microphone).
+  const state = hearing ? "hearing" : speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : muted ? "muted" : "idle";
 
   useEffect(() => {
     const onKey = (event) => {
@@ -44,6 +49,7 @@ export default function VoiceMode({
   }, [picking, onClose]);
 
   const line = {
+    hearing: "Listening",
     listening: "Listening",
     thinking: "Thinking",
     speaking: "Speaking",
@@ -66,8 +72,8 @@ export default function VoiceMode({
           className="vm-shape"
           onClick={onOrb}
           disabled={thinking}
-          aria-label={speaking ? "Interrupt and talk" : listening ? "Send what you said" : "Start talking"}
-          title={speaking ? "Tap to interrupt" : listening ? "Tap to send" : "Tap to talk"}
+          aria-label={speaking ? "Interrupt and talk" : hearing ? "Send what you said" : listening ? "Listening — just talk" : "Start talking"}
+          title={speaking ? "Tap to interrupt, or just start talking" : hearing ? "Tap to send now" : listening ? "Just talk" : "Tap to talk"}
         >
           <i /><i /><i />
         </button>

@@ -37,7 +37,7 @@ const NATIVE_VOICES = {
 // Google's free voice, used if the neural voice fails (and for Punjabi, Odia…).
 const GOOGLE_CODES = { hi: "hi-IN", ta: "ta-IN", te: "te-IN", kn: "kn-IN", ml: "ml-IN", bn: "bn-IN", mr: "mr-IN", gu: "gu-IN", ur: "ur-IN", pa: "pa-IN", or: "or-IN" };
 
-const MALE_VOICE = /(Guy|Andrew|Steffan|Ryan|Prabhat|William|Christopher|Eric|Roger|Davis|Brian)Neural$/;
+const MALE_VOICE = /(Guy|Andrew|Steffan|Ryan|Prabhat|William|Christopher|Eric|Roger|Davis|Brian)(?:Multilingual|Expressive)?Neural$/;
 
 /** "ta" / "TA" → "ta"; anything that isn't a short language code → null. */
 const cleanLang = (lang) => {

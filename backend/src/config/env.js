@@ -86,6 +86,10 @@ module.exports = {
     googleTtsApiKey:       getEnv("GOOGLE_TTS_API_KEY",       ""),
     callAsrModel:          getEnv("CALL_ASR_MODEL",           "whisper-large-v3-turbo"),
     callTranslationModel:  getEnv("CALL_TRANSLATION_MODEL",   getEnv("GROQ_MODEL", "llama-3.3-70b-versatile")),
+    // The composer's microphone (POST /api/transcribe): what was said, typed
+    // into the message box. The full Whisper model, for its accuracy across
+    // languages (dictationService.js).
+    dictationAsrModel:     getEnv("DICTATION_ASR_MODEL",      "whisper-large-v3"),
     googleClientId:      getEnv("VITE_GOOGLE_CLIENT_ID", "592184427551-7hs7t358m2k3vn60amdv8vnm8b26oprt.apps.googleusercontent.com"),
     // Firebase Authentication is what the frontend signs in against, so the
     // bearer tokens this API receives are Firebase ID tokens. Verifying one

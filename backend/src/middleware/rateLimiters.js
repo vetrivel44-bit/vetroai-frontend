@@ -39,7 +39,19 @@ const previewImageLimiter = rateLimit({
   handler: (_req, res) => errorResponse(res, "Too many image lookups. Please slow down.", 429),
 });
 
+// The composer's microphone. One request per dictated message; a person
+// talking instead of typing sends a few a minute at most.
+const dictationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  handler: (_req, res) => errorResponse(res, "Too many voice messages at once. Wait a moment and try again.", 429, { code: "RATE_LIMITED" }),
+});
+
 module.exports = {
+  dictationLimiter,
   previewImageLimiter,
   authLimiter,
   chatLimiter,

@@ -1,6 +1,11 @@
 // Which asks need VetroAI to work the computer itself (the screen agent, in
 // the desktop app) rather than answer in the chat.
 //
+// decideScreenTask is what Computer and Dispatch use: these patterns first,
+// then, for anything they don't catch, a small model on the server that reads
+// the task in whatever words it comes ("pull up spotify and put on some
+// lofi", "chrome la weather paaru"); the patterns alone when it can't answer.
+//
 // DESKTOP_CONTROL_REQUEST and LIVE_BROWSE_REQUEST are Computer's original,
 // narrow checks; in a browser tab, where there is no desktop app, they decide
 // when to say the app is needed. wantsScreenControl reads more: a task sent
@@ -61,4 +66,41 @@ export function wantsScreenControl(prompt = "") {
   const text = String(prompt);
   if (ABOUT_GIVEN_FILE.test(text)) return false;
   return DESKTOP_CONTROL_REQUEST.test(text) || LIVE_BROWSE_REQUEST.test(text) || isLiveSiteRequest(text) || ACT_ON_COMPUTER_REQUEST.test(text);
+}
+
+const JUDGE_TIMEOUT_MS = 3500;
+
+/**
+ * The server's screen judge (POST /api/screen-intent): true when the task
+ * needs the computer operated, false when a written reply is enough, null
+ * when it couldn't say. `fetchImpl` is for tests.
+ */
+export async function askScreenIntent(apiBase, text, { fetchImpl = globalThis.fetch, timeoutMs = JUDGE_TIMEOUT_MS } = {}) {
+  try {
+    const res = await fetchImpl(`${apiBase}/screen-intent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: String(text || "").slice(0, 2000) }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const screen = data?.data?.screen ?? data?.screen;
+    return typeof screen === "boolean" ? screen : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Does the task need the screen agent? { screen, by: "rules" | "model" }.
+ * The patterns answer at once when they recognise the task; otherwise the
+ * judge decides, and when it can't, the patterns' "no" stands.
+ */
+export async function decideScreenTask(apiBase, text, options = {}) {
+  const task = String(text || "").trim();
+  if (!task || ABOUT_GIVEN_FILE.test(task)) return { screen: false, by: "rules" };
+  if (wantsScreenControl(task)) return { screen: true, by: "rules" };
+  const judged = await askScreenIntent(apiBase, task, options);
+  return judged === null ? { screen: false, by: "rules" } : { screen: judged, by: "model" };
 }

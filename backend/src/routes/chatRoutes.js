@@ -33,6 +33,8 @@ router.post("/chat", chatLimiter, handleUpload, optionalAuth, asyncHandler(chatC
 router.post("/generate-title", chatLimiter, asyncHandler(chatController.generateTitle));
 router.post("/follow-ups", chatLimiter, asyncHandler(chatController.followUps));
 router.post("/search-intent", chatLimiter, asyncHandler(chatController.searchIntent));
+// Computer and Dispatch: does a task need the screen agent? (screenIntentService)
+router.post("/screen-intent", chatLimiter, asyncHandler(chatController.screenIntent));
 router.post("/search", chatLimiter, asyncHandler(searchController.performSearch));
 // DeepSearch for browser models: the research itself, streamed (researchController.js).
 router.post("/research", chatLimiter, asyncHandler(require("../controllers/researchController").research));

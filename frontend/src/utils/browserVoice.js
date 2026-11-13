@@ -4,8 +4,8 @@
 // hearing a US male voice. This picks the closest voice the browser has.
 
 const VOICE_GENDER = {
-  Jenny: "female", Aria: "female", Sonia: "female", Emma: "female", Neerja: "female", Natasha: "female",
-  Guy: "male", Steffan: "male", Ryan: "male", Andrew: "male", Prabhat: "male", William: "male",
+  Ava: "female", Jenny: "female", Aria: "female", Sonia: "female", Emma: "female", Neerja: "female", Natasha: "female",
+  Guy: "male", Steffan: "male", Ryan: "male", Andrew: "male", Brian: "male", Prabhat: "male", William: "male",
 };
 
 const FEMALE = /\b(female|woman|zira|samantha|karen|moira|tessa|serena|susan|hazel|libby|aria|jenny|sonia|victoria|fiona|kate|catherine|allison|ava|joanna|salli|kimberly|emma|amy|michelle|heera|veena)\b/i;
@@ -15,7 +15,7 @@ const MALE = /\b(male|man|david|mark|daniel|alex|fred|george|guy|ryan|steffan|ja
 export function describeTtsVoice(id) {
   const google = /^google-([a-z]{2}-[A-Z]{2})$/.exec(String(id || ""));
   if (google) return { lang: google[1], name: "", gender: "female" };
-  const match = /^([a-z]{2}-[A-Z]{2})-([A-Za-z]+?)(?:Neural)?$/.exec(String(id || ""));
+  const match = /^([a-z]{2}-[A-Z]{2})-([A-Za-z]+?)(?:Multilingual|Expressive)?(?:Neural)?$/.exec(String(id || ""));
   if (!match) return { lang: "en-US", name: "", gender: null };
   return { lang: match[1], name: match[2], gender: VOICE_GENDER[match[2]] || null };
 }

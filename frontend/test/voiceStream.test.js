@@ -63,3 +63,61 @@ test("Read aloud can speak a whole long reply (maxChars), voice mode stays cappe
     globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
   }
 });
+
+test("emoji, emoticons and source numbers are never read out", () => {
+  assert.equal(speakableText("Haha that's so cool 😂😂! Congrats 🎉"), "Haha that's so cool! Congrats");
+  assert.equal(speakableText("👨‍👩‍👧 Family time ❤️ and 🇮🇳 India 👍🏽 ok"), "Family time and India ok");
+  assert.equal(speakableText("India won by 5 wickets [1]. Kohli scored 82 [2, 3]."), "India won by 5 wickets. Kohli scored 82.");
+  assert.equal(speakableText("Nice one :) see you <3"), "Nice one see you");
+  // Words and numbers stay.
+  assert.equal(speakableText("It costs ₹500 (about $6)."), "It costs ₹500 (about $6).");
+});
+
+test("the opening words go out at the first clause of a long first sentence", async () => {
+  const { firstClauseCut } = await import("../src/lib/voiceStream.js");
+  assert.equal(firstClauseCut("Oh, hi"), 0, "too short to start on");
+  const long = "So the thing about the new phone launch, honestly, is that it";
+  assert.equal(long.slice(0, firstClauseCut(long)), "So the thing about the new phone launch, honestly,");
+  assert.equal(firstClauseCut("A sentence with no clause break at all yet but plenty of words"), 0);
+});
+
+test("a reply's first sentence is spoken on its own, however short", () => {
+  assert.deepEqual(splitSentences("Oh nice! That is a great idea for sure. Yes.", { first: true }), ["Oh nice!", "That is a great idea for sure.", "Yes."]);
+  assert.deepEqual(splitSentences("Oh nice! That is a great idea for sure. Yes."), ["Oh nice! That is a great idea for sure.", "Yes."]);
+});
+
+test("voice mode can say a short line before the reply, and turn itself down while the person talks", async () => {
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const saved = { window: globalThis.window, fetch: globalThis.fetch, Audio: globalThis.Audio, URL: globalThis.URL.createObjectURL };
+  const requests = [];
+  const audios = [];
+  globalThis.window = {};
+  globalThis.fetch = async (_url, init) => { requests.push(JSON.parse(init.body)); return { ok: true, blob: async () => ({ size: 1 }) }; };
+  globalThis.URL.createObjectURL = () => "blob:x";
+  globalThis.URL.revokeObjectURL = () => {};
+  globalThis.Audio = class { constructor() { this.volume = 1; audios.push(this); } play() { setTimeout(() => this.onended?.(), 5); return Promise.resolve(); } pause() {} };
+  try {
+    await new Promise((resolve) => {
+      const speaker = createStreamingSpeaker({ apiBase: "/api", rate: "+6%", onDone: resolve, onStop: resolve });
+      speaker.say("One sec, let me check. 🔎");
+      speaker.duck(true);
+      speaker.finish("Looks like India won by six wickets [1]. 🎉");
+    });
+    assert.deepEqual(requests.map((r) => r.text), ["One sec, let me check.", "Looks like India won by six wickets."]);
+    assert.ok(requests.every((r) => r.rate === "+6%"));
+    assert.ok(audios.every((a) => a.volume < 0.5), "ducked while the person talks");
+
+    // Once the reply has started, no extra line is slipped in.
+    requests.length = 0;
+    await new Promise((resolve) => {
+      const speaker = createStreamingSpeaker({ apiBase: "/api", onDone: resolve, onStop: resolve });
+      speaker.push("Sure thing. ");
+      speaker.say("One sec, let me check.");
+      speaker.finish("Sure thing. Here you go.");
+    });
+    assert.ok(!requests.some((r) => r.text.startsWith("One sec")));
+    assert.equal(requests[0].rate, undefined);
+  } finally {
+    globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
+  }
+});
