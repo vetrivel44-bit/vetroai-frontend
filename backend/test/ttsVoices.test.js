@@ -52,3 +52,22 @@ test("/api/tts passes a speaking speed through, and ignores anything that isn't 
   assert.equal(seen[1].rate, undefined);
   assert.equal(seen[2].voice, "en-US-AvaMultilingualNeural", "the new default voice");
 });
+
+test("reading a long reply aloud isn't cut off by the chat limit", async (t) => {
+  const app = require("../src/app");
+  const saved = ttsService.synthesizeSpeech;
+  ttsService.synthesizeSpeech = async () => ({ buffer: Buffer.from("RIFF"), contentType: "audio/wav", provider: "test" });
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => { ttsService.synthesizeSpeech = saved; return new Promise((resolve) => server.close(resolve)); });
+  await new Promise((resolve) => server.once("listening", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/api/tts`;
+  // More clips in a minute than chat's 40 requests: Read aloud of a long
+  // answer, or reading straight after chatting, must not run out.
+  const statuses = [];
+  for (let i = 0; i < 45; i++) {
+    const res = await fetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: `Sentence ${i}.` }) });
+    statuses.push(res.status);
+    await res.arrayBuffer();
+  }
+  assert.ok(statuses.every((s) => s === 200), `statuses: ${[...new Set(statuses)].join(", ")}`);
+});

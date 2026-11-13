@@ -71,10 +71,20 @@ const NEIGHBOURS = [
 ];
 const areNeighbours = (a, b) => a !== b && NEIGHBOURS.some((group) => group.includes(a) && group.includes(b));
 
+// Languages Whisper writes in a script other than the Latin alphabet.
+const NON_LATIN = new Set([
+  "zh", "yue", "ja", "ko", "ru", "uk", "be", "bg", "mk", "sr", "kk", "mn", "tg", "tt", "ba", "ar", "fa", "ur", "ps", "sd",
+  "yi", "he", "hi", "mr", "ne", "sa", "bn", "as", "pa", "gu", "ta", "te", "kn", "ml", "si", "th", "lo", "km", "my", "bo",
+  "ka", "hy", "am", "el",
+]);
+const isLatin = (code) => Boolean(code) && !NON_LATIN.has(code);
+
 // Clips longer than this carry enough speech for Whisper to tell the language.
 const RECHECK_MAX_SECONDS = 30;
 // Below this average log-probability Whisper is guessing.
 const UNSURE_LOGPROB = -0.75;
+// Below this it isn't sure enough to overrule the language someone types in.
+const FAIRLY_SURE_LOGPROB = -0.45;
 
 const MAX_BYTES = 25 * 1024 * 1024; // Groq's per-file limit for audio
 
@@ -205,16 +215,30 @@ function parseHints(hints) {
 
 /**
  * Should a clip be heard again in one of the person's languages? Returns that
- * language, or null. Only short clips, only when Whisper's pick isn't one of
- * theirs, and only when the pick is a known neighbour of one of them or
- * Whisper was unsure (forcing an unrelated language makes Whisper translate).
+ * language, or null. Only short clips, and only when Whisper's pick isn't the
+ * language they type in (hints[0]):
+ * - a pick that isn't one of theirs: when it's a known neighbour of one of
+ *   them, when Whisper was unsure, or when it's written in another script
+ *   than the one they type in (English said with an Indian accent, heard as
+ *   Tamil or Hindi and written in that script);
+ * - a pick that is one of theirs, in another script than the one they type
+ *   in: only when Whisper wasn't fairly sure.
+ * The reading Whisper is surer of is kept, so a person who really spoke
+ * Tamil still gets Tamil. (Forcing an unrelated language makes Whisper
+ * translate, so it isn't done otherwise.)
  */
 function recheckLanguage({ detected, hints, duration, sureness }) {
-  if (!hints.length || !detected || hints.includes(detected)) return null;
+  if (!hints.length || !detected || detected === hints[0]) return null;
   if (Number(duration) > RECHECK_MAX_SECONDS) return null;
+  const typed = hints[0];
+  const otherScript = isLatin(typed) && !isLatin(detected);
+  if (hints.includes(detected)) {
+    return otherScript && sureness !== null && sureness < FAIRLY_SURE_LOGPROB ? typed : null;
+  }
   const neighbour = hints.find((hint) => areNeighbours(hint, detected));
   if (neighbour) return neighbour;
-  return sureness !== null && sureness < UNSURE_LOGPROB ? hints[0] : null;
+  if (otherScript) return typed;
+  return sureness !== null && sureness < UNSURE_LOGPROB ? typed : null;
 }
 
 async function hear(input) {

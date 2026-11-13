@@ -3,7 +3,7 @@ const multer = require("multer");
 const asyncHandler = require("../middleware/asyncHandler");
 const optionalAuth = require("../middleware/optionalAuth");
 // const authMiddleware = require("../middleware/authMiddleware");
-const { chatLimiter } = require("../middleware/rateLimiters");
+const { chatLimiter, ttsLimiter } = require("../middleware/rateLimiters");
 const logger = require("../utils/logger");
 const chatController = require("../controllers/chatController");
 const searchController = require("../controllers/searchController");
@@ -46,6 +46,6 @@ router.get("/video-status/:videoId", asyncHandler(videoController.checkVideoStat
 // would need the user to click through.
 router.get("/youtube/resolve", chatLimiter, asyncHandler(youtubeController.resolveFirstVideo));
 router.post("/medical-answer", chatLimiter, asyncHandler(chatController.medicalAnswer));
-router.post("/tts", chatLimiter, asyncHandler(chatController.textToSpeech));
+router.post("/tts", ttsLimiter, asyncHandler(chatController.textToSpeech));
 
 module.exports = router;

@@ -12,8 +12,33 @@ const loadEdge = () => (modulePromise ||= import("msedge-tts"));
 const NEURAL_VOICE = /^[a-z]{2,3}-[A-Z]{2}-[A-Za-z]+Neural$/;
 const isEdgeVoice = (voice) => NEURAL_VOICE.test(String(voice || ""));
 
+// The free service turns away a burst of connections from one address, and a
+// clip it turns away is read by the next voice in line (a different one),
+// so a reply could change voice half way. Only a few clips are made at once;
+// the rest wait their turn, which takes far less time than a clip lasts.
+const MAX_AT_ONCE = 4;
+let inFlight = 0;
+const waiting = [];
+async function turn() {
+  if (inFlight < MAX_AT_ONCE) { inFlight++; return; }
+  await new Promise((resolve) => waiting.push(resolve));
+}
+function done() {
+  const next = waiting.shift();
+  if (next) next(); else inFlight--;
+}
+
 // rate: speaking speed relative to the voice's own, "+6%" / "-10%".
-async function synthesize(text, { voice = "en-US-AvaMultilingualNeural", rate, timeoutMs = 25000 } = {}) {
+async function synthesize(text, options = {}) {
+  await turn();
+  try {
+    return await synthesizeNow(text, options);
+  } finally {
+    done();
+  }
+}
+
+async function synthesizeNow(text, { voice = "en-US-AvaMultilingualNeural", rate, timeoutMs = 25000 } = {}) {
   const { MsEdgeTTS, OUTPUT_FORMAT } = await loadEdge();
   const tts = new MsEdgeTTS();
   try {

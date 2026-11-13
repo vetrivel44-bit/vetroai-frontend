@@ -10,15 +10,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DICTATION_MAX_MS, DICTATION_MIN_MS, DictationError, browserRecognition, canRecord,
-  micErrorMessage, pickRecordingType, rememberLanguage, serverDictationAvailable, transcribeRecording,
+  DICTATION_MAX_MS, DICTATION_MIN_MS, DictationError, browserRecognition, canRecord, joinRecognitionResults,
+  micErrorMessage, pickRecordingType, recognitionLocale, rememberLanguage, serverDictationAvailable, transcribeRecording,
 } from "../lib/dictation.js";
 
 const METER_STEP_MS = 70;
 
 // `getHints` returns the languages this person uses, most likely first
-// (lib/dictation.js dictationHints); asked once per recording.
-export function useDictation({ apiBase, onText, onError, onNotice, getHints, desktop = false }) {
+// (lib/dictation.js dictationHints); asked once per recording. `getLanguage`
+// returns the language they picked for the microphone, or "" for Auto.
+export function useDictation({ apiBase, onText, onError, onNotice, getHints, getLanguage, desktop = false }) {
   const [phase, setPhaseState] = useState("idle");
   const [elapsed, setElapsed] = useState(0);
   const [interim, setInterim] = useState("");
@@ -28,9 +29,10 @@ export function useDictation({ apiBase, onText, onError, onNotice, getHints, des
   const session = useRef(null);
   // Can the server type out recordings? null until it has been asked.
   const serverOk = useRef(null);
-  const handlers = useRef({ onText, onError, onNotice, getHints });
-  handlers.current = { onText, onError, onNotice, getHints };
+  const handlers = useRef({ onText, onError, onNotice, getHints, getLanguage });
+  handlers.current = { onText, onError, onNotice, getHints, getLanguage };
   const hints = () => { try { return handlers.current.getHints?.() || []; } catch { return []; } };
+  const picked = () => { try { return handlers.current.getLanguage?.() || ""; } catch { return ""; } };
 
   const setPhase = useCallback((next) => { phaseRef.current = next; setPhaseState(next); }, []);
   const supported = canRecord() || !!browserRecognition();
@@ -87,26 +89,24 @@ export function useDictation({ apiBase, onText, onError, onNotice, getHints, des
       setPhase("idle");
       return;
     }
-    const s = { kind: "browser" };
+    const s = { kind: "browser", final: "", interim: "" };
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    // One language only here, so the one this person most likely speaks.
-    const first = hints()[0];
-    const browserLang = navigator.language || "en-US";
-    recognition.lang = !first || browserLang.toLowerCase().startsWith(first) ? browserLang : first;
+    // One language only here: the one picked, else the one this person most
+    // likely speaks, as a full locale ("en-IN", "ta-IN").
+    recognition.lang = recognitionLocale(picked() || hints()[0] || navigator.language || "en");
     s.recognition = recognition;
-    let heard = false;
+    // Everything heard is shown as it comes and typed into the box once, at
+    // the end. (Typing each final piece as it came repeated phrases on
+    // Android, and a piece the recognizer later corrected stayed wrong.)
     recognition.onresult = (event) => {
-      let finals = "";
-      let pending = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const piece = event.results[i][0]?.transcript || "";
-        if (event.results[i].isFinal) finals += piece;
-        else pending += piece;
-      }
-      if (finals.trim()) { heard = true; handlers.current.onText?.(finals.trim()); }
-      setInterim(pending.trim());
+      const { final, interim } = joinRecognitionResults(event.results);
+      s.final = final;
+      s.interim = interim;
+      const live = [final, interim].filter(Boolean).join(" ");
+      // The newest words, where the person's attention is.
+      setInterim(live.length > 90 ? `…${live.slice(-90)}` : live);
     };
     recognition.onerror = (event) => {
       s.failed = event?.error;
@@ -115,7 +115,12 @@ export function useDictation({ apiBase, onText, onError, onNotice, getHints, des
       else handlers.current.onError?.(micErrorMessage({ name: event?.error }, { desktop }));
     };
     recognition.onend = () => {
-      if (!heard && !s.failed && !s.cancelled) handlers.current.onNotice?.("Didn't catch that. Try again a little closer to the mic.");
+      // Safari can stop without ever marking the last words final.
+      const text = [s.final, s.interim].filter(Boolean).join(" ").trim();
+      if (!s.cancelled) {
+        if (text) handlers.current.onText?.(text);
+        else if (!s.failed) handlers.current.onNotice?.("Didn't catch that. Try again a little closer to the mic.");
+      }
       end(s);
     };
     session.current = s;
@@ -239,7 +244,7 @@ export function useDictation({ apiBase, onText, onError, onNotice, getHints, des
       setPhase("transcribing");
       s.abort = new AbortController();
       try {
-        const { text, language } = await transcribeRecording(apiBase, blob, { signal: s.abort.signal, hints: hints() });
+        const { text, language } = await transcribeRecording(apiBase, blob, { signal: s.abort.signal, language: picked() || undefined, hints: hints() });
         if (s.cancelled) return;
         if (text) {
           rememberLanguage(language);
@@ -283,6 +288,18 @@ export function useDictation({ apiBase, onText, onError, onNotice, getHints, des
     end(s);
   }, [end]);
 
+  // The language was changed while the browser's recognizer listens: it only
+  // hears one, so start it again in the new one. (A recording for the server
+  // needs nothing: the language is read when it's typed out.)
+  const relisten = useCallback(() => {
+    const s = session.current;
+    if (!s || s.kind !== "browser" || phaseRef.current !== "recording") return;
+    s.cancelled = true;
+    try { s.recognition.abort(); } catch { /* gone */ }
+    end(s);
+    startBrowser();
+  }, [end, startBrowser]);
+
   const toggle = useCallback(() => {
     if (phaseRef.current === "idle") start();
     else if (phaseRef.current === "recording") finish();
@@ -308,5 +325,5 @@ export function useDictation({ apiBase, onText, onError, onNotice, getHints, des
     release(s);
   }, [release]);
 
-  return { phase, elapsed, interim, usingBrowser, supported, meterRef, start, finish, cancel, toggle };
+  return { phase, elapsed, interim, usingBrowser, supported, meterRef, start, finish, cancel, toggle, relisten };
 }

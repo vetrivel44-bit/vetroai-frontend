@@ -167,6 +167,35 @@ export function looksLikeEcho(heard, spoken) {
   return inSpoken / got.length >= 0.75;
 }
 
+// Said over VetroAI, these mean "stop talking" however short they are.
+const STOP_PHRASE = /^(?:(?:ok(?:ay)?|no|hey|please)[\s,]+)*(?:stop|wait|hold on|hang on|pause|enough|shut up|be quiet|quiet|cancel|one sec(?:ond)?|listen|excuse me|sorry|nillu|niruthu|nirutthu|ruko|ruk jao|bas|chup|para|arr[eê]te|halt)\b/i;
+// Sounds people make while listening, and what Whisper writes for a cough,
+// a fan or the TV ("you", "thank you"). None of them is a new turn.
+const BACKCHANNEL = new Set([
+  "yeah", "yes", "yep", "ya", "ok", "okay", "hmm", "mm", "mhm", "uh", "um", "ah", "oh", "right", "sure", "nice", "cool", "wow",
+  "haha", "aha", "uh huh", "mm hmm", "you", "thank you", "thanks", "bye", "yeah yeah", "ok ok", "okay okay", "i see", "got it",
+  "achha", "acha", "haan", "han", "seri", "sari", "aama", "ama", "hmm hmm",
+]);
+
+/**
+ * Should what the mic heard while VetroAI was talking cut it off? Only if
+ * it's the person, saying something: a stop word ("wait", "stop"), or at
+ * least two words of their own that aren't a "yeah" or "okay". One stray
+ * word, a cough or the TV that Whisper turned into "you" or "thank you",
+ * and VetroAI's own voice from the speaker used to stop the reply after its
+ * first sentence and send that as a new message.
+ */
+export function interruptsReply(heard, spoken) {
+  const text = String(heard || "").trim();
+  const got = words(text);
+  if (!got.length) return false;
+  if (STOP_PHRASE.test(text)) return true;
+  if (looksLikeEcho(text, spoken)) return false;
+  if (got.length < 2) return false;
+  if (BACKCHANNEL.has(got.join(" "))) return false;
+  return true;
+}
+
 /** Can this browser run the listener? */
 export function canListen(win = globalThis.window) {
   return Boolean(win?.navigator?.mediaDevices?.getUserMedia && (win.AudioContext || win.webkitAudioContext));

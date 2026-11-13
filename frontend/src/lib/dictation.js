@@ -10,9 +10,12 @@
 // isn't possible or the server has no speech-to-text.
 //
 // Any language: Whisper works out which one it hears. The app tells the
-// server which languages this person uses (dictationHints) so that on a short
-// clip it doesn't settle on a close neighbour, such as Hindi written in Urdu
-// script or Tamil heard as Malayalam (backend dictationService.js).
+// server which languages this person uses (dictationHints), the one they type
+// in first, so that on a short clip it doesn't settle on a close neighbour,
+// such as Hindi written in Urdu script or Tamil heard as Malayalam, or write
+// English said with an Indian accent in Tamil or Hindi script (backend
+// dictationService.js). The language can also be picked by hand
+// (SPEECH_LANGUAGES), and then it's never guessed.
 
 // A voice message long enough for anyone; the recording is sent at this
 // point rather than growing without end.
@@ -130,20 +133,27 @@ const LANGUAGE_CODE = /^[a-z]{2,3}$/;
 const baseLanguage = (tag) => String(tag || "").trim().toLowerCase().split(/[-_]/)[0];
 
 /**
- * The languages this person uses, most likely first, for the server: what
- * they dictated in lately, what their recent messages are written in, then
+ * The languages this person uses, most likely first, for the server: the one
+ * their recent messages are written in, what they dictated in lately, then
  * their browser's languages. Up to four ISO codes.
+ *
+ * What they type comes first because it's how they want their words written:
+ * someone who types in English and says something in English with a Tamil
+ * accent wants English back, not Tamil script. (Remembered languages used to
+ * come first, so one such mistake was remembered and repeated.)
  */
 export function dictationHints({ remembered = [], written = null, browser = [] } = {}) {
   const out = [];
-  for (const tag of [...remembered, written, ...browser]) {
+  for (const tag of [written, ...remembered, ...browser]) {
     const code = baseLanguage(tag);
     if (LANGUAGE_CODE.test(code) && !out.includes(code)) out.push(code);
   }
   return out.slice(0, 4);
 }
 
-const REMEMBERED_KEY = "vetro_dictation_langs";
+// v2: the list kept before could hold a language Whisper got wrong (English
+// heard as Tamil), which then steered every later recording; start afresh.
+const REMEMBERED_KEY = "vetro_dictation_langs_v2";
 
 /** The languages the last dictations came back in, newest first. */
 export function rememberedLanguages(storage = globalThis.localStorage) {
@@ -163,6 +173,104 @@ export function rememberLanguage(language, storage = globalThis.localStorage) {
     const next = [code, ...rememberedLanguages(storage).filter((c) => c !== code)].slice(0, 3);
     storage?.setItem(REMEMBERED_KEY, JSON.stringify(next));
   } catch { /* private mode or storage full: hints just come from elsewhere */ }
+}
+
+// ── The language the person speaks ──────────────────────────────────────────
+// "Auto" lets the server work it out; picking one means it's never guessed
+// (the fix when Auto gets it wrong). Kept per device.
+
+export const SPEECH_LANGUAGES = [
+  { code: "", label: "Auto-detect", short: "Auto" },
+  { code: "en", label: "English", short: "EN" },
+  { code: "ta", label: "தமிழ் · Tamil", short: "TA" },
+  { code: "hi", label: "हिन्दी · Hindi", short: "HI" },
+  { code: "te", label: "తెలుగు · Telugu", short: "TE" },
+  { code: "kn", label: "ಕನ್ನಡ · Kannada", short: "KN" },
+  { code: "ml", label: "മലയാളം · Malayalam", short: "ML" },
+  { code: "bn", label: "বাংলা · Bengali", short: "BN" },
+  { code: "mr", label: "मराठी · Marathi", short: "MR" },
+  { code: "gu", label: "ગુજરાતી · Gujarati", short: "GU" },
+  { code: "pa", label: "ਪੰਜਾਬੀ · Punjabi", short: "PA" },
+  { code: "ur", label: "اردو · Urdu", short: "UR" },
+  { code: "es", label: "Español · Spanish", short: "ES" },
+  { code: "fr", label: "Français · French", short: "FR" },
+  { code: "de", label: "Deutsch · German", short: "DE" },
+  { code: "pt", label: "Português · Portuguese", short: "PT" },
+  { code: "it", label: "Italiano · Italian", short: "IT" },
+  { code: "ar", label: "العربية · Arabic", short: "AR" },
+  { code: "ru", label: "Русский · Russian", short: "RU" },
+  { code: "zh", label: "中文 · Chinese", short: "ZH" },
+  { code: "ja", label: "日本語 · Japanese", short: "JA" },
+  { code: "ko", label: "한국어 · Korean", short: "KO" },
+  { code: "id", label: "Bahasa Indonesia", short: "ID" },
+];
+const SPEECH_LANGUAGE_KEY = "vetro_speech_lang";
+const PICKABLE = new Set(SPEECH_LANGUAGES.map((l) => l.code));
+
+/** The language picked for the microphone, or "" for Auto. */
+export function savedSpeechLanguage(storage = globalThis.localStorage) {
+  try {
+    const code = storage?.getItem(SPEECH_LANGUAGE_KEY) || "";
+    return PICKABLE.has(code) ? code : "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveSpeechLanguage(code, storage = globalThis.localStorage) {
+  const value = PICKABLE.has(code) ? code : "";
+  try {
+    if (value) storage?.setItem(SPEECH_LANGUAGE_KEY, value);
+    else storage?.removeItem(SPEECH_LANGUAGE_KEY);
+  } catch { /* private mode: it lasts until the page is closed */ }
+  return value;
+}
+
+// The browser's own recognizer needs a full locale, and the region matters:
+// its en-IN model knows Indian accents and names far better than en-US.
+const DEFAULT_REGION = {
+  en: "US", ta: "IN", hi: "IN", te: "IN", kn: "IN", ml: "IN", bn: "IN", mr: "IN", gu: "IN", pa: "IN", ur: "IN",
+  es: "ES", fr: "FR", de: "DE", pt: "BR", it: "IT", ar: "SA", ru: "RU", zh: "CN", ja: "JP", ko: "KR", id: "ID",
+};
+const INDIA_TIME = /^Asia\/(?:Kolkata|Calcutta)$/;
+const localTimeZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } };
+
+/**
+ * The locale for the browser's speech recognizer: "en" → "en-IN" in India,
+ * the person's own variant if their browser lists one ("en-GB"), otherwise
+ * the language's main one ("ta-IN", "es-ES").
+ */
+export function recognitionLocale(language, { languages = globalThis.navigator?.languages || [], timeZone = localTimeZone() } = {}) {
+  const base = baseLanguage(language) || "en";
+  if (base === "en" && INDIA_TIME.test(timeZone)) return "en-IN";
+  const own = Array.from(languages || []).find((tag) => baseLanguage(tag) === base && /^[a-z]{2,3}[-_][A-Za-z]{2}$/.test(String(tag)));
+  if (own) return String(own).replace("_", "-");
+  return DEFAULT_REGION[base] ? `${base}-${DEFAULT_REGION[base]}` : base;
+}
+
+/**
+ * What the browser's recognizer has heard so far: { final, interim }.
+ * Chrome on Android, in continuous mode, hands back each final result with
+ * everything before it repeated ("hello", "hello how are you"), so joining
+ * them typed every phrase two or three times. A result that repeats the one
+ * before replaces it.
+ */
+export function joinRecognitionResults(results) {
+  const finals = [];
+  let interim = "";
+  const same = (a, b) => a.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().startsWith(b.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim());
+  for (const result of Array.from(results || [])) {
+    const text = String(result?.[0]?.transcript || "").trim();
+    if (!text) continue;
+    if (!result.isFinal) { interim = interim ? `${interim} ${text}` : text; continue; }
+    const last = finals[finals.length - 1];
+    if (last && same(text, last)) finals[finals.length - 1] = text;
+    else if (!(last && same(last, text))) finals.push(text);
+  }
+  const final = finals.join(" ");
+  // Android's interim result repeats the finals before it, too.
+  if (final && interim && same(interim, final)) interim = interim.split(/\s+/).slice(final.split(/\s+/).length).join(" ");
+  return { final, interim };
 }
 
 // Chinese, Japanese and Thai are written without spaces between words.

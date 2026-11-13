@@ -21,11 +21,15 @@ export function describeTtsVoice(id) {
 }
 
 const genderOf = (voiceName) => (FEMALE.test(voiceName) ? "female" : MALE.test(voiceName) ? "male" : null);
+// Voices that sound like a person rather than a machine: Edge's "Online
+// (Natural)" voices, Chrome's Google voices, Apple's Siri/Enhanced/Premium.
+const NATURAL = /\b(natural|neural|online|google|siri|enhanced|premium)\b/i;
 
 /**
  * The browser voice closest to the chosen TTS voice, or null when the
  * browser lists none. Same voice by name (Edge ships the Microsoft neural
- * voices) beats same accent and gender, which beats same accent.
+ * voices) beats same accent and gender, which beats same accent; a natural
+ * sounding voice wins a tie.
  */
 export function pickBrowserVoice(voices, ttsVoiceId) {
   const list = Array.from(voices || []);
@@ -44,6 +48,8 @@ export function pickBrowserVoice(voices, ttsVoiceId) {
     const gender = genderOf(name);
     if (want.gender && gender === want.gender) score += 3;
     else if (want.gender && gender && gender !== want.gender) score -= 3;
+    // Of two equally good matches, the one that sounds natural.
+    if (lang.slice(0, 2).toLowerCase() === want.lang.slice(0, 2).toLowerCase() && NATURAL.test(name)) score += 2;
     if (score > bestScore) { best = voice; bestScore = score; }
   }
   return bestScore > -10 ? best : null;
