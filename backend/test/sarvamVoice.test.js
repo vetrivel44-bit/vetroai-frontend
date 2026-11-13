@@ -20,11 +20,18 @@ function withSarvamKey(t) {
 
 // ── Premium voices (Bulbul) ──────────────────────────────────────────────────
 
-test("Premium voice ids map to Bulbul speakers, and only sarvam- ids are Premium", () => {
-  assert.equal(sarvamTts.isSarvamVoice("sarvam-ishita"), true);
+test("Premium voices speak as Sarvam's expressive personas, and the first ids still work", () => {
+  assert.equal(sarvamTts.isSarvamVoice("sarvam-aparna"), true);
   assert.equal(sarvamTts.isSarvamVoice("en-US-JennyNeural"), false);
-  assert.deepEqual(sarvamTts.sarvamVoice("sarvam-ratan"), { speaker: "ratan", gender: "male" });
-  assert.equal(sarvamTts.sarvamVoice("sarvam-nobody").speaker, "ishita", "an unknown id still speaks");
+  assert.equal(sarvamTts.personaFor("sarvam-aparna", "en"), "aparna_en_companion");
+  assert.equal(sarvamTts.personaFor("sarvam-dev", "ta"), "gokul_ta_narration");
+  assert.equal(sarvamTts.personaFor("sarvam-ratan", "en"), "dev_en_conversational", "Ratan became Dev");
+  assert.equal(sarvamTts.personaFor("sarvam-ishita", "en"), "aparna_en_companion", "Ishita became Aparna");
+  assert.equal(sarvamTts.personaFor("sarvam-aparna", "ta"), null, "no female Tamil persona: v3");
+  assert.equal(sarvamTts.personaFor("sarvam-dev", "ml"), null, "no Malayalam personas yet: v3");
+  assert.equal(sarvamTts.v3SpeakerFor("sarvam-aparna", "ta"), "ishita");
+  assert.equal(sarvamTts.v3SpeakerFor("sarvam-sanchita", "ta"), "ritu");
+  assert.equal(sarvamTts.sarvamVoice("sarvam-nobody").gender, "female", "an unknown id still speaks");
 });
 
 test("the text's language picks Bulbul's language, by the app's code or the script", () => {
@@ -48,20 +55,46 @@ test("Sarvam's audio is sent with the type the browser needs", () => {
   assert.equal(sarvamTts.audioType(WAV), "audio/wav");
 });
 
-test("a Premium voice asks Sarvam for MP3 in the reply's language and plays it", async (t) => {
+test("a Premium voice asks Sarvam for MP3 in the reply's language, as its v4 persona", async (t) => {
   withSarvamKey(t);
   const sent = [];
   const restore = sarvamTts.setRequester(async (body) => { sent.push(body); return { audios: [MP3.toString("base64")] }; });
   t.after(() => sarvamTts.setRequester(restore));
-  const audio = await ttsService.synthesizeSpeech({ text: "Vanakkam! எப்படி இருக்கீங்க?", voice: "sarvam-ratan", lang: "ta", rate: "+6%" });
+  const audio = await ttsService.synthesizeSpeech({ text: "Vanakkam! எப்படி இருக்கீங்க?", voice: "sarvam-dev", lang: "ta", rate: "+6%" });
   assert.equal(audio.provider, "sarvam");
   assert.equal(audio.contentType, "audio/mpeg");
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].speaker, "ratan");
+  assert.equal(sent[0].model, "bulbul:v4-flash");
+  assert.equal(sent[0].speaker, "gokul_ta_narration");
   assert.equal(sent[0].language_code, "ta-IN");
   assert.equal(sent[0].output_audio_codec, "mp3");
   assert.equal(sent[0].pace, 1.06);
+  assert.equal(sent[0].temperature, undefined, "v4 ignores temperature");
+});
+
+test("where there's no persona, the voice speaks on v3 with a little more feeling", async (t) => {
+  withSarvamKey(t);
+  const sent = [];
+  const restore = sarvamTts.setRequester(async (body) => { sent.push(body); return { audios: [MP3.toString("base64")] }; });
+  t.after(() => sarvamTts.setRequester(restore));
+  await sarvamTts.synthesize("വണക്കം", { voice: "sarvam-aparna", lang: "ml" });
   assert.equal(sent[0].model, "bulbul:v3");
+  assert.equal(sent[0].speaker, "ishita");
+  assert.equal(sent[0].temperature, 0.75);
+});
+
+test("a persona Sarvam turns down is spoken by the same voice on v3", async (t) => {
+  withSarvamKey(t);
+  const sent = [];
+  const restore = sarvamTts.setRequester(async (body) => {
+    sent.push(body);
+    if (body.model === "bulbul:v4-flash") { const err = new Error("400 invalid speaker"); err.status = 400; throw err; }
+    return { audios: [MP3.toString("base64")] };
+  });
+  t.after(() => sarvamTts.setRequester(restore));
+  const audio = await sarvamTts.synthesize("Hello there", { voice: "sarvam-aparna" });
+  assert.equal(audio.provider, "sarvam");
+  assert.deepEqual(sent.map((b) => [b.model, b.speaker]), [["bulbul:v4-flash", "aparna_en_companion"], ["bulbul:v3", "ishita"]]);
 });
 
 test("if Sarvam ignores the codec and sends WAV, it goes out as audio/wav", async (t) => {
@@ -81,9 +114,9 @@ test("the older target_language_code field is tried if Sarvam rejects language_c
     return { audios: [MP3.toString("base64")] };
   });
   t.after(() => sarvamTts.setRequester(restore));
-  await sarvamTts.synthesize("Hello", { voice: "sarvam-priya" });
-  assert.equal(sent[1].target_language_code, "en-IN");
-  assert.equal(sent[1].language_code, undefined);
+  await sarvamTts.synthesize("Hello", { voice: "sarvam-sanchita" });
+  assert.equal(sent.at(-1).target_language_code, "en-IN");
+  assert.equal(sent.at(-1).language_code, undefined);
 });
 
 test("when Sarvam fails, a Premium voice falls back to the Edge voice of its gender, then Google", async (t) => {
@@ -104,7 +137,7 @@ test("when Sarvam fails, a Premium voice falls back to the Edge voice of its gen
 
   edgeTried.length = 0;
   edgeTts.synthesize = async (text, { voice }) => { edgeTried.push(voice); return { buffer: MP3, contentType: "audio/mpeg", provider: "edge-neural" }; };
-  const english = await ttsService.synthesizeSpeech({ text: "Hello there", voice: "sarvam-ishita" });
+  const english = await ttsService.synthesizeSpeech({ text: "Hello there", voice: "sarvam-aparna" });
   assert.equal(english.provider, "edge-neural");
   assert.deepEqual(edgeTried, ["en-IN-NeerjaExpressiveNeural"], "Indian English, female");
 });

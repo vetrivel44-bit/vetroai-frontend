@@ -6,14 +6,15 @@ import "./VoiceMode.css";
 // "google-…" voices are Google's free voice, both spoken by the backend's /tts.
 // The first four are Microsoft's newer conversational voices, the most like a
 // person talking; Ava is the default (initialVoice in App.jsx).
-// "sarvam-…" voices are the Premium ones: Sarvam's Bulbul, paid, made for
-// Indian English, and the same voice reads Tamil, Hindi and nine other Indian
-// languages (backend sarvamTtsService.js).
+// "sarvam-…" voices are the Premium ones, and the default: Sarvam's Bulbul,
+// paid, native Indian voices that talk with feeling (companion and
+// conversational personas), and read Tamil, Hindi and nine other Indian
+// languages too (backend sarvamTtsService.js).
 const VOICES = [
-  { id: "sarvam-ishita", name: "Ishita", note: "Natural and expressive", accent: "India", premium: true },
-  { id: "sarvam-ratan", name: "Ratan", note: "Warm and clear", accent: "India", premium: true },
-  { id: "sarvam-priya", name: "Priya", note: "Friendly and bright", accent: "India", premium: true },
-  { id: "sarvam-shubh", name: "Shubh", note: "Calm and steady", accent: "India", premium: true },
+  { id: "sarvam-aparna", name: "Aparna", note: "Warm and caring", accent: "India", premium: true },
+  { id: "sarvam-dev", name: "Dev", note: "Relaxed and natural", accent: "India", premium: true },
+  { id: "sarvam-sanchita", name: "Sanchita", note: "Friendly and lively", accent: "India", premium: true },
+  { id: "sarvam-shubh", name: "Shubh", note: "Calm storyteller", accent: "India", premium: true },
   { id: "en-US-AvaMultilingualNeural", name: "Ava", note: "Warm and expressive", accent: "US" },
   { id: "en-US-AndrewMultilingualNeural", name: "Andrew", note: "Relaxed and genuine", accent: "US" },
   { id: "en-US-EmmaMultilingualNeural", name: "Emma", note: "Cheerful and chatty", accent: "US" },
