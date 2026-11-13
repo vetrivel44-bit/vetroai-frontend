@@ -556,6 +556,8 @@ async function textToSpeech(req, res) {
   }
   const { buffer, contentType, provider } = audio;
   res.setHeader("X-TTS-Provider", provider || "unknown");
+  // The exact model and voice, when the provider says (Sarvam's persona or v3 speaker).
+  if (audio.voice) res.setHeader("X-TTS-Voice", String(audio.voice).slice(0, 80));
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Length", buffer.length);
   return res.send(buffer);

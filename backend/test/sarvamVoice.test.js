@@ -70,6 +70,7 @@ test("a Premium voice asks Sarvam for MP3 in the reply's language, as its v4 per
   assert.equal(sent[0].output_audio_codec, "mp3");
   assert.equal(sent[0].pace, 1.06);
   assert.equal(sent[0].temperature, undefined, "v4 ignores temperature");
+  assert.equal(audio.voice, "bulbul:v4-flash/gokul_ta_narration");
 });
 
 test("where there's no persona, the voice speaks on v3 with a little more feeling", async (t) => {
@@ -95,6 +96,7 @@ test("a persona Sarvam turns down is spoken by the same voice on v3", async (t) 
   const audio = await sarvamTts.synthesize("Hello there", { voice: "sarvam-aparna" });
   assert.equal(audio.provider, "sarvam");
   assert.deepEqual(sent.map((b) => [b.model, b.speaker]), [["bulbul:v4-flash", "aparna_en_companion"], ["bulbul:v3", "ishita"]]);
+  assert.equal(audio.voice, "bulbul:v3/ishita", "says which voice really read it");
 });
 
 test("if Sarvam ignores the codec and sends WAV, it goes out as audio/wav", async (t) => {
