@@ -33,21 +33,24 @@ async function googleCloud(text, languageCode) {
   return { buffer: Buffer.from(body.audioContent, "base64"), contentType: "audio/mpeg", provider: "google-cloud" };
 }
 
-async function synthesizeSpeech({ text, voice, languageCode, lang: textLang }) {
-  const requested = String(voice || "en-US-JennyNeural");
+// rate: speaking speed for Edge voices ("+6%"), as voice mode talks.
+async function synthesizeSpeech({ text, voice, languageCode, lang: textLang, rate }) {
+  const requested = String(voice || "en-US-AvaMultilingualNeural");
   // Text in another language than the picked voice is read by a native voice.
   const native = nativeVoiceFor(textLang, requested);
   const lang = native?.languageCode || languageCode || voiceLanguage(requested);
   const edgeVoice = edgeTts.isEdgeVoice(requested) ? requested : null;
   const attempts = [];
   if (native) {
-    if (native.edgeVoice) attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: native.edgeVoice })]);
+    if (native.edgeVoice) attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: native.edgeVoice, rate })]);
     attempts.push(["google-free", () => freeTts.synthesize(text, { languageCode: lang })]);
   } else if (requested.startsWith("google-")) {
     attempts.push(["google-free", () => freeTts.synthesize(text, { languageCode: lang })]);
-    attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: lang.startsWith("en-GB") ? "en-GB-SoniaNeural" : "en-US-JennyNeural" })]);
+    attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: lang.startsWith("en-GB") ? "en-GB-SoniaNeural" : "en-US-AvaMultilingualNeural", rate })]);
   } else {
-    if (edgeVoice) attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: edgeVoice })]);
+    for (const name of edgeVoice ? edgeTts.voiceFallbacks(edgeVoice) : []) {
+      attempts.push([`edge-neural:${name}`, () => edgeTts.synthesize(text, { voice: name, rate })]);
+    }
     attempts.push(["google-free", () => freeTts.synthesize(text, { languageCode: lang })]);
   }
   if (config.googleTtsApiKey) attempts.push(["google-cloud", () => googleCloud(text, lang)]);

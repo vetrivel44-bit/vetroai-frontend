@@ -12,8 +12,16 @@ import { detectSpeechLanguage } from "./speechLanguage.js";
 const MAX_SPOKEN_CHARS = 1500; // a spoken reply should not read out an essay
 const MAX_PARALLEL_FETCHES = 3;
 const MIN_CHUNK = 24; // very short sentences ride along with the next one
+// The first words are sent as soon as a clause this long is complete, rather
+// than waiting for the end of a long first sentence.
+const FIRST_CLAUSE = 48;
 
-/** Text that can be read aloud: no code, markdown, links or math. */
+// Emoji and the invisible characters that build them (skin tones, joiners,
+// variation selectors, keycaps, flags). A speech engine reads "😂" out as
+// "face with tears of joy".
+const EMOJI = /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}]|\u200D|\uFE0E|\uFE0F|\u20E3)+/gu;
+
+/** Text that can be read aloud: no code, markdown, links, math, emoji or citations. */
 export function speakableText(raw) {
   // Even parts are outside code fences; an unclosed fence drops its tail.
   const text = String(raw || "").split("```").filter((_, i) => i % 2 === 0).join(" ");
@@ -24,6 +32,11 @@ export function speakableText(raw) {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/\S+/g, "")
+    // Source numbers from web answers: "[1]", "[2, 3]", "【4】".
+    .replace(/\s*(?:\[\d+(?:\s*[,–-]\s*\d+)*\]|【\d+】)/g, "")
+    .replace(EMOJI, " ")
+    // Emoticons typed as text.
+    .replace(/(?:^|\s)(?:[:;=8][-^']?[)(DPpOo3/\\|*]|<3|\^_\^|xD)(?=\s|$|[.,!?])/g, " ")
     .replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, "")
     .replace(/[*#_~>|]/g, "")
     .replace(/\n{2,}/g, ". ")
@@ -44,6 +57,22 @@ function leavesNothingOpen(prefix) {
 }
 
 /**
+ * For the opening words only: the end of the first clause (at a comma, colon,
+ * semicolon or dash) once there are FIRST_CLAUSE characters before it, so a
+ * long first sentence starts being spoken before it is finished. 0 if none.
+ */
+export function firstClauseCut(raw) {
+  const text = String(raw || "");
+  const re = /[,;:\u2014\u2013](?=\s)| - /g;
+  let match;
+  while ((match = re.exec(text))) {
+    const cut = match.index + match[0].trimEnd().length;
+    if (cut >= FIRST_CLAUSE && leavesNothingOpen(text.slice(0, cut))) return cut;
+  }
+  return 0;
+}
+
+/**
  * Length of the longest prefix of a streaming reply that ends a sentence and
  * leaves no code, math or link half-written, i.e. the part safe to speak now.
  */
@@ -59,24 +88,39 @@ export function stableCut(raw) {
   return 0;
 }
 
-/** Sentence-sized chunks, with very short sentences merged into the next. */
-export function splitSentences(text) {
+/**
+ * Sentence-sized chunks, with very short sentences merged into the next.
+ * `first`: these are the reply's opening words, so the first sentence goes
+ * out on its own however short ("Oh nice!") and speech starts sooner.
+ */
+export function splitSentences(text, { first = false } = {}) {
   const pieces = String(text || "").match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [];
   const chunks = [];
   let buffer = "";
   for (const piece of pieces) {
     buffer += piece;
-    if (buffer.trim().length >= MIN_CHUNK) { chunks.push(buffer.trim()); buffer = ""; }
+    const minimum = first && !chunks.length ? 2 : MIN_CHUNK;
+    if (buffer.trim().length >= minimum) { chunks.push(buffer.trim()); buffer = ""; }
   }
   if (buffer.trim()) chunks.push(buffer.trim());
   return chunks;
 }
 
 let active = null;
+const DUCKED_VOLUME = 0.18;
 
 /** Stop whatever reply is being spoken (tap-to-interrupt, closing voice mode). */
 export function stopActiveSpeaker() {
   active?.stop();
+}
+
+/**
+ * Turn the reply being spoken down while the person starts talking over it,
+ * and back up if it turns out they didn't (a cough, the TV). Voice mode
+ * decides once it has heard what they said.
+ */
+export function duckActiveSpeaker(down) {
+  active?.duck(down);
 }
 
 /**
@@ -89,7 +133,8 @@ export function stopActiveSpeaker() {
 // lang: the reply's language when known (Read aloud detects it on the whole
 // reply); otherwise each sentence's own script decides. A reply that isn't in
 // the picked voice's language is read by a native voice for that language.
-export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop, maxChars = MAX_SPOKEN_CHARS, lang }) {
+// rate: speaking speed for the voice ("+5%"), when not the voice's own.
+export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop, maxChars = MAX_SPOKEN_CHARS, lang, rate }) {
   active?.stop();
   let abort = new AbortController();
   let queue = [];
@@ -101,6 +146,7 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
   let stopped = false;
   let done = false;
   let inFlight = 0;
+  let ducked = false;
   const waiting = [];
   // Keeps the mic shut between sentences (see isTTSActive in App.jsx).
   window.isTTSLoading = true;
@@ -117,7 +163,7 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     const res = await fetch(`${apiBase}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, lang: lang || detectSpeechLanguage(text) || undefined }),
+      body: JSON.stringify({ text, voice, lang: lang || detectSpeechLanguage(text) || undefined, ...(rate ? { rate } : {}) }),
       signal: abort.signal,
     });
     if (!res.ok) throw new Error(`TTS ${res.status}`);
@@ -129,6 +175,7 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
   const playBlob = (blob) => new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    if (ducked) audio.volume = DUCKED_VOLUME;
     window.currentAudio = audio;
     const end = () => {
       URL.revokeObjectURL(url);
@@ -193,13 +240,17 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
 
   const takeNew = (raw, everything) => {
     const full = String(raw || "");
-    const cut = everything ? full.length : stableCut(full);
+    const opening = spokenLength === 0;
+    let cut = everything ? full.length : stableCut(full);
+    // Nothing has been said yet and the first sentence is long: start on its
+    // first clause.
+    if (!cut && opening) cut = firstClauseCut(full);
     if (!cut) return;
     const spoken = speakableText(full.slice(0, cut));
     if (spoken.length <= spokenLength) return;
     const fresh = spoken.slice(spokenLength);
     spokenLength = spoken.length;
-    for (const sentence of splitSentences(fresh)) enqueue(sentence);
+    for (const sentence of splitSentences(fresh, { first: opening })) enqueue(sentence);
   };
 
   const silence = () => {
@@ -213,6 +264,22 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
   const speaker = {
     /** The reply so far (the full accumulated text, not a delta). */
     push(raw) { if (!stopped && !finished) takeNew(raw, false); },
+    /**
+     * A short line of its own, before the reply ("One sec, let me check."),
+     * said only if the reply hasn't started being spoken.
+     */
+    say(line) {
+      if (stopped || finished || started || spokenLength > 0 || queue.length) return;
+      const text = speakableText(line);
+      if (!text) return;
+      queue.push({ text, audio: fetchAudio(text) });
+      pump();
+    },
+    duck(down) {
+      ducked = Boolean(down);
+      const audio = window.currentAudio;
+      if (audio) { try { audio.volume = ducked ? DUCKED_VOLUME : 1; } catch { /* not ours to set */ } }
+    },
     /** The reply is complete: speak whatever is left, then call onDone. */
     finish(raw) {
       if (stopped || finished) return;
