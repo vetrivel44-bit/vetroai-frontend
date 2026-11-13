@@ -1265,3 +1265,30 @@
   .location-gallery .gallery-card { flex: 0 0 150px; }
   .location-gallery .gallery-caption { font-size: 0.75rem; margin-top: 6px; }
 }
+
+/* ─── TIMELINE (StepTimeline.jsx) ───
+   Quiet, inside the answer: a thin rule with small dots, the date in small
+   muted type, the event in the reply's own text style. App theme colours,
+   so it follows light and dark. */
+.stl { margin: 14px 0 18px; font-family: inherit; }
+.stl-title { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.stl-list { list-style: none; margin: 0; padding: 0; }
+.stl-item { position: relative; display: flex; gap: 14px; padding: 0 0 14px; }
+.stl-item:last-child { padding-bottom: 2px; }
+/* The rule joins each dot to the next. */
+.stl-item:not(:last-child)::before {
+  content: ""; position: absolute; left: 4px; top: 14px; bottom: -2px;
+  width: 1px; background: var(--border-med, var(--border, rgba(127,127,127,.3)));
+}
+.stl-dot {
+  flex: none; position: relative; width: 9px; height: 9px; margin-top: 7px;
+  border-radius: 50%; background: var(--ink-3, #8a8a92);
+  display: grid; place-items: center;
+}
+.stl-item.is-done .stl-dot { width: 13px; height: 13px; margin: 5px -2px 0; background: none; color: #2f9e6a; }
+.stl-body { flex: 1; min-width: 0; }
+.stl-when { font-size: 12.5px; font-weight: 500; color: var(--ink-3, var(--ink-2)); font-variant-numeric: tabular-nums; line-height: 1.5; }
+.stl-head { font-size: 15px; font-weight: 600; color: var(--ink); line-height: 1.5; }
+.stl-text { margin: 1px 0 0 !important; font-size: 15px; line-height: 1.6; color: var(--ink); }
+.stl-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.stl-tags span { font-size: 12px; padding: 1px 8px; border-radius: 6px; background: var(--bg-active, rgba(127,127,127,.14)); color: var(--ink-2, var(--ink)); }
