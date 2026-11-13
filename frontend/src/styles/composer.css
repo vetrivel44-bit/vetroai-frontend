@@ -1,0 +1,304 @@
+/* The message box, laid out like Claude's (renderInputBox in App.jsx).
+
+   One rounded card: the text on top, a toolbar under it with no rule between
+   them. Left: "+" (files) and the web-search tool. Right: model and effort,
+   the microphone, and one round button that is voice mode when the box is
+   empty, send when there is something to send, and stop while a reply is
+   being written. While dictating, the toolbar becomes the recording bar.
+
+   Several older stylesheets style .claude-input-box with !important (some
+   only on phones), so the rules here are scoped to .vc-composer and win on
+   specificity plus !important where those do. This file is imported last. */
+
+.claude-input-box.vc-composer {
+  --vc-surface: color-mix(in srgb, var(--ink) 7%, var(--bg));
+  --vc-line: color-mix(in srgb, var(--ink) 11%, transparent);
+  --vc-line-strong: color-mix(in srgb, var(--ink) 20%, transparent);
+  --vc-muted: color-mix(in srgb, var(--ink) 56%, transparent);
+  --vc-hover: color-mix(in srgb, var(--ink) 8%, transparent);
+  --vc-send: #d97757;
+  --vc-tool: #6ea8fe;
+  background: var(--vc-surface) !important;
+  border: 1px solid var(--vc-line) !important;
+  border-radius: 24px !important;
+  padding: 14px 12px 10px 14px !important;
+  min-height: 0 !important;
+  gap: 10px;
+  justify-content: flex-start !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 12px 32px -18px rgba(0, 0, 0, 0.55) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.claude-input-box.vc-composer:focus-within,
+.claude-input-box.vc-composer.is-dictating {
+  border-color: var(--vc-line-strong) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 14px 36px -18px rgba(0, 0, 0, 0.6) !important;
+}
+.claude-input-box.vc-composer.drag-over {
+  border-color: var(--vc-send) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vc-send) 22%, transparent) !important;
+}
+
+[data-theme="light"] .claude-input-box.vc-composer {
+  --vc-surface: #ffffff;
+  --vc-line: rgba(31, 30, 29, 0.13);
+  --vc-line-strong: rgba(31, 30, 29, 0.24);
+  --vc-muted: rgba(31, 30, 29, 0.55);
+  --vc-hover: rgba(31, 30, 29, 0.06);
+  --vc-tool: #2f6fd6;
+  box-shadow: 0 1px 2px rgba(31, 30, 29, 0.04), 0 10px 28px -16px rgba(31, 30, 29, 0.22) !important;
+}
+[data-theme="light"] .claude-input-box.vc-composer:focus-within,
+[data-theme="light"] .claude-input-box.vc-composer.is-dictating {
+  box-shadow: 0 1px 2px rgba(31, 30, 29, 0.05), 0 12px 32px -16px rgba(31, 30, 29, 0.28) !important;
+}
+
+/* ── The text ───────────────────────────────────────────────────────────── */
+.claude-input-box.vc-composer textarea {
+  min-height: 28px !important;
+  margin: 0 !important;
+  padding: 2px 4px 0 !important;
+  font-size: 1rem !important;
+  line-height: 1.5 !important;
+  color: var(--ink) !important;
+  caret-color: var(--vc-send) !important;
+  background: transparent !important;
+}
+.claude-input-box.vc-composer textarea::placeholder {
+  color: var(--vc-muted) !important;
+  opacity: 1 !important;
+}
+
+/* ── The toolbar ────────────────────────────────────────────────────────── */
+.vc-composer .vc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent !important;
+}
+.vc-composer .vc-footer-left,
+.vc-composer .vc-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.vc-composer .vc-footer-right { flex-shrink: 1; justify-content: flex-end; }
+
+.claude-input-box.vc-composer .vc-round {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--vc-muted) !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+.claude-input-box.vc-composer .vc-round:focus-visible,
+.claude-input-box.vc-composer .vc-model:focus-visible {
+  outline: 2px solid var(--vc-tool);
+  outline-offset: 2px;
+}
+.claude-input-box.vc-composer .vc-outline {
+  border-color: var(--vc-line) !important;
+  color: var(--ink) !important;
+}
+.claude-input-box.vc-composer .vc-outline:hover,
+.claude-input-box.vc-composer .vc-ghost:hover {
+  background: var(--vc-hover) !important;
+  color: var(--ink) !important;
+}
+
+/* Web search, when it is on: a tinted chip with its name, like Claude's
+   active tools. */
+.claude-input-box.vc-composer .vc-tool.is-on {
+  width: auto !important;
+  gap: 6px;
+  padding: 0 12px 0 9px !important;
+  color: var(--vc-tool) !important;
+  border-color: color-mix(in srgb, var(--vc-tool) 38%, transparent) !important;
+  background: color-mix(in srgb, var(--vc-tool) 12%, transparent) !important;
+}
+.vc-composer .vc-tool-label { font-size: 0.875rem; font-weight: 500; line-height: 1; }
+
+/* The one round button: voice mode, send, or stop. */
+.claude-input-box.vc-composer .vc-primary {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+}
+.claude-input-box.vc-composer .vc-primary:hover:not(:disabled) { transform: scale(1.05); }
+.claude-input-box.vc-composer .vc-primary:active:not(:disabled) { transform: scale(0.96); }
+.claude-input-box.vc-composer .vc-primary:disabled { opacity: 0.55; cursor: default; }
+.claude-input-box.vc-composer .vc-send {
+  background: var(--vc-send) !important;
+  color: #fff !important;
+}
+.claude-input-box.vc-composer .vc-voice[aria-disabled="true"] { opacity: 0.45; }
+
+/* Model and effort: "Auto Medium ⌄", the effort quieter than the name. */
+.vc-composer .vc-model-wrap { position: relative; min-width: 0; display: flex; }
+.claude-input-box.vc-composer .vc-model {
+  box-sizing: border-box;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  height: 36px !important;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 10px 0 13px !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--vc-line) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--ink) !important;
+  font-size: 0.875rem !important;
+  line-height: 1 !important;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.claude-input-box.vc-composer .vc-model:hover,
+.claude-input-box.vc-composer .vc-model[aria-expanded="true"] { background: var(--vc-hover) !important; }
+.claude-input-box.vc-composer .vc-model .mode-pill-name {
+  flex-shrink: 0;
+  max-width: 150px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.claude-input-box.vc-composer .vc-model .mode-pill-effort {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: none !important;
+  color: var(--vc-muted) !important;
+  font-size: 0.875rem !important;
+  font-style: normal;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  white-space: nowrap;
+  /* The name stays whole; the effort gives way first. */
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vc-composer .vc-model-chevron { color: var(--vc-muted); flex-shrink: 0; transition: transform 0.2s ease; }
+.vc-composer .vc-model-chevron.is-open { transform: rotate(180deg); }
+/* The icon another script puts in the pill (mobileModelPicker.js) is for
+   the header badge, not this one. */
+.vc-composer .vc-model .vetro-header-model-icon { display: none !important; }
+
+/* ── Dictating ──────────────────────────────────────────────────────────── */
+.vc-composer .vc-dictation { gap: 10px; justify-content: flex-start; }
+
+/* The live waveform: newest bar on the right, drawn by useDictation. */
+.vc-composer .vc-wave {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  overflow: hidden;
+}
+.vc-composer .vc-wave span {
+  flex: 0 0 3px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ink);
+  transform: scaleY(0.14);
+  transition: transform 90ms linear;
+}
+.vc-composer .vc-wave.is-starting span { opacity: 0.35; }
+
+.vc-composer .vc-time {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--vc-muted);
+  min-width: 34px;
+  text-align: right;
+}
+.vc-composer .vc-dictation-status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  color: var(--vc-muted);
+}
+.vc-composer .vc-dictation-interim {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.vc-composer .vc-rec-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: vcPulse 1.2s ease-in-out infinite;
+}
+.vc-composer .vc-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: vcSpin 0.8s linear infinite;
+}
+@keyframes vcSpin { to { transform: rotate(360deg); } }
+@keyframes vcPulse { 50% { opacity: 0.35; } }
+
+/* ── Phones ─────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .claude-input-box.vc-composer {
+    border-radius: 22px !important;
+    padding: 12px 10px 9px 12px !important;
+    gap: 8px;
+  }
+  /* 16px keeps iOS from zooming into the box on focus. */
+  .claude-input-box.vc-composer textarea { font-size: 16px !important; }
+  .vc-composer .vc-footer-left,
+  .vc-composer .vc-footer-right { gap: 4px; }
+  .claude-input-box.vc-composer .vc-model { padding: 0 8px 0 11px !important; }
+  .claude-input-box.vc-composer .vc-model .mode-pill-name { max-width: 92px !important; }
+}
+@media (max-width: 360px) {
+  .claude-input-box.vc-composer .vc-model .mode-pill-effort { display: none; }
+}
+/* With the Search chip open there's no room for the effort on a phone. */
+@media (max-width: 440px) {
+  .claude-input-box.vc-composer:has(.vc-tool.is-on) .vc-model .mode-pill-effort { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vc-composer .vc-wave span,
+  .claude-input-box.vc-composer .vc-round { transition: none; }
+  .vc-composer .vc-rec-dot,
+  .vc-composer .vc-spinner { animation-duration: 2.4s; }
+}

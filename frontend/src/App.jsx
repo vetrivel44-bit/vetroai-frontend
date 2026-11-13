@@ -117,6 +117,8 @@ import { authHeaders, checkUsage, recordUsage, UsageLimitError } from "./lib/usa
 import UsagePanel from "./components/UsagePanel";
 import UsageLimitNotice from "./components/UsageLimitNotice";
 import UserAvatar from "./components/UserAvatar";
+import { useDictation } from "./hooks/useDictation";
+import { appendDictated, formatElapsed } from "./lib/dictation";
 
 // Text of files the visitor's local model has read, keyed by the user message
 // they came with, so follow-up questions can include them again. (Every
@@ -847,6 +849,10 @@ const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
 const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, HAIKU_55_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
+// Bars in the dictation waveform: enough to fill the widest composer; on a
+// phone the oldest ones run off the left edge.
+const WAVE_BARS = 120;
+
 const EFFORT_LEVELS = [
   { id: "quick", name: "Low", desc: "Fastest, short answers and a light search", icon: Zap, maxTokens: 2048 },
   { id: "balanced", name: "Medium", desc: "Best for everyday tasks", icon: SlidersHorizontal, maxTokens: 4096 },
@@ -5063,7 +5069,6 @@ export default function App() {
   const voiceMutedRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
-  const [isDictating, setIsDictating] = useState(false);
   const [ttsVoice, setTtsVoice] = useState(localStorage.getItem("vetro_tts_voice") || "en-US-JennyNeural");
 
   // ── Refs ──────────────────────────────────────────────────────────────────────
@@ -5087,7 +5092,24 @@ export default function App() {
   const transcriptRef  = useRef("");
   const speechOkRef    = useRef(true);
   const stopMicRef     = useRef(null);
-  const dictateRef     = useRef(null);
+  // The composer's microphone: speak, and the words land in the message box
+  // (hooks/useDictation.js, lib/dictation.js).
+  const dictation = useDictation({
+    apiBase: API,
+    desktop: typeof window !== "undefined" && !!window.vetroDesktop,
+    onText: (spoken) => {
+      setInput((previous) => appendDictated(previous, spoken));
+      requestAnimationFrame(() => {
+        const box = textareaRef.current;
+        if (!box || box.disabled) return;
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      });
+    },
+    onError: (message) => addToast(message, "error"),
+    onNotice: (message) => addToast(message, "info"),
+  });
+  const isDictating = dictation.phase !== "idle";
   // FIX 1: ref for selectedMode inside async callbacks
   const selectedModeRef  = useRef(selectedMode);
   const systemPromptRef  = useRef(systemPrompt);
@@ -6099,6 +6121,7 @@ export default function App() {
 
   const openVoice = e => {
     e.preventDefault();
+    if (dictation.phase !== "idle") dictation.cancel();
     if (!speechOkRef.current) {
       addToast("⚠️ Voice mode needs a browser with speech recognition (try Chrome or Edge)", "error");
       return;
@@ -8041,61 +8064,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     return "Good evening";
   };
 
-    const toggleDictation = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      addToast("Speech recognition is not supported in this browser.", "error");
-      return;
-    }
-
+  const toggleDictation = () => {
     // Dictation and voice mode both want the microphone; running them together
-    // makes the browser abort one of them at random.
+    // makes the browser cut one of them off.
     if (voiceRef.current) {
       addToast("Close voice mode before dictating.", "info");
       return;
     }
-
-    if (isDictating) {
-      // Actually release the microphone. This used to only flip the flag, so
-      // the recognizer kept recording and kept appending to the input.
-      try { dictateRef.current?.stop(); } catch (err) { swallowError(err); }
-      dictateRef.current = null;
-      setIsDictating(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = navigator.language || "en-US";
-
-    recognition.onstart = () => setIsDictating(true);
-    recognition.onend = () => { dictateRef.current = null; setIsDictating(false); };
-    recognition.onerror = (e) => {
-      dictateRef.current = null;
-      setIsDictating(false);
-      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") addToast("⚠️ Microphone access denied", "error");
-      else if (e?.error === "audio-capture") addToast("⚠️ No microphone found", "error");
-    };
-    recognition.onresult = (e) => {
-      let finalTranscript = "";
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        if (e.results[i].isFinal) {
-          finalTranscript += e.results[i][0].transcript;
-        }
-      }
-      if (finalTranscript) {
-        setInput(prev => prev + (prev ? " " : "") + finalTranscript);
-      }
-    };
-    try {
-      dictateRef.current = recognition;
-      recognition.start();
-    } catch (e) {
-      swallowError(e);
-      dictateRef.current = null;
-      setIsDictating(false);
-    }
+    dictation.toggle();
   };
 
   // A clarifying ```choices question in the newest reply docks its options
@@ -8117,7 +8093,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <button type="button" className="claude-banner-link" onClick={() => setMessages([])}>Start a new chat</button>
           </div>
         )}
-        <form style={{ position: "relative" }} className={`claude-input-box ${isDragOver ? "drag-over" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+        <form style={{ position: "relative" }} className={`claude-input-box vc-composer${isDragOver ? " drag-over" : ""}${isDictating ? " is-dictating" : ""}`} onSubmit={sendMessage} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
         <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} accept={FILE_ACCEPT} multiple />
         {selFiles.length > 0 && (
           <div className="multi-file-previews">
@@ -8143,11 +8119,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           className="claude-input-textarea"
           rows="1"
           placeholder={
-            isDictating ? t.listening || "Listening..." :
+            dictation.phase === "transcribing" ? "Typing out what you said…" :
+            isDictating  ? (t.listening || "Listening…") :
             isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
             isDeepSearch ? "Ask a research question…" :
             isWebMode    ? "Search the web with AI — I fetch real page content…" :
-                           "How can I help you today?"
+            messages.length ? "Reply to VetroAI" : "Chat with VetroAI"
           }
           value={input}
           onChange={(e) => {
@@ -8187,75 +8164,107 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         />
         {renderPluginMentionMenu()}
 
-        <div className="claude-input-footer">
-          <div className="claude-footer-left">
-            <button type="button" className="claude-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload file">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        {/* The toolbar, laid out like Claude's: + and tools on the left;
+            model, microphone and one round button on the right that starts
+            voice mode, sends once there is something to send, and stops a
+            reply while it is being written. While dictating it becomes the
+            recording bar: discard, live waveform, time, done. */}
+        {isDictating ? (
+          <div className="vc-footer vc-dictation" role="status" aria-live="polite">
+            <button type="button" className="vc-round vc-ghost" onClick={dictation.cancel} title="Discard recording (Esc)" aria-label="Discard recording">
+              <X size={18} strokeWidth={2} />
             </button>
+            {dictation.phase === "transcribing" ? (
+              <div className="vc-dictation-status"><span className="vc-spinner" aria-hidden="true" />Typing out what you said…</div>
+            ) : dictation.usingBrowser ? (
+              <div className="vc-dictation-status vc-dictation-live">
+                <span className="vc-rec-dot" aria-hidden="true" />
+                <span className="vc-dictation-interim">{dictation.interim || "Listening…"}</span>
+              </div>
+            ) : (
+              <div className={`vc-wave${dictation.phase === "starting" ? " is-starting" : ""}`} ref={dictation.meterRef} aria-hidden="true">
+                {Array.from({ length: WAVE_BARS }, (_, i) => <span key={i} />)}
+              </div>
+            )}
+            <span className="vc-time" aria-label="Recording time">{formatElapsed(dictation.elapsed)}</span>
             <button
               type="button"
-              className={`claude-attach-btn ws-modal-trigger-btn${isWebMode ? " active" : ""}`}
-              onClick={() => setSelectedMode(isWebMode ? "normal" : "web_search")}
-              title="Search the web"
+              className="vc-round vc-primary"
+              onClick={dictation.finish}
+              disabled={dictation.phase !== "recording"}
+              title="Done — add what I said to the message"
+              aria-label="Done — add what I said to the message"
             >
-              <Globe size={18} />
-              {/* Labelled so the control reads as a pill rather than an
-                  unexplained icon; hidden on narrow screens where the toolbar
-                  has no room for it. */}
-              <span className="composer-btn-label hidden sm:inline">Search</span>
+              {dictation.phase === "transcribing" || dictation.phase === "starting"
+                ? <span className="vc-spinner" aria-hidden="true" />
+                : <Check size={18} strokeWidth={2.5} />}
             </button>
           </div>
-
-          <div className="claude-footer-right">
-            {/* Model selector */}
-            <div className="block" style={{ position: "relative" }}>
-              {showModelPicker && <WorkspacePopup
-                currentProvider={selectedProvider}
-                currentEffort={selectedEffort}
-                onSelectProvider={setSelectedProvider}
-                onSelectEffort={setSelectedEffort}
-                onClose={() => setShowModelPicker(false)}
-              />}
-              <button type="button" className="mode-pill mode-pill-btn" onClick={() => setShowModelPicker(p => !p)} title="Model selector">
-                <span className="mode-pill-name">{selectedProvider}</span>
-                <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
-                <svg style={{ transform: showModelPicker ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        ) : (
+          <div className="vc-footer">
+            <div className="vc-footer-left">
+              <button type="button" className="vc-round vc-outline" onClick={() => fileInputRef.current?.click()} title="Add photos and files" aria-label="Add photos and files">
+                <Plus size={20} strokeWidth={1.75} />
+              </button>
+              <button
+                type="button"
+                className={`vc-round vc-outline vc-tool${isWebMode ? " is-on" : ""}`}
+                onClick={() => setSelectedMode(isWebMode ? "normal" : "web_search")}
+                title={isWebMode ? "Web search is on" : "Search the web"}
+                aria-pressed={isWebMode}
+              >
+                <Globe size={18} strokeWidth={1.75} />
+                {isWebMode && <span className="vc-tool-label">Search</span>}
               </button>
             </div>
 
-            {/* Mic Icon - Dictation placeholder */}
-            <button type="button" className={`claude-action-btn ${isDictating ? "active" : ""}`} onClick={toggleDictation} title="Dictate">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDictating ? "var(--accent)" : "currentColor"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-            </button>
+            <div className="vc-footer-right">
+              <div className="vc-model-wrap">
+                {showModelPicker && <WorkspacePopup
+                  currentProvider={selectedProvider}
+                  currentEffort={selectedEffort}
+                  onSelectProvider={setSelectedProvider}
+                  onSelectEffort={setSelectedEffort}
+                  onClose={() => setShowModelPicker(false)}
+                />}
+                <button type="button" className="mode-pill mode-pill-btn vc-model" data-model={selectedProvider} onClick={() => setShowModelPicker(p => !p)} title="Choose model and effort" aria-expanded={showModelPicker}>
+                  <span className="mode-pill-name">{selectedProvider}</span>
+                  <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
+                  <ChevronDown size={14} strokeWidth={2} className={`vc-model-chevron${showModelPicker ? " is-open" : ""}`} />
+                </button>
+              </div>
 
-            {/* Voice Mode / Audio Activity Icon */}
-            {isVoiceOpen ? (
-              <button type="button" className="claude-action-btn active voice" onClick={closeVoice} title="Close voice mode">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              <button type="button" className="vc-round vc-ghost vc-mic" onClick={toggleDictation} title="Dictate" aria-label="Dictate — speak and I'll type it">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><line x1="12" y1="18" x2="12" y2="21" /></svg>
               </button>
-            ) : (
-              <button type="button" className="claude-action-btn voice" onClick={openVoice} title={speechSupported ? "Start Voice Mode" : "Voice mode needs Chrome or Edge"} aria-disabled={!speechSupported} style={speechSupported ? undefined : { opacity: 0.45 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14v-4m4 6V8m4 8V6m4 8V8m4 6v-4" /></svg>
-              </button>
-            )}
 
-            {/* Send / Stop Button */}
-            {isLoading ? (
-              <button type="button" className="claude-send-btn active bg-amber-500 md:bg-[var(--ink)] text-slate-900 md:text-[var(--bg)]" onClick={stopGeneration} title="Stop generating">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg>
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className={`claude-send-btn ${(!input.trim() && !selFiles.length) ? "claude-send-btn-empty bg-slate-700 md:bg-transparent text-slate-500 md:text-[var(--ink-4)]" : "active bg-amber-500 md:bg-[var(--ink)] text-slate-900 md:text-[var(--bg)]"}`}
-                disabled={!input.trim() && !selFiles.length}
-                title="Send message"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
-              </button>
-            )}
+              {isLoading ? (
+                <button type="button" className="vc-round vc-primary" onClick={stopGeneration} title="Stop generating" aria-label="Stop generating">
+                  <Square size={13} fill="currentColor" strokeWidth={0} />
+                </button>
+              ) : (input.trim() || selFiles.length) ? (
+                <button type="submit" className="vc-round vc-primary vc-send" title="Send message" aria-label="Send message">
+                  <ArrowUp size={19} strokeWidth={2.5} />
+                </button>
+              ) : isVoiceOpen ? (
+                <button type="button" className="vc-round vc-primary" onClick={closeVoice} title="Close voice mode" aria-label="Close voice mode">
+                  <X size={18} strokeWidth={2.25} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="vc-round vc-primary vc-voice"
+                  onClick={openVoice}
+                  title={speechSupported ? "Start Voice Mode" : "Voice mode needs Chrome or Edge"}
+                  aria-label="Start voice mode"
+                  aria-disabled={!speechSupported}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" /></svg>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </form>
       </>
     );

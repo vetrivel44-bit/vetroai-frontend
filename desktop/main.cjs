@@ -223,10 +223,19 @@ function createWindow() {
   mainWindow.webContents.on("render-process-gone", runEnded);
   const allowedOrigin = new URL(APP_URL).origin;
   const appSession = mainWindow.webContents.session;
-  appSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
-    return permission === "geolocation" && String(requestingOrigin || "").startsWith(allowedOrigin);
+  const fromApp = (url) => String(url || "").startsWith(allowedOrigin);
+  // The microphone, and only the microphone (never the camera), for VetroAI's
+  // own pages: the composer's Dictate button and voice mode. Everything else
+  // was refused here, so tapping the mic in the desktop app did nothing.
+  // Windows still asks the person through its own privacy settings.
+  const audioOnly = (types) => Array.isArray(types) && types.length > 0 && types.every((type) => type === "audio");
+  appSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
+    if (!fromApp(requestingOrigin)) return false;
+    if (permission === "geolocation") return true;
+    return permission === "media" && details?.mediaType === "audio";
   });
-  appSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+  appSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission === "media") return callback(fromApp(details?.requestingUrl) && audioOnly(details?.mediaTypes));
     if (permission !== "geolocation") return callback(false);
     dialog.showMessageBox(mainWindow, {
       type: "question",
