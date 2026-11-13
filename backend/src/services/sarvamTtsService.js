@@ -20,6 +20,7 @@
 // Sarvam turns the persona down.
 
 const { config } = require("../config/env");
+const logger = require("../utils/logger");
 
 const ENDPOINT = "https://api.sarvam.ai/text-to-speech";
 const PERSONA_MODEL = "bulbul:v4-flash";
@@ -147,12 +148,15 @@ async function synthesize(text, { voice, lang, rate } = {}) {
   const persona = personaFor(voice, code);
   const rejected = (err) => err?.status === 400 || err?.status === 422;
   let reply;
+  let used = persona ? `${PERSONA_MODEL}/${persona}` : `${v3.model}/${v3.speaker}`;
   try {
     reply = await request(persona ? { ...common, model: PERSONA_MODEL, speaker: persona } : v3);
   } catch (err) {
     if (!rejected(err)) throw err;
+    used = `${v3.model}/${v3.speaker}`;
     try {
       // A persona Sarvam turned down: the same voice on v3.
+      if (persona) logger.warn("tts.sarvam.personaRejected", { persona, error: err?.message });
       reply = await request(v3);
     } catch (again) {
       // Older API versions named the language "target_language_code".
@@ -165,7 +169,8 @@ async function synthesize(text, { voice, lang, rate } = {}) {
   if (!encoded) throw new Error("Sarvam TTS returned no audio");
   const buffer = Buffer.from(encoded, "base64");
   if (buffer.length < 200) throw new Error("Sarvam TTS returned no audio");
-  return { buffer, contentType: audioType(buffer), provider: "sarvam" };
+  // voice: the model and speaker that read it ("bulbul:v4-flash/aparna_en_companion").
+  return { buffer, contentType: audioType(buffer), provider: "sarvam", voice: used };
 }
 
 module.exports = {
