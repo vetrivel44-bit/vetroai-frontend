@@ -6210,6 +6210,9 @@ export default function App() {
   const fallBackToBrowserVoice = () => {
     listenerRef.current?.stop();
     listenerRef.current = null;
+    // The open microphone had marked itself running; the recognizer must
+    // be free to start.
+    micRunningRef.current = false;
     setVoiceHearing(false);
     if (speechOkRef.current) { startMic({ unmute: true }); return; }
     addToast("Voice mode isn't available right now. Try again in a moment.", "error");

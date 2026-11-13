@@ -113,6 +113,9 @@ test("server and network failures become messages, with codes the app can act on
   const notSetUp = async () => reply(501, { success: false, message: "Voice typing isn't set up on this server yet.", data: { code: "ASR_NOT_CONFIGURED" } });
   await assert.rejects(transcribeRecording("/api", new Blob(["x"]), { fetchImpl: notSetUp }), (err) => err instanceof DictationError && err.code === "ASR_NOT_CONFIGURED" && err.status === 501);
 
+  const missing = async () => reply(404, { success: false, message: "Route not found" });
+  await assert.rejects(transcribeRecording("/api", new Blob(["x"]), { fetchImpl: missing }), (err) => err.code === "ASR_NOT_CONFIGURED", "an older backend: use the browser's recognition");
+
   const busy = async () => reply(429, null);
   await assert.rejects(transcribeRecording("/api", new Blob(["x"]), { fetchImpl: busy }), (err) => err.code === "ASR_BUSY" && /busy/.test(err.message));
 
@@ -129,6 +132,8 @@ test("server and network failures become messages, with codes the app can act on
 test("the app asks once whether the server can type out recordings", async () => {
   assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(200, { data: { available: true } }) }), true);
   assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(200, { data: { available: false } }) }), false);
-  assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(404, {}) }), null);
+  // A backend that hasn't been updated yet has no /api/transcribe at all.
+  assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(404, { message: "Route not found" }) }), false);
+  assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => reply(502, {}) }), null);
   assert.equal(await serverDictationAvailable("/api", { fetchImpl: async () => { throw new Error("offline"); } }), null);
 });
