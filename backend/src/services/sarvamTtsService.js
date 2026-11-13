@@ -9,27 +9,56 @@
 //
 // API: POST https://api.sarvam.ai/text-to-speech, header api-subscription-key,
 // JSON { text, language_code, model, speaker, pace, output_audio_codec } →
-// { audios: [base64] }. Up to 2500 characters a request on bulbul:v3.
+// { audios: [base64] }. Up to 2500 characters a request.
+//
+// Two Bulbul models. bulbul:v4-flash speaks as "personas", each recorded
+// in a delivery style (companion, conversational, narration…): warm and
+// expressive, like a person talking rather than reading. v3 has plain
+// speakers whose expressiveness comes from `temperature`. A Premium voice
+// uses its v4 persona where Sarvam has one for the language (English, Hindi,
+// male Tamil), and v3 otherwise (Malayalam, Odia, female Tamil…) or if
+// Sarvam turns the persona down.
 
 const { config } = require("../config/env");
 
 const ENDPOINT = "https://api.sarvam.ai/text-to-speech";
+const PERSONA_MODEL = "bulbul:v4-flash";
 const DEFAULT_MODEL = "bulbul:v3";
+// v3's default is 0.6; a little higher reads with more feeling.
+const V3_TEMPERATURE = 0.75;
 const MAX_CHARS = 2500;
 
-// The picker's Premium voices: id → Bulbul v3 speaker. The four Sarvam rates
-// best across languages (its "Recommended speakers by language" table).
+// The picker's Premium voices. personas: language → v4 persona (Sarvam's
+// picks for companion and conversational speech); v3: the plain speaker for
+// everything else.
 const VOICES = {
-  "sarvam-ishita": { speaker: "ishita", gender: "female" },
-  "sarvam-priya": { speaker: "priya", gender: "female" },
-  "sarvam-ratan": { speaker: "ratan", gender: "male" },
-  "sarvam-shubh": { speaker: "shubh", gender: "male" },
+  "sarvam-aparna": { gender: "female", v3: "ishita", personas: { en: "aparna_en_companion", hi: "roopa_hi_conversational" } },
+  "sarvam-sanchita": { gender: "female", v3: "priya", personas: { en: "sanchita_en_companion", hi: "kavya_hi_conversational" } },
+  "sarvam-dev": { gender: "male", v3: "ratan", personas: { en: "dev_en_conversational", hi: "tarun_hi_conversational", ta: "gokul_ta_narration" } },
+  "sarvam-shubh": { gender: "male", v3: "shubh", personas: { en: "shubh_en_narration_gentle", hi: "mani_hi_conversational", ta: "vijay_ta_narration" } },
 };
+// The first Premium voices, kept working for anyone who picked one.
+const RENAMED = { "sarvam-ishita": "sarvam-aparna", "sarvam-priya": "sarvam-sanchita", "sarvam-ratan": "sarvam-dev" };
+// v3 speakers Sarvam rates best per language, for a female voice reading
+// a language with no female persona.
+const V3_FEMALE = { ta: "ritu", ml: "pooja", od: "ritu", bn: "roopa", pa: "roopa", te: "neha", kn: "neha", mr: "priya", gu: "priya" };
 
 const isSarvamVoice = (voice) => String(voice || "").startsWith("sarvam-");
 
-/** "sarvam-ratan" → its speaker and gender; an unknown "sarvam-…" id gets Ishita. */
-const sarvamVoice = (voice) => VOICES[String(voice || "")] || VOICES["sarvam-ishita"];
+/** "sarvam-dev" (or its old name "sarvam-ratan") → its voice; an unknown "sarvam-…" id gets Aparna. */
+const sarvamVoice = (voice) => {
+  const id = RENAMED[String(voice || "")] || String(voice || "");
+  return VOICES[id] || VOICES["sarvam-aparna"];
+};
+
+/** The v4 persona for `voice` in `code` ("en", "ta"…), or null to use v3. */
+const personaFor = (voice, code) => sarvamVoice(voice).personas[code] || null;
+
+/** The v3 speaker for `voice` in `code`. */
+function v3SpeakerFor(voice, code) {
+  const picked = sarvamVoice(voice);
+  return picked.gender === "female" && V3_FEMALE[code] && picked.v3 === "priya" ? V3_FEMALE[code] : picked.v3;
+}
 
 // Bulbul's languages: the app's code → Sarvam's. ("or" is Odia's ISO code;
 // Sarvam writes it "od".)
@@ -105,24 +134,32 @@ async function synthesize(text, { voice, lang, rate } = {}) {
   if (!words) throw new Error("Nothing to speak.");
   const languageCode = sarvamLanguage(lang, words);
   if (!languageCode) throw new Error(`Sarvam doesn't speak "${lang}".`);
-  const body = {
+  const code = languageCode.slice(0, 2);
+  const common = {
     text: words,
     language_code: languageCode,
-    model: config.sarvamTtsModel || DEFAULT_MODEL,
-    speaker: sarvamVoice(voice).speaker,
     pace: paceFor(rate),
     speech_sample_rate: 24000,
     // MP3 plays everywhere and is a tenth the size of Bulbul's default WAV.
     output_audio_codec: "mp3",
   };
+  const v3 = { ...common, model: config.sarvamTtsModel || DEFAULT_MODEL, speaker: v3SpeakerFor(voice, code), temperature: V3_TEMPERATURE };
+  const persona = personaFor(voice, code);
+  const rejected = (err) => err?.status === 400 || err?.status === 422;
   let reply;
   try {
-    reply = await request(body);
+    reply = await request(persona ? { ...common, model: PERSONA_MODEL, speaker: persona } : v3);
   } catch (err) {
-    // Older API versions named the language "target_language_code".
-    if (err?.status !== 400 && err?.status !== 422) throw err;
-    const { language_code: code, ...rest } = body;
-    reply = await request({ ...rest, target_language_code: code });
+    if (!rejected(err)) throw err;
+    try {
+      // A persona Sarvam turned down: the same voice on v3.
+      reply = await request(v3);
+    } catch (again) {
+      // Older API versions named the language "target_language_code".
+      if (!rejected(again)) throw again;
+      const { language_code: target, ...rest } = v3;
+      reply = await request({ ...rest, target_language_code: target });
+    }
   }
   const encoded = Array.isArray(reply?.audios) ? reply.audios[0] : null;
   if (!encoded) throw new Error("Sarvam TTS returned no audio");
@@ -135,6 +172,8 @@ module.exports = {
   synthesize,
   isSarvamVoice,
   sarvamVoice,
+  personaFor,
+  v3SpeakerFor,
   sarvamLanguage,
   paceFor,
   audioType,

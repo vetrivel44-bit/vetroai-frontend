@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useCon
 import { READ_ALOUD_CHUNK_CHARS, READ_SPEEDS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
 import { createReadHighlighter } from "./lib/readAloudHighlight.js";
 import ReadAloudBar from "./components/ReadAloudBar.jsx";
+import WebSearchBlock from "./components/WebSearchBlock.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -59,6 +60,7 @@ import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPul
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
+import { TEACHING, teachingNeed, teachingNote } from "./lib/teaching";
 import { askSearchIntent } from "./lib/searchIntent";
 import { FOLLOW_UP_NOTE, GROUNDING_RULE, leansOnContext, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
@@ -72,7 +74,6 @@ import ThinkingPanel from "./components/ThinkingPanel";
 import ResearchActivity from "./components/ResearchActivity";
 import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
 import { settleResearch } from "./lib/research";
-import { sourceDomain } from "./lib/sources";
 import SourceFavicon from "./components/SourceFavicon";
 import { CitationLink } from "./components/CitationLink";
 import { TableCell } from "./components/chat/TableCell";
@@ -205,6 +206,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("model", data);
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
+      } else if (type === "search" && data) {
+        // The query the server searched, shown above the answer (WebSearchBlock).
+        onMeta?.("search", data);
       } else if (type === "attachments" && Array.isArray(data)) {
         // The text of PDFs the server read itself.
         onMeta?.("attachments", data);
@@ -854,12 +858,16 @@ const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|deb
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
 // The voice for voice mode and Read aloud. Jenny was the default and was saved
 // for everyone on their first visit, so a saved Jenny is almost always that
-// old default rather than a choice: it moves, once, to Ava, the newer and more
-// natural conversational voice. Any other saved choice is kept.
-const VOICE_DEFAULT = "en-US-AvaMultilingualNeural";
+// old default rather than a choice: it moves, once, to the default below.
+// New visitors get Aparna, a Premium (Sarvam) voice: a native Indian voice
+// that talks with feeling, where the free voices read flatly.
+const VOICE_DEFAULT = "sarvam-aparna";
+// The first Premium voices were renamed when they moved to Sarvam's
+// expressive personas.
+const RENAMED_VOICES = { "sarvam-ishita": "sarvam-aparna", "sarvam-priya": "sarvam-sanchita", "sarvam-ratan": "sarvam-dev" };
 function initialVoice() {
   try {
-    const saved = localStorage.getItem("vetro_tts_voice");
+    const saved = RENAMED_VOICES[localStorage.getItem("vetro_tts_voice")] || localStorage.getItem("vetro_tts_voice");
     if (localStorage.getItem("vetro_tts_voice_v2")) return saved || VOICE_DEFAULT;
     localStorage.setItem("vetro_tts_voice_v2", "1");
     return !saved || saved === "en-US-JennyNeural" ? VOICE_DEFAULT : saved;
@@ -2867,22 +2875,6 @@ function DesignCanvas({ onClose }) {
   );
 }
 
-// How recently a source was published, in the fewest words that stay honest —
-// "2h ago" reads as fresher than a bare date and is what makes freshness
-// scannable across a whole row of cards.
-const formatFreshness = (dateStr) => {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return null;
-  const diffMs = Date.now() - d.getTime();
-  const diffH = diffMs / 3600000;
-  if (diffH < 1) return "just now";
-  if (diffH < 24) return `${Math.round(diffH)}h ago`;
-  const diffD = diffH / 24;
-  if (diffD < 7) return `${Math.round(diffD)}d ago`;
-  return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
-};
-
 const DOWNLOAD_FORMATS = [
   { id: "pdf", label: "PDF", ext: ".pdf" },
   { id: "docx", label: "Word", ext: ".docx" },
@@ -2955,69 +2947,6 @@ function DocumentDownloads({ content, requested = [], variant = "menu" }) {
     </span>
   );
 }
-
-// ─── SOURCE CARDS (Perplexity-style) ──────────────────────────────────────────
-// Memoized: rendered once per message inside a feed that re-renders on every
-// streamed token. The props come straight off the message object, whose
-// identity only changes for the message actually being streamed.
-const VISIBLE_SOURCE_CARDS = 3;
-
-const SourceCards = React.memo(function SourceCards({ sources }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!sources?.length) return null;
-  const items = sources.map((s, i) => ({ ...s, n: i + 1, domain: sourceDomain(s) }));
-  const visible = items.length > VISIBLE_SOURCE_CARDS + 1 ? items.slice(0, VISIBLE_SOURCE_CARDS) : items;
-  const hidden = items.slice(visible.length);
-
-  return (
-    <div className="px-src">
-      <div className="px-src-head">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
-        <span>Sources</span>
-        <span className="px-src-count">{items.length}</span>
-      </div>
-      <div className="px-src-row">
-        {visible.map((s) => (
-          <a key={s.n} href={s.url} target="_blank" rel="noopener noreferrer" className="px-src-card" title={s.title || s.url}>
-            <span className="px-src-title">{s.title && s.title !== "(untitled)" ? s.title : s.domain}</span>
-            <span className="px-src-meta">
-              <SourceFavicon domain={s.domain} />
-              <span className="px-src-domain">{s.domain}</span>
-              <span className="px-src-num">· {s.n}</span>
-            </span>
-          </a>
-        ))}
-        {hidden.length > 0 && (
-          <button type="button" className="px-src-card px-src-more" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
-            <span className="px-src-more-icons">
-              {hidden.slice(0, 4).map((s) => <SourceFavicon key={s.n} domain={s.domain} />)}
-            </span>
-            <span className="px-src-more-label">{expanded ? "Show less" : `View ${hidden.length} more`}</span>
-          </button>
-        )}
-      </div>
-      {expanded && (
-        <ol className="px-src-list">
-          {items.map((s) => {
-            const freshness = formatFreshness(s.published);
-            return (
-              <li key={s.n}>
-                <a href={s.url} target="_blank" rel="noopener noreferrer" className="px-src-list-item">
-                  <span className="px-src-list-num">{s.n}</span>
-                  <SourceFavicon domain={s.domain} />
-                  <span className="px-src-list-text">
-                    <span className="px-src-list-title">{s.title && s.title !== "(untitled)" ? s.title : s.url}</span>
-                    <span className="px-src-list-domain">{s.domain}{freshness ? ` · ${freshness}` : ""}</span>
-                  </span>
-                </a>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </div>
-  );
-});
 
 // ─── PERSONA SWITCHER (Quick-pick AI personality) ─────────────────────────────
 function PersonaSwitcher({ currentPersonaId, onSelect, onClose, onCreateNew }) {
@@ -7118,7 +7047,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             question: freshImage ? imageQuestion(userQuery) : question,
             imageDataUrl,
             imageTurnsAgo: shared ? shared.turnsAgo : 0,
-            systemPrompt: [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt, thisMessageNote(userQuery)].filter(Boolean).join("\n\n"),
+            systemPrompt: [VETROAI_IDENTITY, READING_THE_USER, teachingNeed(userQuery) ? TEACHING : "", finalSystemPrompt, thisMessageNote(userQuery), teachingNote(userQuery)].filter(Boolean).join("\n\n"),
           }));
         setIsWebSearching(false);
         setStreamStatus("streaming");
@@ -7225,7 +7154,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         // about VetroAI but its name.
         // How to read short, informal messages ("Ur name", "y?", "in tamil"),
         // and, for a question about VetroAI itself, a note saying so.
-        const puterSystem = [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt.trim(), extraSystem.trim(), thisMessageNote(userQuery)].filter(Boolean).join("\n\n");
+        const puterSystem = [VETROAI_IDENTITY, READING_THE_USER, finalSystemPrompt.trim(), extraSystem.trim(), teachingNeed(userQuery) ? TEACHING : "", thisMessageNote(userQuery), teachingNote(userQuery)].filter(Boolean).join("\n\n");
         if (puterSystem) {
           // Same inline-visuals rule the backend adds, so a browser model
           // answers "draw a flowchart" or "chart this" with a visual, not prose.
@@ -7286,6 +7215,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       // `sources` the chat stream sends, so the source cards render the same.
       const fetchWebResults = async () => {
         setStreamStatus("Searching the web…");
+        const sentQuery = searchQueryFor(plainReading(userQuery), sendHist.slice(0, -1));
+        const showQuery = (q) => setMessages((previous) => {
+          if (!previous.length) return previous;
+          const next = [...previous];
+          next[next.length - 1] = { ...next[next.length - 1], searchQuery: String(q || "").slice(0, 200) || null };
+          return next;
+        });
+        showQuery(sentQuery);
         const res = await fetch(`${API}/web-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -7294,7 +7231,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           // The conversation goes too, so the server can rewrite a follow-up
           // ("is the reviews good for this movie") into a search naming its subject.
           body: JSON.stringify({
-            query: searchQueryFor(plainReading(userQuery), sendHist.slice(0, -1)),
+            query: sentQuery,
             question: plainReading(userQuery),
             history: sendHist.slice(0, -1).filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim()).slice(-6).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })),
             timeZone: userTimeZone(),
@@ -7310,6 +7247,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { /* keep raw url */ }
           return { title: r.title, url: r.url, domain, published: r.published || null, snippet: r.snippet || "" };
         });
+        // The server may have rewritten a follow-up into a fuller query.
+        if (json.data?.query && json.data.query !== sentQuery) showQuery(json.data.query);
         return { sources, summary: String(json.data?.answer || "").trim() };
       };
 
@@ -7541,6 +7480,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 const last = { ...next[next.length - 1] };
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "sources") last.sources = metaData;
+                if (metaType === "search") last.searchQuery = String(metaData?.query || "").slice(0, 200) || null;
                 // The model that really answered, which may be a fallback.
                 if (metaType === "model") last.answeredBy = metaData;
                 next[next.length - 1] = last;
@@ -7776,6 +7716,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 }
                 const last = { ...u[u.length - 1] };
                 if (metaType === "sources") last.sources = metaData;
+                if (metaType === "search") last.searchQuery = String(metaData?.query || "").slice(0, 200) || null;
                 // The model that really answered, which may be a fallback.
                 if (metaType === "model") last.answeredBy = metaData;
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
@@ -9468,8 +9409,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                answering={Boolean(m.content)}
                              />
                            )}
-                           {m.sources && m.sources.length > 0 && (
-                             <SourceCards sources={m.sources} />
+                           {(m.sources?.length > 0 || (m.searchQuery && !m.content && isLoading && i === messages.length - 1)) && (
+                             <WebSearchBlock
+                               query={m.searchQuery}
+                               sources={m.sources}
+                               searching={!m.sources?.length && isLoading && i === messages.length - 1}
+                             />
                            )}
                            <div className="claude-prose" data-read-body={i} style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
                              {m.usageLimit
@@ -9583,7 +9528,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   </div>
                                   );
                                })()
-                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research
+                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research && !(m.searchQuery && !m.sources?.length)
                                ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
                                    <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>

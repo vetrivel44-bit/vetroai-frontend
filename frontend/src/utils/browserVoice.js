@@ -14,6 +14,10 @@ const MALE = /\b(male|man|david|mark|daniel|alex|fred|george|guy|ryan|steffan|ja
 // The Premium (Sarvam) voices: Indian English, so the browser's stand-in is
 // an Indian English voice of the same gender (Heera, Ravi, Google's en-IN…).
 const SARVAM_VOICES = {
+  "sarvam-aparna": { lang: "en-IN", name: "", gender: "female" },
+  "sarvam-sanchita": { lang: "en-IN", name: "", gender: "female" },
+  "sarvam-dev": { lang: "en-IN", name: "", gender: "male" },
+  // The first Premium voices' ids (now Aparna, Sanchita and Dev).
   "sarvam-ishita": { lang: "en-IN", name: "", gender: "female" },
   "sarvam-priya": { lang: "en-IN", name: "", gender: "female" },
   "sarvam-ratan": { lang: "en-IN", name: "", gender: "male" },

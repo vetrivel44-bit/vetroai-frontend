@@ -97,3 +97,12 @@ test("gpt-oss's 【5†L1-L4】 marks become citation links too, and unnumbered 
   assert.equal(splitCitations("【重要】 stays as it is"), null);
   assert.equal(dropCitations("Repo rate is 5.50% 【5†L1-L4】."), "Repo rate is 5.50%.");
 });
+
+test("citations side by side become one link to all their sources", async () => {
+  const { groupCitations, citationNumbers, citationNumber } = await import("../src/lib/citations.js");
+  const grouped = groupCitations(splitCitations("Rain is heavy [1][3], and [2], [4] say more [5]."));
+  assert.deepEqual(grouped.map((n) => (n.type === "link" ? n.url : n.value)), ["Rain is heavy ", "#cite-1,3", ", and ", "#cite-2,4", " say more ", "#cite-5", "."]);
+  assert.deepEqual(citationNumbers("#cite-2,4"), [2, 4]);
+  assert.equal(citationNumber("#cite-2,4"), 2);
+  assert.equal(citationNumbers("#cite-x"), null);
+});

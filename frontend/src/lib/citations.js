@@ -12,12 +12,47 @@ const CITATION = /\[(\d{1,3})\]|【(\d{1,3})(?:†[^】\n]{0,80})?】/g;
 const UNNUMBERED_MARK = /【[^】\n]{0,80}†[^】\n]{0,80}】/g;
 const SKIP = new Set(["code", "inlineCode", "link", "linkReference", "math", "inlineMath", "html"]);
 
-export const citationHref = (n) => `#cite-${n}`;
+/** "#cite-3", or "#cite-1,3" for a claim backed by several sources. */
+export const citationHref = (n) => `#cite-${[].concat(n).join(",")}`;
 
-/** The source number a "#cite-n" link points at, or null. */
+const CITE_HREF = /^#cite-(\d{1,3}(?:,\d{1,3})*)$/;
+
+/** The (first) source number a "#cite-n" link points at, or null. */
 export function citationNumber(href) {
-  const match = /^#cite-(\d{1,3})$/.exec(href || "");
-  return match ? Number(match[1]) : null;
+  const match = CITE_HREF.exec(href || "");
+  return match ? Number(match[1].split(",")[0]) : null;
+}
+
+/** Every source number a "#cite-1,3" link points at, or null. */
+export function citationNumbers(href) {
+  const match = CITE_HREF.exec(href || "");
+  return match ? match[1].split(",").map(Number) : null;
+}
+
+const isCite = (node) => node?.type === "link" && CITE_HREF.test(node.url || "");
+
+/**
+ * Citations side by side ("[1][3]", "[1], [3]") become one link to all their
+ * sources, so they show as one chip ("timesofindia +1") the way a reader
+ * expects, not a row of numbers.
+ */
+export function groupCitations(nodes) {
+  const out = [];
+  for (const node of nodes) {
+    const last = out[out.length - 1];
+    let into = null;
+    if (isCite(node) && isCite(last)) into = last;
+    else if (isCite(node) && last?.type === "text" && /^[ \t,]*$/.test(last.value) && isCite(out[out.length - 2])) {
+      out.pop();
+      into = out[out.length - 1];
+    }
+    if (into) {
+      const numbers = [...new Set([...citationNumbers(into.url), ...citationNumbers(node.url)])];
+      into.url = citationHref(numbers);
+      into.children = [{ type: "text", value: numbers.join(",") }];
+    } else out.push(node);
+  }
+  return out;
 }
 
 /** Splits a text node's value into text and citation-link nodes. */
@@ -48,7 +83,7 @@ function transform(node) {
       next.push(child);
     }
   }
-  node.children = next;
+  node.children = groupCitations(next);
 }
 
 export function remarkCitations() {

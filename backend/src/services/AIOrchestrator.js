@@ -14,6 +14,7 @@ const { decideSearch, searchQueryForTurn } = require("./searchIntentService");
 const { GROUNDING_RULE, FOLLOW_UP_NOTE, leansOnContext, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
 const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser");
+const { TEACHING, teachingNeed, teachingNote } = require("../config/teaching");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
@@ -292,7 +293,7 @@ If user says:
 - “detailed” → expanded explanation
 
 ---
-
+${teachingNeed(userQuery) ? `\n${TEACHING}\n\n---\n` : ""}
 # CODE: OPTIMAL TIME COMPLEXITY
 Whenever you write code, in any language, use the approach with the lowest time complexity known for the problem:
 - Pick the asymptotically fastest correct algorithm and data structures (hash maps/sets for lookups, two pointers, sliding windows, prefix sums, binary search, heaps, union-find, DP with memoization, linear-time scans over nested loops, built-in O(n log n) sorts, etc.). Never give a brute-force or nested-loop solution when a faster one exists, unless the user explicitly asks for it — and if they do, also give the optimal version.
@@ -796,6 +797,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         "status",
         isAgentic ? "Researching..." : isBrowse ? "Searching and opening pages..." : "Searching the web for latest info..."
       );
+      // The query searched, shown above the answer as it is searched (the
+      // app's WebSearchBlock); DeepSearch shows its own activity instead.
+      if (!isAgentic) this.sendVetroEvent(res, "search", { query: String(isBrowse ? browseQuery(userQuery) : searchQuery).slice(0, 200) });
 
       try {
         let searchRes;
@@ -873,6 +877,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     if (clockNote) promptExtras += clockNote;
     const messageNote = thisMessageNote(userQuery);
     if (messageNote) promptExtras += `\n\n${messageNote}`;
+    // "Teach me…" or "I can't understand": teach it, or explain it again a new way.
+    const teachNote = teachingNote(userQuery);
+    if (teachNote) promptExtras += `\n\n${teachNote}`;
     // Without results the model copied the [1]–[5] citations of an earlier
     // searched reply, citing sources this answer doesn't have.
     if (!webContext) {
