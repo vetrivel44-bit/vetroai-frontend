@@ -1,6 +1,5 @@
 // The composer's microphone ("Dictate"): speak, and the words land in the
-// message box to check before sending, the way Claude's and ChatGPT's apps do
-// it.
+// message box to check before sending.
 //
 // It used to lean on the browser's own speech recognition, which Firefox
 // doesn't have, the desktop app can't use (it needs Google's speech service,

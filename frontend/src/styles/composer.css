@@ -1,80 +1,77 @@
-/* The message box, made to match Claude's app (renderInputBox in App.jsx).
+/* VetroAI's message box (renderInputBox in App.jsx).
 
-   One rounded, slightly see-through card that floats over the chat: the text
-   on top, and under it, with no rule between, a row of filled round
-   buttons. Left: "+" (photos and files) and the model pill ("Auto Medium",
-   the effort quieter). Right: the microphone, and one round button that is
-   voice mode when the box is empty, send when there is something to send,
-   and stop while a reply is being written. While dictating, the row becomes
-   the recording bar. Colours and sizes are measured from Claude's app.
+   A slightly see-through card that floats over the chat: the text on top
+   and, with no rule between, one row of controls. Left: add files, and the
+   model with its effort. Right: the microphone, and one button that starts
+   voice mode when the box is empty (white), sends once there is something to
+   send (orange), and stops a reply while it is being written. While
+   dictating, the row becomes the recording bar.
+
+   The colours are fixed (the owner's choice: a warm grey card with grey
+   buttons), set per theme below. The buttons are rounded tiles.
 
    Several older stylesheets style .claude-input-box with !important (some
    only on phones), so the rules here are scoped to .vc-composer and win on
    specificity plus !important where those do. This file is imported last. */
 
 .claude-input-box.vc-composer {
-  /* Dark, as Claude's: a warm grey card a step above the page, 86% opaque so
-     the chat shows faintly through it. */
+  /* Dark: a warm grey card a step above the page, 86% opaque so the chat
+     shows faintly through it. */
   --vc-surface: rgba(32, 32, 30, 0.86);
   --vc-line: rgba(255, 255, 255, 0.12);
-  --vc-fill: rgba(255, 255, 255, 0.075);
-  --vc-fill-hover: rgba(255, 255, 255, 0.12);
+  --vc-line-focus: rgba(255, 255, 255, 0.16);
+  --vc-tile: rgba(255, 255, 255, 0.075);
+  --vc-tile-hover: rgba(255, 255, 255, 0.12);
   --vc-text: #f4f3ee;
-  --vc-icon: #e9e7e1;
   --vc-soft: #c3c1b8;
   --vc-placeholder: #94938e;
   --vc-primary: #f9f9f7;
   --vc-on-primary: #141413;
   --vc-send: #d97757;
   --vc-focus: #8ab4f8;
+  --vc-shadow: 0 4px 18px -8px rgba(0, 0, 0, 0.5);
   background: var(--vc-surface) !important;
   border: 1px solid var(--vc-line) !important;
-  border-radius: 24px !important;
-  padding: 14px 8px 8px !important;
+  border-radius: 22px !important;
+  padding: 14px 10px 10px !important;
   min-height: 0 !important;
-  gap: 18px;
+  gap: 16px;
   justify-content: flex-start !important;
-  box-shadow: 0 4px 18px -8px rgba(0, 0, 0, 0.5) !important;
+  box-shadow: var(--vc-shadow) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   transition: border-color 0.2s ease !important;
 }
 .claude-input-box.vc-composer:focus-within,
 .claude-input-box.vc-composer.is-dictating {
-  border-color: rgba(255, 255, 255, 0.16) !important;
-  box-shadow: 0 4px 18px -8px rgba(0, 0, 0, 0.5) !important;
+  border-color: var(--vc-line-focus) !important;
+  box-shadow: var(--vc-shadow) !important;
 }
 .claude-input-box.vc-composer.drag-over {
   border-color: var(--vc-send) !important;
   box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.22) !important;
 }
-
 [data-theme="light"] .claude-input-box.vc-composer {
   --vc-surface: rgba(255, 255, 255, 0.9);
   --vc-line: rgba(31, 30, 29, 0.13);
-  --vc-fill: rgba(31, 30, 29, 0.055);
-  --vc-fill-hover: rgba(31, 30, 29, 0.1);
+  --vc-line-focus: rgba(31, 30, 29, 0.2);
+  --vc-tile: rgba(31, 30, 29, 0.055);
+  --vc-tile-hover: rgba(31, 30, 29, 0.1);
   --vc-text: #1f1e1d;
-  --vc-icon: #3d3d3a;
   --vc-soft: #73726c;
   --vc-placeholder: #8c8b85;
   --vc-primary: #1f1e1d;
   --vc-on-primary: #ffffff;
   --vc-focus: #2f6fd6;
-  box-shadow: 0 4px 18px -10px rgba(31, 30, 29, 0.22) !important;
-}
-[data-theme="light"] .claude-input-box.vc-composer:focus-within,
-[data-theme="light"] .claude-input-box.vc-composer.is-dictating {
-  border-color: rgba(31, 30, 29, 0.2) !important;
-  box-shadow: 0 4px 18px -10px rgba(31, 30, 29, 0.22) !important;
+  --vc-shadow: 0 4px 18px -10px rgba(31, 30, 29, 0.22);
 }
 
 /* ── The text ───────────────────────────────────────────────────────────── */
 .claude-input-box.vc-composer textarea {
   min-height: 26px !important;
   margin: 0 !important;
-  padding: 0 8px !important;
-  font-size: 17px !important;
+  padding: 0 6px !important;
+  font-size: 16px !important;
   line-height: 1.5 !important;
   color: var(--vc-text) !important;
   caret-color: var(--vc-text) !important;
@@ -85,15 +82,15 @@
   opacity: 1 !important;
 }
 /* Files waiting to be sent sit inside the card, above the text. */
-.claude-input-box.vc-composer .multi-file-previews { padding: 0 6px; }
+.claude-input-box.vc-composer .multi-file-previews { padding: 0 4px; }
 
-/* ── The row of buttons ─────────────────────────────────────────────────── */
+/* ── The row of controls ────────────────────────────────────────────────── */
 .vc-composer .vc-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  min-height: 40px;
+  gap: 8px;
+  min-height: 38px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -103,95 +100,94 @@
 .vc-composer .vc-footer-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 .vc-composer .vc-footer-left { flex: 1 1 auto; }
 .vc-composer .vc-footer-right { flex: 0 0 auto; }
 
-.claude-input-box.vc-composer .vc-round {
+.claude-input-box.vc-composer .vc-btn {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 40px !important;
-  height: 40px !important;
-  min-width: 40px !important;
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
   min-height: 0 !important;
   padding: 0 !important;
   margin: 0 !important;
-  border-radius: 999px !important;
+  border-radius: 12px !important;
   border: 0 !important;
   background: transparent !important;
-  color: var(--vc-icon) !important;
+  color: var(--vc-text) !important;
   box-shadow: none !important;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
-.claude-input-box.vc-composer .vc-round:focus-visible,
+.claude-input-box.vc-composer .vc-btn:focus-visible,
 .claude-input-box.vc-composer .vc-model:focus-visible {
   outline: 2px solid var(--vc-focus);
   outline-offset: 2px;
 }
-.claude-input-box.vc-composer .vc-fill { background: var(--vc-fill) !important; }
-.claude-input-box.vc-composer .vc-fill:hover { background: var(--vc-fill-hover) !important; }
+.claude-input-box.vc-composer .vc-tile { background: var(--vc-tile) !important; }
+.claude-input-box.vc-composer .vc-tile:hover { background: var(--vc-tile-hover) !important; }
 .claude-input-box.vc-composer .vc-mic { color: var(--vc-soft) !important; }
-.claude-input-box.vc-composer .vc-mic:hover { color: var(--vc-icon) !important; }
+.claude-input-box.vc-composer .vc-mic:hover { color: var(--vc-text) !important; }
 
-/* The one round button: voice mode, send, or stop. */
+/* The one button: voice mode (white), send (orange), or stop. */
 .claude-input-box.vc-composer .vc-primary {
   background: var(--vc-primary) !important;
   color: var(--vc-on-primary) !important;
 }
-.claude-input-box.vc-composer .vc-primary:active:not(:disabled) { transform: scale(0.94); }
-.claude-input-box.vc-composer .vc-primary:disabled { opacity: 0.55; cursor: default; }
 .claude-input-box.vc-composer .vc-send {
   background: var(--vc-send) !important;
   color: #ffffff !important;
 }
+.claude-input-box.vc-composer .vc-primary:active:not(:disabled) { transform: scale(0.94); }
+.claude-input-box.vc-composer .vc-primary:disabled { opacity: 0.55; cursor: default; }
 .claude-input-box.vc-composer .vc-voice[aria-disabled="true"] { opacity: 0.45; }
 
-/* Model and effort: "Auto Medium", the effort quieter than the name. */
+/* The model and its effort: "Auto Medium ⌄", the effort quieter. */
 .vc-composer .vc-model-wrap { position: relative; min-width: 0; display: flex; }
 .claude-input-box.vc-composer .vc-model {
   box-sizing: border-box;
   display: inline-flex !important;
   align-items: center;
   gap: 5px;
-  height: 40px !important;
+  height: 38px !important;
   min-width: 0;
   max-width: 100%;
-  padding: 0 18px !important;
+  padding: 0 10px 0 13px !important;
   margin: 0 !important;
-  border-radius: 999px !important;
+  border-radius: 12px !important;
   border: 0 !important;
-  background: var(--vc-fill) !important;
+  background: var(--vc-tile) !important;
   box-shadow: none !important;
   color: var(--vc-text) !important;
-  font-size: 15px !important;
-  font-weight: 400 !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
   line-height: 1 !important;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 .claude-input-box.vc-composer .vc-model:hover,
-.claude-input-box.vc-composer .vc-model[aria-expanded="true"] { background: var(--vc-fill-hover) !important; }
+.claude-input-box.vc-composer .vc-model[aria-expanded="true"] { background: var(--vc-tile-hover) !important; }
 .claude-input-box.vc-composer .vc-model .mode-pill-name {
   flex-shrink: 0;
-  max-width: 160px !important;
+  max-width: 150px !important;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 400;
 }
 .claude-input-box.vc-composer .vc-model .mode-pill-effort {
   margin: 0 !important;
   padding: 0 !important;
   background: none !important;
   color: var(--vc-soft) !important;
-  font-size: 15px !important;
+  font-size: 14px !important;
   font-style: normal;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
@@ -202,6 +198,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.vc-composer .vc-model-chevron { color: var(--vc-soft); flex-shrink: 0; transition: transform 0.2s ease; }
+.vc-composer .vc-model-chevron.is-open { transform: rotate(180deg); }
 /* The icon another script puts in the pill (mobileModelPicker.js) is for
    the header badge, not this one. */
 .vc-composer .vc-model .vetro-header-model-icon { display: none !important; }
@@ -231,7 +229,7 @@
 .vc-composer .vc-wave.is-starting span { opacity: 0.35; }
 
 .vc-composer .vc-time {
-  font-size: 15px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: var(--vc-soft);
   min-width: 34px;
@@ -243,7 +241,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--vc-soft);
 }
 .vc-composer .vc-dictation-interim {
@@ -273,27 +271,25 @@
 @keyframes vcSpin { to { transform: rotate(360deg); } }
 @keyframes vcPulse { 50% { opacity: 0.35; } }
 
-/* "Jump to latest": centred just above the composer, as in Claude's app,
-   rather than over its corner. --vc-dock is the composer's height. */
+/* "Jump to latest": centred just above the composer rather than over its
+   corner. --vc-dock is the composer's height. */
 .scroll-btn.vc-scroll-btn {
   bottom: calc(var(--vc-dock, 120px) + 12px) !important;
   left: 50% !important;
   right: auto !important;
   transform: translateX(-50%) !important;
-  width: 40px !important;
-  height: 40px !important;
+  width: 38px !important;
+  height: 38px !important;
 }
 .scroll-btn.vc-scroll-btn:hover { transform: translateX(-50%) scale(1.05) !important; }
 
 /* ── Phones ─────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  /* The conversation's composer, nearer the edges as in Claude's app. */
-  .vc-composer-dock { padding-left: 14px !important; padding-right: 14px !important; }
+  .vc-composer-dock { padding-left: 12px !important; padding-right: 12px !important; }
 }
 @media (max-width: 380px) {
   .vc-composer .vc-footer-left,
-  .vc-composer .vc-footer-right { gap: 8px; }
-  .claude-input-box.vc-composer .vc-model { padding: 0 14px !important; }
+  .vc-composer .vc-footer-right { gap: 6px; }
   .claude-input-box.vc-composer .vc-model .mode-pill-name { max-width: 96px !important; }
 }
 @media (max-width: 330px) {
@@ -302,7 +298,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .vc-composer .vc-wave span,
-  .claude-input-box.vc-composer .vc-round { transition: none; }
+  .claude-input-box.vc-composer .vc-btn { transition: none; }
   .vc-composer .vc-rec-dot,
   .vc-composer .vc-spinner { animation-duration: 2.4s; }
 }

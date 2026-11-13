@@ -52,6 +52,7 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
+import { Mic, AudioLines } from "lucide-react";
 import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
@@ -5933,8 +5934,8 @@ export default function App() {
     const overlay = composerOverlayRef.current;
     if (!overlay || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver(() => {
-      // The composer floats over the messages (as Claude's does); the end of
-      // the chat should still clear it with a 24px gap.
+      // The composer floats over the messages, frosted; the end of the chat
+      // should still clear it with a 24px gap.
       const space = Math.max(130, Math.ceil(overlay.getBoundingClientRect().height) + 24);
       setComposerSpace((prev) => (prev === space ? prev : space));
       if (!isScrolling.current) scrollToBottom();
@@ -8131,7 +8132,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             isYtMode     ? "Paste a YouTube URL here (e.g. https://youtube.com/watch?v=...)…" :
             isDeepSearch ? "Ask a research question…" :
             isWebMode    ? "Search the web with AI — I fetch real page content…" :
-            messages.length ? "Reply to VetroAI" : "Chat with VetroAI"
+            messages.length ? "Ask a follow-up…" : "Ask VetroAI anything"
           }
           value={input}
           onChange={(e) => {
@@ -8171,15 +8172,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         />
         {renderPluginMentionMenu()}
 
-        {/* The toolbar, laid out like Claude's: + and the model on the left;
-            the microphone and one round button on the right that starts
-            voice mode, sends once there is something to send, and stops a
-            reply while it is being written. Web search lives in the header.
-            While dictating it becomes the recording bar: discard, live
-            waveform, time, done. */}
+        {/* The toolbar: files and the model on the left; the microphone and
+            one button on the right that starts voice mode, sends once there
+            is something to send, and stops a reply while it is being
+            written. Web search lives in the header. While dictating it
+            becomes the recording bar: discard, live waveform, time, done. */}
         {isDictating ? (
           <div className="vc-footer vc-dictation" role="status" aria-live="polite">
-            <button type="button" className="vc-round vc-fill" onClick={dictation.cancel} title="Discard recording (Esc)" aria-label="Discard recording">
+            <button type="button" className="vc-btn vc-tile" onClick={dictation.cancel} title="Discard recording (Esc)" aria-label="Discard recording">
               <X size={18} strokeWidth={2} />
             </button>
             {dictation.phase === "transcribing" ? (
@@ -8197,7 +8197,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             <span className="vc-time" aria-label="Recording time">{formatElapsed(dictation.elapsed)}</span>
             <button
               type="button"
-              className="vc-round vc-primary"
+              className="vc-btn vc-primary"
               onClick={dictation.finish}
               disabled={dictation.phase !== "recording"}
               title="Done — add what I said to the message"
@@ -8211,8 +8211,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ) : (
           <div className="vc-footer">
             <div className="vc-footer-left">
-              <button type="button" className="vc-round vc-fill vc-plus" onClick={() => fileInputRef.current?.click()} title="Add photos and files" aria-label="Add photos and files">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15" /></svg>
+              <button type="button" className="vc-btn vc-tile" onClick={() => fileInputRef.current?.click()} title="Add photos and files" aria-label="Add photos and files">
+                <Plus size={20} strokeWidth={1.75} />
               </button>
               <div className="vc-model-wrap">
                 {showModelPicker && <WorkspacePopup
@@ -8225,37 +8225,38 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 <button type="button" className="mode-pill mode-pill-btn vc-model" data-model={selectedProvider} onClick={() => setShowModelPicker(p => !p)} title="Choose model and effort" aria-expanded={showModelPicker}>
                   <span className="mode-pill-name">{selectedProvider}</span>
                   <em className="mode-pill-effort">{EFFORT_LEVELS.find((item) => item.id === selectedEffort)?.name}</em>
+                  <ChevronDown size={14} strokeWidth={2} className={`vc-model-chevron${showModelPicker ? " is-open" : ""}`} aria-hidden="true" />
                 </button>
               </div>
             </div>
 
             <div className="vc-footer-right">
-              <button type="button" className="vc-round vc-fill vc-mic" onClick={toggleDictation} title="Dictate" aria-label="Dictate — speak and I'll type it">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="8.6" y="2.75" width="6.8" height="11.5" rx="3.4" /><path d="M5.25 11.25a6.75 6.75 0 0 0 13.5 0" /><path d="M12 18v3" /></svg>
+              <button type="button" className="vc-btn vc-tile vc-mic" onClick={toggleDictation} title="Dictate" aria-label="Dictate — speak and I'll type it">
+                <Mic size={19} strokeWidth={1.75} />
               </button>
 
               {isLoading ? (
-                <button type="button" className="vc-round vc-primary" onClick={stopGeneration} title="Stop generating" aria-label="Stop generating">
+                <button type="button" className="vc-btn vc-primary" onClick={stopGeneration} title="Stop generating" aria-label="Stop generating">
                   <Square size={13} fill="currentColor" strokeWidth={0} />
                 </button>
               ) : (input.trim() || selFiles.length) ? (
-                <button type="submit" className="vc-round vc-primary vc-send" title="Send message" aria-label="Send message">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" /></svg>
+                <button type="submit" className="vc-btn vc-primary vc-send" title="Send message" aria-label="Send message">
+                  <ArrowUp size={19} strokeWidth={2.25} />
                 </button>
               ) : isVoiceOpen ? (
-                <button type="button" className="vc-round vc-primary" onClick={closeVoice} title="Close voice mode" aria-label="Close voice mode">
+                <button type="button" className="vc-btn vc-primary" onClick={closeVoice} title="Close voice mode" aria-label="Close voice mode">
                   <X size={18} strokeWidth={2.25} />
                 </button>
               ) : (
                 <button
                   type="button"
-                  className="vc-round vc-primary vc-voice"
+                  className="vc-btn vc-primary vc-voice"
                   onClick={openVoice}
                   title={speechSupported ? "Start Voice Mode" : "Voice mode needs Chrome or Edge"}
                   aria-label="Start voice mode"
                   aria-disabled={!speechSupported}
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M4.75 12h.01M8.4 9.75v4.5M12 5.5v13M15.6 9.75v4.5M19.25 12h.01" /></svg>
+                  <AudioLines size={19} strokeWidth={2} />
                 </button>
               )}
             </div>

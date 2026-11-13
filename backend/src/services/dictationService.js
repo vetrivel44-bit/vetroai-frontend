@@ -5,8 +5,7 @@
 // Firefox doesn't have, the desktop app can't reach (it needs Google's speech
 // service, which only ships in Chrome) and which failed without a word in
 // most other cases. The app now records the audio itself and sends it here,
-// the way Claude's and ChatGPT's apps do, and Groq's Whisper writes it down
-// in whatever language it was spoken.
+// and Groq's Whisper writes it down in whatever language it was spoken.
 //
 // Any language: Whisper knows the hundred in LANGUAGES and works out which
 // one it hears. The full model (whisper-large-v3) is the default: turbo is
