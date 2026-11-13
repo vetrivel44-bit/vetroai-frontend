@@ -683,7 +683,10 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     const gen = generation;
     const from = seekTo?.item === index ? seekTo.sentence : 0;
     if (seekTo) { seekTo = null; pauseBefore = 0; }
-    if (!item.audio || item.speedAt !== speed) fetchFor(item);
+    // A clip already fetched at another speed (one skipped back to after a
+    // speed change) is played as it is, sped up by the browser, rather than
+    // fetched again: no wait. Clips ahead are fetched at the new speed.
+    if (!item.audio) fetchFor(item);
     prefetch();
     try {
       const clip = await item.audio;
