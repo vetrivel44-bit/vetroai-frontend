@@ -9,10 +9,15 @@
 // itself and the server types it out (POST /api/transcribe, Groq Whisper).
 // The browser's recognition is kept only as the fallback for when recording
 // isn't possible or the server has no speech-to-text.
+//
+// Any language: Whisper works out which one it hears. The app tells the
+// server which languages this person uses (dictationHints) so that on a short
+// clip it doesn't settle on a close neighbour, such as Hindi written in Urdu
+// script or Tamil heard as Malayalam (backend dictationService.js).
 
 // A voice message long enough for anyone; the recording is sent at this
 // point rather than growing without end.
-export const DICTATION_MAX_MS = 5 * 60 * 1000;
+export const DICTATION_MAX_MS = 10 * 60 * 1000;
 // Shorter than this is a tap, not speech.
 export const DICTATION_MIN_MS = 450;
 
@@ -85,11 +90,15 @@ export async function serverDictationAvailable(apiBase, { fetchImpl = globalThis
   }
 }
 
-/** Sends a recording to the server and resolves to what was said ("" for nothing). */
-export async function transcribeRecording(apiBase, blob, { fetchImpl = globalThis.fetch, language, timeoutMs = 90000, signal } = {}) {
+/**
+ * Sends a recording to the server; resolves to { text, language }: what was
+ * said ("" for nothing) and the language it was said in (an ISO code).
+ */
+export async function transcribeRecording(apiBase, blob, { fetchImpl = globalThis.fetch, language, hints = [], timeoutMs = 90000, signal } = {}) {
   const form = new FormData();
   form.append("audio", blob, recordingFileName(blob?.type));
   if (language) form.append("language", language);
+  if (hints.length) form.append("hints", hints.join(","));
   const timeout = AbortSignal.timeout(timeoutMs);
   // AbortSignal.any is recent (Safari 17.4); without it, cancelling wins.
   const both = signal ? (typeof AbortSignal.any === "function" ? AbortSignal.any([timeout, signal]) : signal) : timeout;
@@ -108,8 +117,51 @@ export async function transcribeRecording(apiBase, blob, { fetchImpl = globalThi
     const fallback = res.status === 429 ? "Voice typing is busy right now. Try again in a moment." : "Couldn't type out that recording. Try again.";
     throw new DictationError(code, body?.message || fallback, res.status);
   }
-  return String(body?.data?.text ?? body?.text ?? "").trim();
+  const data = body?.data ?? body ?? {};
+  return { text: String(data.text ?? "").trim(), language: typeof data.language === "string" ? data.language : null };
 }
+
+const LANGUAGE_CODE = /^[a-z]{2,3}$/;
+const baseLanguage = (tag) => String(tag || "").trim().toLowerCase().split(/[-_]/)[0];
+
+/**
+ * The languages this person uses, most likely first, for the server: what
+ * they dictated in lately, what their recent messages are written in, then
+ * their browser's languages. Up to four ISO codes.
+ */
+export function dictationHints({ remembered = [], written = null, browser = [] } = {}) {
+  const out = [];
+  for (const tag of [...remembered, written, ...browser]) {
+    const code = baseLanguage(tag);
+    if (LANGUAGE_CODE.test(code) && !out.includes(code)) out.push(code);
+  }
+  return out.slice(0, 4);
+}
+
+const REMEMBERED_KEY = "vetro_dictation_langs";
+
+/** The languages the last dictations came back in, newest first. */
+export function rememberedLanguages(storage = globalThis.localStorage) {
+  try {
+    const list = JSON.parse(storage?.getItem(REMEMBERED_KEY) || "[]");
+    return Array.isArray(list) ? list.filter((code) => LANGUAGE_CODE.test(code)).slice(0, 3) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Puts `language` first in the remembered list. */
+export function rememberLanguage(language, storage = globalThis.localStorage) {
+  const code = baseLanguage(language);
+  if (!LANGUAGE_CODE.test(code)) return;
+  try {
+    const next = [code, ...rememberedLanguages(storage).filter((c) => c !== code)].slice(0, 3);
+    storage?.setItem(REMEMBERED_KEY, JSON.stringify(next));
+  } catch { /* private mode or storage full: hints just come from elsewhere */ }
+}
+
+// Chinese, Japanese and Thai are written without spaces between words.
+const NO_SPACES = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\u0e00-\u0e7f\u3000-\u303f\uff00-\uffef]/u;
 
 /** The message box after dictating: what was there, a space, what was said. */
 export function appendDictated(current, spoken) {
@@ -117,7 +169,10 @@ export function appendDictated(current, spoken) {
   const before = String(current || "");
   if (!words) return before;
   if (!before.trim()) return words;
-  return `${before.replace(/\s+$/, "")}${/\n$/.test(before) ? "\n" : " "}${words}`;
+  const kept = before.replace(/\s+$/, "");
+  if (/\n$/.test(before)) return `${kept}\n${words}`;
+  const joiner = NO_SPACES.test(kept.slice(-1)) && NO_SPACES.test(words[0]) ? "" : " ";
+  return `${kept}${joiner}${words}`;
 }
 
 /** 0:07, 1:32 */

@@ -11,12 +11,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DICTATION_MAX_MS, DICTATION_MIN_MS, DictationError, browserRecognition, canRecord,
-  micErrorMessage, pickRecordingType, serverDictationAvailable, transcribeRecording,
+  micErrorMessage, pickRecordingType, rememberLanguage, serverDictationAvailable, transcribeRecording,
 } from "../lib/dictation.js";
 
 const METER_STEP_MS = 70;
 
-export function useDictation({ apiBase, onText, onError, onNotice, desktop = false }) {
+// `getHints` returns the languages this person uses, most likely first
+// (lib/dictation.js dictationHints); asked once per recording.
+export function useDictation({ apiBase, onText, onError, onNotice, getHints, desktop = false }) {
   const [phase, setPhaseState] = useState("idle");
   const [elapsed, setElapsed] = useState(0);
   const [interim, setInterim] = useState("");
@@ -26,8 +28,9 @@ export function useDictation({ apiBase, onText, onError, onNotice, desktop = fal
   const session = useRef(null);
   // Can the server type out recordings? null until it has been asked.
   const serverOk = useRef(null);
-  const handlers = useRef({ onText, onError, onNotice });
-  handlers.current = { onText, onError, onNotice };
+  const handlers = useRef({ onText, onError, onNotice, getHints });
+  handlers.current = { onText, onError, onNotice, getHints };
+  const hints = () => { try { return handlers.current.getHints?.() || []; } catch { return []; } };
 
   const setPhase = useCallback((next) => { phaseRef.current = next; setPhaseState(next); }, []);
   const supported = canRecord() || !!browserRecognition();
@@ -88,7 +91,10 @@ export function useDictation({ apiBase, onText, onError, onNotice, desktop = fal
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = navigator.language || "en-US";
+    // One language only here, so the one this person most likely speaks.
+    const first = hints()[0];
+    const browserLang = navigator.language || "en-US";
+    recognition.lang = !first || browserLang.toLowerCase().startsWith(first) ? browserLang : first;
     s.recognition = recognition;
     let heard = false;
     recognition.onresult = (event) => {
@@ -233,9 +239,12 @@ export function useDictation({ apiBase, onText, onError, onNotice, desktop = fal
       setPhase("transcribing");
       s.abort = new AbortController();
       try {
-        const text = await transcribeRecording(apiBase, blob, { signal: s.abort.signal });
+        const { text, language } = await transcribeRecording(apiBase, blob, { signal: s.abort.signal, hints: hints() });
         if (s.cancelled) return;
-        if (text) handlers.current.onText?.(text);
+        if (text) {
+          rememberLanguage(language);
+          handlers.current.onText?.(text);
+        }
         else handlers.current.onNotice?.("Didn't catch that. Try again a little closer to the mic.");
       } catch (err) {
         if (s.cancelled || err?.code === "cancelled") return;

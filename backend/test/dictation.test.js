@@ -73,6 +73,7 @@ test("a recording comes back as text, in the language it was spoken", async (t) 
   assert.equal(response.status, 200);
   assert.equal(body.data.text, "chennai la weather eppadi");
   assert.equal(body.data.duration, 2.4);
+  assert.equal(body.data.language, "ta", "Whisper's language name comes back as an ISO code");
   assert.equal(seen[0].type, "audio/webm");
   assert.equal(seen[0].filename, "dictation.webm");
   assert.equal(seen[0].language, undefined, "the language is left to Whisper unless one was chosen");
@@ -123,4 +124,77 @@ test("when Whisper is busy or fails the reply says so", async (t) => {
   const failed = await upload(baseUrl);
   assert.equal(failed.status, 502);
   assert.equal((await failed.json()).data.code, "ASR_FAILED");
+});
+
+test("languages are read as ISO codes, whatever name they come under", () => {
+  assert.equal(dictation.languageCode("Tamil"), "ta");
+  assert.equal(dictation.languageCode("hindi"), "hi");
+  assert.equal(dictation.languageCode("ta-IN"), "ta");
+  assert.equal(dictation.languageCode("fil-PH"), "tl");
+  assert.equal(dictation.languageCode("Cantonese"), "yue");
+  assert.equal(dictation.languageCode("klingon"), null);
+  assert.equal(Object.keys(dictation.LANGUAGES).length, 100);
+  assert.deepEqual(dictation.parseHints("ta-IN, en-US, en, xx, hi"), ["ta", "en", "hi"]);
+});
+
+test("a short clip is heard again only when Whisper's pick is a neighbour of the person's language, or it was unsure", () => {
+  const { recheckLanguage } = dictation;
+  // Hindi written in Urdu script, Tamil heard as Malayalam: heard again.
+  assert.equal(recheckLanguage({ detected: "ur", hints: ["en", "hi"], duration: 3, sureness: -0.3 }), "hi");
+  assert.equal(recheckLanguage({ detected: "ml", hints: ["ta"], duration: 4, sureness: -0.2 }), "ta");
+  // A confident pick of an unrelated language stands: the person spoke it.
+  assert.equal(recheckLanguage({ detected: "ja", hints: ["en"], duration: 4, sureness: -0.25 }), null);
+  // An unsure one is checked against their main language.
+  assert.equal(recheckLanguage({ detected: "cy", hints: ["en"], duration: 2, sureness: -1.1 }), "en");
+  // Their own language, a long clip, or no hints: left alone.
+  assert.equal(recheckLanguage({ detected: "ta", hints: ["ta", "en"], duration: 3, sureness: -1.2 }), null);
+  assert.equal(recheckLanguage({ detected: "ur", hints: ["hi"], duration: 45, sureness: -0.3 }), null);
+  assert.equal(recheckLanguage({ detected: "ur", hints: [], duration: 3, sureness: -0.3 }), null);
+});
+
+test("Hindi that Whisper first writes in Urdu script comes back in Hindi when that reading is surer", async (t) => {
+  const seen = [];
+  dictation.setRecogniser(async ({ language }) => {
+    seen.push(language);
+    return language === "hi"
+      ? { text: "मुझे कल का मौसम बताओ", language: "hindi", duration: 2.5, segments: [{ text: " मुझे कल का मौसम बताओ", start: 0, end: 2.5, no_speech_prob: 0.02, avg_logprob: -0.18 }] }
+      : { text: "مجھے کل کا موسم بتاؤ", language: "urdu", duration: 2.5, segments: [{ text: " مجھے کل کا موسم بتاؤ", start: 0, end: 2.5, no_speech_prob: 0.02, avg_logprob: -0.42 }] };
+  });
+  const baseUrl = await startServer(t);
+  const form = new FormData();
+  form.append("audio", new Blob([new Uint8Array(900)], { type: "audio/webm" }), "voice.webm");
+  form.append("hints", "en,hi");
+  const body = await (await fetch(`${baseUrl}/api/transcribe`, { method: "POST", body: form })).json();
+  assert.deepEqual(seen, [undefined, "hi"]);
+  assert.equal(body.data.text, "मुझे कल का मौसम बताओ");
+  assert.equal(body.data.language, "hi");
+});
+
+test("a clip in a language the person doesn't usually use is kept as spoken", async (t) => {
+  const seen = [];
+  dictation.setRecogniser(async ({ language }) => {
+    seen.push(language);
+    return { text: "東京の天気は？", language: "japanese", duration: 2, segments: [{ text: " 東京の天気は？", start: 0, end: 2, no_speech_prob: 0.01, avg_logprob: -0.2 }] };
+  });
+  const baseUrl = await startServer(t);
+  const form = new FormData();
+  form.append("audio", new Blob([new Uint8Array(900)], { type: "audio/webm" }), "voice.webm");
+  form.append("hints", "en");
+  const body = await (await fetch(`${baseUrl}/api/transcribe`, { method: "POST", body: form })).json();
+  assert.deepEqual(seen, [undefined], "heard once");
+  assert.equal(body.data.text, "東京の天気は？");
+  assert.equal(body.data.language, "ja");
+});
+
+test("the second reading is dropped when it is less sure", async (t) => {
+  dictation.setRecogniser(async ({ language }) => (language === "ta"
+    ? { text: "translated words", language: "tamil", duration: 2, segments: [{ text: " translated words", start: 0, end: 2, no_speech_prob: 0.05, avg_logprob: -1.3 }] }
+    : { text: "എന്റെ പേര്", language: "malayalam", duration: 2, segments: [{ text: " എന്റെ പേര്", start: 0, end: 2, no_speech_prob: 0.02, avg_logprob: -0.3 }] }));
+  const baseUrl = await startServer(t);
+  const form = new FormData();
+  form.append("audio", new Blob([new Uint8Array(900)], { type: "audio/webm" }), "voice.webm");
+  form.append("hints", "ta");
+  const body = await (await fetch(`${baseUrl}/api/transcribe`, { method: "POST", body: form })).json();
+  assert.equal(body.data.text, "എന്റെ പേര്");
+  assert.equal(body.data.language, "ml");
 });

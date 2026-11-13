@@ -1,6 +1,7 @@
 // POST /api/transcribe: the composer's microphone (dictationService.js).
-// POST: a multipart upload with the recording in "audio" and, optionally,
-// the spoken language in "language". Replies { text, language, duration }.
+// POST: a multipart upload with the recording in "audio", and optionally
+// "hints" (the languages this person uses, "ta,en") or "language" (force
+// one). Replies { text, language, duration }.
 
 const express = require("express");
 const multer = require("multer");
@@ -15,7 +16,7 @@ const router = express.Router();
 // Held in memory for the length of the request; nothing is written to disk.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_BYTES, files: 1, fields: 4 },
+  limits: { fileSize: MAX_BYTES, files: 1, fields: 4, fieldSize: 200 },
   fileFilter: (_req, file, cb) => {
     if (isAudioType(file.mimetype)) return cb(null, true);
     cb(new DictationError(415, "That audio format isn't supported.", "AUDIO_FORMAT"));
@@ -32,6 +33,7 @@ router.post("/", dictationLimiter, upload.single("audio"), asyncHandler(async (r
       buffer: req.file?.buffer,
       mimetype: req.file?.mimetype,
       language: req.body?.language,
+      hints: req.body?.hints,
     });
     return successResponse(res, result.text ? "Transcribed" : "No speech heard", result);
   } catch (err) {

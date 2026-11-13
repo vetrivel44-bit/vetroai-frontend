@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  appendDictated, browserRecognition, canRecord, DictationError, formatElapsed, micErrorMessage,
-  pickRecordingType, recordingFileName, serverDictationAvailable, transcribeRecording,
+  appendDictated, browserRecognition, canRecord, DictationError, dictationHints, formatElapsed, micErrorMessage,
+  pickRecordingType, recordingFileName, rememberLanguage, rememberedLanguages, serverDictationAvailable, transcribeRecording,
 } from "../src/lib/dictation.js";
 
 const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
@@ -41,6 +41,10 @@ test("dictated words go after what was typed, with one space", () => {
   assert.equal(appendDictated("Hey,  ", "what's up"), "Hey, what's up");
   assert.equal(appendDictated("line one\n", "line two"), "line one\nline two");
   assert.equal(appendDictated("unchanged", "  "), "unchanged");
+  // Chinese and Japanese run on without spaces; Tamil after English gets one.
+  assert.equal(appendDictated("东京", "天气怎么样"), "东京天气怎么样");
+  assert.equal(appendDictated("今日は", "いい天気"), "今日はいい天気");
+  assert.equal(appendDictated("Hi", "வணக்கம்"), "Hi வணக்கம்");
 });
 
 test("every way the microphone fails gets a message that says what to do", () => {
@@ -62,21 +66,47 @@ test("the timer reads m:ss", () => {
   assert.equal(formatElapsed(-5), "0:00");
 });
 
-test("a recording is uploaded as 'audio' and its words come back", async () => {
+test("a recording is uploaded as 'audio' and its words and language come back", async () => {
   const calls = [];
-  const fetchImpl = async (url, init) => { calls.push({ url, init }); return reply(200, { success: true, data: { text: "  open my notes  " } }); };
-  const text = await transcribeRecording("https://api.test/api", new Blob(["x"], { type: "audio/webm;codecs=opus" }), { fetchImpl });
-  assert.equal(text, "open my notes");
+  const fetchImpl = async (url, init) => { calls.push({ url, init }); return reply(200, { success: true, data: { text: "  open my notes  ", language: "en" } }); };
+  const result = await transcribeRecording("https://api.test/api", new Blob(["x"], { type: "audio/webm;codecs=opus" }), { fetchImpl });
+  assert.deepEqual(result, { text: "open my notes", language: "en" });
   assert.equal(calls[0].url, "https://api.test/api/transcribe");
   assert.equal(calls[0].init.method, "POST");
   const file = calls[0].init.body.get("audio");
   assert.equal(file.name, "voice.webm");
   assert.equal(calls[0].init.body.get("language"), null, "the language is left to the server unless chosen");
+  assert.equal(calls[0].init.body.get("hints"), null);
+
+  await transcribeRecording("/api", new Blob(["x"]), { fetchImpl, hints: ["ta", "en"] });
+  assert.equal(calls[1].init.body.get("hints"), "ta,en");
+});
+
+test("the languages this person uses go to the server, most likely first", () => {
+  assert.deepEqual(dictationHints({ remembered: ["ta"], written: "hi", browser: ["en-IN", "en-US", "ta-IN"] }), ["ta", "hi", "en"]);
+  assert.deepEqual(dictationHints({ remembered: [], written: null, browser: ["en-US"] }), ["en"]);
+  assert.deepEqual(dictationHints({ browser: ["*", "", "zh-Hant-TW", "yue-HK", "fil-PH", "pt-BR", "es"] }), ["zh", "yue", "fil", "pt"]);
+  assert.deepEqual(dictationHints(), []);
+});
+
+test("the language each dictation came back in is remembered, newest first", () => {
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  assert.deepEqual(rememberedLanguages(storage), []);
+  rememberLanguage("ta", storage);
+  rememberLanguage("en", storage);
+  rememberLanguage("ta", storage);
+  rememberLanguage("hi-IN", storage);
+  rememberLanguage("tamil??", storage);
+  assert.deepEqual(rememberedLanguages(storage), ["hi", "ta", "en"]);
+  const broken = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  assert.deepEqual(rememberedLanguages(broken), []);
+  rememberLanguage("ta", broken);
 });
 
 test("silence comes back as empty text", async () => {
   const fetchImpl = async () => reply(200, { success: true, data: { text: "" } });
-  assert.equal(await transcribeRecording("/api", new Blob(["x"]), { fetchImpl }), "");
+  assert.deepEqual(await transcribeRecording("/api", new Blob(["x"]), { fetchImpl }), { text: "", language: null });
 });
 
 test("server and network failures become messages, with codes the app can act on", async () => {
