@@ -80,6 +80,9 @@ export class DictationError extends Error {
 export async function serverDictationAvailable(apiBase, { fetchImpl = globalThis.fetch, timeoutMs = 4000 } = {}) {
   try {
     const res = await fetchImpl(`${apiBase}/transcribe`, { method: "GET", signal: AbortSignal.timeout(timeoutMs) });
+    // A server that predates /api/transcribe (the website can go live a few
+    // minutes before the backend does): no speech-to-text there.
+    if (res.status === 404) return false;
     if (!res.ok) return null;
     const body = await res.json();
     const available = body?.data?.available ?? body?.available;
@@ -112,9 +115,12 @@ export async function transcribeRecording(apiBase, blob, { fetchImpl = globalThi
   let body = null;
   try { body = await res.json(); } catch { /* not JSON: a proxy or gateway page */ }
   if (!res.ok) {
-    const code = body?.data?.code || (res.status === 429 ? "ASR_BUSY" : "ASR_FAILED");
+    const code = body?.data?.code || (res.status === 429 ? "ASR_BUSY" : res.status === 404 ? "ASR_NOT_CONFIGURED" : "ASR_FAILED");
     const fallback = res.status === 429 ? "Voice typing is busy right now. Try again in a moment." : "Couldn't type out that recording. Try again.";
-    throw new DictationError(code, body?.message || fallback, res.status);
+    // 404: the route itself is missing (an older backend), and its "Route
+    // not found" means nothing to the person.
+    const message = res.status === 404 ? "Voice typing isn't available on the server yet." : body?.message || fallback;
+    throw new DictationError(code, message, res.status);
   }
   const data = body?.data ?? body ?? {};
   return { text: String(data.text ?? "").trim(), language: typeof data.language === "string" ? data.language : null };
