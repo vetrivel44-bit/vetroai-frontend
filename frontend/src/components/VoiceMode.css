@@ -112,6 +112,11 @@
 .vm-voice-text { flex: 1; display: flex; flex-direction: column; line-height: 1.3; }
 .vm-voice-text strong { font-size: 15px; font-weight: 550; }
 .vm-voice-text small { font-size: 13px; color: var(--vm-muted); }
+.vm-premium {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; vertical-align: 2px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--vm-accent);
+  border: 1px solid color-mix(in srgb, var(--vm-accent) 45%, transparent);
+}
 .vm-check { width: 18px; display: grid; place-items: center; color: var(--vm-accent); }
 
 @media (prefers-reduced-motion: reduce) {

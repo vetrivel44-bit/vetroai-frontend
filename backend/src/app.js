@@ -38,6 +38,9 @@ app.use(
       callback(null, true);
     },
     credentials: true,
+    // Read aloud reads which voice made a clip: Google's free voice ignores
+    // the speaking speed asked for, so the app speeds those clips up itself.
+    exposedHeaders: ["X-TTS-Provider"],
   })
 );
 // Stripe needs the raw, unparsed body to verify webhook signatures — must be

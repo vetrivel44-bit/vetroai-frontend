@@ -48,6 +48,10 @@ module.exports = {
     // Sarvam AI — Indian-language model (sarvam-105b).
     sarvamApiKey:        getEnv("SARVAM_API_KEY",        ""),
     sarvamModel:         getEnv("SARVAM_MODEL",          "sarvam-105b"),
+    // The same key reads aloud (Bulbul, the Premium voices) and types out
+    // Indian-language dictation (Saaras).
+    sarvamTtsModel:      getEnv("SARVAM_TTS_MODEL",      "bulbul:v3"),
+    sarvamSttModel:      getEnv("SARVAM_STT_MODEL",      "saaras:v3"),
     // Cohere — universal last-resort fallback (see ProviderManager fallbacks).
     // Uses Cohere's OpenAI-compatible endpoint so it streams standard SSE chunks.
     cohereApiKey:        getEnv("COHERE_API_KEY",        ""),

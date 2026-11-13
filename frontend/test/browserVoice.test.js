@@ -50,3 +50,17 @@ test("of two equally good matches, the natural-sounding voice is used", () => {
   ];
   assert.equal(pickBrowserVoice(voices, "en-US-AvaMultilingualNeural").name, "Microsoft Aria Online (Natural) - English (United States)");
 });
+
+test("a Premium (Sarvam) voice falls back to an Indian English browser voice of its gender", async () => {
+  const { describeTtsVoice, pickBrowserVoice } = await import("../src/utils/browserVoice.js");
+  assert.deepEqual(describeTtsVoice("sarvam-ishita"), { lang: "en-IN", name: "", gender: "female" });
+  assert.deepEqual(describeTtsVoice("sarvam-ratan"), { lang: "en-IN", name: "", gender: "male" });
+  assert.equal(describeTtsVoice("sarvam-someone-new").lang, "en-IN");
+  const voices = [
+    { name: "Google US English", lang: "en-US" },
+    { name: "Microsoft Heera - English (India)", lang: "en-IN" },
+    { name: "Microsoft Ravi - English (India)", lang: "en-IN" },
+  ];
+  assert.equal(pickBrowserVoice(voices, "sarvam-priya").name, "Microsoft Heera - English (India)");
+  assert.equal(pickBrowserVoice(voices, "sarvam-shubh").name, "Microsoft Ravi - English (India)");
+});
