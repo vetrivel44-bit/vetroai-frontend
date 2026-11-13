@@ -185,3 +185,22 @@ test("the sentence being read is found in the reply's visible text, word by word
   assert.equal(page.slice(tamil.start, tamil.end), "நாளை மழை வரலாம்");
   assert.equal(locateSentence(page, "Not in the reply at all."), null);
 });
+
+test("skipping back after a speed change replays the clip at hand, sped up, without fetching it again", async (t) => {
+  const fake = withFakes(t);
+  const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
+  const speaker = createStreamingSpeaker({ apiBase: "/api", maxChars: 20000, chunkChars: 40, onSentence: () => {} });
+  speaker.finish(REPLY);
+  await tick();
+  await fake.finishCurrent(); // the first sentence, at 1×
+  speaker.setSpeed(1.25);
+  await tick();
+  const asked = fake.requests.filter((r) => r.text === "First comes the opening line.").length;
+  speaker.skip(-1);
+  await tick();
+  const replay = fake.playing();
+  assert.equal(replay.url, "First comes the opening line.");
+  assert.equal(replay.playbackRate, 1.25, "made at 1×, played at 1.25×");
+  assert.equal(fake.requests.filter((r) => r.text === "First comes the opening line.").length, asked, "no new request, so no wait");
+  speaker.stop();
+});
