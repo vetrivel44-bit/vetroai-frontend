@@ -32,6 +32,13 @@ test("Premium voices speak as Sarvam's expressive personas, and the first ids st
   assert.equal(sarvamTts.v3SpeakerFor("sarvam-aparna", "ta"), "ishita");
   assert.equal(sarvamTts.v3SpeakerFor("sarvam-sanchita", "ta"), "ritu");
   assert.equal(sarvamTts.sarvamVoice("sarvam-nobody").gender, "female", "an unknown id still speaks");
+  // Expressive personas in every language Sarvam has them for, same gender.
+  for (const [voice, code, persona] of [
+    ["sarvam-aparna", "te", "kavitha_te_conversation"], ["sarvam-aparna", "kn", "chaitra_kn_conversation"], ["sarvam-aparna", "bn", "roopa_bn_conversational"],
+    ["sarvam-aparna", "mr", "ishita_mr_conversational"], ["sarvam-aparna", "gu", "pooja_gu_conversational"], ["sarvam-aparna", "pa", "harpreet_pa_narration"],
+    ["sarvam-dev", "te", "tarun_te_narration"], ["sarvam-dev", "kn", "chetan_kn_conversation"], ["sarvam-dev", "bn", "arnab_bn_conversation"],
+    ["sarvam-dev", "mr", "nilesh_mr_conversation"], ["sarvam-dev", "gu", "bhavik_gu_conversation"], ["sarvam-dev", "pa", "anand_pa_conversation"],
+  ]) assert.equal(sarvamTts.personaFor(voice, code), persona, `${voice} ${code}`);
 });
 
 test("the text's language picks Bulbul's language, by the app's code or the script", () => {
@@ -81,7 +88,7 @@ test("where there's no persona, the voice speaks on v3 with a little more feelin
   await sarvamTts.synthesize("വണക്കം", { voice: "sarvam-aparna", lang: "ml" });
   assert.equal(sent[0].model, "bulbul:v3");
   assert.equal(sent[0].speaker, "ishita");
-  assert.equal(sent[0].temperature, 0.75);
+  assert.equal(sent[0].temperature, 0.85);
 });
 
 test("a persona Sarvam turns down is spoken by the same voice on v3", async (t) => {

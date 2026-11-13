@@ -25,18 +25,33 @@ const logger = require("../utils/logger");
 const ENDPOINT = "https://api.sarvam.ai/text-to-speech";
 const PERSONA_MODEL = "bulbul:v4-flash";
 const DEFAULT_MODEL = "bulbul:v3";
-// v3's default is 0.6; a little higher reads with more feeling.
-const V3_TEMPERATURE = 0.75;
+// v3's default is 0.6; higher reads with more feeling. v3 only speaks where
+// no persona does (female Tamil, Malayalam, Odia), so it leans expressive.
+const V3_TEMPERATURE = 0.85;
 const MAX_CHARS = 2500;
 
-// The picker's Premium voices. personas: language → v4 persona (Sarvam's
-// picks for companion and conversational speech); v3: the plain speaker for
-// everything else.
+// The picker's Premium voices. personas: language → the v4 persona of the
+// same gender that talks most naturally in it (conversational or companion
+// styles first, narration where a language has nothing else); v3: the plain
+// speaker for the rest. Sarvam has no female Tamil persona, and none in
+// Malayalam or Odia yet.
 const VOICES = {
-  "sarvam-aparna": { gender: "female", v3: "ishita", personas: { en: "aparna_en_companion", hi: "roopa_hi_conversational" } },
-  "sarvam-sanchita": { gender: "female", v3: "priya", personas: { en: "sanchita_en_companion", hi: "kavya_hi_conversational" } },
-  "sarvam-dev": { gender: "male", v3: "ratan", personas: { en: "dev_en_conversational", hi: "tarun_hi_conversational", ta: "gokul_ta_narration" } },
-  "sarvam-shubh": { gender: "male", v3: "shubh", personas: { en: "shubh_en_narration_gentle", hi: "mani_hi_conversational", ta: "vijay_ta_narration" } },
+  "sarvam-aparna": { gender: "female", v3: "ishita", personas: {
+    en: "aparna_en_companion", hi: "roopa_hi_conversational", te: "kavitha_te_conversation", kn: "chaitra_kn_conversation",
+    bn: "roopa_bn_conversational", mr: "ishita_mr_conversational", gu: "pooja_gu_conversational", pa: "harpreet_pa_narration",
+  } },
+  "sarvam-sanchita": { gender: "female", v3: "priya", personas: {
+    en: "sanchita_en_companion", hi: "kavya_hi_conversational", te: "pooja_te_conversation", kn: "chaitra_kn_conversation",
+    bn: "roopa_bn_conversational", mr: "ritu_mr_narration", gu: "pooja_gu_conversational", pa: "harpreet_pa_narration",
+  } },
+  "sarvam-dev": { gender: "male", v3: "ratan", personas: {
+    en: "dev_en_conversational", hi: "tarun_hi_conversational", ta: "gokul_ta_narration", te: "tarun_te_narration", kn: "chetan_kn_conversation",
+    bn: "arnab_bn_conversation", mr: "nilesh_mr_conversation", gu: "bhavik_gu_conversation", pa: "anand_pa_conversation",
+  } },
+  "sarvam-shubh": { gender: "male", v3: "shubh", personas: {
+    en: "shubh_en_narration_gentle", hi: "mani_hi_conversational", ta: "vijay_ta_narration", te: "tarun_te_narration", kn: "chetan_kn_conversation",
+    bn: "arnab_bn_conversation", mr: "soham_mr_narration", gu: "bhavik_gu_conversation", pa: "anand_pa_conversation",
+  } },
 };
 // The first Premium voices, kept working for anyone who picked one.
 const RENAMED = { "sarvam-ishita": "sarvam-aparna", "sarvam-priya": "sarvam-sanchita", "sarvam-ratan": "sarvam-dev" };
