@@ -11,7 +11,7 @@ const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = requ
 const { buildAstrologyContext } = require("./astrologyContext");
 const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } = require("./liveInfoIntent");
 const { decideSearch, searchQueryForTurn } = require("./searchIntentService");
-const { GROUNDING_RULE, FOLLOW_UP_NOTE, leansOnContext, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
+const { GROUNDING_RULE, SEARCH_ANSWER_STYLE, SEARCH_ANSWER_STYLE_SHORT, FOLLOW_UP_NOTE, leansOnContext, searchQueryFor, stripGalleryBlocks } = require("./searchGrounding");
 const { ABOUT_VETROAI } = require("../config/aboutVetroAI");
 const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser");
 const { TEACHING, teachingNeed, teachingNote } = require("../config/teaching");
@@ -126,6 +126,7 @@ function withSearchInQuestion(history, webContext, clock, followUp = false) {
     "",
     "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, scores, results, who holds which job. Wherever these results cover my question, answer from them, even where they contradict what you remember, and cite them by number — [1], [2] — when a SOURCES list is given. If they are unrelated to my question, ignore them. If my message is small talk or about how I feel, just reply to me naturally and leave the results out — don't explain what they say.",
     GROUNDING_RULE,
+    SEARCH_ANSWER_STYLE,
     ...(followUp ? [FOLLOW_UP_NOTE] : []),
     "",
     `My question: ${history[at].content}`,
@@ -437,6 +438,8 @@ Before finishing, mentally check: every class referenced in the HTML has a match
     // Web context
     if (webContext) {
       sys += `\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${webContext}\nBase your answer on these results when they're actually relevant to the user's question. If a SOURCES list is present, cite it inline by number — [1], [2] — on the specific claims those sources support, and never cite a number that is not in that list. Where the results disagree, give the right one (authoritative, recent, consistent with the record). If the results are irrelevant (e.g. the user asked about your own identity, or the results are about an unrelated topic), ignore them entirely and answer normally per the IDENTITY rules above — never force unrelated search results into your reply. ${GROUNDING_RULE}${followUp ? ` ${FOLLOW_UP_NOTE}` : ""}`;
+      // News and facts from the web read best as prose with citations (DeepSearch writes a report instead).
+      if (!researched) sys += `\n${inlineVisuals && !lean ? SEARCH_ANSWER_STYLE : SEARCH_ANSWER_STYLE_SHORT}`;
     }
 
     // ─── VISUALIZATION INTENT LAYER ─── (irrelevant noise for design mode — it conflicts with

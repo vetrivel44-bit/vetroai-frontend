@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useCon
 import { READ_ALOUD_CHUNK_CHARS, READ_SPEEDS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
 import { createReadHighlighter } from "./lib/readAloudHighlight.js";
 import ReadAloudBar from "./components/ReadAloudBar.jsx";
-import WebSearchBlock from "./components/WebSearchBlock.jsx";
+import ResponseProcess from "./components/ResponseProcess.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -62,7 +62,7 @@ import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReadin
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
 import { TEACHING, teachingNeed, teachingNote } from "./lib/teaching";
 import { askSearchIntent } from "./lib/searchIntent";
-import { FOLLOW_UP_NOTE, GROUNDING_RULE, leansOnContext, searchQueryFor } from "./lib/searchGrounding";
+import { FOLLOW_UP_NOTE, GROUNDING_RULE, SEARCH_ANSWER_STYLE, leansOnContext, searchQueryFor } from "./lib/searchGrounding";
 import { VETROAI_IDENTITY } from "./lib/aboutVetroAI";
 import StructuredResponseRenderer from "./components/structured/StructuredResponseRenderer";
 
@@ -70,7 +70,6 @@ const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
 import ThinkingIndicator from "./components/ThinkingIndicator";
 import AuthHeroBird from "./components/AuthHeroBird";
-import ThinkingPanel from "./components/ThinkingPanel";
 import ResearchActivity from "./components/ResearchActivity";
 import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
 import { settleResearch } from "./lib/research";
@@ -207,7 +206,7 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
       } else if (type === "sources" && data) {
         onMeta?.("sources", data);
       } else if (type === "search" && data) {
-        // The query the server searched, shown above the answer (WebSearchBlock).
+        // The query the server searched, shown above the answer (ResponseProcess).
         onMeta?.("search", data);
       } else if (type === "attachments" && Array.isArray(data)) {
         // The text of PDFs the server read itself.
@@ -7260,6 +7259,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         return `${clockPromptLine()}\n\nLIVE SEARCH RESULTS (use these to give accurate, up-to-date answers):\n${summary ? `Search summary: ${summary}\n\n` : ""}SOURCES:\n${list}\n\n`
           + "Your own training knowledge is older than these results and out of date for anything recent — releases, prices, news, results, who holds which job — so wherever they cover the question, answer from them, even where they contradict what you remember. "
           + "Base your answer on these results when they're actually relevant to the user's question. Cite them inline by number — [1], [2] — on the specific claims they support, and never cite a number that is not in the list. Where the results disagree, give the right one (authoritative, recent, consistent with the record). If the results are irrelevant to the question, ignore them and answer normally. If the message is small talk or about how the user feels, just reply to them naturally and leave the results out. " + GROUNDING_RULE
+          + ` ${SEARCH_ANSWER_STYLE}`
           + (sendHist.length > 1 && leansOnContext(userQuery) ? ` ${FOLLOW_UP_NOTE}` : "");
       };
 
@@ -9395,11 +9395,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <MedicalInfoCard data={m.medicalData} />
                            )}
                            {m.nearby && <NearbyMapCard data={m.nearby} />}
-                           {(m.reasoning || m.isThinking) && (
-                             <ThinkingPanel
+                           {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0) && (
+                             <ResponseProcess
                                reasoning={m.reasoning}
                                isThinking={Boolean(m.isThinking)}
                                durationMs={m.thinkingMs}
+                               searchQuery={m.searchQuery}
+                               sources={m.sources}
+                               searching={!m.sources?.length && Boolean(m.searchQuery) && isLoading && i === messages.length - 1}
+                               live={isLoading && i === messages.length - 1}
+                               answering={Boolean(m.content)}
                              />
                            )}
                            {m.research && (
@@ -9407,13 +9412,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                research={m.research}
                                live={isLoading && i === messages.length - 1}
                                answering={Boolean(m.content)}
-                             />
-                           )}
-                           {(m.sources?.length > 0 || (m.searchQuery && !m.content && isLoading && i === messages.length - 1)) && (
-                             <WebSearchBlock
-                               query={m.searchQuery}
-                               sources={m.sources}
-                               searching={!m.sources?.length && isLoading && i === messages.length - 1}
                              />
                            )}
                            <div className="claude-prose" data-read-body={i} style={{ color: "var(--ink)", fontFamily: "'Inter', system-ui, sans-serif", fontSize: '15px', lineHeight: '1.7' }}>
@@ -9528,7 +9526,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   </div>
                                   );
                                })()
-                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research && !(m.searchQuery && !m.sources?.length)
+                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research && !m.searchQuery && !m.sources?.length
                                ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
                                    <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
