@@ -212,17 +212,53 @@ test("an unsure Whisper reading in an Indian language is read again by Sarvam", 
   assert.equal(calls.sarvam.length, 1);
 });
 
-test("a sure Whisper reading, and other languages, stay with Whisper", async (t) => {
+test("English and other languages stay with Whisper", async (t) => {
   const calls = stubBoth(t, {
     whisper: whisperSays("Remind me to call mum at six.", "english"),
     sarvam: async () => { throw new Error("should not be called"); },
   });
   const english = await dictation.transcribeDictation({ ...clip, hints: "en" });
   assert.equal(english.text, "Remind me to call mum at six.");
-  dictation.setRecogniser(whisperSays("வணக்கம்", "tamil", -0.1));
-  const sureTamil = await dictation.transcribeDictation({ ...clip, hints: "en" });
-  assert.equal(sureTamil.text, "வணக்கம்");
+  dictation.setRecogniser(whisperSays("¿Dónde está la estación?", "spanish"));
+  const spanish = await dictation.transcribeDictation({ ...clip, hints: "en" });
+  assert.equal(spanish.language, "es");
   assert.equal(calls.sarvam.length, 0);
+});
+
+test("Tamil from someone who types in English comes back in Tamil, not translated", async (t) => {
+  const calls = stubBoth(t, {
+    // Whisper's own Tamil, and the English it would have made if asked.
+    whisper: async ({ language }) => (language === "en"
+      ? { text: "Tell me tomorrow's weather.", language: "english", duration: 2, segments: [{ text: " Tell me tomorrow's weather.", start: 0, end: 2, avg_logprob: -0.15, no_speech_prob: 0.01 }] }
+      : { text: "நாளைக்கு வானிலை சொல்லு", language: "tamil", duration: 2, segments: [{ text: " நாளைக்கு வானிலை சொல்லு", start: 0, end: 2, avg_logprob: -0.3, no_speech_prob: 0.01 }] }),
+    sarvam: async () => ({ transcript: "நாளைக்கு weather சொல்லு", language_code: "ta-IN" }),
+  });
+  const result = await dictation.transcribeDictation({ ...clip, hints: "en" });
+  assert.equal(result.text, "நாளைக்கு weather சொல்லு");
+  assert.equal(result.language, "ta");
+  assert.deepEqual(calls.sarvam, [undefined], "Sarvam is left to say which language it was");
+  assert.deepEqual(calls.whisper, [undefined], "no second reading in English");
+});
+
+test("English with an Indian accent that Whisper hears as Tamil comes back in English", async (t) => {
+  stubBoth(t, {
+    whisper: whisperSays("புக் எ டேபிள் ஃபார் டூ", "tamil", -0.35),
+    sarvam: async () => ({ transcript: "Book a table for two.", language_code: "en-IN" }),
+  });
+  const result = await dictation.transcribeDictation({ ...clip, hints: "en" });
+  assert.equal(result.text, "Book a table for two.");
+  assert.equal(result.language, "en");
+});
+
+test("without Sarvam, a sure Tamil reading from Whisper stays Tamil", async (t) => {
+  const seen = [];
+  dictation.setRecogniser(async ({ language }) => { seen.push(language); return whisperSays("வணக்கம் எப்படி இருக்கீங்க", "tamil", -0.3)(); });
+  const restore = dictation.setSarvamRecogniser(null);
+  t.after(restore);
+  const result = await dictation.transcribeDictation({ ...clip, hints: "en" });
+  assert.equal(result.text, "வணக்கம் எப்படி இருக்கீங்க");
+  assert.equal(result.language, "ta");
+  assert.deepEqual(seen, [undefined], "not read again in English");
 });
 
 test("if Sarvam fails, Whisper types it out instead", async (t) => {
@@ -239,7 +275,13 @@ test("which clips go to Sarvam, and when", () => {
   assert.equal(dictation.sarvamFirst({ forced: "fr", hints: ["ta"] }), null, "a picked non-Indian language wins");
   assert.equal(dictation.sarvamFirst({ forced: undefined, hints: ["hi", "en"] }), "");
   assert.equal(dictation.sarvamFirst({ forced: undefined, hints: ["en", "ta"] }), null);
+  // Anything Whisper hears as an Indian language, sure or not: Sarvam tells
+  // Indian English from Tamil or Hindi far better.
   assert.equal(dictation.sarvamAfter({ detected: "ml", sureness: -0.8 }), true);
-  assert.equal(dictation.sarvamAfter({ detected: "ml", sureness: -0.1 }), false);
+  assert.equal(dictation.sarvamAfter({ detected: "ta", sureness: -0.1 }), true);
   assert.equal(dictation.sarvamAfter({ detected: "fr", sureness: -0.9 }), false);
+  // Doubtful English from someone who speaks an Indian language (Tanglish).
+  assert.equal(dictation.sarvamAfter({ detected: "en", sureness: -0.7, hints: ["en", "ta"] }), true);
+  assert.equal(dictation.sarvamAfter({ detected: "en", sureness: -0.2, hints: ["en", "ta"] }), false);
+  assert.equal(dictation.sarvamAfter({ detected: "en", sureness: -0.9, hints: ["en"] }), false);
 });

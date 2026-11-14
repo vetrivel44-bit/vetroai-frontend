@@ -61,7 +61,12 @@ async function synthesizeSpeech({ text, voice, languageCode, lang: textLang, rat
   const lang = native?.languageCode || languageCode || voiceLanguage(requested);
   const edgeVoice = edgeTts.isEdgeVoice(requested) ? requested : null;
   const attempts = [];
-  if (native) {
+  if (native && requested.startsWith("google-")) {
+    // Google's free voice was asked for (Read aloud): it reads the other
+    // language too, and the Edge voice is only the stand-in.
+    attempts.push(["google-free", () => freeTts.synthesize(text, { languageCode: lang })]);
+    if (native.edgeVoice) attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: native.edgeVoice, rate })]);
+  } else if (native) {
     if (native.edgeVoice) attempts.push(["edge-neural", () => edgeTts.synthesize(text, { voice: native.edgeVoice, rate })]);
     attempts.push(["google-free", () => freeTts.synthesize(text, { languageCode: lang })]);
   } else if (requested.startsWith("google-")) {

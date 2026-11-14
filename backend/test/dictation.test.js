@@ -144,10 +144,13 @@ test("a short clip is heard again only when Whisper's pick is a neighbour of the
   assert.equal(recheckLanguage({ detected: "ml", hints: ["ta"], duration: 4, sureness: -0.2 }), "ta");
   // A confident pick of an unrelated language in the same script stands: the person spoke it.
   assert.equal(recheckLanguage({ detected: "de", hints: ["en"], duration: 4, sureness: -0.25 }), null);
-  // Someone who types in English, heard as Tamil or Hindi (an Indian accent):
-  // heard again in English, and the surer reading is kept.
-  assert.equal(recheckLanguage({ detected: "ta", hints: ["en"], duration: 3, sureness: -0.3 }), "en");
-  assert.equal(recheckLanguage({ detected: "hi", hints: ["en", "ta"], duration: 5, sureness: -0.2 }), "en");
+  // Someone who types in English, heard as Tamil or Hindi: a sure pick
+  // stands (they spoke it); a doubtful one is heard again in English, and the
+  // surer reading is kept. (Sarvam, when set up, hears these first.)
+  assert.equal(recheckLanguage({ detected: "ta", hints: ["en"], duration: 3, sureness: -0.3 }), null);
+  assert.equal(recheckLanguage({ detected: "ta", hints: ["en"], duration: 3, sureness: -0.6 }), "en");
+  assert.equal(recheckLanguage({ detected: "hi", hints: ["en", "ta"], duration: 5, sureness: -0.2 }), null);
+  assert.equal(recheckLanguage({ detected: "ja", hints: ["en"], duration: 4, sureness: -0.25 }), null);
   // Tamil they've dictated before: kept when Whisper is fairly sure, checked when not.
   assert.equal(recheckLanguage({ detected: "ta", hints: ["en", "ta"], duration: 3, sureness: -0.3 }), null);
   assert.equal(recheckLanguage({ detected: "ta", hints: ["en", "ta"], duration: 3, sureness: -0.6 }), "en");
@@ -193,18 +196,19 @@ test("a clip in a language the person doesn't usually use is kept as spoken", as
   form.append("audio", new Blob([new Uint8Array(900)], { type: "audio/webm" }), "voice.webm");
   form.append("hints", "en");
   const body = await (await fetch(`${baseUrl}/api/transcribe`, { method: "POST", body: form })).json();
-  assert.deepEqual(seen, [undefined, "en"], "checked against the language they type in");
+  assert.deepEqual(seen, [undefined], "a sure pick is kept as heard");
   assert.equal(body.data.text, "東京の天気は？");
   assert.equal(body.data.language, "ja");
 });
 
-test("English said with an Indian accent and heard as Tamil comes back in English", async (t) => {
+test("without Sarvam, a doubtful Tamil reading of English is checked in English", async (t) => {
   const seen = [];
+  t.after(dictation.setSarvamRecogniser(null));
   dictation.setRecogniser(async ({ language }) => {
     seen.push(language);
     return language === "en"
       ? { text: "Book a table for two at seven.", language: "english", duration: 2.4, segments: [{ text: " Book a table for two at seven.", start: 0, end: 2.4, no_speech_prob: 0.01, avg_logprob: -0.15 }] }
-      : { text: "புக் எ டேபிள் ஃபார் டூ அட் செவன்", language: "tamil", duration: 2.4, segments: [{ text: " புக் எ டேபிள் ஃபார் டூ அட் செவன்", start: 0, end: 2.4, no_speech_prob: 0.01, avg_logprob: -0.38 }] };
+      : { text: "புக் எ டேபிள் ஃபார் டூ அட் செவன்", language: "tamil", duration: 2.4, segments: [{ text: " புக் எ டேபிள் ஃபார் டூ அட் செவன்", start: 0, end: 2.4, no_speech_prob: 0.01, avg_logprob: -0.6 }] };
   });
   const baseUrl = await startServer(t);
   const form = new FormData();

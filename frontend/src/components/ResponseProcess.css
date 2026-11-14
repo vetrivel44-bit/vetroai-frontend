@@ -69,6 +69,30 @@
   color: var(--ink-3, #78746e);
 }
 .vrp-step.is-now .vrp-icon { color: var(--ink, #1f1e1d); }
+/* The step it's on now: a softly pulsing dot. */
+.vrp-pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+  animation: vrpPulse 1.2s ease-in-out infinite;
+}
+@keyframes vrpPulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+
+/* Under a reply while it's being written, as Claude's spark: VetroAI's mark,
+   gently rocking (VetroWorking in App.jsx). */
+.vetro-working {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: 6px 0 2px;
+}
+.vetro-working svg { transform-origin: 50% 80%; animation: vetroWorking 1.6s ease-in-out infinite; }
+@keyframes vetroWorking {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-14deg) scale(.9); }
+  50% { transform: rotate(0deg) scale(1.08); }
+  75% { transform: rotate(14deg) scale(.9); }
+}
 .vrp-step-body { flex: 1; min-width: 0; padding-left: 8px; }
 
 .vrp-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2, var(--ink)); }
@@ -113,6 +137,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .vrp-pulse, .vetro-working svg { animation: none; }
   .vrp.is-active .vrp-label { animation: none; color: var(--ink-2, inherit); -webkit-text-fill-color: currentColor; background: none; }
   .vrp-body-wrap { transition: none; }
 }

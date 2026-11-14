@@ -283,3 +283,13 @@ test("a reply that is retried from scratch never plays a clip from before", asyn
     globalThis.window = saved.window; globalThis.fetch = saved.fetch; globalThis.Audio = saved.Audio; globalThis.URL.createObjectURL = saved.URL;
   }
 });
+
+test("Read aloud always uses Google's free voice, in the reply's language", async () => {
+  const { freeReadAloudVoice } = await import("../src/lib/voiceStream.js");
+  assert.equal(freeReadAloudVoice(undefined), "google-en-IN");
+  assert.equal(freeReadAloudVoice("en"), "google-en-IN");
+  assert.equal(freeReadAloudVoice("ta"), "google-ta-IN");
+  assert.equal(freeReadAloudVoice("hi"), "google-hi-IN");
+  assert.equal(freeReadAloudVoice("es"), "google-es-US");
+  assert.equal(freeReadAloudVoice("sarvam-aparna"), "google-en-IN", "anything odd: the English voice");
+});

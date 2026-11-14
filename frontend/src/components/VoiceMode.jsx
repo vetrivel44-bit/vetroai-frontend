@@ -6,10 +6,11 @@ import "./VoiceMode.css";
 // "google-…" voices are Google's free voice, both spoken by the backend's /tts.
 // The first four are Microsoft's newer conversational voices, the most like a
 // person talking; Ava is the default (initialVoice in App.jsx).
-// "sarvam-…" voices are the Premium ones, and the default: Sarvam's Bulbul,
-// paid, native Indian voices that talk with feeling (companion and
+// "sarvam-…" voices are the Premium ones: Sarvam's Bulbul, paid per
+// character, native Indian voices that talk with feeling (companion and
 // conversational personas), and read Tamil, Hindi and nine other Indian
-// languages too (backend sarvamTtsService.js).
+// languages too (backend sarvamTtsService.js). Used only when picked; Read
+// aloud always uses Google's free voice.
 const VOICES = [
   { id: "sarvam-aparna", name: "Aparna", note: "Warm and caring", accent: "India", premium: true },
   { id: "sarvam-dev", name: "Dev", note: "Relaxed and natural", accent: "India", premium: true },

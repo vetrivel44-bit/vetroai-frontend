@@ -20,10 +20,14 @@
 // Indian languages go to Sarvam (Saaras, made for them) when SARVAM_API_KEY
 // is set: when the person picked Tamil, Hindi, Telugu, Kannada, Malayalam,
 // Bengali, Marathi, Gujarati or Punjabi, when the language they type in is
-// one of those, or when Whisper heard one of those and wasn't sure. Saaras's
-// "codemix" mode writes Tanglish the way people type it: Tamil words in Tamil,
-// English words in English. Whisper stays for every other language, and reads
-// the clip if Sarvam fails.
+// one of those, and whenever Whisper hears one of those. Sarvam is then left
+// to tell which language it was: it knows Indian English from Tamil or Hindi
+// far better than Whisper, so English said with an Indian accent comes back
+// in English and Tamil comes back in Tamil. (Whisper's own second reading in
+// English used to win over real Tamil, so Tamil was typed as an English
+// translation.) Saaras's "codemix" mode writes Tanglish the way people type
+// it: Tamil words in Tamil, English words in English. Whisper stays for
+// every other language, and reads the clip if Sarvam fails.
 
 const Groq = require("groq-sdk");
 const { config } = require("../config/env");
@@ -209,8 +213,14 @@ function sarvamFirst({ forced, hints }) {
   return hints.length && isIndian(hints[0]) ? "" : null;
 }
 
-/** After Whisper: was it an Indian language Whisper wasn't sure of? */
-const sarvamAfter = ({ detected, sureness }) => isIndian(detected) && (sureness === null || sureness < FAIRLY_SURE_LOGPROB);
+/**
+ * After Whisper's first reading: should Sarvam hear the clip and say which
+ * language it was? Whenever Whisper heard an Indian language, and when it
+ * heard English without being sure from someone who speaks an Indian
+ * language (Tanglish heard as English).
+ */
+const sarvamAfter = ({ detected, sureness, hints = [] }) => isIndian(detected)
+  || (detected === "en" && hints.some(isIndian) && sureness !== null && sureness < FAIRLY_SURE_LOGPROB);
 
 // The model, then the others in case Groq retires one.
 const modelsToTry = () => [...new Set([config.dictationAsrModel, "whisper-large-v3", "whisper-large-v3-turbo"].filter(Boolean))];
@@ -307,14 +317,17 @@ function recheckLanguage({ detected, hints, duration, sureness }) {
   if (!hints.length || !detected || detected === hints[0]) return null;
   if (Number(duration) > RECHECK_MAX_SECONDS) return null;
   const typed = hints[0];
-  const otherScript = isLatin(typed) && !isLatin(detected);
-  if (hints.includes(detected)) {
-    return otherScript && sureness !== null && sureness < FAIRLY_SURE_LOGPROB ? typed : null;
+  if (!hints.includes(detected)) {
+    const neighbour = hints.find((hint) => areNeighbours(hint, detected));
+    if (neighbour) return neighbour;
   }
-  const neighbour = hints.find((hint) => areNeighbours(hint, detected));
-  if (neighbour) return neighbour;
-  if (otherScript) return typed;
-  return sureness !== null && sureness < UNSURE_LOGPROB ? typed : null;
+  // Heard in another script than the one they type in: checked against
+  // theirs unless Whisper was fairly sure (a sure pick means they spoke it;
+  // checking it anyway turned real Tamil into an English translation).
+  const otherScript = isLatin(typed) && !isLatin(detected);
+  if (hints.includes(detected) && !otherScript) return null;
+  const doubt = otherScript ? FAIRLY_SURE_LOGPROB : UNSURE_LOGPROB;
+  return sureness !== null && sureness < doubt ? typed : null;
 }
 
 async function hear(input) {
@@ -355,6 +368,16 @@ async function transcribeDictation({ buffer, mimetype, language, hints } = {}) {
   let lang = forced || languageCode(reply?.language);
   const sureness = confidence(reply);
 
+  // Whisper heard an Indian language (or doubtful English from someone who
+  // speaks one): Sarvam hears it and says which language it was.
+  if (!forced && indian === null && sarvamAfter({ detected: lang, sureness, hints: hinted })) {
+    const heard = await hearSarvam({ buffer, filename, type });
+    if (heard) {
+      logger.info("dictation.sarvamAfterWhisper", { whisper: lang, sureness, sarvam: heard.language });
+      return finish({ ...heard, duration: heard.duration || Number(reply?.duration) || null }, "sarvam");
+    }
+  }
+
   if (!forced) {
     const retry = recheckLanguage({ detected: lang, hints: hinted, duration: reply?.duration, sureness });
     if (retry) {
@@ -366,15 +389,7 @@ async function transcribeDictation({ buffer, mimetype, language, hints } = {}) {
     }
   }
 
-  const whisper = { text: spokenText(reply), language: lang || null, duration: Number(reply?.duration) || null };
-
-  // Whisper heard an Indian language but wasn't sure (and Sarvam didn't hear
-  // it already): Sarvam's reading, when it makes one out.
-  if (indian === null && whisper.text && sarvamAfter({ detected: lang, sureness })) {
-    const heard = await hearSarvam({ buffer, filename, type });
-    if (heard) return finish({ ...heard, duration: heard.duration || whisper.duration }, "sarvam");
-  }
-  return finish(whisper, "whisper");
+  return finish({ text: spokenText(reply), language: lang || null, duration: Number(reply?.duration) || null }, "whisper");
 }
 
 function finish(result, by) {

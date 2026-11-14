@@ -295,6 +295,22 @@ export function duckActiveSpeaker(down) {
 // when the speed changes is sped up in the browser, and Google's free voice,
 // which has no speed of its own.
 
+// Indian languages Google's free voice reads with an Indian voice.
+const INDIAN = new Set(["hi", "ta", "te", "kn", "ml", "bn", "mr", "gu", "pa", "ur", "or"]);
+
+/**
+ * The voice Read aloud uses: always Google's free voice, so reading long
+ * replies costs nothing (the Premium voices are paid per character). English
+ * is read with Google's Indian English voice; a reply in another language by
+ * Google's voice for that language. `lang` is the reply's language ("ta"),
+ * or empty for English.
+ */
+export function freeReadAloudVoice(lang) {
+  const code = String(lang || "").toLowerCase();
+  if (!/^[a-z]{2,3}$/.test(code) || code === "en") return "google-en-IN";
+  return `google-${code}-${INDIAN.has(code) ? "IN" : "US"}`;
+}
+
 /** The speeds the read-aloud bar offers. */
 export const READ_SPEEDS = [0.8, 1, 1.25, 1.5];
 
