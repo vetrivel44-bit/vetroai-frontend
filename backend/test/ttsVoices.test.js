@@ -71,3 +71,16 @@ test("reading a long reply aloud isn't cut off by the chat limit", async (t) => 
   }
   assert.ok(statuses.every((s) => s === 200), `statuses: ${[...new Set(statuses)].join(", ")}`);
 });
+
+test("Read aloud's Google voice reads Tamil with Google too, never a paid voice", async (t) => {
+  const savedEdge = edgeTts.synthesize;
+  const savedFree = freeTts.synthesize;
+  t.after(() => { edgeTts.synthesize = savedEdge; freeTts.synthesize = savedFree; });
+  const used = [];
+  freeTts.synthesize = async (text, { languageCode }) => { used.push(`google:${languageCode}`); return { buffer: Buffer.alloc(400), contentType: "audio/mpeg", provider: "google-free" }; };
+  edgeTts.synthesize = async (text, { voice }) => { used.push(`edge:${voice}`); return { buffer: Buffer.alloc(400), contentType: "audio/mpeg", provider: "edge-neural" }; };
+  await ttsService.synthesizeSpeech({ text: "வணக்கம்", voice: "google-en-IN", lang: "ta" });
+  await ttsService.synthesizeSpeech({ text: "Hello there.", voice: "google-en-IN" });
+  await ttsService.synthesizeSpeech({ text: "வணக்கம்", voice: "google-ta-IN", lang: "ta" });
+  assert.deepEqual(used, ["google:ta-IN", "google:en-IN", "google:ta-IN"]);
+});

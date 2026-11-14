@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useContext, Suspense } from "react";
-import { READ_ALOUD_CHUNK_CHARS, READ_SPEEDS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
+import { READ_ALOUD_CHUNK_CHARS, freeReadAloudVoice, READ_SPEEDS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
 import { createReadHighlighter } from "./lib/readAloudHighlight.js";
 import ReadAloudBar from "./components/ReadAloudBar.jsx";
-import ResponseProcess from "./components/ResponseProcess.jsx";
+import ResponseProcess, { VetroWorking } from "./components/ResponseProcess.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -68,7 +68,6 @@ import StructuredResponseRenderer from "./components/structured/StructuredRespon
 
 const STRUCT_TYPE_RE = /"type"\s*:\s*"(location|route|chart|timeline|comparison_table|comparison|metrics|architecture|gallery|visual_gallery|collapsible|editor|results|onboarding|mcq)"/;
 const hasStructuredContent = (text) => !!text && STRUCT_TYPE_RE.test(text);
-import ThinkingIndicator from "./components/ThinkingIndicator";
 import AuthHeroBird from "./components/AuthHeroBird";
 import ResearchActivity from "./components/ResearchActivity";
 import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
@@ -858,18 +857,21 @@ const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_R
 // The voice for voice mode and Read aloud. Jenny was the default and was saved
 // for everyone on their first visit, so a saved Jenny is almost always that
 // old default rather than a choice: it moves, once, to the default below.
-// New visitors get Aparna, a Premium (Sarvam) voice: a native Indian voice
-// that talks with feeling, where the free voices read flatly.
-const VOICE_DEFAULT = "sarvam-aparna";
+// The default is free (Ava, Microsoft's conversational voice). Premium
+// (Sarvam) voices are paid per character, so they're used only when picked
+// by hand: Aparna was the default for a while and was saved for everyone,
+// so a saved Aparna moves, once, to the free default too.
+const VOICE_DEFAULT = "en-US-AvaMultilingualNeural";
 // The first Premium voices were renamed when they moved to Sarvam's
 // expressive personas.
 const RENAMED_VOICES = { "sarvam-ishita": "sarvam-aparna", "sarvam-priya": "sarvam-sanchita", "sarvam-ratan": "sarvam-dev" };
 function initialVoice() {
   try {
     const saved = RENAMED_VOICES[localStorage.getItem("vetro_tts_voice")] || localStorage.getItem("vetro_tts_voice");
-    if (localStorage.getItem("vetro_tts_voice_v2")) return saved || VOICE_DEFAULT;
+    if (localStorage.getItem("vetro_tts_voice_v3")) return saved || VOICE_DEFAULT;
     localStorage.setItem("vetro_tts_voice_v2", "1");
-    return !saved || saved === "en-US-JennyNeural" ? VOICE_DEFAULT : saved;
+    localStorage.setItem("vetro_tts_voice_v3", "1");
+    return !saved || saved === "en-US-JennyNeural" || saved === "sarvam-aparna" ? VOICE_DEFAULT : saved;
   } catch {
     return VOICE_DEFAULT;
   }
@@ -5798,9 +5800,12 @@ export default function App() {
       if (readerRef.current === speaker) { readerRef.current = null; setReadPaused(false); }
       setReadingIdx((cur) => (cur === idx ? null : cur));
     };
+    // Always Google's free voice here: a long reply read in a Premium
+    // (Sarvam) voice is paid per character and soon adds up.
+    const replyLang = detectSpeechLanguage(content) || undefined;
     speaker = createStreamingSpeaker({
-      apiBase: API, voice: ttsVoiceRef.current, maxChars: 20000, chunkChars: READ_ALOUD_CHUNK_CHARS,
-      lang: detectSpeechLanguage(content) || undefined, speed: readSpeed,
+      apiBase: API, voice: freeReadAloudVoice(replyLang), maxChars: 20000, chunkChars: READ_ALOUD_CHUNK_CHARS,
+      lang: replyLang, speed: readSpeed,
       onSentence: (index, sentence) => highlighter.show(index, sentence),
       onDone: done, onStop: done,
     });
@@ -9395,8 +9400,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <MedicalInfoCard data={m.medicalData} />
                            )}
                            {m.nearby && <NearbyMapCard data={m.nearby} />}
-                           {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0) && (
+                           {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
                              <ResponseProcess
+                               status={isLoading && i === messages.length - 1 && !m.research ? getStatusLabel(streamStatus, selectedMode, requestActivity) : ""}
                                reasoning={m.reasoning}
                                isThinking={Boolean(m.isThinking)}
                                durationMs={m.thinkingMs}
@@ -9526,8 +9532,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                   </div>
                                   );
                                })()
-                               : !m.content && isLoading && !m.isThinking && !m.reasoning && !m.research && !m.searchQuery && !m.sources?.length
-                               ? <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
+                               // Waiting on the first words: the process line above says
+                               // what's happening (ResponseProcess), as Claude's does.
+                               : !m.content && isLoading && i === messages.length - 1
+                               ? null
                                : <ErrorBoundary resetKey={m.content} fallback={() => <div style={{ whiteSpace: "pre-wrap" }}>{String(m.content || "")}</div>}>
                                    <ReplyContext.Provider value={{ canReply: i === messages.length - 1 && !isLoading, reply: messages[i + 1]?.role === "user" ? messages[i + 1].content : "" }}>
                                      <AssistantBody
@@ -9550,6 +9558,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
                              <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
                            )}
+                           {isLoading && i === messages.length - 1 && <VetroWorking />}
                            {m.content && readingIdx === i && (
                              <ReadAloudBar
                                paused={readPaused}
@@ -9585,17 +9594,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      </div>
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
-                     <div className="flex w-full mb-6 justify-start gap-3">
-                       <div className="thinking-avatar" aria-hidden="true">
-                         <svg viewBox="12 2 76 96" width="20" height="22" focusable="false">
-                           <rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)" />
-                           <rect x="42" y="8" width="16" height="74" rx="8" fill="#146b80" transform="rotate(24 50 82)" />
-                           <circle cx="50" cy="79" r="6.5" fill="var(--bg-elevated, var(--bg))" />
-                         </svg>
-                       </div>
-                       <div style={{ paddingTop: 6 }}>
-                         <ThinkingIndicator isVisible status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
-                       </div>
+                     // Before the reply has a message of its own: the same
+                     // process line and working mark it will have (Claude's look).
+                     <div className="w-full mb-6">
+                       <ResponseProcess live status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
+                       <VetroWorking />
                      </div>
                    )}
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Brain, ChevronRight, Globe } from "lucide-react";
+import { Brain, Check, ChevronRight, Globe } from "lucide-react";
 import { summarizeReasoning } from "../utils/activityLabel";
 import { sourceDomain } from "../lib/sources";
 import SourceFavicon from "./SourceFavicon";
@@ -20,6 +20,11 @@ const cleanSummary = (text) => {
   const line = String(text || "").trim();
   return line && line.length >= 8 && !ROUGH.test(line) ? line : "";
 };
+
+// The app's status line for the request ("Reading report.pdf…") as a step:
+// no trailing dots. Searching and researching have steps of their own.
+const stepLabel = (status) => String(status || "").trim().replace(/(?:\.{3}|…)+$/, "").trim();
+const OWN_STEP = /^(?:thinking|searching the web|researching|preparing|streaming|idle|retrying)\b/i;
 
 // The thinking itself, tidied for reading: "comparison_table" → "comparison table".
 const readable = (text) => String(text || "").replace(/\b([a-z]+)_([a-z_]+)\b/gi, (m) => m.replace(/_/g, " "));
@@ -51,10 +56,16 @@ const freshness = (value) => {
 
 /**
  * What VetroAI did before answering, the way Claude shows it: one quiet line
- * above the reply saying what it's doing now ("Searching the web", "Reading
- * 10 results", "Thinking"), each step up long enough to read, ending as
- * "Thought for 4s · Searched the web". Tapping it opens the steps: the
- * search (the query and the results it found) and the thinking.
+ * above the reply saying what it's doing now ("Thinking", "Reading
+ * report.pdf", "Searching the web", "Reading 10 results"), each step up long
+ * enough to read, ending as "Thought for 4s · Searched the web". Tapping it
+ * opens the steps: what it did, the search (the query and the results it
+ * found) and the thinking.
+ *
+ * It shows from the moment a message is sent (`status` is the app's line
+ * for the request), so the wait looks the same as the work. With nothing to
+ * show afterwards (no thinking, no search), it goes once the answer starts,
+ * as Claude's does.
  */
 const ResponseProcess = React.memo(function ResponseProcess({
   reasoning = "",
@@ -65,6 +76,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
   searching = false,
   live = false,
   answering = false,
+  status = "",
 }) {
   const [open, setOpen] = useState(false);
   // How long it worked, timed here when there's no reasoning time to show.
@@ -78,6 +90,13 @@ const ResponseProcess = React.memo(function ResponseProcess({
   const searched = results.length > 0 || Boolean(searchQuery);
   const working = live && !answering;
 
+  // The steps it has been through, from the app's status line: each new one
+  // is added as it comes (state adjusted while rendering, React's pattern
+  // for state that follows a prop).
+  const [history, setHistory] = useState([]);
+  const current = working ? stepLabel(status) : "";
+  if (current && !OWN_STEP.test(current) && !history.includes(current)) setHistory([...history, current]);
+
   // What it's doing right now, for the line at the top.
   const now = isThinking
     ? cleanSummary(summarizeReasoning(reasoning)) || "Thinking"
@@ -86,7 +105,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
       : working && results.length
         ? `Reading ${results.length} result${results.length === 1 ? "" : "s"}`
         : working
-          ? "Thinking"
+          ? current || "Thinking"
           : "";
   useEffect(() => {
     if (working || !startedAt || elapsed !== null) return undefined;
@@ -109,7 +128,9 @@ const ResponseProcess = React.memo(function ResponseProcess({
     if (el) el.scrollTop = el.scrollHeight;
   }, [reasoning, open, isThinking]);
 
-  if (!hasReasoning && !isThinking && !searched && !searching) return null;
+  if (!hasReasoning && !isThinking && !searched && !searching && !working) return null;
+  // Working, and nothing yet but the wait: the steps say so.
+  const waitingOnly = working && !hasReasoning && !isThinking && !searched && !searching;
 
   const visible = allResults ? results : results.slice(0, SHOWN_RESULTS);
   const active = working || settling;
@@ -130,6 +151,15 @@ const ResponseProcess = React.memo(function ResponseProcess({
       <div className="vrp-body-wrap" id={bodyId}>
         <div className="vrp-body">
           <ol className="vrp-steps">
+            {history.map((step, n) => {
+              const onIt = working && n === history.length - 1 && step === current && !searching && !isThinking;
+              return (
+                <li key={step} className={`vrp-step${onIt ? " is-now" : ""}`}>
+                  <span className="vrp-icon" aria-hidden="true">{onIt ? <span className="vrp-pulse" /> : <Check size={13} strokeWidth={2.4} />}</span>
+                  <div className="vrp-step-body"><div className="vrp-step-title"><span className="vrp-query">{step}</span></div></div>
+                </li>
+              );
+            })}
             {(searched || searching) && (
               <li className={`vrp-step${searching ? " is-now" : ""}`}>
                 <span className="vrp-icon" aria-hidden="true"><Globe size={14} /></span>
@@ -164,8 +194,8 @@ const ResponseProcess = React.memo(function ResponseProcess({
                 </div>
               </li>
             )}
-            {(hasReasoning || isThinking) && (
-              <li className={`vrp-step${isThinking ? " is-now" : ""}`}>
+            {(hasReasoning || isThinking || (waitingOnly && !history.length)) && (
+              <li className={`vrp-step${isThinking || waitingOnly ? " is-now" : ""}`}>
                 <span className="vrp-icon" aria-hidden="true"><Brain size={14} /></span>
                 <div className="vrp-step-body">
                   <div className="vrp-think" ref={thinkRef}>
@@ -180,5 +210,18 @@ const ResponseProcess = React.memo(function ResponseProcess({
     </div>
   );
 });
+
+/** VetroAI's mark under a reply while it's being written, as Claude's spark. */
+export function VetroWorking() {
+  return (
+    <div className="vetro-working" role="status" aria-label="VetroAI is working">
+      <svg viewBox="12 2 76 96" width="18" height="21" focusable="false" aria-hidden="true">
+        <rect x="42" y="8" width="16" height="74" rx="8" fill="var(--ink)" transform="rotate(-24 50 82)" />
+        <rect x="42" y="8" width="16" height="74" rx="8" fill="#146b80" transform="rotate(24 50 82)" />
+        <circle cx="50" cy="79" r="6.5" fill="var(--bg, #fff)" />
+      </svg>
+    </div>
+  );
+}
 
 export default ResponseProcess;
