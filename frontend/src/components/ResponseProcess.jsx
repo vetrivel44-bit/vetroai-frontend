@@ -270,35 +270,4 @@ const ResponseProcess = React.memo(function ResponseProcess({
   );
 });
 
-/**
- * Under a reply while it's being written (where Claude shows its spark): a
- * little stick figure dancing, so the wait is something to smile at. Same
- * size as the mark it replaced; the moves are in ResponseProcess.css.
- */
-export function VetroWorking() {
-  return (
-    <div className="vetro-working" role="status" aria-label="VetroAI is working">
-      <svg className="vw-dancer" viewBox="0 0 24 28" width="24" height="26" focusable="false" aria-hidden="true">
-        <ellipse className="vw-shadow" cx="12" cy="26.6" rx="5" ry="0.9" />
-        <g className="vw-body">
-          <path className="vw-leg vw-leg-l" d="M12 16.2 L9.6 20.6 L8.6 25" />
-          <path className="vw-leg vw-leg-r" d="M12 16.2 L14.4 20.6 L15.4 25" />
-          <path className="vw-limb" d="M12 8.4 L12 16.2" />
-          {/* Each arm swings at the shoulder and its forearm at the elbow,
-              so a raised arm straightens into a point. */}
-          <g className="vw-arm vw-arm-l">
-            <path d="M12 10.2 L8.6 12.6" />
-            <path className="vw-fore vw-fore-l" d="M8.6 12.6 L6.2 10.4" />
-          </g>
-          <g className="vw-arm vw-arm-r">
-            <path d="M12 10.2 L15.4 12.6" />
-            <path className="vw-fore vw-fore-r" d="M15.4 12.6 L17.8 10.4" />
-          </g>
-          <circle className="vw-head" cx="12" cy="4.9" r="2.9" />
-        </g>
-      </svg>
-    </div>
-  );
-}
-
 export default ResponseProcess;
