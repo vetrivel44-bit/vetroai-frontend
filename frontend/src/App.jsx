@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, useId, useCon
 import { READ_ALOUD_CHUNK_CHARS, freeReadAloudVoice, READ_SPEEDS, createStreamingSpeaker, duckActiveSpeaker, speakableText, stopActiveSpeaker, unlockSpeechAudio } from "./lib/voiceStream.js";
 import { createReadHighlighter } from "./lib/readAloudHighlight.js";
 import ReadAloudBar from "./components/ReadAloudBar.jsx";
-import ResponseProcess, { VetroWorking } from "./components/ResponseProcess.jsx";
+import ResponseProcess from "./components/ResponseProcess.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -9565,7 +9565,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                            {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
                              <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
                            )}
-                           {isLoading && i === messages.length - 1 && <VetroWorking />}
                            {m.content && readingIdx === i && (
                              <ReadAloudBar
                                paused={readPaused}
@@ -9602,10 +9601,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                    ))}
                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
                      // Before the reply has a message of its own: the same
-                     // process line and working mark it will have (Claude's look).
+                     // process line it will have (Claude's look).
                      <div className="w-full mb-6">
                        <ResponseProcess live status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
-                       <VetroWorking />
                      </div>
                    )}
 
