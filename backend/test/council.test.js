@@ -52,12 +52,12 @@ test("the council asks everyone at once and copes with a failure and a timeout",
   const updates = [];
   const result = await council.runCouncil({
     members: ["groq", "gemini", "cohere"],
-    labelFor: (name) => name.toUpperCase(),
+    labelFor: (seat) => seat.provider.toUpperCase(),
     messages: [],
     timeoutMs: 80,
-    ask: async (name) => {
-      if (name === "gemini") throw new Error("busy");
-      if (name === "cohere") return new Promise(() => {});
+    ask: async ({ provider }) => {
+      if (provider === "gemini") throw new Error("busy");
+      if (provider === "cohere") return new Promise(() => {});
       return "<think>hmm</think>Go with the fixed rate.";
     },
     onUpdate: (snapshot) => updates.push(snapshot),
@@ -68,6 +68,54 @@ test("the council asks everyone at once and copes with a failure and a timeout",
   assert.equal(updates[0].phase, "asking");
   assert.ok(updates[0].members.every((m) => m.status === "asking"));
   assert.equal(updates.at(-1).phase, "done");
+});
+
+test("a model that can't answer is replaced by the next one in line", async () => {
+  const seats = council.pickSeats({ available: ["groq", "gemini", "cohere", "airouter"], chair: "gemini", modelOf: (s) => (s.provider === "airouter" ? `m-${s.variant || "default"}` : "") });
+  assert.deepEqual(seats.slice(0, 4).map((s) => `${s.provider}:${s.variant}`), ["groq:", "cohere:", "airouter:", "airouter:Ling 3.0 Flash"]);
+  const asked = [];
+  const result = await council.runCouncil({
+    seats,
+    labelFor: (seat) => seat.variant || seat.provider,
+    messages: [],
+    timeoutMs: 60,
+    ask: async (seat) => {
+      asked.push(seat.variant || seat.provider);
+      if (seat.provider === "cohere") throw new Error("quota");
+      if (seat.provider === "airouter" && !seat.variant) return new Promise(() => {}); // too slow
+      return `${seat.variant || seat.provider}: fixed rate.`;
+    },
+  });
+  assert.deepEqual(result.members.map((m) => [m.name, m.status, m.standsInFor || null]), [
+    ["groq", "answered", null],
+    ["cohere", "failed", null],
+    ["airouter", "failed", null],
+    ["Ling 3.0 Flash", "answered", "cohere"],
+    ["VetroAI", "answered", "airouter"],
+  ]);
+  assert.equal(result.members.filter((m) => m.status === "answered").length, 3, "still three answers");
+  assert.ok(!asked.includes("Grok 4.20"), "nobody else asked once three answered");
+});
+
+test("stand-ins stop when the council's time is up", async () => {
+  const result = await council.runCouncil({
+    members: ["groq", "gemini", "cohere", "sarvam"],
+    size: 1,
+    totalMs: 50,
+    timeoutMs: 40,
+    labelFor: (seat) => seat.provider,
+    messages: [],
+    ask: async () => new Promise(() => {}),
+  });
+  assert.deepEqual(result.members.map((m) => m.name), ["groq"], "no time left for a stand-in");
+});
+
+test("the writer never sits on its own council; AI Router's other models can", () => {
+  const modelOf = (s) => (s.provider === "airouter" ? (s.variant ? `ar/${s.variant}` : "ar/default") : "");
+  const seats = council.pickSeats({ available: ["airouter", "groq"], chair: "airouter", chairModel: "ar/default", modelOf });
+  assert.deepEqual(seats.map((s) => `${s.provider}:${s.variant}`), ["groq:", "airouter:Ling 3.0 Flash", "airouter:VetroAI", "airouter:Grok 4.20"]);
+  const groqChair = council.pickSeats({ available: ["airouter", "groq"], chair: "groq", modelOf });
+  assert.ok(!groqChair.some((s) => s.provider === "groq"));
 });
 
 test("the writer's notes hold every answer, and say never to mention them", () => {
@@ -119,7 +167,8 @@ test("a hard question: the council sits, the app hears it, and the writer gets t
   assert.ok(councilEvents.length >= 2, "the app hears the council as it sits");
   const done = councilEvents.at(-1).data;
   assert.equal(done.phase, "done");
-  assert.deepEqual(done.members.map((m) => m.status), ["answered", "answered"]);
+  assert.deepEqual(done.members.map((m) => m.name), ["Groq", "Gemini", "Ling 3.0 Flash"], "AI Router's other models sit too");
+  assert.deepEqual(done.members.map((m) => m.status), ["answered", "answered", "answered"]);
   assert.match(done.members[0].answer, /groq says: fixed rate/);
 
   assert.match(sent.groq.messages[0].content, /council of AI models/, "members get the short brief");
