@@ -212,6 +212,10 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("attachments", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
+      } else if (type === "council" && data) {
+        // The other models asked about a hard question, shown only inside
+        // the thinking panel (ResponseProcess).
+        onMeta?.("council", data);
       } else if ((type === "research" || type === "research_result") && data) {
         // DeepSearch's activity log, and (from /api/research) its findings.
         onMeta?.(type, data);
@@ -7725,6 +7729,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 // The model that really answered, which may be a fallback.
                 if (metaType === "model") last.answeredBy = metaData;
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
+                if (metaType === "council") last.council = metaData;
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "research_reset") last.research = null;
                 u[u.length - 1] = last;
@@ -9400,8 +9405,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <MedicalInfoCard data={m.medicalData} />
                            )}
                            {m.nearby && <NearbyMapCard data={m.nearby} />}
-                           {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
+                           {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || m.council?.members?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
                              <ResponseProcess
+                               council={m.council}
+                               writer={m.answeredBy}
                                status={isLoading && i === messages.length - 1 && !m.research ? getStatusLabel(streamStatus, selectedMode, requestActivity) : ""}
                                reasoning={m.reasoning}
                                isThinking={Boolean(m.isThinking)}

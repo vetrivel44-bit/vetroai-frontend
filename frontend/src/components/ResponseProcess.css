@@ -118,6 +118,45 @@
 }
 .vrp-more:hover { color: var(--ink, inherit); }
 
+/* The council: one row per model asked, opening onto its answer. */
+.vrp-council { list-style: none; margin: 4px 0 0; padding: 0; }
+.vrp-member summary, .vrp-member.is-flat {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 30px; padding: 4px 6px; margin-left: -6px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--ink, inherit);
+}
+.vrp-member summary { cursor: pointer; list-style: none; }
+.vrp-member summary::-webkit-details-marker { display: none; }
+.vrp-member summary:hover, .vrp-member summary:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .1)); outline: none; }
+.vrp-member-mark {
+  width: 16px; height: 16px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  color: var(--ink-3, #78746e);
+}
+.vrp-member-mark.is-done { color: var(--ink-2, var(--ink)); }
+.vrp-member-mark.is-failed { color: var(--ink-4, #a3a09a); }
+.vrp-member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrp-member-time { flex: none; color: var(--ink-3, #78746e); font-size: 12px; font-variant-numeric: tabular-nums; }
+.vrp-member-chevron { flex: none; color: var(--ink-3, #78746e); transition: transform .2s ease; }
+.vrp-member[open] .vrp-member-chevron { transform: rotate(90deg); }
+.vrp-member-answer {
+  margin: 2px 0 8px 18px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-med, rgba(127, 127, 127, .28));
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  color: var(--ink-3, #78746e);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.vrp-council-note { margin: 4px 0 0; color: var(--ink-3, #78746e); font-size: 12.5px; line-height: 1.5; }
+
 .vrp-think {
   max-height: 220px;
   overflow-y: auto;

@@ -77,6 +77,11 @@ module.exports = {
     airouterMaxTokens:   Number(getEnv("AIROUTER_MAX_TOKENS",  "8192")),
     // Streamed chain-of-thought panel. Set to "false" to turn the feature off globally.
     thinkingEnabled:     getEnv("THINKING_ENABLED", "true") !== "false",
+    // The council (services/councilService.js): hard questions are answered
+    // by a few other models first. "off" turns it off; LLM_COUNCIL_MEMBERS
+    // ("groq,gemini,cohere") picks who sits on it.
+    councilEnabled:      getEnv("LLM_COUNCIL", "on") !== "off",
+    councilMembers:      getEnv("LLM_COUNCIL_MEMBERS", ""),
     // Chess Arena — dedicated keys/models, isolated from the chat providers above.
     chessGroqApiKey:       getEnv("CHESS_GROQ_API_KEY",       ""),
     chessGroqModel:        getEnv("CHESS_GROQ_MODEL",         "llama-3.3-70b-versatile"),

@@ -18,6 +18,7 @@ const { TEACHING, teachingNeed, teachingNote } = require("../config/teaching");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
+const council = require("./councilService");
 
 // Adapters that read a message's `images` field, so they can be handed a
 // screenshot (see geminiAdapter.js / cohereAdapter.js). Order is preference:
@@ -999,6 +1000,35 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       return [{ role: "system", content: base + thinking + astrologyPrompt }, ...history];
     };
 
+    // The council (councilService.js): a question that needs real thought is
+    // answered first by a few other models, and the reply is written with
+    // their answers in hand. The app shows it only inside the thinking panel.
+    let councilBrief = "";
+    if (council.needsCouncil({
+      query: userQuery, effort: params.effort, mode, isGreeting, light, drawing, needsVision,
+      hasAttachments: params.hasAttachments, enabled: config.councilEnabled,
+    }) && !params.signal?.aborted) {
+      const members = council.pickMembers({ available: providerManager.getAvailableProviders(), chair: currentProviderName, order: config.councilMembers });
+      if (members.length) {
+        const result = await council.runCouncil({
+          members,
+          labelFor: (name) => (name === "airouter" ? airouterAdapter.displayName() : this.providerLabel(name)),
+          messages: council.memberMessages({ history, webContext, clockText: clockLine(params.clock || {}) }),
+          ask: (name, councilMessages) => this.askQuietly(name, councilMessages),
+          onUpdate: (snapshot) => this.sendVetroEvent(res, "council", snapshot),
+          signal: params.signal,
+        });
+        councilBrief = council.chairBrief(result, { tight: TIGHT_BUDGET_PROVIDERS.has(currentProviderName) });
+        logger.info("AIOrchestrator.council", { reqId, chair: currentProviderName, members: result.members.map((m) => `${m.name}:${m.status}`), ms: result.ms });
+      }
+    }
+    // The writer's messages, with the council's answers in its system prompt.
+    const promptFor = (providerName) => {
+      const list = messagesFor(providerName);
+      if (!councilBrief || list[0]?.role !== "system") return list;
+      return [{ ...list[0], content: list[0].content + councilBrief }, ...list.slice(1)];
+    };
+
     // A picked-alone provider's answer so far, kept across tries that broke off
     // part-way: the user keeps it on screen and the next try continues it.
     let resumeText = "";
@@ -1028,8 +1058,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // the text budget would abort every slow vision call here while the
         // adapter's own request kept running.
         const attemptMessages = resumeText
-          ? [...messagesFor(currentProviderName), { role: "assistant", content: resumeText }, { role: "user", content: CONTINUE_PROMPT }]
-          : messagesFor(currentProviderName);
+          ? [...promptFor(currentProviderName), { role: "assistant", content: resumeText }, { role: "user", content: CONTINUE_PROMPT }]
+          : promptFor(currentProviderName);
         const streamPromise = adapter.generateStream(attemptMessages, options);
         // A slow-starting model (Sarvam 105B) sets its own start budget.
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : (adapter.startTimeoutMs?.() || ATTEMPT_TIMEOUT_MS);
@@ -1209,6 +1239,21 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       .slice(-4)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content.replace(/\s+/g, " ").slice(0, 400)}`)
       .join("\n");
+  }
+
+  // One council member's answer (councilService.js): the model's reply,
+  // read through the same stream handling as a real one but sent nowhere.
+  async askQuietly(providerName, messages) {
+    const adapter = providerManager.getAdapter(providerName);
+    if (!adapter) throw new Error(`No adapter for ${providerName}`);
+    const stream = await withTimeout(
+      adapter.generateStream(messages, { maxTokens: council.MEMBER_MAX_TOKENS, temperature: 0.5, light: true, effort: "quick" }),
+      ATTEMPT_TIMEOUT_MS,
+      "Council member timeout",
+    );
+    if (!stream) throw new Error("Provider returned empty stream");
+    const nowhere = { write() {}, end() {}, writableEnded: false, locals: {} };
+    return this.pipeStream(stream, nowhere, providerName, {});
   }
 
   sendVetroEvent(res, type, data, extra) {
