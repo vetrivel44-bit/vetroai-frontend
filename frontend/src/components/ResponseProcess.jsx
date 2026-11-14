@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Brain, Check, ChevronRight, Globe } from "lucide-react";
+import { Brain, Check, ChevronRight, Globe, Users, X } from "lucide-react";
 import { summarizeReasoning } from "../utils/activityLabel";
 import { sourceDomain } from "../lib/sources";
 import SourceFavicon from "./SourceFavicon";
@@ -25,6 +25,9 @@ const cleanSummary = (text) => {
 // no trailing dots. Searching and researching have steps of their own.
 const stepLabel = (status) => String(status || "").trim().replace(/(?:\.{3}|…)+$/, "").trim();
 const OWN_STEP = /^(?:thinking|searching the web|researching|preparing|streaming|idle|retrying)\b/i;
+
+// "4.2s", how long a council member took.
+const took = (ms) => (Number(ms) > 0 ? `${(Number(ms) / 1000).toFixed(Number(ms) < 10000 ? 1 : 0)}s` : "");
 
 // The thinking itself, tidied for reading: "comparison_table" → "comparison table".
 const readable = (text) => String(text || "").replace(/\b([a-z]+)_([a-z_]+)\b/gi, (m) => m.replace(/_/g, " "));
@@ -66,6 +69,12 @@ const freshness = (value) => {
  * for the request), so the wait looks the same as the work. With nothing to
  * show afterwards (no thinking, no search), it goes once the answer starts,
  * as Claude's does.
+ *
+ * `council`: for a hard question the server first asks a few other AI
+ * models (backend councilService.js), and `writer` (the model that answered)
+ * weighs their answers before it writes. The line only says "Thinking
+ * deeply"; who was asked and what each said is shown in the steps, when the
+ * person opens them.
  */
 const ResponseProcess = React.memo(function ResponseProcess({
   reasoning = "",
@@ -77,6 +86,8 @@ const ResponseProcess = React.memo(function ResponseProcess({
   live = false,
   answering = false,
   status = "",
+  council = null,
+  writer = "",
 }) {
   const [open, setOpen] = useState(false);
   // How long it worked, timed here when there's no reasoning time to show.
@@ -89,6 +100,10 @@ const ResponseProcess = React.memo(function ResponseProcess({
   const hasReasoning = Boolean(String(reasoning || "").trim());
   const searched = results.length > 0 || Boolean(searchQuery);
   const working = live && !answering;
+  const members = Array.isArray(council?.members) ? council.members : [];
+  const hasCouncil = members.length > 0;
+  const councilSitting = hasCouncil && council.phase !== "done";
+  const answeredCount = members.filter((m) => m.status === "answered").length;
 
   // The steps it has been through, from the app's status line: each new one
   // is added as it comes (state adjusted while rendering, React's pattern
@@ -102,6 +117,8 @@ const ResponseProcess = React.memo(function ResponseProcess({
     ? cleanSummary(summarizeReasoning(reasoning)) || "Thinking"
     : searching
       ? "Searching the web"
+      : working && councilSitting
+        ? "Thinking deeply"
       : working && results.length
         ? `Reading ${results.length} result${results.length === 1 ? "" : "s"}`
         : working
@@ -112,10 +129,10 @@ const ResponseProcess = React.memo(function ResponseProcess({
     const timer = setTimeout(() => setElapsed(Date.now() - startedAt), 0);
     return () => clearTimeout(timer);
   }, [working, startedAt, elapsed]);
-  const ms = durationMs || elapsed;
+  const ms = durationMs || elapsed || council?.ms;
   const seconds = ms ? Math.max(1, Math.round(ms / 1000)) : null;
   const doneLabel = [
-    hasReasoning || seconds ? (seconds ? `Thought for ${seconds}s` : "Thought it through") : "",
+    hasReasoning || hasCouncil || seconds ? (seconds ? `Thought for ${seconds}s` : "Thought it through") : "",
     searched ? "Searched the web" : "",
   ].filter(Boolean).join(" · ") || "Worked on it";
   const label = useSteadyLabel(working ? now : doneLabel);
@@ -128,9 +145,9 @@ const ResponseProcess = React.memo(function ResponseProcess({
     if (el) el.scrollTop = el.scrollHeight;
   }, [reasoning, open, isThinking]);
 
-  if (!hasReasoning && !isThinking && !searched && !searching && !working) return null;
+  if (!hasReasoning && !isThinking && !searched && !searching && !working && !hasCouncil) return null;
   // Working, and nothing yet but the wait: the steps say so.
-  const waitingOnly = working && !hasReasoning && !isThinking && !searched && !searching;
+  const waitingOnly = working && !hasReasoning && !isThinking && !searched && !searching && !hasCouncil;
 
   const visible = allResults ? results : results.slice(0, SHOWN_RESULTS);
   const active = working || settling;
@@ -190,6 +207,47 @@ const ResponseProcess = React.memo(function ResponseProcess({
                         </li>
                       )}
                     </ul>
+                  )}
+                </div>
+              </li>
+            )}
+            {hasCouncil && (
+              <li className={`vrp-step${councilSitting ? " is-now" : ""}`}>
+                <span className="vrp-icon" aria-hidden="true"><Users size={14} /></span>
+                <div className="vrp-step-body">
+                  <div className="vrp-step-title">
+                    <span className="vrp-query">{councilSitting ? "Asking" : "Asked"} {members.length} other AI model{members.length === 1 ? "" : "s"}</span>
+                    <span className="vrp-count">{answeredCount} of {members.length} answered</span>
+                  </div>
+                  <ul className="vrp-council">
+                    {members.map((member, n) => (
+                      <li key={`${member.name}-${n}`}>
+                        {member.status === "answered" ? (
+                          <details className="vrp-member">
+                            <summary>
+                              <span className="vrp-member-mark is-done" aria-hidden="true"><Check size={12} strokeWidth={2.6} /></span>
+                              <span className="vrp-member-name">{member.name}</span>
+                              <span className="vrp-member-time">{took(member.ms)}</span>
+                              <ChevronRight size={13} className="vrp-member-chevron" aria-hidden="true" />
+                            </summary>
+                            <div className="vrp-member-answer">{member.answer}</div>
+                          </details>
+                        ) : (
+                          <div className="vrp-member is-flat">
+                            <span className={`vrp-member-mark${member.status === "failed" ? " is-failed" : ""}`} aria-hidden="true">
+                              {member.status === "failed" ? <X size={12} strokeWidth={2.6} /> : <span className="vrp-pulse" />}
+                            </span>
+                            <span className="vrp-member-name">{member.name}</span>
+                            <span className="vrp-member-time">{member.status === "failed" ? "couldn't answer" : "thinking…"}</span>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {!councilSitting && answeredCount > 0 && (
+                    <p className="vrp-council-note">
+                      {writer ? `${writer} weighed their answers and wrote the reply.` : "Their answers were weighed before the reply was written."}
+                    </p>
                   )}
                 </div>
               </li>
