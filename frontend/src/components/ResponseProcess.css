@@ -139,6 +139,7 @@
 .vrp-member-mark.is-done { color: var(--ink-2, var(--ink)); }
 .vrp-member-mark.is-failed { color: var(--ink-4, #a3a09a); }
 .vrp-member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrp-member-sub { color: var(--ink-3, #78746e); font-size: 12px; }
 .vrp-member-time { flex: none; color: var(--ink-3, #78746e); font-size: 12px; font-variant-numeric: tabular-nums; }
 .vrp-member-chevron { flex: none; color: var(--ink-3, #78746e); transition: transform .2s ease; }
 .vrp-member[open] .vrp-member-chevron { transform: rotate(90deg); }

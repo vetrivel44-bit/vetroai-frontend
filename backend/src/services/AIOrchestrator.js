@@ -1008,13 +1008,21 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       query: userQuery, effort: params.effort, mode, isGreeting, light, drawing, needsVision,
       hasAttachments: params.hasAttachments, enabled: config.councilEnabled,
     }) && !params.signal?.aborted) {
-      const members = council.pickMembers({ available: providerManager.getAvailableProviders(), chair: currentProviderName, order: config.councilMembers });
-      if (members.length) {
+      // AI Router serves several models: a seat names one (pickSeats).
+      const airouterModelOf = (seat) => (seat.provider === "airouter" ? airouterAdapter.modelFor(seat.variant || "AI Router") || airouterAdapter.modelFor("AI Router") : "");
+      const seats = council.pickSeats({
+        available: providerManager.getAvailableProviders(),
+        chair: currentProviderName,
+        chairModel: currentProviderName === "airouter" ? options?.airouterModel || airouterAdapter.modelFor("AI Router") : "",
+        order: config.councilMembers,
+        modelOf: airouterModelOf,
+      });
+      if (seats.length) {
         const result = await council.runCouncil({
-          members,
-          labelFor: (name) => (name === "airouter" ? airouterAdapter.displayName() : this.providerLabel(name)),
+          seats,
+          labelFor: (seat) => (seat.provider === "airouter" ? airouterAdapter.displayName(airouterModelOf(seat)) : this.providerLabel(seat.provider)),
           messages: council.memberMessages({ history, webContext, clockText: clockLine(params.clock || {}) }),
-          ask: (name, councilMessages) => this.askQuietly(name, councilMessages),
+          ask: (seat, councilMessages) => this.askQuietly(seat.provider, councilMessages, seat.provider === "airouter" ? { airouterModel: airouterModelOf(seat) } : {}),
           onUpdate: (snapshot) => this.sendVetroEvent(res, "council", snapshot),
           signal: params.signal,
         });
@@ -1243,11 +1251,11 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
   // One council member's answer (councilService.js): the model's reply,
   // read through the same stream handling as a real one but sent nowhere.
-  async askQuietly(providerName, messages) {
+  async askQuietly(providerName, messages, extra = {}) {
     const adapter = providerManager.getAdapter(providerName);
     if (!adapter) throw new Error(`No adapter for ${providerName}`);
     const stream = await withTimeout(
-      adapter.generateStream(messages, { maxTokens: council.MEMBER_MAX_TOKENS, temperature: 0.5, light: true, effort: "quick" }),
+      adapter.generateStream(messages, { maxTokens: council.MEMBER_MAX_TOKENS, temperature: 0.5, light: true, effort: "quick", ...extra }),
       ATTEMPT_TIMEOUT_MS,
       "Council member timeout",
     );

@@ -216,6 +216,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
                 <span className="vrp-icon" aria-hidden="true"><Users size={14} /></span>
                 <div className="vrp-step-body">
                   <div className="vrp-step-title">
+                    {/* A model that couldn't answer is replaced by the next in line (backend councilService.js). */}
                     <span className="vrp-query">{councilSitting ? "Asking" : "Asked"} {members.length} other AI model{members.length === 1 ? "" : "s"}</span>
                     <span className="vrp-count">{answeredCount} of {members.length} answered</span>
                   </div>
@@ -226,7 +227,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
                           <details className="vrp-member">
                             <summary>
                               <span className="vrp-member-mark is-done" aria-hidden="true"><Check size={12} strokeWidth={2.6} /></span>
-                              <span className="vrp-member-name">{member.name}</span>
+                              <span className="vrp-member-name">{member.name}{member.standsInFor && <span className="vrp-member-sub"> · stood in for {member.standsInFor}</span>}</span>
                               <span className="vrp-member-time">{took(member.ms)}</span>
                               <ChevronRight size={13} className="vrp-member-chevron" aria-hidden="true" />
                             </summary>
@@ -237,7 +238,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
                             <span className={`vrp-member-mark${member.status === "failed" ? " is-failed" : ""}`} aria-hidden="true">
                               {member.status === "failed" ? <X size={12} strokeWidth={2.6} /> : <span className="vrp-pulse" />}
                             </span>
-                            <span className="vrp-member-name">{member.name}</span>
+                            <span className="vrp-member-name">{member.name}{member.standsInFor && <span className="vrp-member-sub"> · for {member.standsInFor}</span>}</span>
                             <span className="vrp-member-time">{member.status === "failed" ? "couldn't answer" : "thinking…"}</span>
                           </div>
                         )}

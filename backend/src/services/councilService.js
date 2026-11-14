@@ -19,15 +19,24 @@
 // for the clearest of those.
 
 const MEMBER_TIMEOUT_MS = 20000;
+// The whole council, stand-ins included, so the reply never waits long.
+const COUNCIL_TOTAL_MS = 32000;
+// A stand-in is only asked with at least this much of that time left.
+const STAND_IN_MIN_MS = 4000;
 // Short answers: an opinion, not a finished reply.
 const MEMBER_MAX_TOKENS = 700;
 // How much of each answer the writer is shown.
 const OPINION_CHARS = 1600;
 const OPINION_CHARS_TIGHT = 900;
 const COUNCIL_SIZE = 3;
-// Free or cheap and quick first. Claude Fable and ChatGPT (paid per request)
-// are left out unless LLM_COUNCIL_MEMBERS names them.
-const MEMBER_ORDER = ["groq", "gemini", "cohere", "airouter", "sarvam"];
+// Who is asked, in order: the first three sit; when one can't answer (an
+// error, a busy model, no answer in time) the next one in line takes its
+// seat, so the council still hears three. Free or cheap and quick first.
+// "airouter:<name>" is one of AI Router's models by its picker name (plain
+// "airouter" is its default model), so AI Router's other models can stand
+// in too. Claude Fable and ChatGPT (paid per request) are left out unless
+// LLM_COUNCIL_MEMBERS names them.
+const MEMBER_ORDER = ["groq", "gemini", "cohere", "airouter", "airouter:Ling 3.0 Flash", "airouter:VetroAI", "sarvam", "airouter:Grok 4.20"];
 
 const SKIP_MODES = new Set(["computer_use", "research", "deep_search", "multi_ai"]);
 
@@ -52,15 +61,38 @@ function needsCouncil({ query = "", effort = "balanced", mode = "", isGreeting =
   return NEEDS_JUDGEMENT.test(q) || q.length >= 220 || questions >= 2;
 }
 
+/** "airouter:Ling 3.0 Flash" → { provider: "airouter", variant: "Ling 3.0 Flash" }. */
+function parseSeat(entry) {
+  const [provider, ...rest] = String(entry || "").split(":");
+  return { provider: provider.trim().toLowerCase(), variant: rest.join(":").trim() || "" };
+}
+
 /**
- * The members: up to COUNCIL_SIZE of the available providers, other than the
- * one writing the reply (the chair), in the order given (LLM_COUNCIL_MEMBERS,
- * else MEMBER_ORDER).
+ * Everyone who may sit, in order: the first COUNCIL_SIZE sit, the rest stand
+ * in for anyone who can't answer. From the order given (LLM_COUNCIL_MEMBERS,
+ * else MEMBER_ORDER), only models whose provider is available, and never the
+ * model writing the reply (the chair: its provider, and for AI Router the
+ * model, via `modelOf(seat)`).
  */
-function pickMembers({ available = [], chair = "", order = "" } = {}) {
-  const wanted = String(order || "").split(",").map((name) => name.trim().toLowerCase()).filter(Boolean);
-  const list = wanted.length ? wanted : MEMBER_ORDER;
-  return [...new Set(list)].filter((name) => name !== chair && available.includes(name)).slice(0, COUNCIL_SIZE);
+function pickSeats({ available = [], chair = "", chairModel = "", order = "", modelOf = () => "" } = {}) {
+  const wanted = String(order || "").split(",").map((entry) => entry.trim()).filter(Boolean);
+  const seen = new Set();
+  return (wanted.length ? wanted : MEMBER_ORDER).map(parseSeat).filter((seat) => {
+    if (!seat.provider || !available.includes(seat.provider)) return false;
+    const model = modelOf(seat) || "";
+    const key = `${seat.provider}:${model || seat.variant}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    // The chair writes the reply; it doesn't also sit. A provider with one
+    // model is the chair whatever the variant; AI Router only for its model.
+    if (seat.provider === chair && (!chairModel || !model || model === chairModel)) return false;
+    return true;
+  });
+}
+
+/** The first COUNCIL_SIZE provider names (the members asked first). */
+function pickMembers(options = {}) {
+  return pickSeats(options).slice(0, COUNCIL_SIZE).map((seat) => seat.provider);
 }
 
 const textOf = (message) => (typeof message?.content === "string" ? message.content : "");
@@ -100,34 +132,55 @@ const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
 });
 
 /**
- * Asks every member at once. `ask(provider, messages)` resolves to that
- * model's answer. `onUpdate(snapshot)` hears the council as it sits:
- * { phase: "asking" | "done", members: [{ name, status: "asking" |
- * "answered" | "failed", answer, ms }], ms }. Resolves to the final snapshot.
+ * Asks the first `size` seats at once; when one can't answer, the next seat
+ * in line takes its place (while there's time), so the council still hears
+ * `size` answers. `seats`: from pickSeats (or plain provider names).
+ * `ask(seat, messages)` resolves to that model's answer.
+ * `onUpdate(snapshot)` hears the council as it sits: { phase: "asking" |
+ * "done", members: [{ name, status: "asking" | "answered" | "failed",
+ * answer, ms, standsInFor }], ms }. Resolves to the final snapshot.
  */
-async function runCouncil({ members = [], ask, labelFor = (name) => name, messages, onUpdate, signal, timeoutMs = MEMBER_TIMEOUT_MS } = {}) {
+async function runCouncil({ seats, members, size = COUNCIL_SIZE, ask, labelFor = (seat) => seat.provider, messages, onUpdate, signal, timeoutMs = MEMBER_TIMEOUT_MS, totalMs = COUNCIL_TOTAL_MS } = {}) {
   const started = Date.now();
-  const seats = members.map((provider) => ({ provider, name: labelFor(provider), status: "asking", answer: "", ms: null }));
+  const line = (seats || members || []).map((seat) => (typeof seat === "string" ? { provider: seat, variant: "" } : seat));
+  const bench = line.slice(size);
+  const table = [];
   const snapshot = (phase) => ({
     phase,
-    members: seats.map(({ name, status, answer, ms }) => ({ name, status, answer, ms })),
+    members: table.map(({ name, status, answer, ms, standsInFor }) => ({ name, status, answer, ms, ...(standsInFor ? { standsInFor } : {}) })),
     ms: Date.now() - started,
   });
   const tell = (phase) => { if (!signal?.aborted) onUpdate?.(snapshot(phase)); };
-  tell("asking");
-  await Promise.all(seats.map(async (seat) => {
+  const sit = (seat, standsInFor = null) => {
+    const entry = { seat, name: labelFor(seat), status: "asking", answer: "", ms: null, standsInFor };
+    table.push(entry);
+    return entry;
+  };
+  const hear = async (entry) => {
     const t0 = Date.now();
+    const timeLeft = totalMs - (t0 - started);
     try {
-      const answer = tidy(await withTimeout(Promise.resolve().then(() => ask(seat.provider, messages)), timeoutMs));
+      const answer = tidy(await withTimeout(Promise.resolve().then(() => ask(entry.seat, messages)), Math.max(1000, Math.min(timeoutMs, timeLeft))));
       if (!answer) throw new Error("no answer");
-      seat.answer = answer.slice(0, OPINION_CHARS);
-      seat.status = "answered";
+      entry.answer = answer.slice(0, OPINION_CHARS);
+      entry.status = "answered";
     } catch {
-      seat.status = "failed";
+      entry.status = "failed";
     }
-    seat.ms = Date.now() - t0;
+    entry.ms = Date.now() - t0;
+    // Couldn't answer: the next one in line takes the seat.
+    const stillTime = totalMs - (Date.now() - started) >= STAND_IN_MIN_MS;
+    if (entry.status === "failed" && bench.length && stillTime && !signal?.aborted) {
+      const standIn = sit(bench.shift(), entry.name);
+      tell("asking");
+      await hear(standIn);
+      return;
+    }
     tell("asking");
-  }));
+  };
+  const first = line.slice(0, size).map((seat) => sit(seat));
+  tell("asking");
+  await Promise.all(first.map(hear));
   const result = snapshot("done");
   if (!signal?.aborted) onUpdate?.(result);
   return result;
@@ -154,10 +207,12 @@ ${answers}
 
 module.exports = {
   needsCouncil,
+  pickSeats,
   pickMembers,
   memberMessages,
   runCouncil,
   chairBrief,
   MEMBER_MAX_TOKENS,
   MEMBER_ORDER,
+  COUNCIL_SIZE,
 };
