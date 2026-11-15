@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   platform: process.platform,
-  version: "1.1.0",
+  version: "1.1.1",
   getStatus: () => ipcRenderer.invoke("computer:status"),
   requestControl: () => ipcRenderer.invoke("computer:request-control"),
   allowForDispatch: (text) => ipcRenderer.invoke("computer:allow-for-dispatch", { text }),

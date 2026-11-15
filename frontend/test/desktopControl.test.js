@@ -59,9 +59,16 @@ test("scrolling is in pixels, but whole wheel clicks on Linux", () => {
   assert.equal(control.scrollAmount(0, "linux"), 0);
 });
 
-test("a glide takes about the time asked, not a fixed 1000 px a second", () => {
-  assert.equal(control.glideSpeed(3000, 250), 12000);
-  assert.equal(control.glideSpeed(50, 250), 400, "a short hop still moves briskly");
+test("a glide eases in and out, lands exactly on the target, and takes longer for a longer way", () => {
+  const path = control.glidePath({ x: 0, y: 0 }, { x: 800, y: 400 }, 400, 8);
+  assert.equal(path.length, 50);
+  assert.deepEqual(path.at(-1), { x: 800, y: 400 });
+  const stride = (i) => Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+  assert.ok(stride(1) < stride(25) && stride(49) < stride(25), "slow at both ends, fast in the middle");
+  assert.ok(path.every((p, i) => i === 0 || p.x >= path[i - 1].x), "never doubles back");
+  assert.equal(control.glideDuration(10), 143);
+  assert.equal(control.glideDuration(5000), 650);
+  assert.equal(control.glideDuration(100, 500), 500, "never shorter than asked");
 });
 
 // A click right after a move that took no time used to fail the run with

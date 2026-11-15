@@ -1,6 +1,6 @@
 {
   "name": "vetroai-desktop",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "VetroAI Computer desktop companion",
   "main": "main.cjs",
   "private": true,

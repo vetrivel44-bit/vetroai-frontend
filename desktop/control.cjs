@@ -8,11 +8,14 @@
 // work. The glow lets every click through and is left out of screenshots.
 const GLOW_HTML = `<!doctype html><meta charset="utf-8"><style>
 html,body{margin:0;height:100%;background:transparent;overflow:hidden}
-.g{position:fixed;inset:0;pointer-events:none;will-change:opacity;animation:breathe 3.2s ease-in-out infinite;
-box-shadow:inset 0 0 0 2px rgba(217,119,87,.95),inset 0 0 12px 3px rgba(217,119,87,.7),inset 0 0 34px 8px rgba(240,140,90,.34),inset 0 0 80px 10px rgba(217,119,87,.10)}
-@keyframes breathe{0%,100%{opacity:.72}50%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.g{animation:none;opacity:.85}}
-</style><div class="g"></div>`;
+.g,.h{position:fixed;inset:0;pointer-events:none;will-change:opacity}
+.g{animation:breathe 3.2s ease-in-out infinite;
+box-shadow:inset 0 0 0 2px rgba(217,119,87,.95),inset 0 0 14px 4px rgba(217,119,87,.72),inset 0 0 44px 12px rgba(240,140,90,.36),inset 0 0 110px 18px rgba(217,119,87,.14)}
+.h{animation:breathe 3.2s ease-in-out -1.6s infinite;
+background:radial-gradient(60% 34% at 50% 0,rgba(240,140,90,.20),transparent 70%),radial-gradient(60% 34% at 50% 100%,rgba(240,140,90,.20),transparent 70%),radial-gradient(22% 60% at 0 50%,rgba(240,140,90,.16),transparent 70%),radial-gradient(22% 60% at 100% 50%,rgba(240,140,90,.16),transparent 70%)}
+@keyframes breathe{0%,100%{opacity:.62}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.g,.h{animation:none;opacity:.85}}
+</style><div class="h"></div><div class="g"></div>`;
 
 // A calm pill at the top: what VetroAI is doing now, and Stop. Stop sets the
 // page title, which main.cjs listens for (a link to a made-up scheme isn't
@@ -122,9 +125,30 @@ function scrollAmount(amount, platform = process.platform) {
   return Math.sign(n) * Math.max(1, Math.round(Math.abs(n) / 100));
 }
 
-/** Pixels per second for a glide of `distance` pixels that should take `durationMs`. */
-function glideSpeed(distance, durationMs) {
-  return Math.max(400, distance / (Math.max(60, Number(durationMs) || 250) / 1000));
+/**
+ * How long a glide of `distance` pixels takes: longer for a longer way, so the
+ * cursor can be followed by eye, and never shorter than the caller asked.
+ */
+function glideDuration(distance, askedMs = 0) {
+  return Math.round(Math.max(120, Math.min(650, Math.max(Number(askedMs) || 0, 140 + distance * 0.32))));
+}
+
+/**
+ * The points of a glide from `from` to `to`, one every `stepMs`: it starts
+ * slowly, speeds up and settles onto the target, the way a hand moves a mouse
+ * (and the way Claude's cursor does), instead of a constant-speed slide. The
+ * last point is exactly `to`.
+ */
+function glidePath(from, to, durationMs, stepMs = 8) {
+  const steps = Math.max(1, Math.round(durationMs / stepMs));
+  const points = [];
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    points.push({ x: Math.round(from.x + (to.x - from.x) * eased), y: Math.round(from.y + (to.y - from.y) * eased) });
+  }
+  points[points.length - 1] = { x: Math.round(to.x), y: Math.round(to.y) };
+  return points;
 }
 
 /**
@@ -155,5 +179,5 @@ function canExcludeFromCapture(platform = process.platform, release = "") {
 
 module.exports = {
   GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel,
-  resolveKeys, keyMember, PASTE_OVER, shouldPaste, scrollAmount, glideSpeed, createPacer, canExcludeFromCapture,
+  resolveKeys, keyMember, PASTE_OVER, shouldPaste, scrollAmount, glideDuration, glidePath, createPacer, canExcludeFromCapture,
 };

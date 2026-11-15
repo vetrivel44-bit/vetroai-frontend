@@ -1,9 +1,9 @@
 const { app, BrowserWindow, dialog, globalShortcut, ipcMain, screen, clipboard } = require("electron");
 const screenshot = require("screenshot-desktop");
-const { mouse, keyboard, Button, Key, Point, straightTo } = require("@nut-tree-fork/nut-js");
+const { mouse, keyboard, Button, Key, Point } = require("@nut-tree-fork/nut-js");
 const os = require("os");
 const {
-  GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel, resolveKeys, shouldPaste, scrollAmount, glideSpeed, createPacer, canExcludeFromCapture,
+  GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel, resolveKeys, shouldPaste, scrollAmount, glideDuration, glidePath, createPacer, canExcludeFromCapture,
 } = require("./control.cjs");
 
 const APP_URL = process.env.VETROAI_URL || "https://vetroai-frontend.pages.dev";
@@ -173,15 +173,26 @@ async function requireControl() {
   await pace();
   if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
 }
-// Glides the cursor to a point in about `durationMs`. nut-js's own speed is
-// fixed at 1000 px a second, busy-waiting the whole way: a click across a 4K
-// screen took three seconds of a CPU core.
+// Glides the cursor to a point: easing in and out, longer for a longer way
+// (control.cjs glidePath). nut-js's own move is a constant 1000 px a second,
+// busy-waiting the whole way: a click across a 4K screen took three seconds
+// of a CPU core, and slid like a machine.
 async function glideTo(point, durationMs) {
   const from = await mouse.getPosition();
   const distance = Math.hypot(point.x - from.x, point.y - from.y);
   if (distance < 3) return mouse.setPosition(new Point(point.x, point.y));
-  mouse.config.mouseSpeed = glideSpeed(distance, durationMs);
-  return mouse.move(straightTo(new Point(point.x, point.y)));
+  const stepMs = 8;
+  const started = Date.now();
+  const path = glidePath(from, point, glideDuration(distance, durationMs), stepMs);
+  for (let i = 0; i < path.length; i++) {
+    if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
+    await mouse.setPosition(new Point(path[i].x, path[i].y));
+    // Timers are coarse on Windows: wait only for what is left of this step.
+    const wait = started + (i + 1) * stepMs - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+  // The app under the cursor gets a moment to show its hover state.
+  await new Promise((resolve) => setTimeout(resolve, 40));
 }
 function finite(value, name) {
   const number = Number(value);
