@@ -181,3 +181,27 @@ test("from 1.2.0 a click is one action with its point, so a mouse moved by hand 
   await performDesktopAction(desktop, { action: "click", x: 10, y: 20, button: "right" });
   assert.deepEqual(desktop.calls, [["click", "right", false, 10, 20]]);
 });
+
+// 245 × 18 came out as 24518 in Calculator, and a retried search was typed
+// into Chrome's address bar three times over.
+import { prepareTypeAction, TYPE_INSTRUCTIONS } from "../src/lib/screenAgent.js";
+test("a sum's × and ÷ are typed as * and /, and text typed again replaces the field", async () => {
+  assert.equal(prepareTypeAction({ action: "type", text: "245×18=" }).text, "245*18=");
+  assert.equal(prepareTypeAction({ action: "type", text: "245 x 18" }).text, "245*18");
+  assert.equal(prepareTypeAction({ action: "type", text: "100 ÷ 4 =" }).text, "100 / 4 =");
+  assert.equal(prepareTypeAction({ action: "type", text: "a 2×4 board for the box" }).text, "a 2×4 board for the box", "only a bare sum is changed");
+  assert.equal(prepareTypeAction({ action: "type", text: "box" }).text, "box");
+
+  const typed = { action: "type", text: "weather in chennai" };
+  assert.equal(prepareTypeAction(typed, []).clear, undefined, "a first try adds as usual");
+  assert.equal(prepareTypeAction(typed, [typed, { action: "click", x: 1, y: 2 }]).clear, true, "the same text again replaces");
+  assert.equal(prepareTypeAction({ ...typed, clear: true }, []).clear, true);
+  assert.equal(prepareTypeAction({ action: "click", x: 1 }, [typed]).clear, undefined, "only typing is touched");
+
+  const desktop = fakeDesktop();
+  const sleep = async () => {};
+  await performDesktopAction(desktop, { action: "type", text: "hi", clear: true }, { sleep });
+  assert.deepEqual(desktop.calls, [["pressKey", "A", ["CTRL"]], ["typeText", "hi"]]);
+  assert.equal(describeAgentAction({ action: "type", text: "hi", clear: true }), 'Replace the text with "hi"');
+  assert.match(TYPE_INSTRUCTIONS, /"clear": true/);
+});

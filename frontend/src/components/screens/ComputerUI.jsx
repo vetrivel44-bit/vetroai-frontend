@@ -34,7 +34,7 @@ import { settleResearch } from "../../lib/research";
 import { mergeBrowseEvent } from "../../lib/browseLog";
 import {
   CONFIRM_PROMPT, GRID_INSTRUCTIONS, OPEN_INSTRUCTIONS, EXPECT_INSTRUCTIONS, USER_MOVED_NOTE, checkLastAction, MAX_ACTION_ERRORS, STEP_RETRY_DELAYS_MS, THUMB, UNCHANGED_AT_MOST, actionErrorText, changedPixels, describeAgentAction,
-  doneVerdict, finalMessage, grayscale, gridToPixels, isControlStopped, isStuck, normalizeKeyAction, performDesktopAction, retryableStatus, stepLabel,
+  doneVerdict, finalMessage, grayscale, gridToPixels, isControlStopped, isStuck, normalizeKeyAction, performDesktopAction, prepareTypeAction, TYPE_INSTRUCTIONS, retryableStatus, stepLabel,
 } from "../../lib/screenAgent";
 import { DESKTOP_CONTROL_REQUEST, LIVE_BROWSE_REQUEST, decideScreenTask, wantsScreenControl } from "../../lib/screenIntent";
 import { FOLDER_ACTIONS } from "../../lib/folderActions";
@@ -963,6 +963,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
           GRID_INSTRUCTIONS,
           ...(desktop.openApp ? [OPEN_INSTRUCTIONS] : []),
           EXPECT_INSTRUCTIONS,
+          TYPE_INSTRUCTIONS,
           recentLog.length
             ? `${skippedCount ? `(${skippedCount} earlier step${skippedCount > 1 ? "s" : ""} omitted)\n` : ""}Most recent actions:\n${recentLog.map((line, i) => `${skippedCount + i + 1}. ${line}`).join("\n")}`
             : "No actions taken yet — this is the first step.",
@@ -1012,7 +1013,8 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         const raw = await readStream(response, taskId, assistantId, "", null, { quiet: true });
         const parsed = parseAgentAction(raw);
         if (!parsed) throw new Error("VetroAI didn't return a usable action, so it stopped rather than guess.");
-        const action = normalizeKeyAction(parsed);
+        // A retyped field is replaced, not added to; a sum's × is typed as *.
+        const action = prepareTypeAction(normalizeKeyAction(parsed), history.map(h => h.action));
 
         if (action.action === "done") {
           const failed = doneVerdict(action) === "failure";

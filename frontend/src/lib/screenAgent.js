@@ -34,6 +34,32 @@ export const OPEN_INSTRUCTIONS = `One more action is allowed here, whatever else
  */
 export const EXPECT_INSTRUCTIONS = `Add "expect" to every action except "done": one short sentence saying what the next screenshot will show if the action worked (for example "the address bar shows youtube.com", "the Save dialog is open", "the message box contains Hello").`;
 
+/** How typing works, for the step prompt. */
+export const TYPE_INSTRUCTIONS = `Typing: "type" adds text where the cursor is, after any text already there. Add "clear": true to replace what the field holds instead; use it whenever a field might already have text in it, and always when typing something again. In a browser, CTRL+L selects the whole address bar, so typing after it replaces the address. In Calculator and other number fields, type * to multiply and / to divide, never × or ÷ or the letter x.`;
+
+// A sum to work out, like "245 × 18 =" or "12.5 x 4": digits and operators only.
+const SUM = /^[\d\s.,()+\-*/×÷xX=%^]+$/;
+
+/**
+ * A "type" action made safe to carry out. A sum's × and ÷ (and an x between
+ * numbers) become * and /: those are the keys that multiply and divide, and
+ * text with × in it was pasted, and Calculator threw the × away, so
+ * 245 × 18 came out as 24518. Typing text again that one of the last few
+ * actions typed replaces the field's text instead of adding to it: a retry
+ * put "weather in chennai" in Chrome's address bar three times over.
+ * `recent`: the last actions carried out, oldest first.
+ */
+export function prepareTypeAction(action, recent = []) {
+  if (action?.action !== "type") return action;
+  let text = String(action.text ?? "");
+  if (SUM.test(text) && /\d/.test(text)) {
+    text = text.replace(/×/g, "*").replace(/÷/g, "/").replace(/(\d)\s*[xX]\s*(?=\d)/g, "$1*");
+  }
+  const retyping = (recent || []).slice(-4).some((a) => a?.action === "type" && String(a.text ?? "").trim() === text.trim());
+  const clear = action.clear === true || action.clear === "true" || retyping;
+  return { ...action, text, ...(clear ? { clear: true } : {}) };
+}
+
 /**
  * The step prompt's check of the last action: what the model expected, and
  * whether the screen changed at all. Empty when there is nothing to check.
@@ -46,7 +72,7 @@ export function checkLastAction(last) {
     "CHECK YOUR LAST ACTION FIRST, before choosing the next one.",
     expected ? `You expected: "${expected}". Look for exactly that in this screenshot.` : "",
     last.changed === false ? "The screen is the same as before that action, so it had no effect." : "",
-    "If the screenshot does not show what you expected, the action did not work: do not carry on as if it had. Put it right first: click into the right field and type again (CTRL+A, then type, replaces wrong text), wait if the app is still loading, press ESCAPE to close something that opened by mistake, or do it another way. Say in \"reasoning\" what you saw.",
+    "If the screenshot does not show what you expected, the action did not work: do not carry on as if it had. Put it right first: to fix text in a field, use \"type\" with \"clear\": true, which replaces what the field holds (typing again without it adds to the text that is already there), wait if the app is still loading, press ESCAPE to close something that opened by mistake, or do it another way. Say in \"reasoning\" what you saw.",
   ].filter(Boolean).join(" ");
 }
 
@@ -156,7 +182,7 @@ export function describeAgentAction(action) {
   switch (action.action) {
     case "click": return `${action.double ? "Double-click" : "Click"} ${action.button || "left"} at ${at(action.x, action.y)}`;
     case "move": return `Move to ${at(action.x, action.y)}`;
-    case "type": return `Type "${String(action.text || "").slice(0, 40)}"`;
+    case "type": return `${action.clear ? "Replace the text with" : "Type"} "${String(action.text || "").slice(0, 40)}"`;
     case "key": return `Press ${[...(action.modifiers || []), action.key].join("+")}`;
     case "scroll": return `Scroll ${Number(action.amount) > 0 ? "down" : "up"}${typeof action.x === "number" && typeof action.y === "number" ? ` at ${at(action.x, action.y)}` : ""}`;
     case "drag": return `Drag from ${at(action.fromX, action.fromY)} to ${at(action.toX, action.toY)}`;
@@ -203,7 +229,13 @@ export async function performDesktopAction(desktop, action, { sleep = (ms) => ne
       if (desktop.version && desktop.version >= "1.2.0") return desktop.click(action.button || "left", Boolean(action.double), Number(action.x), Number(action.y));
       await desktop.moveMouse(Number(action.x), Number(action.y), 150);
       return desktop.click(action.button || "left", Boolean(action.double));
-    case "type": return desktop.typeText(String(action.text || "").slice(0, 2000));
+    case "type":
+      // Select what the field holds first, so the text replaces it.
+      if (action.clear) {
+        await desktop.pressKey("A", ["CTRL"]);
+        await sleep(80);
+      }
+      return desktop.typeText(String(action.text || "").slice(0, 2000));
     case "key": return desktop.pressKey(action.key, action.modifiers || []);
     case "scroll": {
       const amount = Number(action.amount) || 0;
