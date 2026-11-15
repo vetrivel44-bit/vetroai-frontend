@@ -103,3 +103,24 @@ test("the glow breathes in VetroAI's coral at the screen's edges, and the pill c
   assert.equal(control.pillLabel("Open the Start menu"), "VetroAI · Open the Start menu");
   assert.equal(control.pillLabel(""), "VetroAI is working…");
 });
+
+// "open chrome" used to go Start, type, Enter: three steps that each went
+// wrong. The app is now found in the Start menu's own list and opened.
+test("an app is found by what people call it, never an uninstaller", () => {
+  const apps = [
+    { Name: "Google Chrome", AppID: "Chrome" }, { Name: "Chrome Remote Desktop", AppID: "crd" }, { Name: "Uninstall Chrome Helper", AppID: "u" },
+    { Name: "Visual Studio Code", AppID: "vsc" }, { Name: "File Explorer", AppID: "fe" }, { Name: "WhatsApp", AppID: "wa" },
+    { Name: "Word", AppID: "word" }, { Name: "WordPad", AppID: "wp" }, { Name: "Microsoft Edge", AppID: "MSEdge" },
+  ];
+  const id = (name) => control.pickApp(apps, name)?.AppID ?? null;
+  assert.equal(id("chrome"), "Chrome");
+  assert.equal(id("Google Chrome"), "Chrome");
+  assert.equal(id("the Chrome browser"), "Chrome");
+  assert.equal(id("vs code"), "vsc");
+  assert.equal(id("explorer"), "fe");
+  assert.equal(id("word"), "word", "the same name wins over a longer one");
+  assert.equal(id("edge"), "MSEdge");
+  assert.equal(id("whatsapp"), "wa");
+  assert.equal(id("photoshop"), null);
+  assert.equal(id(""), null);
+});

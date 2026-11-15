@@ -33,7 +33,7 @@ import { SHEET_INSTRUCTIONS, deckInput, isResearchFileRequest, sheetInput, sheet
 import { settleResearch } from "../../lib/research";
 import { mergeBrowseEvent } from "../../lib/browseLog";
 import {
-  CONFIRM_PROMPT, GRID_INSTRUCTIONS, MAX_ACTION_ERRORS, STEP_RETRY_DELAYS_MS, THUMB, UNCHANGED_AT_MOST, actionErrorText, changedPixels, describeAgentAction,
+  CONFIRM_PROMPT, GRID_INSTRUCTIONS, OPEN_INSTRUCTIONS, EXPECT_INSTRUCTIONS, USER_MOVED_NOTE, checkLastAction, MAX_ACTION_ERRORS, STEP_RETRY_DELAYS_MS, THUMB, UNCHANGED_AT_MOST, actionErrorText, changedPixels, describeAgentAction,
   doneVerdict, finalMessage, grayscale, gridToPixels, isControlStopped, isStuck, normalizeKeyAction, performDesktopAction, retryableStatus, stepLabel,
 } from "../../lib/screenAgent";
 import { DESKTOP_CONTROL_REQUEST, LIVE_BROWSE_REQUEST, decideScreenTask, wantsScreenControl } from "../../lib/screenIntent";
@@ -961,10 +961,13 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         const stepPrompt = [
           `Goal: ${goal}`,
           GRID_INSTRUCTIONS,
+          ...(desktop.openApp ? [OPEN_INSTRUCTIONS] : []),
+          EXPECT_INSTRUCTIONS,
           recentLog.length
             ? `${skippedCount ? `(${skippedCount} earlier step${skippedCount > 1 ? "s" : ""} omitted)\n` : ""}Most recent actions:\n${recentLog.map((line, i) => `${skippedCount + i + 1}. ${line}`).join("\n")}`
             : "No actions taken yet — this is the first step.",
-          ...(confirming ? [CONFIRM_PROMPT] : []),
+          // The last action is held to what the model said it would do.
+          ...(confirming ? [CONFIRM_PROMPT] : [checkLastAction(history[history.length - 1])].filter(Boolean)),
           "Reply with exactly one JSON action for the next step, per your instructions."
         ].join("\n\n");
 
@@ -1070,6 +1073,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         try {
           result = await performDesktopAction(desktop, target);
           actionErrors = 0;
+          if (result?.userMoved) log[log.length - 1] += USER_MOVED_NOTE;
         } catch (error) {
           if (isControlStopped(error) || controller.signal.aborted) throw new DOMException("Stopped", "AbortError");
           // A key it can't press, a bad position: the model is told and tries
@@ -1081,7 +1085,7 @@ export default function ComputerUI({ onClose, onUpgrade }) {
         }
         // A copy changes the clipboard, not the screen, and a wait is allowed
         // to change nothing: neither is checked for a change.
-        if (action.action !== "copy" && action.action !== "wait") history.push({ action, changed: null, logIndex: log.length - 1 });
+        if (action.action !== "copy" && action.action !== "wait") history.push({ action, expect: action.expect, changed: null, logIndex: log.length - 1 });
         // Lets the model see what it actually copied on the next step, instead
         // of guessing blindly at what a Ctrl+C grabbed.
         if (action.action === "copy" && result?.text) {

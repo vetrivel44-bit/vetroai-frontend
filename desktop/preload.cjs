@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   platform: process.platform,
-  version: "1.1.1",
+  version: "1.2.0",
   getStatus: () => ipcRenderer.invoke("computer:status"),
   requestControl: () => ipcRenderer.invoke("computer:request-control"),
   allowForDispatch: (text) => ipcRenderer.invoke("computer:allow-for-dispatch", { text }),
@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   setWorking: (on, label = "") => ipcRenderer.invoke("computer:working", { on, label }),
   screenshot: () => ipcRenderer.invoke("computer:screenshot"),
   moveMouse: (x, y, duration = 250) => ipcRenderer.invoke("computer:move", { x, y, duration }),
-  click: (button = "left", double = false) => ipcRenderer.invoke("computer:click", { button, double }),
+  // With (x, y), moves there and clicks as one action.
+  click: (button = "left", double = false, x, y) => ipcRenderer.invoke("computer:click", { button, double, x, y }),
   typeText: (text) => ipcRenderer.invoke("computer:type", { text }),
   pressKey: (key, modifiers = []) => ipcRenderer.invoke("computer:key", { key, modifiers }),
   // Scrolls at (x, y) when given: a page scrolls only under the cursor.
@@ -23,6 +24,8 @@ contextBridge.exposeInMainWorld("vetroDesktop", Object.freeze({
   writeClipboard: (text) => ipcRenderer.invoke("computer:clipboard-write", { text }),
   copy: () => ipcRenderer.invoke("computer:copy"),
   paste: (text = "") => ipcRenderer.invoke("computer:paste", { text }),
+  // Opens a Start menu app by name, or a web address in the default browser.
+  openApp: (app = "", url = "") => ipcRenderer.invoke("computer:open", { app, url }),
   playYouTube: (query) => ipcRenderer.invoke("computer:youtube-play", { query }),
   onStatus: (callback) => {
     const handler = (_event, status) => callback(status);

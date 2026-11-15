@@ -165,6 +165,35 @@ function createPacer(gapMs = 20, { now = () => Date.now(), sleep = (ms) => new P
   };
 }
 
+// What people call an app, when it isn't what the Start menu calls it.
+const APP_ALIASES = {
+  "vs code": "visual studio code", vscode: "visual studio code", code: "visual studio code",
+  explorer: "file explorer", files: "file explorer", "my computer": "file explorer",
+  calc: "calculator", cmd: "command prompt", powershell: "windows powershell",
+  "ms word": "word", "microsoft word": "word", "ms excel": "excel", "microsoft excel": "excel",
+  ppt: "powerpoint", "microsoft powerpoint": "powerpoint", browser: "google chrome",
+};
+const appKey = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * The Start menu app (`{ Name, AppID }`, as Windows' Get-StartApps lists them)
+ * that `wanted` means, or null: the same name first, then a name that has it
+ * as a word ("chrome" is "Google Chrome").
+ * Among several, the shortest name wins, and uninstallers and help files
+ * never do.
+ */
+function pickApp(apps, wanted) {
+  const asked = appKey(wanted).replace(/^(the|open|launch|start) /, "").replace(/ (app|application|browser)$/, "");
+  const want = APP_ALIASES[asked] || asked;
+  if (!want) return null;
+  const list = (Array.isArray(apps) ? apps : []).filter((a) => a && a.Name && a.AppID)
+    .map((a) => ({ app: a, key: appKey(a.Name) }))
+    .filter((a) => !/\b(uninstall|readme|help|documentation|manual|website)\b/.test(a.key));
+  const shortest = (found) => found.sort((a, b) => a.key.length - b.key.length)[0]?.app || null;
+  return shortest(list.filter((a) => a.key === want))
+    || shortest(list.filter((a) => ` ${a.key} `.includes(` ${want} `)));
+}
+
 /**
  * Whether a window can be left out of screen captures. Windows only does it
  * from 10 version 2004 (build 19041); before that, "protected" windows show as
@@ -179,5 +208,5 @@ function canExcludeFromCapture(platform = process.platform, release = "") {
 
 module.exports = {
   GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel,
-  resolveKeys, keyMember, PASTE_OVER, shouldPaste, scrollAmount, glideDuration, glidePath, createPacer, canExcludeFromCapture,
+  resolveKeys, keyMember, PASTE_OVER, shouldPaste, scrollAmount, glideDuration, glidePath, createPacer, pickApp, canExcludeFromCapture,
 };

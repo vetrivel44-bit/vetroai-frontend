@@ -3,7 +3,7 @@ const screenshot = require("screenshot-desktop");
 const { mouse, keyboard, Button, Key, Point } = require("@nut-tree-fork/nut-js");
 const os = require("os");
 const {
-  GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel, resolveKeys, shouldPaste, scrollAmount, glideDuration, glidePath, createPacer, canExcludeFromCapture,
+  GLOW_HTML, PILL_HTML, PILL_SIZE, STOP_TITLE, pillLabel, resolveKeys, shouldPaste, scrollAmount, glideDuration, glidePath, createPacer, pickApp, canExcludeFromCapture,
 } = require("./control.cjs");
 
 const APP_URL = process.env.VETROAI_URL || "https://vetroai-frontend.pages.dev";
@@ -81,6 +81,9 @@ function overlayWindow(bounds, html) {
     skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, hasShadow: false,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
+  // A new window is kept inside the work area: the glow stopped above the
+  // taskbar. Set again, it covers the whole screen.
+  win.setBounds(bounds);
   win.setAlwaysOnTop(true, "screen-saver");
   win.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
   if (EXCLUDE_FROM_CAPTURE) win.setContentProtection(true);
@@ -172,6 +175,25 @@ async function requireControl() {
   if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
   await pace();
   if (!controlEnabled || stopped) throw new Error("Computer control is disabled.");
+  await noteUserMove();
+}
+// Where VetroAI last left the cursor. Found somewhere else, the person at the
+// computer moved the mouse: the agent is told (it may have changed what is on
+// screen), and a click goes back to its own target instead of landing
+// wherever the mouse was left.
+let agentCursor = null;
+let userMoved = false;
+async function noteUserMove() {
+  if (!agentCursor) return;
+  const now = await mouse.getPosition();
+  if (Math.hypot(now.x - agentCursor.x, now.y - agentCursor.y) > 4) userMoved = true;
+  agentCursor = { x: now.x, y: now.y };
+}
+// Whether the person moved the mouse since the last action; asked once.
+function takeUserMoved() {
+  const moved = userMoved;
+  userMoved = false;
+  return moved;
 }
 // Glides the cursor to a point: easing in and out, longer for a longer way
 // (control.cjs glidePath). nut-js's own move is a constant 1000 px a second,
@@ -180,6 +202,7 @@ async function requireControl() {
 async function glideTo(point, durationMs) {
   const from = await mouse.getPosition();
   const distance = Math.hypot(point.x - from.x, point.y - from.y);
+  agentCursor = { x: point.x, y: point.y };
   if (distance < 3) return mouse.setPosition(new Point(point.x, point.y));
   const stepMs = 8;
   const started = Date.now();
@@ -397,6 +420,9 @@ ipcMain.handle("computer:working", (_event, info) => {
   if (on) setPillText(pillLabel(info?.label));
   if (working !== on) {
     working = on;
+    // A new run starts with no idea where the cursor "should" be.
+    agentCursor = null;
+    userMoved = false;
     if (!on) pillText = pillLabel("");
     broadcast();
   }
@@ -424,14 +450,27 @@ ipcMain.handle("computer:move", async (_event, action) => {
   const point = screenPoint(action.x, action.y);
   const duration = Math.max(50, Math.min(1500, finite(action.duration ?? 250, "duration")));
   await glideTo(point, duration);
-  return { ok: true, ...point };
+  return { ok: true, ...point, userMoved: takeUserMoved() };
 });
 ipcMain.handle("computer:click", async (_event, action) => {
   await requireControl();
   const buttons = { left: Button.LEFT, right: Button.RIGHT, middle: Button.MIDDLE };
   const button = buttons[action.button] || Button.LEFT;
-  await clearOfIndicator(() => (action.double ? mouse.doubleClick(button) : mouse.click(button)));
-  return { ok: true };
+  // With a point, the move and the click are one action: a mouse moved by
+  // hand in between can't send the click somewhere else.
+  const target = action.x !== undefined && action.y !== undefined ? screenPoint(action.x, action.y) : null;
+  if (target) await glideTo(target, 150);
+  await clearOfIndicator(async () => {
+    if (target) {
+      const at = await mouse.getPosition();
+      if (Math.hypot(at.x - target.x, at.y - target.y) > 2) {
+        userMoved = true;
+        await mouse.setPosition(new Point(target.x, target.y));
+      }
+    }
+    await (action.double ? mouse.doubleClick(button) : mouse.click(button));
+  });
+  return { ok: true, userMoved: takeUserMoved() };
 });
 // Ctrl+V, or Cmd+V on a Mac.
 function pasteKeys() {
@@ -464,7 +503,7 @@ ipcMain.handle("computer:type", async (_event, action) => {
   // typing goes a key at a time and can't always make those characters.
   if (shouldPaste(text)) await pasteText(text);
   else await keyboard.type(text);
-  return { ok: true, length: text.length };
+  return { ok: true, length: text.length, userMoved: takeUserMoved() };
 });
 ipcMain.handle("computer:key", async (_event, action) => {
   await requireControl();
@@ -474,7 +513,7 @@ ipcMain.handle("computer:key", async (_event, action) => {
   const keys = resolveKeys(Key, action.key, action.modifiers, process.platform);
   if (keys.error) throw new Error(`Key not pressed: ${keys.error}.`);
   await pressCombo(keys.modifiers, keys.key);
-  return { ok: true };
+  return { ok: true, userMoved: takeUserMoved() };
 });
 ipcMain.handle("computer:scroll", async (_event, action) => {
   await requireControl();
@@ -483,7 +522,7 @@ ipcMain.handle("computer:scroll", async (_event, action) => {
   if (action.x !== undefined && action.y !== undefined) await glideTo(screenPoint(action.x, action.y), 120);
   const amount = scrollAmount(finite(action.amount, "amount"), process.platform);
   await clearOfIndicator(() => (amount > 0 ? mouse.scrollDown(amount) : mouse.scrollUp(Math.abs(amount))));
-  return { ok: true };
+  return { ok: true, userMoved: takeUserMoved() };
 });
 ipcMain.handle("computer:drag", async (_event, action) => {
   await requireControl();
@@ -500,7 +539,7 @@ ipcMain.handle("computer:drag", async (_event, action) => {
       await mouse.releaseButton(Button.LEFT);
     }
   }, { always: true });
-  return { ok: true };
+  return { ok: true, userMoved: takeUserMoved() };
 });
 ipcMain.handle("computer:clipboard-read", async () => {
   await requireControl();
@@ -529,6 +568,48 @@ ipcMain.handle("computer:paste", async (_event, action) => {
   if (text) await pasteText(text);
   else await pressCombo([pasteKeys()[0]], Key.V);
   return { ok: true };
+});
+
+// The apps in the Start menu, as Windows lists them. The list takes a few
+// seconds to get, so it is fetched once at launch and again after ten minutes.
+let startApps = null;
+let startAppsAt = 0;
+function loadStartApps() {
+  if (process.platform !== "win32") return Promise.resolve([]);
+  if (startApps && Date.now() - startAppsAt < 10 * 60 * 1000) return startApps;
+  startAppsAt = Date.now();
+  startApps = new Promise((resolve) => {
+    require("child_process").execFile("powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ConvertTo-Json -Compress"],
+      { windowsHide: true, maxBuffer: 8 * 1024 * 1024, timeout: 30000 },
+      (error, stdout) => {
+        try { resolve([].concat(JSON.parse(stdout))); } catch { startApps = null; resolve([]); }
+      });
+  });
+  return startApps;
+}
+app.whenReady().then(loadStartApps);
+
+// Opens an app by its name, or a web address in the default browser, the way
+// clicking it in the Start menu would: one sure step, where pressing Start,
+// typing the name and pressing Enter is three that can each go wrong (the
+// search box opened on its Settings tab, a letter landed somewhere else).
+// Only what the Start menu lists can be opened, never a path or a command.
+ipcMain.handle("computer:open", async (_event, action) => {
+  await requireControl();
+  const url = String(action?.url || "").trim();
+  if (url) {
+    if (!/^https?:\/\/[^\s]+$/i.test(url) || url.length > 2000) throw new Error("Only http and https web addresses can be opened.");
+    await require("electron").shell.openExternal(url);
+    return { ok: true, opened: url };
+  }
+  const name = String(action?.app || "").trim().slice(0, 80);
+  if (!name) throw new Error("Say which app to open.");
+  if (process.platform !== "win32") throw new Error("Apps can't be opened by name on this computer: press META, type the app's name, then press ENTER.");
+  const found = pickApp(await loadStartApps(), name);
+  if (!found) throw new Error(`No app called "${name}" is in the Start menu. Press META and type its name to look for it.`);
+  require("child_process").spawn("explorer.exe", [`shell:AppsFolder\\${found.AppID}`], { detached: true, stdio: "ignore" }).unref();
+  return { ok: true, opened: found.Name };
 });
 
 ipcMain.handle("computer:youtube-play", async (_event, action) => {

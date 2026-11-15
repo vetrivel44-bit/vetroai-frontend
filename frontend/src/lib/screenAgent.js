@@ -19,6 +19,37 @@ export const GRID = 1000;
  */
 export const GRID_INSTRUCTIONS = `Coordinates are on a 0-${GRID} grid over the screenshot, not pixels, whatever else you were told about them: x = 0 is its left edge and x = ${GRID} its right edge; y = 0 is its top and y = ${GRID} its bottom. Point at the centre of what you want to click.`;
 
+/**
+ * Added to the step prompt when the desktop app can open apps itself
+ * (1.2.0 on): one sure step instead of Start, typing a name and Enter, which
+ * went wrong when the search box opened on another tab or a letter was lost.
+ */
+export const OPEN_INSTRUCTIONS = `One more action is allowed here, whatever else you were told about the list of actions: {"action": "open", "app": "Google Chrome"} opens an installed app by its name, and {"action": "open", "url": "https://example.com"} opens a web address in the default browser. To open an app or a website, always use "open" first; do not press META and type its name unless "open" failed. After "open", the next screenshot shows the app; use "wait" if it is still loading.`;
+
+/**
+ * Has the model say, with each action, what the screen should show if it
+ * worked. The next step holds it to that (checkLastAction), so a click that
+ * missed or text typed into the wrong place is caught and put right, instead
+ * of the run carrying on as if it had worked.
+ */
+export const EXPECT_INSTRUCTIONS = `Add "expect" to every action except "done": one short sentence saying what the next screenshot will show if the action worked (for example "the address bar shows youtube.com", "the Save dialog is open", "the message box contains Hello").`;
+
+/**
+ * The step prompt's check of the last action: what the model expected, and
+ * whether the screen changed at all. Empty when there is nothing to check.
+ */
+export function checkLastAction(last) {
+  if (!last) return "";
+  const expected = String(last.expect || "").replace(/\s+/g, " ").trim().slice(0, 200);
+  if (!expected && last.changed !== false) return "";
+  return [
+    "CHECK YOUR LAST ACTION FIRST, before choosing the next one.",
+    expected ? `You expected: "${expected}". Look for exactly that in this screenshot.` : "",
+    last.changed === false ? "The screen is the same as before that action, so it had no effect." : "",
+    "If the screenshot does not show what you expected, the action did not work: do not carry on as if it had. Put it right first: click into the right field and type again (CTRL+A, then type, replaces wrong text), wait if the app is still loading, press ESCAPE to close something that opened by mistake, or do it another way. Say in \"reasoning\" what you saw.",
+  ].filter(Boolean).join(" ");
+}
+
 const POINT_KEYS = [["x", "y"], ["fromX", "fromY"], ["toX", "toY"]];
 
 /**
@@ -131,6 +162,7 @@ export function describeAgentAction(action) {
     case "drag": return `Drag from ${at(action.fromX, action.fromY)} to ${at(action.toX, action.toY)}`;
     case "copy": return "Copy to clipboard";
     case "paste": return action.text ? `Paste "${String(action.text).slice(0, 40)}"` : "Paste from clipboard";
+    case "open": return `Open ${String(action.url || action.app || "").slice(0, 80)}`;
     case "wait": return `Wait ${waitSeconds(action)}s for the screen to settle`;
     case "done": return action.summary || "Done";
     default: return `Unrecognized action: ${action.action}`;
@@ -166,6 +198,9 @@ export async function performDesktopAction(desktop, action, { sleep = (ms) => ne
   switch (action.action) {
     case "move": return desktop.moveMouse(Number(action.x), Number(action.y), action.duration);
     case "click":
+      // From 1.2.0 the app moves and clicks as one action, so a mouse moved
+      // by hand in between can't send the click somewhere else.
+      if (desktop.version && desktop.version >= "1.2.0") return desktop.click(action.button || "left", Boolean(action.double), Number(action.x), Number(action.y));
       await desktop.moveMouse(Number(action.x), Number(action.y), 150);
       return desktop.click(action.button || "left", Boolean(action.double));
     case "type": return desktop.typeText(String(action.text || "").slice(0, 2000));
@@ -189,10 +224,20 @@ export async function performDesktopAction(desktop, action, { sleep = (ms) => ne
       if (action.text) await desktop.writeClipboard(String(action.text));
       return desktop.pressKey("V", ["CTRL"]);
     }
+    case "open": {
+      if (!desktop.openApp) throw new Error("this computer's VetroAI can't open apps directly: press META, type the app's name, then press ENTER");
+      const result = await desktop.openApp(String(action.app || ""), String(action.url || ""));
+      // The window takes a moment to appear; the next screenshot should show it.
+      await sleep(1800);
+      return result;
+    }
     case "wait": return sleep(waitSeconds(action) * 1000);
     default: throw new Error(`"${action.action}" isn't an action VetroAI can take`);
   }
 }
+
+/** Added to an action's line in the log when the person moved the mouse during it. */
+export const USER_MOVED_NOTE = " — the person at the computer moved the mouse meanwhile and may have changed what is on screen: go by this screenshot, not by what you expected";
 
 /** The desktop app refused because control was turned off (Stop, Ctrl+Shift+X). */
 export const isControlStopped = (error) => /computer control is disabled/i.test(String(error?.message || error || ""));

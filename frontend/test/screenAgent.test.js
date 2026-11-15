@@ -147,3 +147,37 @@ test("a stop from the desktop app is recognised; its errors read plainly", () =>
   assert.equal(stepLabel({ reasoning: "Open the Start menu to find Notepad" }, "Press META"), "Open the Start menu to find Notepad");
   assert.equal(stepLabel({}, "Press META"), "Press META");
 });
+
+test("open launches an app or a web address in one step, and says so when the desktop app is too old", async () => {
+  const opened = [];
+  const desktop = fakeDesktop({ openApp: async (app, url) => { opened.push([app, url]); return { ok: true, opened: app || url }; } });
+  const slept = [];
+  const sleep = async (ms) => { slept.push(ms); };
+  await performDesktopAction(desktop, { action: "open", app: "Google Chrome" }, { sleep });
+  await performDesktopAction(desktop, { action: "open", url: "https://example.com" }, { sleep });
+  assert.deepEqual(opened, [["Google Chrome", ""], ["", "https://example.com"]]);
+  assert.deepEqual(slept, [1800, 1800], "the window gets a moment to appear");
+  assert.equal(describeAgentAction({ action: "open", app: "Google Chrome" }), "Open Google Chrome");
+  await assert.rejects(performDesktopAction(fakeDesktop(), { action: "open", app: "Chrome" }, { sleep }), /press META/);
+});
+
+// The agent used to go on after a click that missed or text typed nowhere.
+import { checkLastAction, EXPECT_INSTRUCTIONS } from "../src/lib/screenAgent.js";
+test("each action is held to what the model said the screen would show", () => {
+  assert.equal(checkLastAction(null), "");
+  assert.equal(checkLastAction({ action: { action: "key" }, changed: true }), "", "nothing expected and the screen changed: nothing to check");
+  const worked = checkLastAction({ expect: "the address bar shows  youtube.com", changed: true });
+  assert.match(worked, /You expected: "the address bar shows youtube\.com"/);
+  assert.doesNotMatch(worked, /had no effect/);
+  const missed = checkLastAction({ expect: "the Save dialog is open", changed: false });
+  assert.match(missed, /had no effect/);
+  assert.match(missed, /do not carry on as if it had/);
+  assert.match(checkLastAction({ changed: false }), /had no effect/);
+  assert.match(EXPECT_INSTRUCTIONS, /"expect"/);
+});
+
+test("from 1.2.0 a click is one action with its point, so a mouse moved by hand can't misplace it", async () => {
+  const desktop = fakeDesktop({ version: "1.2.0" });
+  await performDesktopAction(desktop, { action: "click", x: 10, y: 20, button: "right" });
+  assert.deepEqual(desktop.calls, [["click", "right", false, 10, 20]]);
+});
