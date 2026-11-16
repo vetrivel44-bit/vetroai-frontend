@@ -8369,7 +8369,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {/* The toolbar, laid out like Claude's: + and the model on the left;
             the microphone and one round button on the right that starts
             voice mode, sends once there is something to send, and stops a
-            reply while it is being written. Web search lives in the header.
+            reply while it is being written.
             While dictating it becomes the recording bar: discard, live
             waveform, time, done. */}
         {isDictating ? (
@@ -9246,9 +9246,6 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             </button>
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md" onClick={() => setShowNews(true)} title="News">
               <Newspaper size={18} />
-            </button>
-            <button type="button" className={`claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md wsm-header-btn${isWebMode ? " active" : ""}`} onClick={() => setSelectedMode(isWebMode ? "normal" : "web_search")} title="Search the web" style={isWebMode ? { color: "#22d3ee" } : undefined}>
-              <Globe size={18} />
             </button>
             <button type="button" className="claude-sb-item claude-sb-icon-btn flex items-center justify-center rounded-md ch-incognito" onClick={() => { setMessages([]); setCurrentSessionId(null); setIsIncognito(true); addToast("Incognito mode — this chat won't be saved.", "info", 2500); }} title="Incognito chat" style={isIncognito ? { color: "var(--accent)" } : undefined}>
               <Ghost size={18} />
