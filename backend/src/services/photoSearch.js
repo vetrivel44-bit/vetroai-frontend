@@ -57,6 +57,61 @@ async function searchWikipedia(subject, { fetchImpl = fetch } = {}) {
     .map((page) => ({ url: page.thumbnail.source, caption: page.title }));
 }
 
+// What Wikipedia's short description of a person says ("Indian actress
+// (born 1985)", "American singer-songwriter", "Indian cricketer").
+const PERSON = /\b(?:actor|actress|singer|songwriter|rapper|musician|composer|dancer|model|politician|president|prime minister|minister|chief minister|governor|king|queen|prince|princess|monarch|cricketer|footballer|athlete|player|sprinter|boxer|wrestler|tennis|golfer|chess|director|filmmaker|producer|screenwriter|writer|author|poet|novelist|journalist|anchor|presenter|host|comedian|youtuber|influencer|businessman|businesswoman|entrepreneur|executive|ceo|founder|investor|scientist|physicist|chemist|mathematician|engineer|activist|philosopher|saint|guru|religious leader|chef|designer|artist|painter|sculptor|photographer|astronaut|soldier|general|judge|lawyer|doctor|celebrity|personality|socialite|(?:born \d{4})|\(born\b|\(\d{4}[–-])/i;
+
+// Two spellings of the same word: "agarwal" / "aggarwal", "shahrukh" /
+// "shah". Doubled letters are one, then a couple of letters may differ.
+const single = (w) => w.replace(/(.)\1+/g, "$1");
+function editDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const kept = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = kept;
+    }
+  }
+  return row[b.length];
+}
+function similar(a, b) {
+  const x = single(a);
+  const y = single(b);
+  if (x === y || (x.length >= 4 && y.length >= 4 && (x.startsWith(y) || y.startsWith(x)))) return true;
+  return Math.min(x.length, y.length) >= 4 && editDistance(x, y) <= (Math.max(x.length, y.length) >= 7 ? 2 : 1);
+}
+
+/**
+ * Is `subject` a real person, by the Wikipedia article it best matches?
+ * { person, name, description }. Asked to make a picture of a real person,
+ * the app shows real photos of them instead (frontend imageRequest.js).
+ */
+async function aboutPerson(subject, { fetchImpl = fetch } = {}) {
+  const params = new URLSearchParams({
+    action: "query", format: "json", generator: "search", gsrsearch: subject, gsrlimit: "1",
+    prop: "description", redirects: "1",
+  });
+  const res = await fetchImpl(`https://en.wikipedia.org/w/api.php?${params}`, {
+    headers: { "User-Agent": "VetroAI/1.0 (chat photos)" },
+    signal: AbortSignal.timeout(WIKI_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const page = Object.values((await res.json())?.query?.pages || {})[0];
+  if (!page?.title) return { person: false, name: subject, description: "" };
+  // The article has to be about the subject asked for: most of its words are
+  // in the title ("kajal agarwal" ~ "Kajal Aggarwal"), so a search that lands
+  // on something else doesn't count.
+  const asked = sites.cleanQuery(subject).split(" ").filter((w) => w.length > 1);
+  const titleWords = sites.cleanQuery(page.title).split(" ");
+  const near = (w) => titleWords.some((t) => similar(t, w));
+  const matches = asked.filter(near).length >= Math.max(1, Math.ceil(asked.length * 0.6));
+  const description = String(page.description || "");
+  return { person: matches && PERSON.test(description), name: matches ? page.title : subject, description };
+}
+
 const asItems = (caption) => (urls) => (urls || []).map((url) => ({ url, caption }));
 const quietly = (name, promise) => promise.catch((err) => {
   logger.warn("photoSearch.sourceFailed", { source: name, error: err?.message });
@@ -102,4 +157,4 @@ async function findPhotos(query, { limit = 4, tavilyImages = async () => [], sou
   return found;
 }
 
-module.exports = { findPhotos, imageSubject, searchWikipedia };
+module.exports = { findPhotos, imageSubject, searchWikipedia, aboutPerson };

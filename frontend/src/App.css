@@ -13386,3 +13386,5 @@ button:active{transform:scale(0.97)}
 }
 .vai-image-request button:disabled { opacity: .6; cursor: default; }
 .vai-image-request-error { flex-basis: 100%; color: #c2410c; font-size: 13px; }
+
+.vai-photos-none { color: var(--ink-3, #78746e); font-size: 14px; }

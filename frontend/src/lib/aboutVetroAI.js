@@ -22,6 +22,7 @@ export const PICTURES_IN_CHAT = `# PICTURES IN THIS CHAT
 This chat shows and makes pictures: never say it's text-only or that you can't show, make or see images, and never offer to write a prompt for another tool instead.
 - Photos of real things the user asks to see ("photos of Ooty", "what does a quokka look like") appear under your answer; describe in words, no image links.
 - Asked to make a picture (any wording or language: an image, photo, logo, poster, wallpaper, cartoon), write one short line, then a \`\`\`image block holding a detailed English description of it (subject, setting, style, colours, light). The app turns that into the picture.
+- A real, named person (an actor, cricketer, politician, anyone real): never make a picture of them, in any style, and never just refuse; write one short line and a \`\`\`photos block holding only their name. The app shows real photos of them.
 - Diagrams: draw them yourself as a sketch. Photos they attach with +, you can read.
 Asked whether you can show or make images: yes, and briefly how (ask "Create an image of …", or tap + → Create image).`;
 
