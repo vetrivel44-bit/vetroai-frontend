@@ -362,6 +362,7 @@ async function chat(req, res) {
       if (suggested && suggested !== "normal") {
         logger.info("chat.smartMode", { reqId, from: mode || "normal", to: suggested });
         smartMode = suggested;
+        res.write(`data: ${JSON.stringify({ type: "decider", data: { mode: suggested } })}\n\n`);
       }
     } catch (err) {
       logger.warn("chat.smartModeFailed", { reqId, error: err.message });

@@ -219,6 +219,8 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         // The other models asked about a hard question, shown only inside
         // the thinking panel (ResponseProcess).
         onMeta?.("council", data);
+      } else if (type === "decider" && data) {
+        onMeta?.("decider", data);
       } else if ((type === "research" || type === "research_result") && data) {
         // DeepSearch's activity log, and (from /api/research) its findings.
         onMeta?.(type, data);
@@ -7495,6 +7497,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 if (metaType === "search") last.searchQuery = String(metaData?.query || "").slice(0, 200) || null;
                 // The model that really answered, which may be a fallback.
                 if (metaType === "model") last.answeredBy = metaData;
+                if (metaType === "decider") last.decider = { ...(last.decider || {}), ...metaData };
                 next[next.length - 1] = last;
                 return next;
               });
@@ -7731,6 +7734,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 if (metaType === "search") last.searchQuery = String(metaData?.query || "").slice(0, 200) || null;
                 // The model that really answered, which may be a fallback.
                 if (metaType === "model") last.answeredBy = metaData;
+                if (metaType === "decider") last.decider = { ...(last.decider || {}), ...metaData };
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
                 if (metaType === "council") last.council = metaData;
                 if (metaType === "research") last.research = metaData;
@@ -9457,6 +9461,25 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <MedicalInfoCard data={m.medicalData} />
                            )}
                            {m.nearby && <NearbyMapCard data={m.nearby} />}
+                           {m.decider && (m.decider.mode || m.decider.effort || m.decider.provider) && (
+                             <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "6px" }}>
+                               {m.decider.mode && (
+                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
+                                   Mode: {m.decider.mode.replace(/_/g, " ")}
+                                 </span>
+                               )}
+                               {m.decider.effort && (
+                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
+                                   Effort: {m.decider.effort}
+                                 </span>
+                               )}
+                               {m.decider.provider && (
+                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
+                                   Provider: {m.decider.provider}
+                                 </span>
+                               )}
+                             </div>
+                           )}
                            {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || m.council?.members?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
                              <ResponseProcess
                                council={m.council}

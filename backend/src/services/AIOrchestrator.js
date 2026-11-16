@@ -649,6 +649,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       try {
         const fileNames = (params.fileNames || []).slice(0, 5);
         currentProviderName = await providerManager.smartRoute(mode, preferredProvider, userQuery, fileNames);
+        if (currentProviderName) {
+          this.sendVetroEvent(res, "decider", { provider: currentProviderName });
+        }
       } catch {
         currentProviderName = providerManager.getBestProvider(mode, preferredProvider);
       }
@@ -810,7 +813,11 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // ── Smart effort: Perplexity Decider picks quick/balanced/deep/max ────
     if (shouldSearch) {
       try {
+        const originalEffort = params.effort || "balanced";
         params.effort = await smartEffort(userQuery, params.effort);
+        if (params.effort !== originalEffort) {
+          this.sendVetroEvent(res, "decider", { effort: params.effort });
+        }
       } catch { /* keep the user's default */ }
     }
 
