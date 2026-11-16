@@ -71,3 +71,36 @@ test("Wikipedia gives each article's lead photo, never a logo drawing", async ()
     { url: "https://upload.wikimedia.org/agra.jpg", caption: "Agra" },
   ]);
 });
+
+const { aboutPerson } = require("../src/services/photoSearch");
+const wikiPage = (title, description) => async () => ({ ok: true, json: async () => ({ query: { pages: { 1: { title, description } } } }) });
+
+test("a real person is recognised by Wikipedia's description, spelt either way", async () => {
+  const kajal = await aboutPerson("kajal agarwal", { fetchImpl: wikiPage("Kajal Aggarwal", "Indian actress (born 1985)") });
+  assert.deepEqual(kajal, { person: true, name: "Kajal Aggarwal", description: "Indian actress (born 1985)" });
+  assert.equal((await aboutPerson("Virat Kohli", { fetchImpl: wikiPage("Virat Kohli", "Indian cricketer (born 1988)") })).person, true);
+});
+
+test("things, places, fictional characters and wrong matches aren't people", async () => {
+  assert.equal((await aboutPerson("cats", { fetchImpl: wikiPage("Cat", "Small domesticated carnivorous mammal") })).person, false);
+  assert.equal((await aboutPerson("Taj Mahal", { fetchImpl: wikiPage("Taj Mahal", "Mausoleum in Agra, India") })).person, false);
+  assert.equal((await aboutPerson("Batman", { fetchImpl: wikiPage("Batman", "Fictional superhero") })).person, false);
+  assert.equal((await aboutPerson("sunset", { fetchImpl: wikiPage("Kajal Aggarwal", "Indian actress") })).person, false, "the search landed on someone else");
+});
+
+test("/api/photos says whether it's a real person, and finds photos only then", async (t) => {
+  const app = require("../src/app");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith("http://127.0.0.1")) return realFetch(url, init);
+    if (/wikipedia\.org/.test(String(url))) return { ok: true, json: async () => ({ query: { pages: { 1: { title: "Cat", description: "Small domesticated carnivorous mammal" } } } }) };
+    throw new Error(`unexpected request to ${url}`);
+  };
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => { globalThis.fetch = realFetch; return new Promise((resolve) => server.close(resolve)); });
+  await new Promise((resolve) => server.once("listening", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/api/photos`;
+  assert.equal((await realFetch(base)).status, 400, "a subject is needed");
+  const cats = await (await realFetch(`${base}?q=cats&person=1`)).json();
+  assert.deepEqual(cats.data, { person: false, name: "cats", images: [] }, "not a person: no photo search");
+});

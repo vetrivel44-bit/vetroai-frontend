@@ -42,7 +42,8 @@ import CourseCard from "./components/chat/CourseCard";
 import { isCourseRequest, courseTopic, readCourseEvents, applyCourseEvent } from "./lib/course";
 import ModeSwitch from "./components/ModeSwitch";
 import { generateImage, editImage } from "./lib/imageGen";
-import { detectImagePrompt, imageBlockPrompt, withoutImageBlock } from "./lib/imageRequest.js";
+import { detectImagePrompt, imageBlockPrompt, personCandidate, withoutImageBlock } from "./lib/imageRequest.js";
+import { fetchPhotos, photosReply } from "./lib/photos";
 import { GeneratedImage, ImageGenLoader } from "./components/chat/GeneratedImage";
 import { isImageFollowUpEdit } from "./utils/imageEditing";
 import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
@@ -7980,6 +7981,17 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       if (idx !== -1) u[idx] = next;
       return u;
     });
+    // A picture of a real person ("Kajal Agarwal", "virat kohli as a
+    // superhero"): VetroAI doesn't make AI pictures of real people; it shows
+    // real photos of them instead (lib/photos.js, checked on Wikipedia).
+    const name = !isEdit && !apiPrompt ? personCandidate(prompt) : null;
+    if (name) {
+      const found = await fetchPhotos(name, { person: true }).catch(() => null);
+      if (found?.person) {
+        replace({ role: "assistant", content: photosReply(found.name, found.images, { realPerson: true }), timestamp: ts });
+        return;
+      }
+    }
     try {
       const imgUrl = isEdit
         ? await editImage(`Edit the supplied image. Keep everything that isn't mentioned exactly the same. Make this change: ${prompt}`, [sourceUrl])

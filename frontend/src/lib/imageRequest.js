@@ -25,7 +25,8 @@ const MAKE = "generate|create|make|paint|design|render|produce|imagine|illustrat
 const WANT = "show me|give me|send me|get me|i want|i need|i'd like|can i (?:get|have|see)";
 // Pictures in general: the word is dropped from what's sent ("an image of a
 // cat" → "a cat").
-const PLAIN = "images?|pictures?|photos?|pics?|renders?";
+// Typos too ("Generate imag of…" went to the chat model and was refused).
+const PLAIN = "images?|imag|imges?|imgae|pictures?|pictur|picure|photos?|fotos?|pics?|renders?";
 // Kinds of picture: the word is kept ("a logo for my bakery").
 const KINDS = "artworks?|art|illustrations?|portraits?|logos?|wallpapers?|icons?|posters?|banners?|thumbnails?|graphics?|memes?|avatars?|covers?|cartoons?|paintings?|stickers?";
 const ARTICLE = "(?:an?|the|some|two|three|four|few|\\d+)\\s+";
@@ -68,6 +69,26 @@ export function detectImagePrompt(text) {
   // sunset?" does.
   if (ABILITY.test(message) && !new RegExp(`\\b(?:${PLAIN}|${KINDS})\\s+(?:${LINKS})`, "i").test(message) && subject.split(/\s+/).length < 2) return null;
   return subject;
+}
+
+// Words that describe a scene or a style rather than name a subject.
+const SCENE = /\b(?:as|with|in|on|at|and|of|from|wearing|playing|riding|holding|doing|eating|drinking|sitting|standing|walking|running|flying|dancing|fighting|singing|style|styled|version|cartoon|anime|logo|poster|wallpaper|superhero|realistic|cute|happy|sad|angry)\b/i;
+
+/**
+ * The name a picture request starts with, when it may be a real person:
+ * "Kajal Aggarwal" in "Kajal Agarwal as a superhero", "virat kohli". The
+ * words before any scene or style, up to four, not "a…"/"the…". VetroAI
+ * doesn't make AI pictures of real people; it shows real photos of them
+ * instead (App.jsx asks the server, which checks Wikipedia:
+ * /api/photos?person=1). null when there's no such name.
+ */
+export function personCandidate(subject) {
+  const words = String(subject || "").trim().replace(/[?.!,]+$/, "").split(/\s+/).filter(Boolean);
+  const cut = words.findIndex((w) => SCENE.test(w));
+  const name = cut === -1 ? words : words.slice(0, cut);
+  if (!name.length || name.length > 4) return null;
+  if (/^(?:an?|the|some|my|our|your|his|her|their|this|that|two|three|\d+)$/i.test(name[0])) return null;
+  return name.join(" ");
 }
 
 const IMAGE_BLOCK = /```image[^\n]*\n([\s\S]*?)(?:```|$)/i;

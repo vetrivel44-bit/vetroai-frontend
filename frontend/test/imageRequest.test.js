@@ -38,3 +38,31 @@ test("a reply's image block gives the picture to make, and is taken out of the t
   assert.equal(imageBlockPrompt("No picture here.\n```js\nconst a = 1;\n```"), null);
   assert.equal(imageBlockPrompt("```image\n\n```"), null);
 });
+
+test("typos still count as asking for a picture", () => {
+  assert.equal(detectImagePrompt("Generate imag of Kajal Agarwal"), "Kajal Agarwal");
+  assert.equal(detectImagePrompt("create a pictur of a red car"), "a red car");
+});
+
+test("the name a picture request starts with is checked as a possible real person", async () => {
+  const { personCandidate } = await import("../src/lib/imageRequest.js");
+  assert.equal(personCandidate("Kajal Agarwal"), "Kajal Agarwal");
+  assert.equal(personCandidate("virat kohli"), "virat kohli");
+  assert.equal(personCandidate("Kajal Agarwal as a superhero"), "Kajal Agarwal", "a style doesn't hide who it is");
+  assert.equal(personCandidate("a cat in space"), null);
+  assert.equal(personCandidate("a logo for my bakery"), null);
+  assert.equal(personCandidate("one two three four five six"), null);
+});
+
+test("a real person's photos reply says why, and carries the gallery", async () => {
+  const { photosReply, fetchPhotos } = await import("../src/lib/photos.js");
+  const reply = photosReply("Kajal Aggarwal", [{ url: "https://upload.wikimedia.org/k.jpg", caption: "Kajal Aggarwal" }], { realPerson: true });
+  assert.match(reply, /Here are real photos of \*\*Kajal Aggarwal\*\*/);
+  assert.match(reply, /VetroAI shows real photos instead of making AI pictures of them/);
+  assert.match(reply, /```json\n\{"type":"visual_gallery"/);
+  assert.match(photosReply("Kajal Aggarwal", [], { realPerson: true }), /couldn't find photos/);
+  let asked = "";
+  const found = await fetchPhotos("kajal agarwal", { person: true, fetchImpl: async (url) => { asked = String(url); return { ok: true, json: async () => ({ data: { person: true, name: "Kajal Aggarwal", images: [] } }) }; } });
+  assert.match(asked, /\/photos\?q=kajal\+agarwal&person=1$/);
+  assert.deepEqual(found, { person: true, name: "Kajal Aggarwal", images: [] });
+});
