@@ -1,13 +1,14 @@
 // Should this message be searched on the web before it is answered?
 //
-// With auto-search on, a word list used to decide (liveInfoIntent). Word lists
-// can't read a message: "I am happy" was searched, the results were about
-// Pharrell Williams' song "Happy", and the reply explained the song instead of
-// answering the user. So a small, fast model (Groq's SEARCH_PLANNER_MODEL,
-// llama-3.1-8b-instant by default) reads the message — with today's date and
-// the last few turns, so "and in 2025?" is understood — and answers SEARCH or
-// NO. The word list is only the fallback when that model is unavailable or
-// slow, and still decides alone in the modes made for code and writing.
+// Primary: Perplexity's pplx-decider-v1.3 on AI Router — a model built for
+// fast classification. It reads the message with today's date and the last few
+// turns, and answers SEARCH or NO.
+//
+// Fallback 1: Groq's SEARCH_PLANNER_MODEL (llama-3.1-8b-instant), used when
+// AI Router is unavailable.
+//
+// Fallback 2: the word list (liveInfoIntent), used when both models fail or
+// are slow, and always used alone in the modes made for code and writing.
 
 const Groq = require("groq-sdk");
 const { config } = require("../config/env");
@@ -16,6 +17,7 @@ const { withGroqModel, quietReasoning } = require("../utils/groqModel");
 const { clockLine } = require("./clockService");
 const { searchQueryFor } = require("./searchGrounding");
 const { needsLiveInfo, TIMELESS_MODES, plainReading, isAboutSelf, isSmallTalk, isFollowUpRequest } = require("./liveInfoIntent");
+const decider = require("./deciderService");
 
 // Waiting longer than this for a yes/no would hold up every reply.
 const DECIDE_TIMEOUT_MS = 2500;
@@ -102,6 +104,22 @@ async function decideSearch({ query, history = [], mode, clock } = {}) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return { search: hit.search, by: "model", cached: true };
 
+  // ── Try Perplexity Decider first (AI Router) ──────────────────────────────
+  try {
+    const clockStr = clockLine(clock || {});
+    const result = await withTimeout(decider.decideSearchIntent(q, recent, clockStr), DECIDE_TIMEOUT_MS);
+    if (result !== null) {
+      if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+      cache.set(key, { search: result, at: Date.now() });
+      logger.info("searchIntent.decider", { search: result });
+      return { search: result, by: "decider" };
+    }
+    // null = unclear reply, fall through to Groq
+  } catch (err) {
+    logger.warn("searchIntent.deciderFailed", { error: err.message });
+  }
+
+  // ── Fallback: Groq model ─────────────────────────────────────────────────
   const messages = [
     { role: "system", content: `${INSTRUCTIONS}\n\n${clockLine(clock || {})}` },
     {
@@ -157,6 +175,22 @@ async function searchQueryForTurn({ query, history = [], clock } = {}) {
   const key = `${recent.join("\n")}\n${q.toLowerCase()}`;
   const hit = rewriteCache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return { query: hit.query, by: "model", cached: true };
+
+  // ── Try Perplexity Decider first ─────────────────────────────────────────
+  try {
+    const clockStr = clockLine(clock || {});
+    const rewritten = await withTimeout(decider.rewriteQuery(q, recent, clockStr), REWRITE_TIMEOUT_MS);
+    if (rewritten) {
+      if (rewriteCache.size >= CACHE_MAX) rewriteCache.delete(rewriteCache.keys().next().value);
+      rewriteCache.set(key, { query: rewritten, at: Date.now() });
+      logger.info("searchIntent.deciderRewrite", { original: q.slice(0, 80), rewritten: rewritten.slice(0, 80) });
+      return { query: rewritten, by: "decider" };
+    }
+  } catch (err) {
+    logger.warn("searchIntent.deciderRewriteFailed", { error: err.message });
+  }
+
+  // ── Fallback: Groq model ─────────────────────────────────────────────────
   try {
     const reply = await withTimeout(askModel([
       { role: "system", content: `${REWRITE_INSTRUCTIONS}\n\n${clockLine(clock || {})}` },

@@ -26,6 +26,7 @@ const airouterAdapter = require("../providers/airouterAdapter");
 const { modelFor: sarvamModelFor } = require("../providers/sarvamAdapter");
 const airouterModelFor = airouterAdapter.modelFor;
 const { decideSearch } = require("../services/searchIntentService");
+const { decideMode } = require("../services/deciderService");
 const { decideScreen } = require("../services/screenIntentService");
 const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
@@ -351,11 +352,27 @@ async function chat(req, res) {
   const cancel = new AbortController();
   res.on("close", () => { if (!res.writableEnded) cancel.abort(); });
 
+  // ── Smart mode: Perplexity Decider can upgrade "normal" to a better mode ──
+  let smartMode = mode;
+  if (!mode || mode === "normal") {
+    try {
+      const fileNames = files.map((f) => f.originalname || f.filename || "").filter(Boolean);
+      const userText = String(req.body?.input || "").trim();
+      const suggested = await decideMode(userText, fileNames);
+      if (suggested && suggested !== "normal") {
+        logger.info("chat.smartMode", { reqId, from: mode || "normal", to: suggested });
+        smartMode = suggested;
+      }
+    } catch (err) {
+      logger.warn("chat.smartModeFailed", { reqId, error: err.message });
+    }
+  }
+
   let answered = false;
   try {
     answered = await AIOrchestrator.processRequest(reqId, {
       messages,
-      mode,
+      mode: smartMode,
       provider,
       memories,
       // A turn with a picture gets the image-answer guidance: the main subject
@@ -365,6 +382,7 @@ async function chat(req, res) {
       browse,
       clock,
       hasAttachments: files.length > 0,
+      fileNames: files.map((f) => f.originalname || f.filename || "").filter(Boolean),
       activePlugins,
       effort,
       signal: cancel.signal,

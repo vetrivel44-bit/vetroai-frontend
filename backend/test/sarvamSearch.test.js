@@ -24,7 +24,12 @@ async function webSearchChat(t, provider, apiHost) {
   global.fetch = async (url, init) => {
     const href = String(url);
     if (href.startsWith("http://127.0.0.1")) return realFetch(url, init);
-    if (href.startsWith(apiHost) && !sent) sent = JSON.parse(init.body);
+    // Perplexity Decider calls (deciderService) — return a plausible classification.
+    const body = init?.body ? JSON.parse(init.body) : {};
+    if (body.model && /pplx-decider/i.test(body.model)) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: "NO" } }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (href.startsWith(apiHost) && !sent) sent = body;
     const frame = `data: ${JSON.stringify({ choices: [{ delta: { content: "The iPhone 17 Pro costs ₹1,34,900 [1]." } }] })}\n\n`;
     return new Response(frame + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
   };

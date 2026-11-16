@@ -6,7 +6,7 @@ const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
 const { browseWeb, browseQuery, BROWSE_RULES } = require("./browseService");
 const { searchWeb, searchImages } = require("../controllers/searchController");
-const { webSearchProfile, researchProfile } = require("./searchEffort");
+const { webSearchProfile, researchProfile, smartEffort } = require("./searchEffort");
 const { clockLine, describeClock, detectClockQuestion, timeZoneForPlace } = require("./clockService");
 const { buildAstrologyContext } = require("./astrologyContext");
 const { LIVE_INFO_PATTERNS, needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } = require("./liveInfoIntent");
@@ -640,9 +640,19 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       return false;
     }
 
-    let currentProviderName = needsVision
-      ? configuredVisionProvider
-      : providerManager.getBestProvider(mode, preferredProvider);
+    // Smart routing: the Perplexity Decider picks the best provider for the
+    // query when the user is on Auto. Falls back to weight-based routing.
+    let currentProviderName;
+    if (needsVision) {
+      currentProviderName = configuredVisionProvider;
+    } else {
+      try {
+        const fileNames = (params.fileNames || []).slice(0, 5);
+        currentProviderName = await providerManager.smartRoute(mode, preferredProvider, userQuery, fileNames);
+      } catch {
+        currentProviderName = providerManager.getBestProvider(mode, preferredProvider);
+      }
+    }
     let attempts = 0;
     const attemptedProviders = new Set();
     // A model picked in the model picker answers alone: a timeout, a busy
@@ -796,6 +806,13 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // answer is held to what was read.
     const isBrowse = !isAgentic && params.browse === true;
     let browsed = false;
+
+    // ── Smart effort: Perplexity Decider picks quick/balanced/deep/max ────
+    if (shouldSearch) {
+      try {
+        params.effort = await smartEffort(userQuery, params.effort);
+      } catch { /* keep the user's default */ }
+    }
 
     if (shouldSearch) {
       // DeepSearch runs the full research (agenticSearchService.js): plan,

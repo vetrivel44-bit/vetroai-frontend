@@ -7,6 +7,7 @@ const fableAdapter = require("../providers/fableAdapter");
 const airouterAdapter = require("../providers/airouterAdapter");
 const cohereAdapter = require("../providers/cohereAdapter");
 const sarvamAdapter = require("../providers/sarvamAdapter");
+const { decideProvider } = require("./deciderService");
 
 // The picker's model names (most of which run in the browser) mapped to the
 // backend provider of the same family. Without this, an unknown name such as
@@ -320,6 +321,29 @@ class ProviderManager {
 
   cooledDown(p) {
     return Date.now() >= (p.suspendedUntil ?? p.lastFailure + p.cooldown);
+  }
+
+  /**
+   * Smart routing via Perplexity Decider: when the user is on Auto (no
+   * preferred provider), asks the decider which provider fits the query best.
+   * Falls back to the weight-based getBestProvider when the decider is
+   * unavailable or picks an unconfigured provider.
+   */
+  async smartRoute(mode, preferredProvider, query, fileNames = []) {
+    // User explicitly picked a provider → honour it (no decider).
+    if (preferredProvider && !["undefined", "auto"].includes(String(preferredProvider).toLowerCase())) {
+      return this.getBestProvider(mode, preferredProvider);
+    }
+    try {
+      const suggested = await decideProvider(String(query || "").slice(0, 1500), fileNames);
+      if (suggested && this.providers[suggested] && this.isConfigured(suggested) && !this.providers[suggested].isSuspended) {
+        logger.info("ProviderManager.deciderRoute", { suggested });
+        return suggested;
+      }
+    } catch (err) {
+      logger.warn("ProviderManager.deciderRouteFailed", { error: err.message });
+    }
+    return this.getBestProvider(mode, preferredProvider);
   }
 
   getAdapter(name) {

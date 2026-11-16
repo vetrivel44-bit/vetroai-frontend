@@ -38,4 +38,28 @@ const webSearchProfile = (effort) => ({ effort: normalizeEffort(effort), ...PROF
 /** DeepSearch's options for an effort. */
 const researchProfile = (effort) => ({ ...PROFILES[normalizeEffort(effort)].research });
 
-module.exports = { normalizeEffort, webSearchProfile, researchProfile, SEARCH_EFFORT_PROFILES: PROFILES };
+// ── Smart effort: Perplexity Decider picks the right effort level ──────────
+const logger = require("../utils/logger");
+const { decideEffort } = require("./deciderService");
+
+/**
+ * When the user sends "balanced" (the default), ask the Decider what level
+ * the query actually needs. A user who explicitly picked quick/deep/max keeps
+ * their choice.
+ */
+async function smartEffort(query, userEffort) {
+  // User explicitly chose something other than the default → respect it.
+  if (userEffort && userEffort !== "balanced") return normalizeEffort(userEffort);
+  try {
+    const picked = await decideEffort(query);
+    if (picked) {
+      logger.info("searchEffort.decider", { picked });
+      return picked;
+    }
+  } catch (err) {
+    logger.warn("searchEffort.deciderFailed", { error: err.message });
+  }
+  return "balanced";
+}
+
+module.exports = { normalizeEffort, webSearchProfile, researchProfile, smartEffort, SEARCH_EFFORT_PROFILES: PROFILES };
