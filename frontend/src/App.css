@@ -13369,3 +13369,20 @@ button:active{transform:scale(0.97)}
   background: var(--bg-hover, rgba(127, 127, 127, .08));
   object-fit: cover;
 }
+
+/* A picture the chat model asked for, left in an older reply (ImageRequestBlock). */
+.vai-image-request {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 10px 0; padding: 12px 14px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .25));
+  border-radius: 12px;
+  color: var(--ink-2, var(--ink));
+  font-size: 14px;
+}
+.vai-image-request-text { flex: 1 1 200px; min-width: 0; color: var(--ink-3, #78746e); }
+.vai-image-request button {
+  padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border-med, rgba(127, 127, 127, .3));
+  background: var(--ink); color: var(--bg); font: inherit; font-size: 13.5px; cursor: pointer;
+}
+.vai-image-request button:disabled { opacity: .6; cursor: default; }
+.vai-image-request-error { flex-basis: 100%; color: #c2410c; font-size: 13px; }

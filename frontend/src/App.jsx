@@ -41,7 +41,8 @@ import FileCard from "./components/chat/FileCard";
 import CourseCard from "./components/chat/CourseCard";
 import { isCourseRequest, courseTopic, readCourseEvents, applyCourseEvent } from "./lib/course";
 import ModeSwitch from "./components/ModeSwitch";
-import { generateImage, editImage, wantsDrawing } from "./lib/imageGen";
+import { generateImage, editImage } from "./lib/imageGen";
+import { detectImagePrompt, imageBlockPrompt, withoutImageBlock } from "./lib/imageRequest.js";
 import { GeneratedImage, ImageGenLoader } from "./components/chat/GeneratedImage";
 import { isImageFollowUpEdit } from "./utils/imageEditing";
 import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
@@ -587,11 +588,7 @@ const needsWebSearch = (q) => CURRENT_TRIGGERS.some(rx => rx.test(q));
 
 
 // ─── IMAGE GENERATION ─────────────────────────────────────────────────────────
-const IMAGE_DETECT = /\b(generate|create|make|draw|paint|design|render|show me|give me)\b.{0,80}\b(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\b/i;
-const detectImagePrompt = (text) => {
-  if (!IMAGE_DETECT.test(text) || wantsDrawing(text)) return null;
-  return text.replace(/^.*(generate|create|make|draw|paint|design|render|show me|give me)\s+(an?\s+|the\s+)?(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\s+(of\s+|for\s+|about\s+|showing\s+)?/i, "").trim() || text;
-};
+// Which messages ask for a picture to be made: lib/imageRequest.js.
 
 const fileToDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -7998,6 +7995,35 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       replace({ role: "assistant", content: `Image ${isEdit ? "edit" : "generation"} failed: ${err.message}`, timestamp: ts });
     }
   };
+
+  // A reply that asks for a picture (a ```image block: the chat model saw a
+  // request for one that the message check above missed, in any wording or
+  // language; see PICTURES_IN_CHAT): once the reply is complete, the picture
+  // is made and shown in it, like one asked for directly, and kept with the
+  // chat.
+  // Replies already handled, so a picture is made once (an effect can run twice).
+  const imageBlockRepliesRef = useRef(new WeakSet());
+  useEffect(() => {
+    if (isLoading) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || last.isImageGen || last.imageBlockDone) return;
+    const prompt = imageBlockPrompt(last.content);
+    if (!prompt || imageBlockRepliesRef.current.has(last)) return;
+    imageBlockRepliesRef.current.add(last);
+    const words = withoutImageBlock(last.content);
+    const pending = { ...last, content: words, imageBlockDone: true, isImageGen: true, isPending: true, imageMode: "create", generatedImagePrompt: prompt };
+    const swap = (from, to) => setMessages((prev) => {
+      const i = prev.lastIndexOf(from);
+      if (i === -1) return prev;
+      const next = [...prev];
+      next[i] = to;
+      return next;
+    });
+    queueMicrotask(() => swap(last, pending));
+    generateImage(prompt)
+      .then((url) => swap(pending, { ...pending, isPending: false, generatedImageUrl: url }))
+      .catch((err) => swap(pending, { ...pending, isPending: false, isImageGen: false, content: `${words}\n\n_Couldn't make the picture: ${err.message}_`.trim() }));
+  }, [messages, isLoading]);
 
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();

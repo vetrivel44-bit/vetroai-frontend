@@ -32,7 +32,6 @@ export const generateImage = (prompt, { signal } = {}) => callImageApi("generate
 /** images: data URLs of the pictures to edit. */
 export const editImage = (prompt, images, { signal } = {}) => callImageApi("edit", { prompt, images }, signal);
 
-// Asking to draw or sketch something, or for a drawing or diagram, is a
-// drawing in the chat (a ```sketch, with a detailed version): only other
-// image requests ("generate an image of…") go straight to the image model.
-export const wantsDrawing = (text) => /\b(draw|drawing|sketch|diagram)\b/i.test(String(text || ""));
+// Drawings and diagrams are drawn in the chat, not made by the image model
+// (lib/imageRequest.js, where the rest of image-request detection lives).
+export { wantsDrawing } from "./imageRequest.js";
