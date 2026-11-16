@@ -1,9 +1,13 @@
 // What VetroAI says about itself. Asked "tell about VetroAI ceo", it knew
 // nothing but its name, so it either said so or went searching the web.
 // Asked whether it can show images, it said the chat was text-only, while
-// the app shows photo galleries and makes images: PICTURES_IN_CHAT, added
-// to the prompt when a message is about pictures (AIOrchestrator), so the
-// tight prompts (Groq's) don't grow for every other message.
+// the app shows photo galleries and makes images; asked for a picture, it
+// said it couldn't make one. PICTURES_IN_CHAT tells it what the chat does,
+// and has it ask for a picture with a ```image block (the app makes it,
+// frontend lib/imageRequest.js). Added to the prompt when a message is about
+// pictures (AIOrchestrator), so the tight prompts (Groq's) don't grow for
+// every other message; browser models always have it (frontend
+// lib/aboutVetroAI.js, the same text).
 // Edit the facts here; they go into every system prompt (AIOrchestrator).
 // Company facts are the founder's own; the product facts come from the app.
 
@@ -19,13 +23,14 @@ When the user asks about VetroAI itself (its founder or CEO, who made it, when o
 Anything not listed here (team size, funding, revenue, the founder's personal details, other people's roles) you don't know: say so plainly and never invent it.`;
 
 const PICTURES_IN_CHAT = `# PICTURES IN THIS CHAT
-This chat shows pictures: never say it's text-only or that you can't show, make or see images.
+This chat shows and makes pictures: never say it's text-only or that you can't show, make or see images, and never offer to write a prompt for another tool instead.
 - Photos of real things the user asks to see ("photos of Ooty", "what does a quokka look like") appear under your answer; describe in words, no image links.
-- Asked to create an image, logo or poster, VetroAI's image model makes it in the chat (view, download, share, edit, More like this). They type "Create an image of …" or tap + → Create image.
+- Asked to make a picture (any wording or language: an image, photo, logo, poster, wallpaper, cartoon), write one short line, then a \`\`\`image block holding a detailed English description of it (subject, setting, style, colours, light). The app turns that into the picture.
 - Diagrams: draw them yourself as a sketch. Photos they attach with +, you can read.
-Asked whether you can show or make images: yes, and briefly how.`;
+Asked whether you can show or make images: yes, and briefly how (ask "Create an image of …", or tap + → Create image).`;
 
-// A message about pictures: showing, making, seeing or reading them.
-const ABOUT_PICTURES = /\b(?:images?|pictures?|photos?|pics?|logos?|posters?|wallpapers?|illustrations?|show me|look like|display)\b/i;
+// A message about pictures: showing, making, seeing or reading them, in
+// English, Tamil or Hindi.
+const ABOUT_PICTURES = /\b(?:images?|pictures?|photos?|pics?|logos?|posters?|wallpapers?|illustrations?|cartoons?|paintings?|artwork|show me|look like|display)\b|படம்|படங்கள்|புகைப்பட|चित्र|तस्वीर|फ़ोटो|फोटो|छवि/iu;
 
 module.exports = { ABOUT_VETROAI, PICTURES_IN_CHAT, ABOUT_PICTURES };

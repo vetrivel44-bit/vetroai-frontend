@@ -222,7 +222,10 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
     return this.VISUALIZATION_TRIGGERS.some(rx => rx.test(q));
   }
 
+  // Asking for a picture to be made ("create an image of a cat") isn't asking
+  // for real photos: the picture is made instead (frontend imageRequest.js).
   needsImageSearch(q) {
+    if (/\b(?:generate|create|make|paint|design|render|produce|imagine|illustrate)\b/i.test(q)) return false;
     return this.IMAGE_TRIGGERS.some(rx => rx.test(q));
   }
 

@@ -6,11 +6,13 @@ const providerManager = require("../src/services/ProviderManager");
 const { PICTURES_IN_CHAT, ABOUT_PICTURES } = require("../src/config/aboutVetroAI");
 
 test("VetroAI knows its chat shows and makes pictures", () => {
-  assert.match(PICTURES_IN_CHAT, /This chat shows pictures/);
+  assert.match(PICTURES_IN_CHAT, /This chat shows and makes pictures/);
+  assert.match(PICTURES_IN_CHAT, /never offer to write a prompt for another tool/);
+  assert.match(PICTURES_IN_CHAT, /```image block/, "asked for a picture, it asks the app to make one");
   assert.match(PICTURES_IN_CHAT, /never say it's text-only or that you can't show, make or see images/);
   assert.match(PICTURES_IN_CHAT, /Create an image of/);
   assert.match(PICTURES_IN_CHAT, /tap \+ → Create image/);
-  for (const q of ["Can you show images?", "Can ChatGPT show pictures?", "make me a logo", "what does it look like"]) assert.ok(ABOUT_PICTURES.test(q), q);
+  for (const q of ["Can you show images?", "Can ChatGPT show pictures?", "make me a logo", "what does it look like", "make a cartoon of a cat", "ஒரு பூனையின் படம் உருவாக்கு", "एक बिल्ली की तस्वीर बनाओ"]) assert.ok(ABOUT_PICTURES.test(q), q);
   assert.equal(ABOUT_PICTURES.test("compare rainfall in chennai and mumbai"), false);
 });
 
@@ -18,7 +20,7 @@ test("asking to see something real brings up photos; asking about images doesn't
   for (const q of ["show me photos of Ooty", "show photos of the Taj Mahal", "can you show me some pictures of tigers", "how does a quokka look", "pictures of Chennai beach"]) {
     assert.equal(orchestrator.needsImageSearch(q), true, q);
   }
-  for (const q of ["Can ChatGPT show images?", "Can you show images?", "What is photosynthesis", "show me how to cook rice"]) {
+  for (const q of ["Can ChatGPT show images?", "Can you show images?", "What is photosynthesis", "show me how to cook rice", "create an image of a cat in space"]) {
     assert.equal(orchestrator.needsImageSearch(q), false, q);
   }
 });
