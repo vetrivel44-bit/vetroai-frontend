@@ -3,6 +3,7 @@ import { READ_ALOUD_CHUNK_CHARS, freeReadAloudVoice, READ_SPEEDS, createStreamin
 import { createReadHighlighter } from "./lib/readAloudHighlight.js";
 import ReadAloudBar from "./components/ReadAloudBar.jsx";
 import ResponseProcess from "./components/ResponseProcess.jsx";
+import PlusMenu from "./components/PlusMenu.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -7946,9 +7947,23 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   useEffect(() => { submitVoiceRef.current = submitVoice; }, [submitVoice]);
   useEffect(() => { stopMicRef.current = stopMic; }, [stopMic]);
 
+  // + → Create image: starts the request in the message box ("Create an
+  // image of "), so the person says what they want and sends it as usual.
+  const startImageRequest = () => {
+    setInput((current) => (detectImagePrompt(current) ? current : `Create an image of ${current.trim()}`.replace(/\s+$/, " ")));
+    requestAnimationFrame(() => {
+      const box = textareaRef.current;
+      if (!box || box.disabled) return;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    });
+  };
+
   // Makes an image with Gemini 3.1 Flash Lite Image, or edits sourceUrl when
-  // given, showing the animated placeholder until it arrives.
-  const runImageJob = async ({ userText, prompt, sourceUrl }) => {
+  // given, showing the animated placeholder until it arrives. `apiPrompt`,
+  // when given, is what the image model is asked (a variation's wording);
+  // `prompt` is what the reply shows.
+  const runImageJob = async ({ userText, prompt, sourceUrl, apiPrompt }) => {
     const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const isEdit = Boolean(sourceUrl);
     const userMsg = { role: "user", content: userText, timestamp: ts, sentAt: Date.now() };
@@ -7967,7 +7982,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     try {
       const imgUrl = isEdit
         ? await editImage(`Edit the supplied image. Keep everything that isn't mentioned exactly the same. Make this change: ${prompt}`, [sourceUrl])
-        : await generateImage(prompt);
+        : await generateImage(apiPrompt || prompt);
       replace({
         role: "assistant",
         content: isEdit ? "Here's your edited image:" : `Here's your generated image of **"${prompt}"**:`,
@@ -8417,9 +8432,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ) : (
           <div className="vc-footer">
             <div className="vc-footer-left">
-              <button type="button" className="vc-round vc-fill vc-plus" onClick={() => fileInputRef.current?.click()} title="Add photos and files" aria-label="Add photos and files">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15" /></svg>
-              </button>
+              <PlusMenu onAddFiles={() => fileInputRef.current?.click()} onCreateImage={startImageRequest} />
               <div className="vc-model-wrap">
                 {showModelPicker && <WorkspacePopup
                   currentProvider={selectedProvider}
@@ -9448,6 +9461,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                      busy={isLoading || messages.some(x => x.isPending && x.isImageGen)}
                                      onNotify={addToast}
                                      onEdit={(changes) => runImageJob({ userText: changes, prompt: changes, sourceUrl: m.generatedImageUrl })}
+                                     onVariation={m.generatedImagePrompt ? () => runImageJob({
+                                       userText: `More like this: ${m.generatedImagePrompt}`,
+                                       prompt: m.generatedImagePrompt,
+                                       apiPrompt: `${m.generatedImagePrompt}. A fresh take on it: a different composition, angle and details from any earlier version.`,
+                                     }) : undefined}
                                    />
                                  </div>
                                : m.isMultiAi

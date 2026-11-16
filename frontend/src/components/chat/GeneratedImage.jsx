@@ -2,7 +2,7 @@
 // Flash Lite Image works, and the finished image with Edit / Download / Share
 // and a full-screen view.
 import { useEffect, useRef, useState } from "react";
-import { Download, Share2, Pencil, Maximize2, X, ArrowUp } from "lucide-react";
+import { Download, Share2, Pencil, Maximize2, X, ArrowUp, Shuffle } from "lucide-react";
 import { IMAGE_MODEL_NAME } from "../../lib/imageGen";
 import "./GeneratedImage.css";
 
@@ -50,7 +50,8 @@ async function toBlob(src) {
 }
 
 /** A finished image with its actions. onEdit(changes) asks for an edited copy. */
-export function GeneratedImage({ src, prompt, caption, onEdit, onNotify, busy }) {
+// onVariation: "More like this", a new image from the same request.
+export function GeneratedImage({ src, prompt, caption, onEdit, onVariation, onNotify, busy }) {
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [changes, setChanges] = useState("");
@@ -131,6 +132,11 @@ export function GeneratedImage({ src, prompt, caption, onEdit, onNotify, busy })
         {onEdit && (
           <button type="button" className={`gi-btn${editing ? " is-active" : ""}`} onClick={() => setEditing((v) => !v)} disabled={busy}>
             <Pencil size={15} /> Edit
+          </button>
+        )}
+        {onVariation && (
+          <button type="button" className="gi-btn" onClick={onVariation} disabled={busy}>
+            <Shuffle size={15} /> More like this
           </button>
         )}
         <button type="button" className="gi-btn" onClick={download}><Download size={15} /> Download</button>
