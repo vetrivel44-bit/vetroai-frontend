@@ -190,4 +190,6 @@ async function findSiteImage({ q, w, h, i } = {}) {
 
 function clearCache() { cache.clear(); }
 
-module.exports = { findSiteImage, placeholderSvg, cleanQuery, orientationOf, clearCache };
+// The searches on their own are also used for the chat's photo gallery
+// (photoSearch.js).
+module.exports = { findSiteImage, placeholderSvg, cleanQuery, orientationOf, clearCache, searchPexels, searchCommons, searchOpenverse };

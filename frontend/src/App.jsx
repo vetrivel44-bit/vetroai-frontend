@@ -3,6 +3,7 @@ import { READ_ALOUD_CHUNK_CHARS, freeReadAloudVoice, READ_SPEEDS, createStreamin
 import { createReadHighlighter } from "./lib/readAloudHighlight.js";
 import ReadAloudBar from "./components/ReadAloudBar.jsx";
 import ResponseProcess from "./components/ResponseProcess.jsx";
+import PlusMenu from "./components/PlusMenu.jsx";
 import { canListen, createVoiceListener, interruptsReply } from "./lib/voiceListener.js";
 import { speakText, stopSpeaking } from "./lib/tts.js";
 import { detectSpeechLanguage, typedLanguage } from "./lib/speechLanguage.js";
@@ -40,7 +41,9 @@ import FileCard from "./components/chat/FileCard";
 import CourseCard from "./components/chat/CourseCard";
 import { isCourseRequest, courseTopic, readCourseEvents, applyCourseEvent } from "./lib/course";
 import ModeSwitch from "./components/ModeSwitch";
-import { generateImage, editImage, wantsDrawing } from "./lib/imageGen";
+import { generateImage, editImage } from "./lib/imageGen";
+import { detectImagePrompt, imageBlockPrompt, personCandidate, withoutImageBlock } from "./lib/imageRequest.js";
+import { fetchPhotos, photosReply } from "./lib/photos";
 import { GeneratedImage, ImageGenLoader } from "./components/chat/GeneratedImage";
 import { isImageFollowUpEdit } from "./utils/imageEditing";
 import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
@@ -73,7 +76,7 @@ import ResearchActivity from "./components/ResearchActivity";
 import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
 import { settleResearch } from "./lib/research";
 import SourceFavicon from "./components/SourceFavicon";
-import { CitationLink } from "./components/CitationLink";
+import { CitationLink, MarkdownImage } from "./components/CitationLink";
 import { TableCell } from "./components/chat/TableCell";
 import { CitationContext } from "./lib/citationContext";
 import { remarkCitations, remarkDropCitations } from "./lib/citations";
@@ -586,11 +589,7 @@ const needsWebSearch = (q) => CURRENT_TRIGGERS.some(rx => rx.test(q));
 
 
 // ─── IMAGE GENERATION ─────────────────────────────────────────────────────────
-const IMAGE_DETECT = /\b(generate|create|make|draw|paint|design|render|show me|give me)\b.{0,80}\b(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\b/i;
-const detectImagePrompt = (text) => {
-  if (!IMAGE_DETECT.test(text) || wantsDrawing(text)) return null;
-  return text.replace(/^.*(generate|create|make|draw|paint|design|render|show me|give me)\s+(an?\s+|the\s+)?(image|picture|photo|artwork|illustration|portrait|sketch|logo|wallpaper|icon|poster|banner|thumbnail|graphic|meme|avatar|cover)\s+(of\s+|for\s+|about\s+|showing\s+)?/i, "").trim() || text;
-};
+// Which messages ask for a picture to be made: lib/imageRequest.js.
 
 const fileToDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -1232,6 +1231,8 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   const sources = useContext(CitationContext);
   const components = useMemo(() => ({
     a: CitationLink,
+    // A picture the reply links to is shown, not listed as a link (lib/inlineImages.js).
+    img: MarkdownImage,
     td: TableCell,
     // The code renderer below draws its own card; markdown's <pre> around it
     // only added a second, mismatched box behind that card.
@@ -1274,6 +1275,8 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
 
 // Plain markdown — used where code blocks need no artifact affordances.
 const PLAIN_COMPONENTS = {
+  a: CitationLink,
+  img: MarkdownImage,
   td: TableCell,
   // Visual blocks are drawn here too; everything else is react-markdown's own code.
   code({ node, className, children }) {
@@ -7946,9 +7949,23 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   useEffect(() => { submitVoiceRef.current = submitVoice; }, [submitVoice]);
   useEffect(() => { stopMicRef.current = stopMic; }, [stopMic]);
 
+  // + → Create image: starts the request in the message box ("Create an
+  // image of "), so the person says what they want and sends it as usual.
+  const startImageRequest = () => {
+    setInput((current) => (detectImagePrompt(current) ? current : `Create an image of ${current.trim()}`.replace(/\s+$/, " ")));
+    requestAnimationFrame(() => {
+      const box = textareaRef.current;
+      if (!box || box.disabled) return;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    });
+  };
+
   // Makes an image with Gemini 3.1 Flash Lite Image, or edits sourceUrl when
-  // given, showing the animated placeholder until it arrives.
-  const runImageJob = async ({ userText, prompt, sourceUrl }) => {
+  // given, showing the animated placeholder until it arrives. `apiPrompt`,
+  // when given, is what the image model is asked (a variation's wording);
+  // `prompt` is what the reply shows.
+  const runImageJob = async ({ userText, prompt, sourceUrl, apiPrompt }) => {
     const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const isEdit = Boolean(sourceUrl);
     const userMsg = { role: "user", content: userText, timestamp: ts, sentAt: Date.now() };
@@ -7964,10 +7981,21 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       if (idx !== -1) u[idx] = next;
       return u;
     });
+    // A picture of a real person ("Kajal Agarwal", "virat kohli as a
+    // superhero"): VetroAI doesn't make AI pictures of real people; it shows
+    // real photos of them instead (lib/photos.js, checked on Wikipedia).
+    const name = !isEdit && !apiPrompt ? personCandidate(prompt) : null;
+    if (name) {
+      const found = await fetchPhotos(name, { person: true }).catch(() => null);
+      if (found?.person) {
+        replace({ role: "assistant", content: photosReply(found.name, found.images, { realPerson: true }), timestamp: ts });
+        return;
+      }
+    }
     try {
       const imgUrl = isEdit
         ? await editImage(`Edit the supplied image. Keep everything that isn't mentioned exactly the same. Make this change: ${prompt}`, [sourceUrl])
-        : await generateImage(prompt);
+        : await generateImage(apiPrompt || prompt);
       replace({
         role: "assistant",
         content: isEdit ? "Here's your edited image:" : `Here's your generated image of **"${prompt}"**:`,
@@ -7979,6 +8007,35 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       replace({ role: "assistant", content: `Image ${isEdit ? "edit" : "generation"} failed: ${err.message}`, timestamp: ts });
     }
   };
+
+  // A reply that asks for a picture (a ```image block: the chat model saw a
+  // request for one that the message check above missed, in any wording or
+  // language; see PICTURES_IN_CHAT): once the reply is complete, the picture
+  // is made and shown in it, like one asked for directly, and kept with the
+  // chat.
+  // Replies already handled, so a picture is made once (an effect can run twice).
+  const imageBlockRepliesRef = useRef(new WeakSet());
+  useEffect(() => {
+    if (isLoading) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || last.isImageGen || last.imageBlockDone) return;
+    const prompt = imageBlockPrompt(last.content);
+    if (!prompt || imageBlockRepliesRef.current.has(last)) return;
+    imageBlockRepliesRef.current.add(last);
+    const words = withoutImageBlock(last.content);
+    const pending = { ...last, content: words, imageBlockDone: true, isImageGen: true, isPending: true, imageMode: "create", generatedImagePrompt: prompt };
+    const swap = (from, to) => setMessages((prev) => {
+      const i = prev.lastIndexOf(from);
+      if (i === -1) return prev;
+      const next = [...prev];
+      next[i] = to;
+      return next;
+    });
+    queueMicrotask(() => swap(last, pending));
+    generateImage(prompt)
+      .then((url) => swap(pending, { ...pending, isPending: false, generatedImageUrl: url }))
+      .catch((err) => swap(pending, { ...pending, isPending: false, isImageGen: false, content: `${words}\n\n_Couldn't make the picture: ${err.message}_`.trim() }));
+  }, [messages, isLoading]);
 
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
@@ -8417,9 +8474,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ) : (
           <div className="vc-footer">
             <div className="vc-footer-left">
-              <button type="button" className="vc-round vc-fill vc-plus" onClick={() => fileInputRef.current?.click()} title="Add photos and files" aria-label="Add photos and files">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15" /></svg>
-              </button>
+              <PlusMenu onAddFiles={() => fileInputRef.current?.click()} onCreateImage={startImageRequest} />
               <div className="vc-model-wrap">
                 {showModelPicker && <WorkspacePopup
                   currentProvider={selectedProvider}
@@ -9445,6 +9500,11 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                      busy={isLoading || messages.some(x => x.isPending && x.isImageGen)}
                                      onNotify={addToast}
                                      onEdit={(changes) => runImageJob({ userText: changes, prompt: changes, sourceUrl: m.generatedImageUrl })}
+                                     onVariation={m.generatedImagePrompt ? () => runImageJob({
+                                       userText: `More like this: ${m.generatedImagePrompt}`,
+                                       prompt: m.generatedImagePrompt,
+                                       apiPrompt: `${m.generatedImagePrompt}. A fresh take on it: a different composition, angle and details from any earlier version.`,
+                                     }) : undefined}
                                    />
                                  </div>
                                : m.isMultiAi

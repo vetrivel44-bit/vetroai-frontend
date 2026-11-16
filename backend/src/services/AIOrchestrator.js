@@ -19,6 +19,7 @@ const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
 const { withTimeout } = require("../utils/withTimeout");
 const council = require("./councilService");
+const { PICTURES_IN_CHAT, ABOUT_PICTURES } = require("../config/aboutVetroAI");
 
 // Adapters that read a message's `images` field, so they can be handed a
 // screenshot (see geminiAdapter.js / cohereAdapter.js). Order is preference:
@@ -174,6 +175,9 @@ class AIOrchestrator {
       /\b(picture|pictures|photo|photos|image|images|pic|pics)\s+of\b/i,
       /\bshow me (a |an |the )?(picture|pictures|photo|photos|image|images)\b/i,
       /\bwhat does .{2,60} look like\b/i,
+      /\bhow does .{2,60} look\b/i,
+      /\bshow me (?:some |a few )?(?:real )?(?:pictures|photos|images|pics)\b/i,
+      /^\s*(?:please\s+)?show (?:some |a few )?(?:real )?(?:pictures|photos|images|pics)\b/i,
     ];
 
   }
@@ -218,7 +222,10 @@ Before your answer, write your reasoning inside a single <think>...</think> bloc
     return this.VISUALIZATION_TRIGGERS.some(rx => rx.test(q));
   }
 
+  // Asking for a picture to be made ("create an image of a cat") isn't asking
+  // for real photos: the picture is made instead (frontend imageRequest.js).
   needsImageSearch(q) {
+    if (/\b(?:generate|create|make|paint|design|render|produce|imagine|illustrate)\b/i.test(q)) return false;
     return this.IMAGE_TRIGGERS.some(rx => rx.test(q));
   }
 
@@ -891,6 +898,14 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     if (noRealtimeData) {
       promptExtras += `\n\n[NO REAL-TIME DATA AVAILABLE]\nA live web search was attempted for this query but returned no usable results. Do NOT state or imply any specific real-time fact (a current price, score, status, who is in a show or contest, who holds a role, a person's current party or affiliation, or an "as of today/now" claim) as if it were verified — you have no live data backing it. Never guess who a person is or what organisation they founded or lead; if you are not certain, say you are not sure. Tell the user plainly that live/current data could not be retrieved right now, and suggest checking an official or live source, rather than answering from training knowledge as if it were current. This is only about live facts: stable reference data (climate averages, historical statistics, census figures, geography) is not real-time, so answer or chart it confidently and completely from what you know (past office holders, historical dates and lists, geography) instead of refusing; label only genuine estimates as approximate.`;
+    }
+    // A message about pictures: what this chat can show and make, so the
+    // model never says it's text-only (aboutVetroAI.js).
+    if (shouldFetchImages || ABOUT_PICTURES.test(userQuery)) promptExtras += `\n\n${PICTURES_IN_CHAT}`;
+    // Photos of the subject are shown under this answer (the gallery): the
+    // model is told, so it doesn't say it can't show them.
+    if (shouldFetchImages) {
+      promptExtras += `\n\n[PHOTOS SHOWN]\nReal photos for this message are shown under your answer by the app. Don't say you can't show pictures, and don't add image links; answer in words, and you may say the photos are below.`;
     }
     if (browsed) promptExtras += BROWSE_RULES;
     promptExtras += buildPluginPrompt(params.activePlugins);

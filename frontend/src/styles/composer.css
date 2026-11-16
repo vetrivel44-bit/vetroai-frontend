@@ -155,6 +155,41 @@
 
 /* Model and effort: "Auto Medium", the effort quieter than the name. */
 .vc-composer .vc-model-wrap { position: relative; min-width: 0; display: flex; }
+
+/* + menu (components/PlusMenu.jsx): add photos & files, or create an image. */
+.vc-composer .vc-plus-wrap { position: relative; flex: none; display: flex; }
+.vc-composer .vc-plus-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 1000;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--bg-elevated, #2b2b29);
+  border: 1px solid var(--vc-line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+  animation: popUp .15s ease-out forwards;
+}
+.vc-composer .vc-plus-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--vc-text);
+  font: inherit;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.vc-composer .vc-plus-menu button svg { color: var(--vc-icon); flex: none; }
+.vc-composer .vc-plus-menu button:hover,
+.vc-composer .vc-plus-menu button:focus-visible { background: var(--vc-fill-hover); outline: none; }
 .claude-input-box.vc-composer .vc-model {
   box-sizing: border-box;
   display: inline-flex !important;
