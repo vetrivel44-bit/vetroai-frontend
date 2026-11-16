@@ -1,3 +1,4 @@
+const { findPhotos } = require("../services/photoSearch");
 const { tavily } = require("@tavily/core");
 const { search } = require("duck-duck-scrape");
 const { successResponse } = require("../utils/response");
@@ -165,8 +166,10 @@ async function searchKeyless(query) {
   return { provider: null, results: [] };
 }
 
-// ── Image search (Tavily only — DDG fallback has no reliable image API) ───────
-async function searchImages(query, limit = 4) {
+// ── Image search ─────────────────────────────────────────────────────────────
+// Tavily's images for a search, when it has a key. The chat's gallery asks
+// Tavily and the keyless photo sources at once (services/photoSearch.js).
+async function tavilyImages(query, limit = 4) {
   const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY;
   if (!apiKey || !query) return [];
 
@@ -189,6 +192,11 @@ async function searchImages(query, limit = 4) {
     logger.warn("Tavily image search failed", { error: err.message });
     return [];
   }
+}
+
+/** Photos for the chat's gallery, from Tavily and the other photo sources. */
+function searchImages(query, limit = 4) {
+  return findPhotos(query, { limit, tavilyImages: (subject) => tavilyImages(subject, limit) });
 }
 
 // " (published 23 Sep 2026)" when a result carries a date, so the answering
@@ -325,4 +333,4 @@ async function performSearch(req, res) {
   }
 }
 
-module.exports = { performSearch, searchWeb, searchForResearch, searchImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems };
+module.exports = { performSearch, searchWeb, searchForResearch, searchImages, tavilyImages, searchTavily, tavilySearch, searchDDG, searchBingRss, searchKeyless, parseRssItems };

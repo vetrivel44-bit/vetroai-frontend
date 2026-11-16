@@ -74,7 +74,7 @@ import ResearchActivity from "./components/ResearchActivity";
 import DeepSearchIntro, { DeepSearchExamples } from "./components/DeepSearchIntro";
 import { settleResearch } from "./lib/research";
 import SourceFavicon from "./components/SourceFavicon";
-import { CitationLink } from "./components/CitationLink";
+import { CitationLink, MarkdownImage } from "./components/CitationLink";
 import { TableCell } from "./components/chat/TableCell";
 import { CitationContext } from "./lib/citationContext";
 import { remarkCitations, remarkDropCitations } from "./lib/citations";
@@ -1233,6 +1233,8 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
   const sources = useContext(CitationContext);
   const components = useMemo(() => ({
     a: CitationLink,
+    // A picture the reply links to is shown, not listed as a link (lib/inlineImages.js).
+    img: MarkdownImage,
     td: TableCell,
     // The code renderer below draws its own card; markdown's <pre> around it
     // only added a second, mismatched box behind that card.
@@ -1275,6 +1277,8 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
 
 // Plain markdown — used where code blocks need no artifact affordances.
 const PLAIN_COMPONENTS = {
+  a: CitationLink,
+  img: MarkdownImage,
   td: TableCell,
   // Visual blocks are drawn here too; everything else is react-markdown's own code.
   code({ node, className, children }) {
