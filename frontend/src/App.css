@@ -13388,3 +13388,13 @@ button:active{transform:scale(0.97)}
 .vai-image-request-error { flex-basis: 100%; color: #c2410c; font-size: 13px; }
 
 .vai-photos-none { color: var(--ink-3, #78746e); font-size: 14px; }
+
+/* Flashcards due: a quiet reminder under the greeting (FlashcardsPanel). */
+.fc-reminder {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 14px; padding: 7px 14px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .25)); border-radius: 999px;
+  background: var(--bg-elevated, transparent); color: var(--ink-2, var(--ink));
+  font: inherit; font-size: 13.5px; cursor: pointer;
+}
+.fc-reminder:hover, .fc-reminder:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .1)); outline: none; }

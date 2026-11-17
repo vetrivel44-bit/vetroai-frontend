@@ -31,7 +31,7 @@ import {
 import { db } from "../firebase.js";
 
 /** Collections that are stored as one document per array item. */
-export const LIST_KINDS = ["sessions", "spaces", "artifacts", "memories"];
+export const LIST_KINDS = ["sessions", "spaces", "artifacts", "memories", "flashcards"];
 
 const SYNC_DELAY_MS = 1500;
 // Firestore's hard limit is 1 MiB per document; stay clear of it so an

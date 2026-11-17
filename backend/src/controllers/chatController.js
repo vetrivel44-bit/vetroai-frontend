@@ -31,6 +31,7 @@ const { decideScreen } = require("../services/screenIntentService");
 const ttsService = require("../services/ttsService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
+const flashcardService = require("../services/flashcardService");
 const { clientClock } = require("../services/clockService");
 const { verifyAccessToken } = require("../utils/token");
 const { extractPdfText, isPdf } = require("../services/pdfText");
@@ -470,6 +471,57 @@ async function generateTitle(req, res) {
   return successResponse(res, "Title generated", { title: title.replace(/^[\"']|[\"']$/g, "").slice(0, 64) });
 }
 
+// A quick, one-off model call (follow-up questions, flashcards): whichever
+// provider is configured, through one interface so the prompt and the
+// cleanup are the same for both. null when neither is.
+function quickModel() {
+  if (groq) {
+    return async ({ system, user, maxTokens, temperature }) => {
+      const completion = await withRetry(
+        // A stronger model than llama-3.1-8b-instant: the questions are the
+        // whole point, and the weaker one reached for templates. Its own model
+        // (config.groqFollowUpModel), reasoning off, off the chat model's limit.
+        () => withGroqModel(groq, config.groqFollowUpModel, (model) => groq.chat.completions.create({
+          model,
+          temperature,
+          max_tokens: maxTokens,
+          ...quietReasoning(model),
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        })),
+        1
+      );
+      return completion?.choices?.[0]?.message?.content || "";
+    };
+  }
+  if (airouterAvailable()) {
+    return async ({ system, user, maxTokens, temperature }) => callAirouterChat({
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      temperature,
+      maxTokens,
+    });
+  }
+  return null;
+}
+
+// POST /api/flashcards { text, topic } — study flashcards from an answer
+// (flashcardService.js). Replies { deck, cards: [{ front, back }] }.
+async function flashcards(req, res) {
+  const text = String(req.body?.text || "").trim().slice(0, 12000);
+  const topic = String(req.body?.topic || "").trim().slice(0, 300);
+  if (text.length < 40) throw new ApiError(400, "There isn't enough in this answer to make flashcards from.");
+  const callModel = quickModel();
+  if (!callModel) throw new ApiError(503, "Flashcards aren't available right now.");
+  let result;
+  try {
+    result = await flashcardService.generateFlashcards({ text, topic, callModel });
+  } catch (error) {
+    logger.warn("chat.flashcards.failed", { error: error.message });
+    throw new ApiError(502, "Couldn't make flashcards right now. Try again in a moment.");
+  }
+  if (!result.cards.length) throw new ApiError(422, "Couldn't find anything in this answer to make flashcards from.");
+  return successResponse(res, "Flashcards", result);
+}
+
 async function followUps(req, res) {
   const lastMessage = String(req.body?.lastMessage || "").trim();
   const userQuery = String(req.body?.userQuery || "").trim();
@@ -489,34 +541,7 @@ async function followUps(req, res) {
 
   if (!lastMessage) throw new ApiError(400, "lastMessage is required");
 
-  // Whichever provider is configured, called through one interface so the
-  // prompt and the cleanup are identical for both.
-  let callModel = null;
-  if (groq) {
-    callModel = async ({ system, user, maxTokens, temperature }) => {
-      const completion = await withRetry(
-        // A stronger model than llama-3.1-8b-instant: the questions are the
-        // whole point, and the weaker one reached for templates. Its own model
-        // (config.groqFollowUpModel), reasoning off, off the chat model's limit.
-        () => withGroqModel(groq, config.groqFollowUpModel, (model) => groq.chat.completions.create({
-          model,
-          temperature,
-          max_tokens: maxTokens,
-          ...quietReasoning(model),
-          messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        })),
-        1
-      );
-      return completion?.choices?.[0]?.message?.content || "";
-    };
-  } else if (airouterAvailable()) {
-    callModel = async ({ system, user, maxTokens, temperature }) => callAirouterChat({
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature,
-      maxTokens,
-    });
-  }
-
+  const callModel = quickModel();
   if (!callModel) {
     return successResponse(res, "No follow-ups available", { suggestions: [] });
   }
@@ -600,4 +625,4 @@ async function screenIntent(req, res) {
   return successResponse(res, "Screen decision", { screen: decision.screen, by: decision.by });
 }
 
-module.exports = { chat, generateTitle, followUps, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, normalizeMessages, searchIntent, screenIntent };
+module.exports = { chat, generateTitle, followUps, flashcards, getHealth, medicalAnswer, textToSpeech, getAttachmentContext, normalizeMessages, searchIntent, screenIntent };

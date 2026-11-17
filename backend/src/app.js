@@ -54,6 +54,8 @@ app.post(
 // Image edits carry the attached photos as data URLs, so this route parses
 // bigger bodies than the rest of the API.
 app.use("/api/image", express.json({ limit: "25mb" }), require("./routes/imageRoutes"));
+// Camera translate sends a photo: its own body limit, before the 1 MB parser.
+app.use("/api/lens", require("./routes/lensRoutes"));
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
