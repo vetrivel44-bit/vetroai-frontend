@@ -1,0 +1,40 @@
+/* What the admin page decides, shown over the app (ModerationGate.jsx). */
+.vmg-screen {
+  position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; padding: 20px;
+  background: color-mix(in srgb, var(--bg, #F6F3ED) 92%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: var(--ink, #1F1E1D); font-family: var(--font, system-ui, sans-serif);
+}
+.vmg-panel {
+  width: min(440px, 100%); padding: 28px 26px 24px; border-radius: 22px; text-align: center;
+  background: var(--bg-elevated, #fff); border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+}
+.vmg-panel h1 { margin: 14px 0 8px; font-size: 21px; font-weight: 650; }
+.vmg-panel p { margin: 0 0 10px; font-size: 15px; line-height: 1.5; color: var(--ink-2, #4A4744); }
+.vmg-panel .vmg-small { font-size: 13px; color: var(--ink-3, #78746E); }
+.vmg-reason { padding: 10px 12px; border-radius: 12px; background: var(--bg, #F6F3ED); text-align: left; }
+.vmg-icon { display: inline-grid; place-items: center; width: 54px; height: 54px; border-radius: 16px; background: rgba(217, 119, 87, 0.14); color: #D97757; }
+.vmg-icon.is-danger { background: rgba(214, 69, 69, 0.13); color: #D64545; }
+.vmg-btn { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 20px; border-radius: 999px; border: 0; font: inherit; font-size: 15px; font-weight: 550; color: #fff; background: #D97757; cursor: pointer; }
+.vmg-btn:hover { filter: brightness(1.05); }
+
+.vmg-banners { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2147482000; display: grid; gap: 8px; width: min(680px, calc(100vw - 24px)); pointer-events: none; }
+.vmg-banner {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px 11px 14px; border-radius: 14px;
+  font-family: var(--font, system-ui, sans-serif); font-size: 14px; line-height: 1.45; color: var(--ink, #1F1E1D);
+  background: var(--bg-elevated, #fff); border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12); animation: vmg-in 0.25s ease-out;
+}
+@keyframes vmg-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.vmg-banner.is-info { border-left: 4px solid #3B82F6; }
+.vmg-banner.is-warn { border-left: 4px solid #D99A2B; }
+.vmg-banner.is-danger { border-left: 4px solid #D64545; }
+.vmg-banner-icon { flex: none; margin-top: 2px; }
+.vmg-banner.is-info .vmg-banner-icon { color: #3B82F6; }
+.vmg-banner.is-warn .vmg-banner-icon { color: #D99A2B; }
+.vmg-banner.is-danger .vmg-banner-icon { color: #D64545; }
+.vmg-banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.vmg-banner-close { flex: none; display: grid; place-items: center; width: 26px; height: 26px; margin: -2px -2px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3, #78746E); cursor: pointer; }
+.vmg-banner-close:hover { background: var(--bg-hover, #EFEAE1); }
+@media (prefers-reduced-motion: reduce) { .vmg-banner { animation: none; } }

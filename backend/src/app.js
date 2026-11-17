@@ -19,6 +19,7 @@ const { config } = require("./config/env");
 const logger = require("./utils/logger");
 const { successResponse } = require("./utils/response");
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
+const accessGate = require("./middleware/accessGate");
 
 const app = express();
 // Render (like most hosts) puts one proxy in front of the app. Trusting that
@@ -43,6 +44,10 @@ app.use(
     exposedHeaders: ["X-TTS-Provider", "X-TTS-Voice"],
   })
 );
+// Blocked IPs and maintenance mode, both set from the admin page. Before
+// every route, including the ones that parse their own bodies below.
+app.use(accessGate);
+
 // Stripe needs the raw, unparsed body to verify webhook signatures — must be
 // registered before the global express.json() parser below.
 app.post(
@@ -97,6 +102,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/sessions", chatSessionRoutes);
 app.use("/api/billing", require("./routes/billingRoutes"));

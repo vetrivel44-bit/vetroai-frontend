@@ -5867,6 +5867,25 @@ export default function App() {
     }
   };
 
+  // "Save to my flashcards" on a deck drawn in the chat (```flashcards,
+  // FlashcardsBlock.jsx): its cards join the spaced-repetition deck above.
+  useEffect(() => {
+    const onSave = (e) => {
+      const { deck, cards, onResult } = e.detail || {};
+      const name = String(deck || "").trim().slice(0, 60) || "My cards";
+      const { added, cards: next } = addCards(flashcardsRef.current, cards, { deck: name, source: "chat" });
+      if (added.length) {
+        saveFlashcards(next);
+        addToast(`Added ${added.length} flashcard${added.length === 1 ? "" : "s"} to "${name}". Open Flashcards in the menu to review.`, "success", 4500);
+      } else {
+        addToast("Those flashcards are already in your deck.", "info");
+      }
+      onResult?.(added.length);
+    };
+    window.addEventListener("vetro:save-flashcards", onSave);
+    return () => window.removeEventListener("vetro:save-flashcards", onSave);
+  });
+
   const readAloud = (idx, content) => {
     const wasReading = readingIdx === idx;
     stopSpeak();

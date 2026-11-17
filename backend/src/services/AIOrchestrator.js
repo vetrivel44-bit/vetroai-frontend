@@ -1,6 +1,6 @@
 // Trigger sync 2026-05-15 18:28
 const logger = require("../utils/logger");
-const { VISUALS_PROMPT } = require("./visualsPrompt");
+const { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
@@ -933,6 +933,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     if (browsed) promptExtras += BROWSE_RULES;
     promptExtras += buildPluginPrompt(params.activePlugins);
+    if (FLASHCARDS_REQUEST.test(userQuery || "")) promptExtras += FLASHCARDS_PROMPT;
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)
     // gets the search results with the question instead: inside the system

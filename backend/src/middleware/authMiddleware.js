@@ -7,7 +7,8 @@ const ApiError = require("../utils/apiError");
 const logger = require("../utils/logger");
 const { config } = require("../config/env");
 const { verifyAccessToken } = require("../utils/token");
-const { verifyFirebaseIdToken, isFirebaseIdToken } = require("../utils/firebaseToken");
+const firebaseToken = require("../utils/firebaseToken");
+const moderation = require("../services/moderationService");
 
 const googleClient = new OAuth2Client(config.googleClientId);
 
@@ -28,6 +29,22 @@ function isGoogleIssuer(iss) {
   return typeof iss === "string" && /(^|\.)accounts\.google\.com$|googleapis/.test(iss.replace(/^https?:\/\//, ""));
 }
 
+const PUBLIC_JWT_SECRET = "vetroai_dev_secret_fallback_2024";
+function usingPublicJwtSecret() {
+  const secret = config.jwtSecret || process.env.JWT_SECRET || PUBLIC_JWT_SECRET;
+  const deployed = config.nodeEnv === "production" || Boolean(process.env.RENDER);
+  return deployed && secret === PUBLIC_JWT_SECRET;
+}
+
+function blockedError(block) {
+  const err = new ApiError(403, "This account has been suspended. If you think this is a mistake, contact VetroAI support.", {
+    code: "ACCOUNT_BLOCKED",
+    reason: block.publicReason || null,
+  });
+  err.code = "ACCOUNT_BLOCKED";
+  return err;
+}
+
 const authMiddleware = asyncHandler(async (req, _res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -40,11 +57,13 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
     throw new ApiError(401, "Bearer token missing");
   }
 
-  // ── Offline / local-mode token (issued by frontend when backend is unreachable) ──
+  // ── Offline / local-mode token ──
+  // The app makes these up itself when the server can't be reached, and never
+  // sends them here. They used to be accepted as a signed-in "Local User",
+  // which let anyone use every signed-in route with "Bearer local_x" and no
+  // account at all — so nobody could ever be blocked.
   if (token.startsWith("local_")) {
-    // Attach a synthetic user object so controllers don't crash
-    req.user = { id: "offline_user", _id: "offline_user", name: "Local User", email: "local@vetroai.app", isOffline: true };
-    return next();
+    throw new ApiError(401, "Please sign in to use this.");
   }
 
   // ── Google ID token (issued by Google Identity Services) ─────────────────────
@@ -86,10 +105,10 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
   // This is the normal case now: the frontend signs in with Firebase, so every
   // authenticated request carries a Firebase ID token. Like the Google branch
   // above, the signature MUST be verified — the payload alone proves nothing.
-  if (token.split(".").length === 3 && isFirebaseIdToken(peekJwtPayload(token))) {
+  if (token.split(".").length === 3 && firebaseToken.isFirebaseIdToken(peekJwtPayload(token))) {
     let payload;
     try {
-      payload = await verifyFirebaseIdToken(token);
+      payload = await firebaseToken.verifyFirebaseIdToken(token);
     } catch (err) {
       logger.warn("auth.firebase.verify_failed", { message: err.message });
       throw new ApiError(401, "Invalid or expired Firebase token");
@@ -101,6 +120,10 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
     if (payload.firebase?.sign_in_provider === "password" && payload.email_verified !== true) {
       throw new ApiError(403, "Please verify your email address before using VetroAI.");
     }
+
+    // Blocked from the admin page (moderation/{uid}).
+    const block = await moderation.isBlocked(payload.sub, token);
+    if (block) throw blockedError(block);
 
     // Map onto the local account when one exists, so billing and cloud sessions
     // resolve to the same user regardless of which token type authenticated the
@@ -124,6 +147,12 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
   }
 
   // ── Standard JWT (issued by our own backend) ──────────────────────────────────
+  // The fallback secret is published in this repository, so a token signed
+  // with it proves nothing: anyone could mint one. Once deployed, these tokens
+  // only count after a real JWT_SECRET is set.
+  if (usingPublicJwtSecret()) {
+    throw new ApiError(401, "Invalid access token");
+  }
   let decoded;
   try {
     decoded = verifyAccessToken(token);
@@ -152,3 +181,4 @@ const authMiddleware = asyncHandler(async (req, _res, next) => {
 });
 
 module.exports = authMiddleware;
+module.exports.blockedError = blockedError;

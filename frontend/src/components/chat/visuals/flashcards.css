@@ -1,0 +1,101 @@
+/* ```flashcards — a study deck played inside the chat reply. Uses the
+   chat's own theme tokens, the same warm card and terracotta accent as the
+   quiz, in light and dark. */
+.vfc {
+  --f-accent: #D97757; --f-accent-soft: rgba(217, 119, 87, 0.12);
+  --f-good: #2E9E62; --f-good-soft: rgba(46, 158, 98, 0.14);
+  --f-warn: #C9862B; --f-warn-soft: rgba(201, 134, 43, 0.14);
+  --f-card-a: #FFFDF9; --f-card-b: #FBF4EA;
+  margin: 12px 0; padding: 16px; border-radius: 18px; color: var(--ink, #1F1E1D);
+  background: var(--bg-elevated, #FFFFFF); border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13));
+  box-shadow: 0 2px 10px rgba(31, 30, 29, 0.05);
+}
+:root[data-theme="dark"] .vfc {
+  --f-good: #4CC784; --f-warn: #E3A54E; --f-card-a: var(--bg-hover, #2A2826); --f-card-b: var(--bg-active, #312D29); box-shadow: none;
+}
+
+.vfc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.vfc-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 17px; font-weight: 600; color: var(--f-accent); }
+.vfc-tools { display: flex; gap: 4px; flex: none; }
+.vfc-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--ink-3, #78746E); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.vfc-icon:hover { background: var(--bg-hover, #EFEAE1); color: var(--ink, #1F1E1D); }
+
+.vfc-progress { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink-3, #78746E); margin-bottom: 14px; }
+.vfc-bar { flex: 1; height: 5px; border-radius: 99px; background: var(--bg-active, #E7E1D5); overflow: hidden; }
+.vfc-bar span { display: block; height: 100%; background: var(--f-accent); transition: width 0.3s; }
+.vfc-tally { display: flex; gap: 8px; font-weight: 600; }
+.vfc-tally > span { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 99px; }
+.vfc-tally .is-known { color: var(--f-good); background: var(--f-good-soft); }
+.vfc-tally .is-learning { color: var(--f-warn); background: var(--f-warn-soft); }
+
+/* The card: a real 3D flip. */
+.vfc-card { perspective: 1400px; cursor: pointer; outline: none; border-radius: 18px; -webkit-tap-highlight-color: transparent; }
+.vfc-card:focus-visible { box-shadow: 0 0 0 3px var(--f-accent-soft), 0 0 0 1.5px var(--f-accent); }
+.vfc-inner { position: relative; display: grid; min-height: 220px; transition: transform 0.55s cubic-bezier(0.2, 0.75, 0.25, 1); transform-style: preserve-3d; }
+.vfc-card.is-flipped .vfc-inner { transform: rotateY(180deg); }
+.vfc-face {
+  grid-area: 1 / 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 30px 22px 34px; border-radius: 18px; text-align: center; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  background: linear-gradient(160deg, var(--f-card-a), var(--f-card-b));
+  border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 22px rgba(31, 30, 29, 0.07);
+}
+:root[data-theme="dark"] .vfc-face { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35); }
+.vfc-back { transform: rotateY(180deg); border-color: color-mix(in srgb, var(--f-accent) 45%, transparent); }
+.vfc-card:hover .vfc-face { border-color: color-mix(in srgb, var(--f-accent) 55%, transparent); }
+.vfc-label { position: absolute; top: 12px; left: 16px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--f-accent); }
+.vfc-text { font-size: 19px; font-weight: 500; line-height: 1.45; max-width: 560px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.vfc-back .vfc-text { font-size: 17px; font-weight: 400; }
+.vfc-tap { position: absolute; bottom: 10px; font-size: 11.5px; color: var(--ink-3, #78746E); opacity: 0.8; }
+.vfc-hint-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 99px; font: inherit; font-size: 13px; cursor: pointer; color: var(--f-warn); background: var(--f-warn-soft); border: 0; }
+.vfc-hint { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; color: var(--f-warn); }
+.vfc-example { margin: 4px 0 0; padding: 7px 12px; max-width: 560px; border-left: 3px solid var(--f-accent); background: var(--f-accent-soft); border-radius: 8px; font-size: 14px; line-height: 1.5; text-align: left; }
+
+.vfc-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.vfc-grade { display: flex; gap: 8px; flex: 1; min-width: 0; justify-content: center; }
+.vfc-grade .vfc-btn { flex: 1 1 0; max-width: 190px; min-width: 0; padding-inline: 10px; }
+@media (max-width: 600px) { .vfc-grade .vfc-btn { font-size: 13.5px; gap: 4px; } .vfc-actions { gap: 6px; } }
+.vfc-btn { white-space: nowrap; }
+.vfc-nav { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; cursor: pointer; color: var(--ink-2, #4A4744); background: var(--bg-elevated, #FFFFFF); border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13)); transition: background 0.15s; }
+.vfc-nav:hover:not(:disabled) { background: var(--bg-hover, #EFEAE1); }
+.vfc-nav:disabled { opacity: 0.35; cursor: default; }
+.vfc-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 18px; border-radius: 99px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; color: var(--ink, #1F1E1D); background: var(--bg-elevated, #FFFFFF); border: 1px solid var(--border-med, rgba(31, 30, 29, 0.13)); transition: transform 0.1s, filter 0.15s; }
+.vfc-btn:active { transform: scale(0.97); }
+.vfc-btn.is-primary { background: var(--f-accent); border-color: var(--f-accent); color: #fff; }
+.vfc-btn.is-known { background: var(--f-good); border-color: var(--f-good); color: #fff; }
+.vfc-btn.is-learning { color: var(--f-warn); border-color: color-mix(in srgb, var(--f-warn) 50%, transparent); background: var(--f-warn-soft); }
+.vfc-btn:hover { filter: brightness(1.04); }
+.vfc-keys { margin: 10px 0 0; text-align: center; font-size: 11.5px; color: var(--ink-3, #78746E); }
+@media (hover: none) { .vfc-keys { display: none; } }
+
+.vfc-summary { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 14px 18px; padding: 18px; border-radius: 16px; background: var(--f-accent-soft); }
+.vfc-ring { width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--f-good) var(--p), var(--bg-active, #E7E1D5) 0); }
+.vfc-ring span { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: var(--bg-elevated, #FFFFFF); font-size: 16px; font-weight: 700; }
+.vfc-summary-text strong { display: block; font-size: 18px; margin-bottom: 3px; }
+.vfc-summary-text span { font-size: 14px; color: var(--ink-2, #4A4744); }
+.vfc-summary-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 520px) {
+  .vfc { padding: 12px; }
+  .vfc-inner { min-height: 200px; }
+  .vfc-text { font-size: 17px; }
+  .vfc-btn { padding: 9px 14px; }
+  .vfc-progress { flex-wrap: wrap; }
+  .vfc-bar { order: 3; flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vfc-inner { transition: none; }
+}
+
+/* Sit in the reply without the dark code-card frame around fenced blocks. */
+.claude-prose pre:has(> .vfc) {
+  background: transparent !important; border: 0 !important; padding: 0 !important; box-shadow: none !important;
+  color: inherit !important; font-family: inherit !important; font-size: inherit !important; line-height: inherit !important;
+  white-space: normal !important; overflow: visible !important;
+}
+
+/* "Save to my flashcards": adds the deck to the spaced-repetition review. */
+.vfc-save { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; margin-right: 4px; border-radius: 99px; font: inherit; font-size: 13px; font-weight: 550; cursor: pointer; color: var(--f-accent); background: var(--f-accent-soft); border: 0; white-space: nowrap; }
+.vfc-save:hover:not(:disabled) { filter: brightness(0.97); }
+.vfc-save.is-saved { color: var(--f-good); background: var(--f-good-soft); cursor: default; }
+@media (max-width: 520px) { .vfc-save span { display: none; } .vfc-save { padding: 0 9px; } .vfc-title { font-size: 15.5px; } }

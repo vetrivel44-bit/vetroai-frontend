@@ -19,5 +19,7 @@ router.post("/google", asyncHandler(authController.googleLogin));
 router.post("/refresh-token", validate(refreshTokenSchema), asyncHandler(authController.refreshToken));
 router.post("/logout", validate(logoutSchema), asyncHandler(authController.logout));
 router.post("/logout-all", authMiddleware, asyncHandler(authController.logoutAll));
+// Where this account is signed in (see controllers/deviceController.js).
+router.post("/device", authMiddleware, asyncHandler(require("../controllers/deviceController").recordDevice));
 
 module.exports = router;

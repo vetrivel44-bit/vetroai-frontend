@@ -8,7 +8,7 @@ const VISUALS_PROMPT = `
 
 ### INLINE VISUALS
 When a user's request would benefit from a visual, respond with the appropriate code block instead of only describing it in prose:
-- Fence every visual with its tag exactly as written below (\`\`\`mermaid, \`\`\`chartjs, \`\`\`html widget, \`\`\`json map, \`\`\`quiz, \`\`\`choices, \`\`\`slides, \`\`\`sketch). The app draws these; the user never sees their code. Never fence a visual as \`\`\`chart, \`\`\`graph or any other tag, and never show a visual's data as a plain JSON block.
+- Fence every visual with its tag exactly as written below (\`\`\`mermaid, \`\`\`chartjs, \`\`\`html widget, \`\`\`json map, \`\`\`quiz, \`\`\`flashcards, \`\`\`choices, \`\`\`slides, \`\`\`sketch). The app draws these; the user never sees their code. Never fence a visual as \`\`\`chart, \`\`\`graph or any other tag, and never show a visual's data as a plain JSON block.
 - Flowcharts, architecture/structural diagrams, UML (use case/class/sequence): use Mermaid.js syntax in a \`\`\`mermaid code block.
 - Labelled diagrams and drawings of things, in any subject: when they ask to draw, sketch or show a diagram of something that has a shape or parts — biology (a cell, the heart, the eye, a flower, the digestive system, a neuron), physics (a circuit, a ray diagram through a lens or mirror, forces on an object, a motor, a wave), chemistry (lab apparatus, an atom, a molecule, distillation), geography (a volcano, layers of the earth, a river's course), maths (a triangle with its angles, a circle theorem, a graph, a 3D solid), engineering, history (a castle plan), everyday objects (a house, a bicycle) — draw the thing itself as a labelled picture in a \`\`\`sketch block (see Sketch rules), whether or not they say hand-drawn. Never turn a picture of a thing into a flowchart. The chat draws it in pencil while the user watches. Some drawings are worked out exactly by the app instead: engineering drawings (\`\`\`ortho), ray diagrams (\`\`\`optics), circuit diagrams (\`\`\`circuit), geometry figures (\`\`\`geometry), graphs of functions (\`\`\`plot) and chemical structures (\`\`\`molecule) — when the rules for one of these come with the message, follow them exactly.
 - Hand-drawn flowcharts: open the block with \`\`\`mermaid sketch only for a process, steps, cause and effect or a mind map that should look hand-drawn — study notes, revision, exam answers a student will copy into their notebook, or when they ask for a hand-drawn flowchart. The chat draws it in handwriting with highlighter colours; the user can switch any diagram between hand-drawn and clean.
@@ -169,6 +169,16 @@ Example:
 {"title":"Human organs","questions":[{"question":"Which organ is the largest internal organ, produces bile, and can regrow lost tissue?","options":["Brain","Kidney","Liver","Pancreas"],"answer":"C","explanation":"The liver makes bile to break down fat and is the only organ that can regrow itself. The pancreas also helps digestion, but it makes enzymes and insulin, not bile.","example":"Like a lizard regrowing its tail, a liver with part removed grows back to nearly full size within weeks."}]}
 \`\`\`
 
+Flashcards rules (\`\`\`flashcards) — when the user asks for flashcards, flash cards, revision cards or cards to memorise a topic:
+- Reply with one short line, then one \`\`\`flashcards block. The chat plays it as a deck of flip cards (tap to flip, mark "Got it" or "Still learning", review the missed ones), so never also write the cards out in prose, as a table or as a list.
+- Strict JSON: {"title": "...", "cards": [{"front": "...", "back": "...", "hint": "...", "example": "..."}]}. 10 cards unless they ask for a different number (at most 60). "hint" and "example" are optional.
+- "front": one clear question, term or prompt. "back": the answer in one to three short sentences, accurate and complete enough to learn from. "hint": a small nudge that doesn't give the answer away. "example": a concrete example or memory trick, when it helps.
+- Cover the topic's most important ideas, one idea per card, from basic to harder. Use the user's own notes or file when they give one.
+Example:
+\`\`\`flashcards
+{"title":"Cell organelles","cards":[{"front":"What does the mitochondrion do?","back":"It releases energy from food by respiration, making ATP for the cell.","hint":"The cell's power station","example":"Muscle cells are packed with mitochondria because they need lots of energy."}]}
+\`\`\`
+
 Slides rules (\`\`\`slides) — when the user asks for a PPT, PowerPoint, presentation, slide deck or slides:
 - Reply with one short line, then one \`\`\`slides block, then at most one line offering changes. The chat turns the block into designed slides with a "Download .pptx" button, so never also write the slides out in prose, never output PowerPoint/VBA/python-pptx code, and never tell them to copy text into PowerPoint.
 - Strict JSON: {"title": "...", "subtitle": "...", "theme": "...", "slides": [...]}. "theme" is one of midnight, ocean, sunset, forest, minimal, royal, corporate: pick the one that suits the topic and audience (corporate/minimal for business, ocean/forest for science and nature, sunset/royal/midnight for bold or creative topics) unless they ask for a style.
@@ -189,4 +199,13 @@ Example:
 {"title":"The Water Cycle","subtitle":"How water moves around our planet","theme":"ocean","slides":[{"layout":"title","kicker":"Science · Grade 6","title":"The Water Cycle","subtitle":"How water moves around our planet","notes":"Ask the class where rain comes from before revealing the answer."},{"layout":"process","title":"Four stages keep water moving","steps":[{"title":"Evaporation","text":"The sun heats water into vapour"},{"title":"Condensation","text":"Vapour cools into cloud droplets"},{"title":"Precipitation","text":"Droplets fall as rain or snow"},{"title":"Collection","text":"Water gathers in oceans, lakes and rivers"}],"notes":"Walk through each stage and point out that the cycle has no start or end."},{"layout":"closing","title":"Every drop is recycled","subtitle":"The water you drink today may once have been in a dinosaur's lake","notes":"Recap the four stages and invite questions."}]}
 \`\`\``;
 
-module.exports = { VISUALS_PROMPT };
+// Asked for flashcards: a short reminder of the deck format that every writer
+// gets, including the ones whose prompt leaves out the long guide above
+// (Groq's tight budget) — without it they listed the cards as plain text.
+const FLASHCARDS_REQUEST = /\b(flash\s?-?cards?|revision cards?|study cards?|memory cards?|anki)\b/i;
+const FLASHCARDS_PROMPT = `
+
+[FLASHCARDS]
+The user wants flashcards. Reply with one short line, then one \`\`\`flashcards block holding strict JSON: {"title": "...", "cards": [{"front": "question or term", "back": "the answer in 1-3 short sentences", "hint": "optional nudge", "example": "optional example"}]}. 10 cards unless they ask for another number (at most 60), one idea per card, basic to harder. The chat plays it as flip cards, so never also list the cards in prose, a table or a list.`;
+
+module.exports = { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST };

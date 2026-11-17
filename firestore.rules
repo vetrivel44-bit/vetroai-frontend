@@ -79,6 +79,30 @@ rules_version = '2';
 //   - current_space: string | null (optional)
 //   - updatedAt: timestamp (server-set)
 //
+// Collection: users/{uid}/logins  (where the account is signed in)
+// Document ID: the device id the app keeps in localStorage
+// Fields: deviceId, browser, os, mobile, userAgent, ip, firstSeen, lastSeen
+//   Written by the server (POST /api/auth/device) with the person's own token.
+//   They can read but never delete them, so someone who got into an account
+//   can't hide where they used it from. Admins can read and delete them.
+//
+// ---------------------------------------------------------------
+// Admin controls (the /admin page; docs/admin.md)
+// ---------------------------------------------------------------
+//
+// Collection: admins/{uid}         - exists = that account is an admin. Added
+//                                    and removed only in the Firebase console.
+// Collection: moderation/{uid}     - { blocked, publicReason, warning, ... }
+//                                    The person can read their own (the app
+//                                    shows them why); only admins write.
+// Collection: admin_notes/{uid}    - private notes about a person. Admins only.
+// Collection: moderation_ips/{key} - blocked IP addresses. Admins only.
+// Collection: config/{doc}         - "app": announcement banner, maintenance
+//                                    mode. Everyone reads; admins write.
+// Collection: audit/{id}           - every admin action, who did it and why.
+//                                    Admins add entries; nobody can change or
+//                                    delete one (only the console can).
+//
 // ===============================================================
 
 service cloud.firestore {
@@ -99,10 +123,24 @@ service cloud.firestore {
         || request.auth.token.firebase.sign_in_provider != 'password';
     }
 
-    // Ownership is positional: the uid is a path segment, so there is no
-    // document read needed to authorise a request.
+    // An account blocked from the admin page (moderation/{uid}) loses access
+    // to its data and can't publish, as well as being refused by the server.
+    function isBlocked() {
+      let path = /databases/$(database)/documents/moderation/$(request.auth.uid);
+      return exists(path) && get(path).data.get('blocked', false) == true;
+    }
+
+    // Ownership is positional: the uid is a path segment.
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId && hasVerifiedEmail();
+      return isAuthenticated() && request.auth.uid == userId && hasVerifiedEmail() && !isBlocked();
+    }
+
+    // Admins are listed in admins/{uid}, which only the Firebase console can
+    // write. A blocked admin is not an admin.
+    function isAdmin() {
+      return isAuthenticated() && hasVerifiedEmail()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && !isBlocked();
     }
 
     function incoming() {
@@ -141,7 +179,7 @@ service cloud.firestore {
 
     // --- User profile ---
     match /users/{userId} {
-      allow get, list: if isOwner(userId);
+      allow get, list: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
                     && isValidUserProfile(userId)
                     && withinSizeLimit();
@@ -152,8 +190,10 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
 
       // --- Chat conversations ---
+      // Admins can read chats: for a legal request, through the admin page,
+      // which records each look in the audit log first.
       match /sessions/{sessionId} {
-        allow read: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
         allow create, update: if isOwner(userId)
                               && idMatchesPath(sessionId)
                               && (!('messages' in incoming()) || incoming().messages is list)
@@ -249,6 +289,24 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
+      // --- Where the account is signed in ---
+      function isValidLogin(deviceId) {
+        return incoming().keys().hasOnly(['deviceId', 'browser', 'os', 'mobile', 'userAgent', 'ip', 'firstSeen', 'lastSeen'])
+          && incoming().deviceId == deviceId
+          && incoming().userAgent is string && incoming().userAgent.size() <= 400
+          && incoming().ip is string && incoming().ip.size() <= 64
+          && incoming().browser is string && incoming().browser.size() <= 40
+          && incoming().os is string && incoming().os.size() <= 40
+          && incoming().lastSeen is timestamp;
+      }
+      match /logins/{deviceId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidLogin(deviceId) && incoming().firstSeen is timestamp;
+        allow update: if isOwner(userId) && isValidLogin(deviceId)
+                      && incoming().firstSeen == resource.data.firstSeen;
+        allow delete: if isAdmin();
+      }
+
       // --- Small scalar preferences ---
       // Split rather than a blanket `write`: on a delete there is no
       // request.resource, so withinSizeLimit() evaluates against null and
@@ -273,14 +331,63 @@ service cloud.firestore {
     match /sites/{siteId} {
       allow get: if true;
       allow list: if false;
-      allow create: if isAuthenticated() && hasVerifiedEmail()
+      allow create: if isAuthenticated() && hasVerifiedEmail() && !isBlocked()
                     && siteId.size() <= 48
                     && incoming().owner == request.auth.uid
                     && isValidSite() && withinSizeLimit();
-      allow update: if isAuthenticated() && resource.data.owner == request.auth.uid
+      allow update: if isAuthenticated() && !isBlocked() && resource.data.owner == request.auth.uid
                     && incoming().owner == request.auth.uid
                     && isValidSite() && withinSizeLimit();
-      allow delete: if isAuthenticated() && resource.data.owner == request.auth.uid;
+      allow delete: if (isAuthenticated() && resource.data.owner == request.auth.uid) || isAdmin();
+    }
+
+    // =============================================================
+    // Admin controls (the /admin page)
+    // =============================================================
+
+    match /admins/{uid} {
+      // Anyone may ask "am I an admin?"; only admins see the list. Nobody can
+      // make an admin from the app: add the document in the Firebase console.
+      allow get: if (isAuthenticated() && request.auth.uid == uid) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    match /moderation/{uid} {
+      allow get: if (isAuthenticated() && request.auth.uid == uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+                            && incoming().blocked is bool
+                            && incoming().updatedBy == request.auth.uid
+                            && uid != request.auth.uid
+                            && withinSizeLimit();
+      allow delete: if isAdmin();
+    }
+
+    match /admin_notes/{uid} {
+      allow read, write: if isAdmin();
+    }
+
+    match /moderation_ips/{ipKey} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin() && incoming().ip is string && incoming().ip.size() <= 64;
+    }
+
+    match /config/{docId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isAdmin() && docId == 'app' && withinSizeLimit();
+      allow delete: if false;
+    }
+
+    match /audit/{entryId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+                    && incoming().adminUid == request.auth.uid
+                    && incoming().action is string
+                    && incoming().at == request.time
+                    && withinSizeLimit();
+      allow update, delete: if false;
     }
 
     // Default deny. Any path not matched above is unreachable, for every user,

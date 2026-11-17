@@ -1,5 +1,5 @@
 import './polyfill.js';
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
@@ -9,6 +9,7 @@ import { siteIdFromPath } from './lib/sitePublish.js'
 import { installPuterOverlayGuard } from './lib/puterOverlayGuard.js'
 import VoiceCoverLauncher from './components/screens/VoiceCoverLauncher.jsx'
 import CallAssistantLauncher from './components/screens/CallAssistantLauncher.jsx'
+import ModerationGate from './components/ModerationGate.jsx'
 import './styles/mobilePalette.css'
 import './styles/mobileModelPicker.css'
 import './styles/modelPickerViewportFix.css'
@@ -32,7 +33,16 @@ installPuterOverlayGuard()
 // /s/{id}: a website published from VetroAI Computer, shown on its own.
 const publishedSiteId = siteIdFromPath(window.location.pathname)
 
-createRoot(document.getElementById('root')).render(publishedSiteId ? <PublishedSite id={publishedSiteId} /> :
+// /admin: the admin page (admins only — see docs/admin.md). Loaded only when
+// opened, so it adds nothing to the app everyone else downloads.
+const isAdminPage = /^\/admin\/?$/.test(window.location.pathname)
+const AdminPage = lazy(() => import('./components/admin/AdminPage.jsx'))
+
+createRoot(document.getElementById('root')).render(publishedSiteId ? <PublishedSite id={publishedSiteId} /> : isAdminPage ? (
+  <StrictMode>
+    <Suspense fallback={null}><AdminPage /></Suspense>
+  </StrictMode>
+) :
   <StrictMode>
     <ErrorBoundary fallback={(error) => (
       <div role="alert" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, textAlign: 'center', background: 'var(--bg, #111)', color: 'var(--ink, #eee)' }}>
@@ -43,6 +53,7 @@ createRoot(document.getElementById('root')).render(publishedSiteId ? <PublishedS
     )}>
       <App />
     </ErrorBoundary>
+    <ModerationGate />
     <VoiceCoverLauncher />
     <CallAssistantLauncher />
   </StrictMode>,
