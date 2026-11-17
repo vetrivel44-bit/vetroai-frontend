@@ -14,6 +14,7 @@ import SlidesBlock from "../components/chat/visuals/SlidesBlock";
 import SketchBlock from "../components/chat/visuals/SketchBlock";
 import ImageRequestBlock from "../components/chat/visuals/ImageRequestBlock";
 import PhotosBlock from "../components/chat/visuals/PhotosBlock";
+import OrthoBlock from "../components/chat/visuals/OrthoBlock";
 
 // Which fenced code blocks are drawn as visuals instead of shown as code.
 // Only these exact tags — ordinary code the user asked for (a Python script,
@@ -30,6 +31,7 @@ import PhotosBlock from "../components/chat/visuals/PhotosBlock";
 //   ```sketch         a hand-drawn picture of the thing asked for (lib/sketchSvg.js)
 //   ```image          a picture to be made by the image model (lib/imageRequest.js)
 //   ```photos         real photos of a person or thing, by name (lib/photos.js)
+//   ```ortho          an engineering drawing (orthographic views) of a solid (lib/ortho/)
 export function renderVisualBlock({ lang, meta, code, fallback }) {
   const language = String(lang || "").toLowerCase();
   const tags = String(meta || "").toLowerCase().split(/\s+/);
@@ -44,6 +46,7 @@ export function renderVisualBlock({ lang, meta, code, fallback }) {
   if (language === "slides" || language === "pptx" || language === "presentation") return <SlidesBlock code={code} fallback={fallback} />;
   if (language === "image") return <ImageRequestBlock code={code} />;
   if (language === "photos") return <PhotosBlock code={code} />;
+  if (language === "ortho" || language === "orthographic") return <OrthoBlock code={code} fallback={fallback} />;
   // Any other tag (```chart, ```graph, untagged…): drawn when its content is
   // a visual, so the user never sees a chart's or map's raw JSON.
   if (mightBeVisual(language, code)) return <AutoVisual lang={language} code={code} fallback={fallback} />;
