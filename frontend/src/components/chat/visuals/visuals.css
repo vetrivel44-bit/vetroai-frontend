@@ -158,3 +158,35 @@
   .vsk-detail.is-drawing img { animation: none; -webkit-mask-image: none; mask-image: none; }
   .vsk-detail-pen { display: none; }
 }
+
+/* ```ortho: an engineering drawing sheet (OrthoBlock.jsx). The sheet is
+   white paper in both themes; the strip under it follows the theme. */
+.vor-body { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.vor-sheet {
+  display: block; width: 100%; padding: 0; margin: 0;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .25)); border-radius: 8px;
+  background: #fff; overflow: hidden; cursor: zoom-in;
+}
+.vor-sheet:focus-visible { outline: 2px solid var(--ink, #1f1e1d); outline-offset: 2px; }
+.vor-sheet-svg, .vor-check-svg { display: block; }
+.vor-sheet-svg svg { display: block; width: 100%; height: auto; }
+.vor-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.vor-meta { font-size: 12.5px; color: var(--ink-3, #8a847b); }
+.vor-actions { display: flex; gap: 6px; }
+.vor-actions button {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 30px; padding: 0 11px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .3)); border-radius: 999px;
+  background: none; color: var(--ink-2, var(--ink)); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.vor-actions button:hover, .vor-actions button:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .1)); outline: none; }
+.vor-check {
+  display: flex; align-items: center; gap: 12px; margin: 0;
+  padding: 8px 10px; border-radius: 10px;
+  background: var(--bg-hover, rgba(127, 127, 127, .07));
+}
+.vor-check-svg { flex: none; width: 112px; padding: 6px; border-radius: 8px; background: #fff; }
+.vor-check-svg svg { display: block; width: 100%; height: auto; max-height: 100px; }
+.vor-check figcaption { font-size: 12.5px; line-height: 1.45; color: var(--ink-2, var(--ink)); }
+.vor-check figcaption strong { display: block; font-weight: 600; margin-bottom: 1px; }
+.vor-note { margin: 0; font-size: 12.5px; color: #c2410c; }

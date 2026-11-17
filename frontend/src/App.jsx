@@ -46,7 +46,7 @@ import { detectImagePrompt, imageBlockPrompt, personCandidate, withoutImageBlock
 import { fetchPhotos, photosReply } from "./lib/photos";
 import { GeneratedImage, ImageGenLoader } from "./components/chat/GeneratedImage";
 import { isImageFollowUpEdit } from "./utils/imageEditing";
-import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
+import { drawingInstruction, isDrawingRequest, isOrthoRequest } from "./lib/drawingRequest";
 const AttachmentViewer = React.lazy(() => import("./components/chat/AttachmentViewer"));
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
@@ -6842,7 +6842,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // Hand-drawn diagrams ("draw the heart") go to Sarvam 105B only on Auto. A
     // model picked in the picker draws them itself — forcing Sarvam meant
     // picking a stronger model (Grok, GPT, Claude) never changed the drawing.
-    const requestProvider = isDrawingRequest(userQuery) && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
+    // An engineering drawing is careful 3D reasoning, not a sketch: it stays
+    // with Auto's usual (strongest) model.
+    const requestProvider = isDrawingRequest(userQuery) && !isOrthoRequest(userQuery) && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
     const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
