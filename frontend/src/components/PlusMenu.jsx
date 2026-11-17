@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ImagePlus, Paperclip } from "lucide-react";
+import { ImagePlus, Paintbrush, Paperclip, ScanText } from "lucide-react";
 
 /**
  * The composer's + button, as in ChatGPT: a small menu to add photos and
- * files, or to create an image (which starts "Create an image of " in the
- * message box, the request the app sends to its image model). Closes on a
+ * files, to create an image (which starts "Create an image of " in the
+ * message box, the request the app sends to its image model), to draw a
+ * doodle that becomes a picture, or to open camera translate. Closes on a
  * choice, a tap outside or Escape.
  */
-export default function PlusMenu({ onAddFiles, onCreateImage }) {
+export default function PlusMenu({ onAddFiles, onCreateImage, onCameraTranslate, onDoodle }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef(null);
   const firstItem = useRef(null);
@@ -51,6 +52,18 @@ export default function PlusMenu({ onAddFiles, onCreateImage }) {
             <ImagePlus size={17} aria-hidden="true" />
             <span>Create image</span>
           </button>
+          {onDoodle && (
+            <button type="button" role="menuitem" onClick={() => choose(onDoodle)}>
+              <Paintbrush size={17} aria-hidden="true" />
+              <span>Doodle to picture</span>
+            </button>
+          )}
+          {onCameraTranslate && (
+            <button type="button" role="menuitem" onClick={() => choose(onCameraTranslate)}>
+              <ScanText size={17} aria-hidden="true" />
+              <span>Camera translate</span>
+            </button>
+          )}
         </div>
       )}
     </div>

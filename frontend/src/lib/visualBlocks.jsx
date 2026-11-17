@@ -1,5 +1,5 @@
 import React, { Suspense, useContext, useMemo } from "react";
-import { Sparkles } from "lucide-react";
+import { Atom, ChartSpline, CircuitBoard, Telescope, Triangle, Sparkles } from "lucide-react";
 import { VisualPending } from "../components/chat/visuals/VisualCard";
 import { OpenBlockContext, isStillStreaming } from "./visualStream";
 import { detectVisual, mightBeVisual } from "./visualDetect";
@@ -15,6 +15,13 @@ import SlidesBlock from "../components/chat/visuals/SlidesBlock";
 import SketchBlock from "../components/chat/visuals/SketchBlock";
 import ImageRequestBlock from "../components/chat/visuals/ImageRequestBlock";
 import PhotosBlock from "../components/chat/visuals/PhotosBlock";
+import OrthoBlock from "../components/chat/visuals/OrthoBlock";
+import ExactBlock from "../components/chat/visuals/ExactBlock";
+import MoleculeBlock from "../components/chat/visuals/MoleculeBlock";
+import { renderOptics } from "./exact/optics.js";
+import { renderCircuit } from "./exact/circuit.js";
+import { renderGeometry } from "./exact/geometry.js";
+import { renderPlot } from "./exact/plot.js";
 
 // Which fenced code blocks are drawn as visuals instead of shown as code.
 // Only these exact tags — ordinary code the user asked for (a Python script,
@@ -25,13 +32,19 @@ import PhotosBlock from "../components/chat/visuals/PhotosBlock";
 //   ```html widget    a self-contained interactive widget / mockup
 //   ```json map       [{ name, lat, lng, notes }]
 //   ```quiz           multiple-choice test (see lib/quiz.js)
-//   ```flashcards     flip-card study deck (see lib/flashcards.js)
+//   ```flashcards     flip-card study deck (see lib/chatFlashcards.js)
 //   ```choices        clarifying question with tappable answers (lib/choices.js)
 //   ```3d             interactive Three.js model (lib/threeStage.js)
 //   ```slides         presentation, previewed and downloaded as .pptx (lib/slides.js)
 //   ```sketch         a hand-drawn picture of the thing asked for (lib/sketchSvg.js)
 //   ```image          a picture to be made by the image model (lib/imageRequest.js)
 //   ```photos         real photos of a person or thing, by name (lib/photos.js)
+//   ```ortho          an engineering drawing (orthographic views) of a solid (lib/ortho/)
+//   ```optics         a ray diagram for a lens or mirror, worked out (lib/exact/optics.js)
+//   ```circuit        a circuit diagram laid out from its connections (lib/exact/circuit.js)
+//   ```geometry       a geometry figure built from the question's facts (lib/exact/geometry.js)
+//   ```plot           graphs of functions from their formulas (lib/exact/plot.js)
+//   ```molecule       chemical structures from SMILES (lib/exact/molecule.js)
 export function renderVisualBlock({ lang, meta, code, fallback }) {
   const language = String(lang || "").toLowerCase();
   const tags = String(meta || "").toLowerCase().split(/\s+/);
@@ -47,6 +60,12 @@ export function renderVisualBlock({ lang, meta, code, fallback }) {
   if (language === "slides" || language === "pptx" || language === "presentation") return <SlidesBlock code={code} fallback={fallback} />;
   if (language === "image") return <ImageRequestBlock code={code} />;
   if (language === "photos") return <PhotosBlock code={code} />;
+  if (language === "ortho" || language === "orthographic") return <OrthoBlock code={code} fallback={fallback} />;
+  if (language === "optics" || language === "raydiagram") return <ExactBlock code={code} fallback={fallback} render={renderOptics} icon={Telescope} kind="ray diagram" what="ray diagram" />;
+  if (language === "circuit") return <ExactBlock code={code} fallback={fallback} render={renderCircuit} icon={CircuitBoard} kind="circuit diagram" what="circuit" />;
+  if (language === "geometry") return <ExactBlock code={code} fallback={fallback} render={renderGeometry} icon={Triangle} kind="figure" what="figure" />;
+  if (language === "plot") return <ExactBlock code={code} fallback={fallback} render={renderPlot} icon={ChartSpline} kind="graph" what="graph" />;
+  if (language === "molecule" || language === "smiles") return <MoleculeBlock code={code} fallback={fallback} />;
   // Any other tag (```chart, ```graph, untagged…): drawn when its content is
   // a visual, so the user never sees a chart's or map's raw JSON.
   if (mightBeVisual(language, code)) return <AutoVisual lang={language} code={code} fallback={fallback} />;

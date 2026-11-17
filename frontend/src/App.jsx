@@ -46,7 +46,7 @@ import { detectImagePrompt, imageBlockPrompt, personCandidate, withoutImageBlock
 import { fetchPhotos, photosReply } from "./lib/photos";
 import { GeneratedImage, ImageGenLoader } from "./components/chat/GeneratedImage";
 import { isImageFollowUpEdit } from "./utils/imageEditing";
-import { drawingInstruction, isDrawingRequest } from "./lib/drawingRequest";
+import { drawingInstruction, drawingKind, isDrawingRequest } from "./lib/drawingRequest";
 const AttachmentViewer = React.lazy(() => import("./components/chat/AttachmentViewer"));
 import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
@@ -54,11 +54,13 @@ import { ReplyContext, findChoices } from "./lib/choices";
 import ChoicePanel from "./components/chat/visuals/ChoicePanel";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones, compactLocalSessions } from "./lib/userStore";
+import { addCards, dueCards, mergeCards, requestFlashcards } from "./lib/flashcards";
+import { doodlePrompt, doodleRequestText, styleOf as doodleStyleOf } from "./lib/doodle";
 import { makeThumbnail } from "./lib/chatCache";
 import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
-import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge } from "lucide-react";
+import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge, Loader2, ScanText } from "lucide-react";
 import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
@@ -89,6 +91,9 @@ import { useSmoothStream, rehypeStreamWords, ReplyLiveContext } from "./lib/stre
 const GlobalSearch = React.lazy(() => import("./components/screens/GlobalSearch"));
 const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"));
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
+const FlashcardsPanel = React.lazy(() => import("./components/screens/FlashcardsPanel"));
+const CameraTranslate = React.lazy(() => import("./components/screens/CameraTranslate"));
+const DoodlePad = React.lazy(() => import("./components/screens/DoodlePad"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
 const loadComputerUI = () => import("./components/screens/ComputerUI");
 const ComputerUI = React.lazy(loadComputerUI);
@@ -4759,6 +4764,16 @@ export default function App() {
     setSpaces(applied.spaces);
     setArtifacts(applied.artifacts);
 
+    // Flashcards: a card reviewed on another device keeps its latest review.
+    {
+      const remoteDeleted = (remote.prefs?.deleted_flashcards || []).map(String);
+      const tombstones = rememberTombstones(localKeyForUser, "flashcards", remoteDeleted);
+      const cards = mergeCards(remote.flashcards, readLocalList(localKeyForUser, "flashcards"), tombstones);
+      flashcardsRef.current = cards;
+      setFlashcards(cards);
+      persistList(localKeyForUser, "flashcards", cards);
+    }
+
     // Write the merged result back through the normal path so both the local
     // cache and Firestore end up holding the same thing.
     for (const kind of ["sessions", "spaces", "artifacts"]) {
@@ -4970,6 +4985,23 @@ export default function App() {
   // and cross-device sync — and sent with each request, where the backend
   // injects them into the system prompt.
   const [memories, setMemories]             = useState([]);
+  // Flashcards for spaced-repetition study (lib/flashcards.js), kept on the
+  // device and in the account like memories.
+  const [flashcards, setFlashcards]         = useState([]);
+  const flashcardsRef                       = useRef([]);
+  const [showFlashcards, setShowFlashcards] = useState(false);
+  const [makingCardsFor, setMakingCardsFor] = useState(null);
+  // Camera translate (lib/lens.js): point the camera at a sign or menu.
+  const [showCameraTranslate, setShowCameraTranslate] = useState(false);
+  // Doodle → picture (lib/doodle.js): draw something rough, get a picture.
+  const [showDoodle, setShowDoodle] = useState(false);
+  // Due counts follow the clock: a card reviewed this morning is due again tomorrow.
+  const [cardClock, setCardClock]           = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setCardClock(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+  const flashcardsDue = useMemo(() => dueCards(flashcards, cardClock).length, [flashcards, cardClock]);
 
   // ── Modals ────────────────────────────────────────────────────────────────────
   const [showProfile, setShowProfile]       = useState(false);
@@ -5158,6 +5190,24 @@ export default function App() {
     // instant local paint, same as sessions and artifacts.
     setMemories(readLocalList(userKey, "memories") || []);
   }, [userKey]);
+  useEffect(() => {
+    if (!userKey) return;
+    queueMicrotask(() => {
+      const local = readLocalList(userKey, "flashcards") || [];
+      flashcardsRef.current = local;
+      setFlashcards(local);
+    });
+  }, [userKey]);
+  const saveFlashcards = useCallback((next) => {
+    flashcardsRef.current = next;
+    setFlashcards(next);
+    persistList(userKey, "flashcards", next);
+  }, [userKey]);
+  const deleteFlashcards = useCallback((ids) => {
+    const gone = new Set(ids);
+    saveFlashcards(flashcardsRef.current.filter((card) => !gone.has(card.id)));
+    persistDeletion(userKey, "flashcards", ids);
+  }, [saveFlashcards, userKey]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -5792,6 +5842,50 @@ export default function App() {
   // again, or opening/starting another chat, stops it. While it reads, a bar
   // under the reply pauses it, moves a sentence back or forward and changes
   // the speed, and the sentence being heard is highlighted in the reply.
+  // "Flashcards" under an answer: the server turns it into study cards
+  // (POST /api/flashcards), added to a deck named for the topic. Code,
+  // charts and other drawn blocks are left out of what it reads.
+  const makeFlashcards = async (idx, content) => {
+    if (makingCardsFor !== null) return;
+    setMakingCardsFor(idx);
+    const asked = messages[idx - 1]?.role === "user" && typeof messages[idx - 1].content === "string" ? messages[idx - 1].content : "";
+    const text = String(content || "").replace(/```[\s\S]*?(?:```|$)/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    try {
+      const made = await requestFlashcards(API, { text, topic: asked });
+      const deck = made.deck || asked.replace(/\s+/g, " ").trim().slice(0, 60) || "My cards";
+      const { added, cards } = addCards(flashcardsRef.current, made.cards, { deck, source: asked });
+      if (!added.length) {
+        addToast("Those flashcards are already in your deck.", "info");
+      } else {
+        saveFlashcards(cards);
+        addToast(`Added ${added.length} flashcard${added.length === 1 ? "" : "s"} to "${deck}". Open Flashcards in the menu to review.`, "success", 4500);
+      }
+    } catch (err) {
+      addToast(err?.message || "Couldn't make flashcards right now.", "error");
+    } finally {
+      setMakingCardsFor(null);
+    }
+  };
+
+  // "Save to my flashcards" on a deck drawn in the chat (```flashcards,
+  // FlashcardsBlock.jsx): its cards join the spaced-repetition deck above.
+  useEffect(() => {
+    const onSave = (e) => {
+      const { deck, cards, onResult } = e.detail || {};
+      const name = String(deck || "").trim().slice(0, 60) || "My cards";
+      const { added, cards: next } = addCards(flashcardsRef.current, cards, { deck: name, source: "chat" });
+      if (added.length) {
+        saveFlashcards(next);
+        addToast(`Added ${added.length} flashcard${added.length === 1 ? "" : "s"} to "${name}". Open Flashcards in the menu to review.`, "success", 4500);
+      } else {
+        addToast("Those flashcards are already in your deck.", "info");
+      }
+      onResult?.(added.length);
+    };
+    window.addEventListener("vetro:save-flashcards", onSave);
+    return () => window.removeEventListener("vetro:save-flashcards", onSave);
+  });
+
   const readAloud = (idx, content) => {
     const wasReading = readingIdx === idx;
     stopSpeak();
@@ -6767,7 +6861,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // Hand-drawn diagrams ("draw the heart") go to Sarvam 105B only on Auto. A
     // model picked in the picker draws them itself — forcing Sarvam meant
     // picking a stronger model (Grok, GPT, Claude) never changed the drawing.
-    const requestProvider = isDrawingRequest(userQuery) && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
+    // Drawings the app works out exactly (an engineering drawing, a ray
+    // diagram, a circuit, a figure, a graph, a structure) need careful
+    // reasoning, not a sketch: they stay with Auto's usual (strongest) model.
+    const requestProvider = drawingKind(userQuery) === "sketch" && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
     const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
@@ -7955,6 +8052,45 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   // + → Create image: starts the request in the message box ("Create an
   // image of "), so the person says what they want and sends it as usual.
+  // Doodle → picture: the doodle goes into the chat as the person's message,
+  // and the image model turns it into the chosen look, keeping its
+  // composition (editImage, the doodle as the picture to work from). `again`:
+  // More like this, a fresh take on the same doodle.
+  const runDoodleJob = async ({ image, description = "", style, again = false }) => {
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const look = doodleStyleOf(style);
+    const text = again ? `More like this: ${doodleRequestText({ description, style: look.id }).replace(/^Turn my doodle into /, "my doodle as ")}` : doodleRequestText({ description, style: look.id });
+    const userMsg = {
+      role: "user", content: text, timestamp: ts, sentAt: Date.now(),
+      files: [{ name: "doodle.png", size: Math.round(image.length * 0.75), preview: image }],
+    };
+    const pendingBotMsg = {
+      role: "assistant", content: "Turning your doodle into a picture...", timestamp: ts,
+      isImageGen: true, isPending: true, imageMode: "edit", sourceImageUrl: image,
+    };
+    setMessages((prev) => [...prev, userMsg, pendingBotMsg]);
+    if (messages.length === 0) updateSessionTitle(description ? `Doodle: ${description}` : "Doodle");
+    const replace = (next) => setMessages((prev) => {
+      const u = [...prev];
+      const idx = u.lastIndexOf(pendingBotMsg);
+      if (idx !== -1) u[idx] = next;
+      return u;
+    });
+    try {
+      const url = await editImage(doodlePrompt({ description, style: look.id, again }), [image]);
+      replace({
+        role: "assistant",
+        content: `Here's your doodle as ${look.short}:`,
+        generatedImageUrl: url,
+        generatedImagePrompt: description || `your doodle as ${look.short}`,
+        doodle: { image, description, style: look.id },
+        timestamp: ts, isImageGen: true,
+      });
+    } catch (err) {
+      replace({ role: "assistant", content: `Couldn't turn the doodle into a picture: ${err.message}`, timestamp: ts });
+    }
+  };
+
   const startImageRequest = () => {
     setInput((current) => (detectImagePrompt(current) ? current : `Create an image of ${current.trim()}`.replace(/\s+$/, " ")));
     requestAnimationFrame(() => {
@@ -8478,7 +8614,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ) : (
           <div className="vc-footer">
             <div className="vc-footer-left">
-              <PlusMenu onAddFiles={() => fileInputRef.current?.click()} onCreateImage={startImageRequest} />
+              <PlusMenu onAddFiles={() => fileInputRef.current?.click()} onCreateImage={startImageRequest} onCameraTranslate={() => setShowCameraTranslate(true)} onDoodle={() => setShowDoodle(true)} />
               <div className="vc-model-wrap">
                 {showModelPicker && <WorkspacePopup
                   currentProvider={selectedProvider}
@@ -9105,6 +9241,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           <button onClick={() => { setActiveNav('code'); setShowPlayground(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'code' ? 'active' : ''}`}>
             <Code size={17} /> Code
           </button>
+          <button onClick={() => { setSidebarMobileOpen(false); setShowFlashcards(true); }} className="claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+            <span className="flex items-center gap-3"><Layers size={17} /> Flashcards</span>
+            {flashcardsDue > 0 && <span className="plugin-toolbar-count" title={`${flashcardsDue} to review`}>{flashcardsDue}</span>}
+          </button>
+          <button onClick={() => { setSidebarMobileOpen(false); setShowCameraTranslate(true); }} className="claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+            <ScanText size={17} /> Camera translate
+          </button>
+          <button onClick={() => { setSidebarMobileOpen(false); setShowDoodle(true); }} className="claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+            <Paintbrush size={17} /> Doodle to picture
+          </button>
           <button onClick={() => { setActiveNav('design'); setShowDesign(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'design' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Palette size={17} /> Design</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
@@ -9326,6 +9472,28 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           />
         )}
         {showJobs && <Suspense fallback={<ScreenLoader />}><JobSearchPanel onClose={() => setShowJobs(false)} /></Suspense>}
+        {showDoodle && (
+          <Suspense fallback={<ScreenLoader />}>
+            <DoodlePad
+              onClose={() => setShowDoodle(false)}
+              onSubmit={(doodle) => { setShowDoodle(false); runDoodleJob(doodle); }}
+            />
+          </Suspense>
+        )}
+        {showCameraTranslate && (
+          <Suspense fallback={<ScreenLoader />}>
+            <CameraTranslate
+              apiBase={API}
+              onClose={() => setShowCameraTranslate(false)}
+              onAsk={(prompt) => { setShowCameraTranslate(false); sendMessage(null, prompt); }}
+            />
+          </Suspense>
+        )}
+        {showFlashcards && (
+          <Suspense fallback={<ScreenLoader />}>
+            <FlashcardsPanel cards={flashcards} onChange={saveFlashcards} onDelete={deleteFlashcards} onClose={() => setShowFlashcards(false)} />
+          </Suspense>
+        )}
 
         {/* Incognito banner — derived from var(--accent-soft)/var(--accent)
             rather than a fixed dark-purple gradient, which only ever looked
@@ -9348,6 +9516,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                     {isDeepSearch
                       ? <DeepSearchIntro />
                       : <h2 className="text-[30px] sm:text-[40px] md:text-[44px] font-normal px-2" style={{ fontFamily: "var(--font-serif)", color: "var(--ink)" }}>{getDynamicGreeting()}</h2>}
+                    {/* The reminder: cards come back just before they'd be forgotten. */}
+                    {flashcardsDue > 0 && !isDeepSearch && (
+                      <button type="button" className="fc-reminder" onClick={() => setShowFlashcards(true)}>
+                        <Layers size={15} /> {flashcardsDue} flashcard{flashcardsDue === 1 ? "" : "s"} to review
+                      </button>
+                    )}
                   </div>
                   <div className="vetro-empty-input w-full">
                     {renderInputBox()}
@@ -9528,7 +9702,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                      busy={isLoading || messages.some(x => x.isPending && x.isImageGen)}
                                      onNotify={addToast}
                                      onEdit={(changes) => runImageJob({ userText: changes, prompt: changes, sourceUrl: m.generatedImageUrl })}
-                                     onVariation={m.generatedImagePrompt ? () => runImageJob({
+                                     onVariation={m.doodle ? () => runDoodleJob({ ...m.doodle, again: true }) : m.generatedImagePrompt ? () => runImageJob({
                                        userText: `More like this: ${m.generatedImagePrompt}`,
                                        prompt: m.generatedImagePrompt,
                                        apiPrompt: `${m.generatedImagePrompt}. A fresh take on it: a different composition, angle and details from any earlier version.`,
@@ -9668,6 +9842,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                </button>
                                <button className={`msg-action-btn${readingIdx === i ? ' is-reading' : ''}`} onClick={() => readAloud(i, m.content)} title={readingIdx === i ? "Stop reading" : "Read aloud"} aria-label={readingIdx === i ? "Stop reading" : "Read aloud"} aria-pressed={readingIdx === i}>
                                  {readingIdx === i ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
+                               </button>
+                               <button className="msg-action-btn" onClick={() => makeFlashcards(i, m.content)} title="Make flashcards" aria-label="Make flashcards from this answer" disabled={makingCardsFor !== null}>
+                                 {makingCardsFor === i ? <Loader2 size={16} className="animate-spin" /> : <Layers size={16} />}
                                </button>
                                <button className={`msg-action-btn${msgFeedback[i] === 'up' ? ' feedback-up' : ''}`} onClick={() => handleFeedback(i, 'up')} title="Good response" aria-label="Good response" aria-pressed={msgFeedback[i] === 'up'}>
                                  <ThumbsUpIcon />

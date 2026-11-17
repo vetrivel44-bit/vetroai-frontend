@@ -1,8 +1,8 @@
 import React, { useCallback, useContext, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Download, Layers, Lightbulb, RotateCcw, Shuffle, Undo2 } from "lucide-react";
+import { BookmarkPlus, Check, ChevronLeft, ChevronRight, Download, Layers, Lightbulb, RotateCcw, Shuffle, Undo2 } from "lucide-react";
 import { VisualFallback, VisualPending } from "./VisualCard";
 import { OpenBlockContext, isStillStreaming } from "../../../lib/visualStream";
-import { deckSummary, deckToTsv, parseFlashcards, shuffled } from "../../../lib/flashcards";
+import { deckSummary, deckToTsv, parseFlashcards, shuffled } from "../../../lib/chatFlashcards";
 import "./visuals.css";
 import "./flashcards.css";
 
@@ -61,7 +61,16 @@ export default function FlashcardsBlock({ code, fallback }) {
   const [showHint, setShowHint] = useState(false);
   const [marks, setMarks] = useState({}); // id -> "known" | "learning"
   const [round, setRound] = useState(1);
+  const [saved, setSaved] = useState(false);
   const cardRef = useRef(null);
+
+  // Adds the deck to the person's spaced-repetition flashcards (App.jsx
+  // listens), so the cards come back for review on schedule.
+  const saveToMyCards = () => {
+    window.dispatchEvent(new CustomEvent("vetro:save-flashcards", {
+      detail: { deck: deck.title, cards: deck.cards.map(({ front, back }) => ({ front, back })), onResult: () => setSaved(true) },
+    }));
+  };
 
   const ids = order || (deck ? deck.cards.map((c) => c.id) : []);
   const total = ids.length;
@@ -114,6 +123,9 @@ export default function FlashcardsBlock({ code, fallback }) {
       <div className="vfc-head">
         <span className="vfc-title"><Layers size={17} /> {deck.title}</span>
         <span className="vfc-tools">
+          <button type="button" className={`vfc-save${saved ? " is-saved" : ""}`} onClick={saveToMyCards} disabled={saved} title="Add these cards to your Flashcards, to review on a schedule">
+            {saved ? <Check size={14} /> : <BookmarkPlus size={14} />} <span>{saved ? "Saved" : "Save to my flashcards"}</span>
+          </button>
           <button type="button" className="vfc-icon" onClick={shuffle} title="Shuffle" aria-label="Shuffle the cards"><Shuffle size={15} /></button>
           <button type="button" className="vfc-icon" onClick={restart} title="Start over" aria-label="Start over"><RotateCcw size={15} /></button>
           <button type="button" className="vfc-icon" onClick={() => downloadDeck(deck)} title="Download for Anki or Quizlet" aria-label="Download the deck"><Download size={15} /></button>

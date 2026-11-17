@@ -18,3 +18,44 @@ test("the instruction asks for a sketch, rules included, and rules out a flowcha
   assert.match(s, /Do NOT answer with a flowchart/);
   assert.match(s, /hand drawn diagram of brain/);
 });
+
+test("an engineering drawing question gets the exact-drawing rules, never a sketch", async () => {
+  const { isOrthoRequest, orthoInstruction } = await import("../src/lib/orthoRules.js");
+  const question = `ENGINEERING DRAWING PROBLEM: ORTHOGRAPHIC PROJECTION
+Object: Machine Block. Base Plate 100×60×15. Vertical web/back wall to a total height of 65, thickness 15.
+Central rib 12 thick from 50 mm height on the back wall to 35 mm from the front edge. Through hole Ø24 through the back wall.
+Base slot 30 wide × 15 deep at the front centre. Draw in First Angle (BIS): Front View (Arrow X), Top View below, LH Side View to the right.
+Show a 45° miter line, hidden lines dashed, centre lines, complete dimensioning and a title block with scale 1:1.`;
+  for (const q of [question, "Draw the front view, top view and side view of the given block", "orthographic projection of the bracket", "draw the elevation and plan of a hexagonal prism", "first angle projection of a V-block", "draw the front view of the bearing block with all dimensions in mm"]) {
+    assert.ok(isOrthoRequest(q), q);
+    assert.ok(isDrawingRequest(q), q);
+    assert.match(drawingInstruction(q), /```ortho/);
+    assert.match(drawingInstruction(q), /Engineering drawing rules/);
+    assert.doesNotMatch(drawingInstruction(q), /Sketch rules/);
+  }
+  for (const q of ["front view of a car", "draw the human heart", "what is the elevation of Mount Everest", "side view of a horse", "draw a flowchart of the process"]) {
+    assert.ok(!isOrthoRequest(q), q);
+  }
+  const rules = orthoInstruction();
+  for (const shape of ['"box"', '"cylinder"', '"prism"', '"cone"', '"pyramid"', '"dims"', '"projection"']) assert.ok(rules.includes(shape), shape);
+});
+
+test("each kind of drawing question goes to the engine that draws it exactly", async () => {
+  const { drawingKind } = await import("../src/lib/drawingRequest.js");
+  const cases = {
+    optics: ["Draw a ray diagram for a convex lens when the object is between F and 2F", "image formation by a concave mirror when the object is beyond C", "Draw the ray diagram of a concave lens"],
+    circuit: ["Draw a circuit diagram to verify Ohm's law", "draw a circuit with two bulbs in parallel and an ammeter", "Draw the schematic diagram of a circuit"],
+    plot: ["Plot the graph of y = x^2 - 4", "Draw the graph of y = 2x + 3 and y = x^2", "sketch the curve of sin x from 0 to 2π"],
+    geometry: ["Construct a triangle ABC with AB = 6 cm, BC = 5 cm and CA = 4 cm", "Draw two tangents to a circle of radius 3 cm from a point 7 cm away", "Prove that the tangent at any point of a circle is perpendicular to the radius"],
+    molecule: ["Draw the structure of benzene", "structural formula of ethanol", "draw the isomers of butane"],
+    sketch: ["Draw a neat labelled diagram of the human heart", "draw the structure of a plant cell", "draw the human eye"],
+    ortho: ["Draw the front view and top view of the given block with dimensions in mm"],
+  };
+  for (const [kind, questions] of Object.entries(cases)) {
+    for (const q of questions) assert.equal(drawingKind(q), kind, q);
+  }
+  for (const q of ["What is the focal length of a lens with power 2 D?", "what is the capital of France", "explain Ohm's law"]) assert.equal(drawingKind(q), null, q);
+  assert.match(drawingInstruction("Draw a ray diagram for a convex lens"), /```optics/);
+  assert.match(drawingInstruction("Plot the graph of y = x^2"), /Graph rules/);
+  assert.doesNotMatch(drawingInstruction("Construct a triangle with sides 6, 5 and 4 cm"), /Sketch rules/);
+});

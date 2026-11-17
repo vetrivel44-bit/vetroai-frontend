@@ -93,3 +93,9 @@
   color: inherit !important; font-family: inherit !important; font-size: inherit !important; line-height: inherit !important;
   white-space: normal !important; overflow: visible !important;
 }
+
+/* "Save to my flashcards": adds the deck to the spaced-repetition review. */
+.vfc-save { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; margin-right: 4px; border-radius: 99px; font: inherit; font-size: 13px; font-weight: 550; cursor: pointer; color: var(--f-accent); background: var(--f-accent-soft); border: 0; white-space: nowrap; }
+.vfc-save:hover:not(:disabled) { filter: brightness(0.97); }
+.vfc-save.is-saved { color: var(--f-good); background: var(--f-good-soft); cursor: default; }
+@media (max-width: 520px) { .vfc-save span { display: none; } .vfc-save { padding: 0 9px; } .vfc-title { font-size: 15.5px; } }

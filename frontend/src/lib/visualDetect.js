@@ -8,7 +8,7 @@
 // blocks), "chartjs", "map", "choices", "quiz", "flashcards", "mermaid".
 
 import { parseLooseJson } from "./looseJson.js";
-import { isCardLike } from "./flashcards.js";
+import { isCardLike } from "./chatFlashcards.js";
 
 // The app's own visual blocks (lib/structuredSegments + the interactive ones).
 export const STRUCTURED_TYPES = new Set([
