@@ -1,0 +1,131 @@
+/* Doodle → picture (DoodlePad.jsx). The page is always white paper, so the
+   doodle reads clearly to the image model; everything around it follows the
+   theme. On a phone the page is as wide as the screen, with the pen and the
+   "make it" controls below; on a laptop they sit beside it. */
+.dp-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #faf9f5);
+  color: var(--ink, #1f1e1d);
+  animation: dpIn .18s ease-out;
+}
+@keyframes dpIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.dp-bar {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 56px; padding: 0 8px;
+  padding-top: env(safe-area-inset-top, 0);
+  border-bottom: 1px solid var(--border-light, rgba(127, 127, 127, .14));
+}
+.dp-title { font-size: 16px; font-weight: 600; }
+.dp-bar-tools { display: flex; gap: 2px; }
+.dp-icon {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 10px; background: none;
+  color: var(--ink-2, var(--ink)); cursor: pointer;
+}
+.dp-icon:hover:not(:disabled), .dp-icon:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .1)); outline: none; }
+.dp-icon:disabled { opacity: .35; cursor: default; }
+
+.dp-main {
+  flex: 1; min-height: 0; overflow-y: auto;
+  width: 100%; max-width: 560px; margin: 0 auto;
+  padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0));
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.dp-page {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 58vh;
+  margin: 0 auto;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .25));
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .08);
+}
+@supports (aspect-ratio: 1 / 1) { .dp-page { width: min(100%, 58vh); } }
+.dp-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.dp-ink { touch-action: none; cursor: crosshair; }
+.dp-ink.is-erasing { cursor: cell; }
+.dp-placeholder {
+  position: absolute; inset: 0; margin: 0;
+  display: grid; place-items: center;
+  color: #a8a49c; font-size: 15px; pointer-events: none;
+}
+
+.dp-tools { display: flex; flex-direction: column; gap: 10px; }
+.dp-colours { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.dp-swatch {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 2px solid var(--bg, #fff);
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--border-med, rgba(127, 127, 127, .35));
+  cursor: pointer;
+}
+.dp-swatch.is-on { box-shadow: 0 0 0 2px var(--ink, #1f1e1d); }
+.dp-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.dp-tool-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.dp-size {
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .3)); border-radius: 10px;
+  background: none; cursor: pointer;
+}
+.dp-size span { display: block; border-radius: 50%; background: var(--ink, #1f1e1d); }
+.dp-size.is-on, .dp-chip.is-on, .dp-style.is-on { border-color: var(--ink, #1f1e1d); background: var(--bg-hover, rgba(127, 127, 127, .1)); }
+.dp-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 38px; padding: 0 12px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .3)); border-radius: 10px;
+  background: none; color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer;
+}
+
+.dp-make { display: flex; flex-direction: column; gap: 10px; }
+.dp-describe {
+  width: 100%; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .3)); border-radius: 12px;
+  background: var(--bg-elevated, transparent); color: var(--ink);
+  font: inherit; font-size: 16px; /* no zoom-on-focus in iOS Safari */
+}
+.dp-describe:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+.dp-styles { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.dp-styles::-webkit-scrollbar { display: none; }
+.dp-style {
+  flex: none; height: 36px; padding: 0 14px;
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .3)); border-radius: 999px;
+  background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer;
+}
+.dp-notice { margin: 0; color: #c2410c; font-size: 14px; text-align: center; }
+.dp-go {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; border: 0; border-radius: 999px;
+  background: var(--ink, #1f1e1d); color: var(--bg, #faf9f5);
+  font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.dp-go:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+@media (min-width: 900px) {
+  .dp-main {
+    max-width: 1000px;
+    display: grid;
+    grid-template-columns: minmax(0, 560px) 360px;
+    grid-template-rows: auto 1fr;
+    column-gap: 24px; row-gap: 16px;
+    justify-content: center; align-content: start;
+    padding-top: 24px;
+  }
+  .dp-page { grid-row: 1 / span 2; width: min(560px, calc(100vh - 140px)); max-height: none; margin: 0; }
+  .dp-tools, .dp-make { grid-column: 2; }
+  .dp-colours, .dp-tool-row { justify-content: flex-start; }
+  .dp-styles { flex-wrap: wrap; overflow: visible; }
+}
+
+@media (prefers-reduced-motion: reduce) { .dp-screen { animation: none; } }
