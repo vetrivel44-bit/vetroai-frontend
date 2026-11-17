@@ -197,6 +197,22 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
+      // --- Flashcards for spaced-repetition study (frontend lib/flashcards.js) ---
+      match /flashcards/{cardId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+                              && idMatchesPath(cardId)
+                              && incoming().front is string
+                              && incoming().front.size() > 0
+                              && incoming().front.size() <= 600
+                              && incoming().back is string
+                              && incoming().back.size() > 0
+                              && incoming().back.size() <= 1200
+                              && incoming().due is number
+                              && withinSizeLimit();
+        allow delete: if isOwner(userId);
+      }
+
       // --- Dispatch: tasks sent from the phone to the user's computer ---
       // Both ends are the same signed-in user, so ownership is the whole
       // check; the rest keeps the documents to the shape the app reads. No
