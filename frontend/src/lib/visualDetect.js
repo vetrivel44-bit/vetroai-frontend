@@ -5,9 +5,10 @@
 // draw is drawn, whatever it was fenced as; anything else stays code.
 //
 // Kinds: "structured" (the app's own {"type": "chart" | "timeline" | …}
-// blocks), "chartjs", "map", "choices", "quiz", "mermaid".
+// blocks), "chartjs", "map", "choices", "quiz", "flashcards", "mermaid".
 
 import { parseLooseJson } from "./looseJson.js";
+import { isCardLike } from "./flashcards.js";
 
 // The app's own visual blocks (lib/structuredSegments + the interactive ones).
 export const STRUCTURED_TYPES = new Set([
@@ -19,7 +20,7 @@ export const STRUCTURED_TYPES = new Set([
 const CHARTJS_TYPES = new Set(["bar", "line", "pie", "doughnut", "radar", "polarArea", "bubble", "scatter"]);
 
 // Tags that only ever mean "draw this".
-const VISUAL_TAGS = /^(chart|charts|chartjs|chart\.js|chart-js|graph|plot|pie|bar|line|visual|visualization|diagram|flowchart|mindmap|sequence|gantt|map|maps|choice|choices|options|quiz|mcq|timeline|metrics|table-chart)$/i;
+const VISUAL_TAGS = /^(chart|charts|chartjs|chart\.js|chart-js|graph|plot|pie|bar|line|visual|visualization|diagram|flowchart|mindmap|sequence|gantt|map|maps|choice|choices|options|quiz|mcq|flashcards|flashcard|flash-cards|cards|timeline|metrics|table-chart)$/i;
 // Tags a user may ask for as code: drawn only when the content is one of the
 // app's own blocks, never a Chart.js config or a place list they asked to see.
 const CODE_TAGS = /^(json|jsonc|json5|javascript|js|typescript|ts)$/i;
@@ -50,7 +51,7 @@ export function mightBeVisual(lang, code) {
   if (tag && !CODE_TAGS.test(tag)) return false;
   const head = String(code || "").trimStart();
   if (!tag && MERMAID_START.test(head)) return true;
-  return (head[0] === "{" || head[0] === "[") && /"(type|lat|latitude|question|questions)"\s*:/.test(head);
+  return (head[0] === "{" || head[0] === "[") && /"(type|lat|latitude|question|questions|cards|flashcards|front)"\s*:/.test(head);
 }
 
 /** The visual `code` (fenced as `lang`) should be drawn as, or null to keep it as code. */
@@ -75,5 +76,7 @@ export function detectVisual(lang, code) {
   const questions = Array.isArray(data) ? data : data.questions;
   if (Array.isArray(questions) && questions.length && questions.every((q) => q?.question && Array.isArray(q.options) && (q.answer ?? q.correct) != null)) return { kind: "quiz", data };
   if (!Array.isArray(data) && data.question && Array.isArray(data.options)) return { kind: "choices", data };
+  const cards = Array.isArray(data) ? data : (data.cards || data.flashcards);
+  if (Array.isArray(cards) && cards.length && cards.every(isCardLike)) return { kind: "flashcards", data };
   return null;
 }

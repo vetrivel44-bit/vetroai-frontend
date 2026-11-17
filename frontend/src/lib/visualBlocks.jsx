@@ -8,6 +8,7 @@ import ChartBlock from "../components/chat/visuals/ChartBlock";
 import WidgetBlock from "../components/chat/visuals/WidgetBlock";
 import MapBlock from "../components/chat/visuals/MapBlock";
 import QuizBlock from "../components/chat/visuals/QuizBlock";
+import FlashcardsBlock from "../components/chat/visuals/FlashcardsBlock";
 import ChoiceBlock from "../components/chat/visuals/ChoiceBlock";
 import ThreeBlock from "../components/chat/visuals/ThreeBlock";
 import SlidesBlock from "../components/chat/visuals/SlidesBlock";
@@ -24,6 +25,7 @@ import PhotosBlock from "../components/chat/visuals/PhotosBlock";
 //   ```html widget    a self-contained interactive widget / mockup
 //   ```json map       [{ name, lat, lng, notes }]
 //   ```quiz           multiple-choice test (see lib/quiz.js)
+//   ```flashcards     flip-card study deck (see lib/flashcards.js)
 //   ```choices        clarifying question with tappable answers (lib/choices.js)
 //   ```3d             interactive Three.js model (lib/threeStage.js)
 //   ```slides         presentation, previewed and downloaded as .pptx (lib/slides.js)
@@ -39,6 +41,7 @@ export function renderVisualBlock({ lang, meta, code, fallback }) {
   if (language === "json" && tags.includes("map")) return <MapBlock code={code} fallback={fallback} />;
   if (language === "choices") return <ChoiceBlock code={code} fallback={fallback} />;
   if (language === "quiz") return <QuizBlock code={code} fallback={fallback} />;
+  if (language === "flashcards" || language === "flashcard" || language === "cards") return <FlashcardsBlock code={code} fallback={fallback} />;
   if (language === "3d" || language === "threejs") return <ThreeBlock code={code} fallback={fallback} />;
   if (language === "sketch" || (language === "svg" && tags.includes("sketch"))) return <SketchBlock code={code} fallback={fallback} />;
   if (language === "slides" || language === "pptx" || language === "presentation") return <SlidesBlock code={code} fallback={fallback} />;
@@ -65,6 +68,7 @@ function AutoVisual({ lang, code, fallback }) {
     case "chartjs": return <ChartBlock code={json} fallback={fallback} />;
     case "map": return <MapBlock code={json} fallback={fallback} />;
     case "quiz": return <QuizBlock code={json} fallback={fallback} />;
+    case "flashcards": return <FlashcardsBlock code={json} fallback={fallback} />;
     case "choices": return <ChoiceBlock code={json} fallback={fallback} />;
     case "mermaid": return <MermaidDiagram code={found.code} fallback={fallback} />;
     default: return fallback;
