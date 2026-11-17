@@ -10,6 +10,8 @@ import { useBornLive } from "../../../lib/streamReveal";
 import { isInkColor, parseSketch } from "../../../lib/sketchSvg";
 import { createPen, penSession as getPenSession, planSketch } from "../diagramPen";
 import { generateImage } from "../../../lib/imageGen";
+import ReferenceDiagram from "./ReferenceDiagram";
+import { useReferenceDiagrams } from "./useReferenceDiagrams";
 
 // A ```sketch block: a hand-drawn picture of whatever was asked for — a house,
 // the heart, a plant cell. Each shape the model wrote is redrawn in pencil
@@ -152,7 +154,7 @@ function DetailedDrawing({ subject, auto }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (auto) start(); }, [auto, subject]);
   if (state.status === "idle") {
-    return <button type="button" className="vsk-detail-btn" onClick={start}><Sparkles size={14} /> Draw in detail</button>;
+    return <button type="button" className="vsk-detail-btn" onClick={start}><Sparkles size={14} /> Make an AI illustration</button>;
   }
   if (state.status === "working") {
     return <div className="vsk-detail vsk-detail-wait"><Loader2 size={15} className="animate-spin" /> Drawing it in detail…</div>;
@@ -176,7 +178,7 @@ function DetailReveal({ subject, src }) {
         <img src={src} alt={`Detailed drawing: ${subject}`} style={carryOn} />
         {!done && <span className="vsk-detail-pen" aria-hidden="true" style={carryOn} />}
       </div>
-      <figcaption>Detailed drawing</figcaption>
+      <figcaption>AI illustration — its labels may be wrong</figcaption>
     </figure>
   );
 }
@@ -215,8 +217,10 @@ export default function SketchBlock({ code, fallback }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count, theme, session]);
 
-  if (!count && !bornLive) return fallback;
   const title = sketch.title || "Drawing";
+  // A real labelled diagram of the subject, found once the sketch is done.
+  const refs = useReferenceDiagrams(sketch.title || sketch.detail || "", sketch.complete);
+  if (!count && !bornLive) return fallback;
   const download = () => {
     if (!svgText) return;
     const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml" }));
@@ -229,6 +233,8 @@ export default function SketchBlock({ code, fallback }) {
 
   return (
     <VisualCard icon={PenLine} title={`${title} · hand-drawn`} code={code} onDownload={svgText ? download : null} downloadLabel="Download SVG" bodyClassName="vsk-body">
+      {refs.status === "found" && <ReferenceDiagram list={refs.list} />}
+      {refs.status === "found" && <p className="vref-sketch-label"><PenLine size={13} /> Quick sketch to practise from</p>}
       <div className="vetro-diagram-stage vsk-stage" ref={stageRef}>
         {count ? <div ref={hostRef} className="vsk-host" /> : <p className="vsk-wait"><PenLine size={15} /> Picking up the pencil…</p>}
         {svgText && (
@@ -237,8 +243,12 @@ export default function SketchBlock({ code, fallback }) {
           </button>
         )}
       </div>
-      {sketch.complete && (
-        <DetailedDrawing key={sketch.detail || sketch.title} subject={sketch.detail || sketch.title || "the drawing"} auto={Boolean(sketch.detail) && (bornLive || Boolean(session))} />
+      {refs.status === "searching" && <p className="vref-wait"><Loader2 size={14} className="animate-spin" /> Looking for a textbook diagram…</p>}
+      {/* No real diagram found: an illustration can still be made on request
+          (no longer by itself — the image model invented parts and garbled
+          labels). */}
+      {sketch.complete && refs.status === "none" && (
+        <DetailedDrawing key={sketch.detail || sketch.title} subject={sketch.detail || sketch.title || "the drawing"} auto={false} />
       )}
       {expanded && svgText && <DiagramViewer svg={svgText} title={title} onClose={() => setExpanded(false)} />}
     </VisualCard>

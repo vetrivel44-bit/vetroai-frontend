@@ -58,6 +58,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "smiles-drawer": "^2.4.1",
     "three": "^0.185.1"
   },
   "devDependencies": {
