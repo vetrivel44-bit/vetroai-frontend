@@ -9,6 +9,8 @@ function optionalAuth(req, res, next) {
     return next();
   }
   authMiddleware(req, res, (err) => {
+    // A suspended account is refused, not quietly served as a visitor.
+    if (err?.code === "ACCOUNT_BLOCKED") return next(err);
     if (err) req.user = null;
     next();
   });

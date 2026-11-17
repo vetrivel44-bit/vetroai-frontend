@@ -1,0 +1,285 @@
+/* VetroAI admin page (/admin). Self-contained: the chat's App.css isn't
+   loaded here. Same warm palette and terracotta accent as the app. */
+.vadm, .vadm-door, .vadm-modal-wrap, .vadm-drawer-wrap, .vadm-toasts {
+  --a-bg: #F6F3ED; --a-surface: #FFFFFF; --a-surface-2: #FBF9F5; --a-hover: #F0EBE2; --a-active: #E7E1D5;
+  --a-ink: #1F1E1D; --a-ink-2: #4A4744; --a-ink-3: #78746E;
+  --a-border: rgba(31, 30, 29, 0.09); --a-border-2: rgba(31, 30, 29, 0.15);
+  --a-accent: #D97757; --a-accent-soft: rgba(217, 119, 87, 0.12);
+  --a-good: #2E9E62; --a-good-soft: rgba(46, 158, 98, 0.12);
+  --a-warn: #C27C1E; --a-warn-soft: rgba(217, 154, 43, 0.14);
+  --a-danger: #D64545; --a-danger-soft: rgba(214, 69, 69, 0.11);
+  --a-info: #3B7DD8; --a-info-soft: rgba(59, 125, 216, 0.12);
+  --a-shadow: 0 1px 2px rgba(31, 30, 29, 0.04), 0 6px 20px rgba(31, 30, 29, 0.05);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--a-ink);
+}
+:root[data-theme="dark"] :is(.vadm, .vadm-door, .vadm-modal-wrap, .vadm-drawer-wrap, .vadm-toasts) {
+  --a-bg: #161513; --a-surface: #1F1D1B; --a-surface-2: #252320; --a-hover: #2B2825; --a-active: #34302C;
+  --a-ink: #F2EFEA; --a-ink-2: #CFC9C1; --a-ink-3: #9A938A;
+  --a-border: rgba(242, 239, 234, 0.08); --a-border-2: rgba(242, 239, 234, 0.14);
+  --a-good: #4CC784; --a-good-soft: rgba(76, 199, 132, 0.14);
+  --a-warn: #E3A54E; --a-warn-soft: rgba(227, 165, 78, 0.14);
+  --a-danger: #F07070; --a-danger-soft: rgba(240, 112, 112, 0.13);
+  --a-info: #6EA8F5; --a-info-soft: rgba(110, 168, 245, 0.14);
+  --a-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+.vadm *, .vadm-modal-wrap *, .vadm-drawer-wrap * { box-sizing: border-box; }
+.vadm { min-height: 100vh; background: var(--a-bg); }
+html:has(.vadm), html:has(.vadm-door) { background: var(--a-bg, #F6F3ED); }
+body:has(.vadm), body:has(.vadm-door) { margin: 0; }
+
+/* Buttons and small bits */
+.vadm-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 15px; border-radius: 10px;
+  font: inherit; font-size: 14px; font-weight: 550; line-height: 1.2; text-decoration: none; cursor: pointer; white-space: nowrap;
+  color: var(--a-ink); background: var(--a-surface); border: 1px solid var(--a-border-2); transition: background 0.15s, border-color 0.15s, filter 0.15s;
+}
+.vadm-btn:hover:not(:disabled) { background: var(--a-hover); }
+.vadm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.vadm-btn.is-primary { background: var(--a-accent); border-color: var(--a-accent); color: #fff; }
+.vadm-btn.is-danger { background: var(--a-danger); border-color: var(--a-danger); color: #fff; }
+.vadm-btn.is-good { background: var(--a-good); border-color: var(--a-good); color: #fff; }
+.vadm-btn:is(.is-primary, .is-danger, .is-good):hover:not(:disabled) { filter: brightness(1.06); }
+.vadm-btn.is-primary:hover:not(:disabled) { background: var(--a-accent); }
+.vadm-btn.is-danger:hover:not(:disabled) { background: var(--a-danger); }
+.vadm-btn.is-good:hover:not(:disabled) { background: var(--a-good); }
+.vadm-btn.is-small { padding: 6px 11px; font-size: 13px; }
+.vadm-btn.is-wide { width: 100%; padding: 11px 16px; }
+.vadm-icon-btn {
+  display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 10px; border: 0; padding: 0;
+  background: transparent; color: var(--a-ink-3); cursor: pointer; text-decoration: none; transition: background 0.15s, color 0.15s;
+}
+.vadm-icon-btn:hover:not(:disabled) { background: var(--a-hover); color: var(--a-ink); }
+.vadm-link { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 550; color: var(--a-accent); cursor: pointer; text-align: left; }
+.vadm-link:hover { text-decoration: underline; }
+.vadm-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
+.vadm-pill.is-good { color: var(--a-good); background: var(--a-good-soft); }
+.vadm-pill.is-warn { color: var(--a-warn); background: var(--a-warn-soft); }
+.vadm-pill.is-danger { color: var(--a-danger); background: var(--a-danger-soft); }
+.vadm-pill.is-info { color: var(--a-info); background: var(--a-info-soft); }
+.vadm-pill.is-neutral { color: var(--a-ink-2); background: var(--a-active); }
+.vadm-muted { color: var(--a-ink-3); font-size: 14px; margin: 0; line-height: 1.5; }
+.vadm-small { font-size: 12.5px; }
+.vadm-nowrap { white-space: nowrap; }
+.vadm-mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 13px; }
+.vadm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.vadm-row.is-end { justify-content: flex-end; }
+.vadm-row.is-center { justify-content: center; }
+.vadm-stack { display: grid; gap: 16px; }
+.vadm-error { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; color: var(--a-danger); background: var(--a-danger-soft); }
+.vadm-error svg { flex: none; margin-top: 1px; }
+.vadm-banner { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.45; }
+.vadm-banner svg { flex: none; margin-top: 2px; }
+.vadm-banner > span { flex: 1; }
+.vadm-banner.is-warn { color: var(--a-ink); background: var(--a-warn-soft); }
+.vadm-banner.is-warn svg { color: var(--a-warn); }
+.vadm-banner.is-danger { color: var(--a-ink); background: var(--a-danger-soft); }
+.vadm-banner.is-danger svg { color: var(--a-danger); }
+.vadm-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 28px; color: var(--a-ink-3); font-size: 14px; }
+.vadm-spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--a-active); border-top-color: var(--a-accent); animation: vadm-spin 0.8s linear infinite; }
+@keyframes vadm-spin { to { transform: rotate(360deg); } }
+.vadm-empty { display: grid; justify-items: center; gap: 6px; padding: 36px 16px; text-align: center; color: var(--a-ink-3); }
+.vadm-empty strong { color: var(--a-ink-2); font-size: 15px; }
+.vadm-empty span { font-size: 13.5px; max-width: 420px; }
+.vadm-avatar { flex: none; border-radius: 50%; object-fit: cover; background: var(--a-active); }
+.vadm-avatar.is-initials { display: inline-grid; place-items: center; font-weight: 650; color: var(--a-accent); background: var(--a-accent-soft); }
+.vadm-chev { flex: none; color: var(--a-ink-3); }
+.vadm-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 99px; font-size: 11.5px; font-weight: 650; color: var(--a-ink-2); background: var(--a-active); }
+
+/* The door (sign in / not allowed) */
+.vadm-door { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: var(--a-bg); }
+.vadm-door-card { width: min(400px, 100%); padding: 32px 28px; border-radius: 22px; text-align: center; background: var(--a-surface); border: 1px solid var(--a-border); box-shadow: var(--a-shadow); }
+.vadm-door-card h1 { margin: 16px 0 6px; font-size: 22px; }
+.vadm-door-card p { margin: 0 0 20px; color: var(--a-ink-2); font-size: 15px; }
+.vadm-brand-mark { display: inline-grid; place-items: center; width: 52px; height: 52px; border-radius: 15px; color: #fff; background: linear-gradient(140deg, #E08A6B, #C9603F); box-shadow: 0 6px 18px rgba(217, 119, 87, 0.35); }
+.vadm-brand-mark.is-small { width: 30px; height: 30px; border-radius: 9px; box-shadow: none; }
+
+/* Top bar */
+.vadm-top {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+  background: color-mix(in srgb, var(--a-bg) 86%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--a-border);
+}
+.vadm-brand { display: flex; align-items: center; gap: 9px; flex: none; font-weight: 700; font-size: 16px; color: var(--a-ink); text-decoration: none; }
+.vadm-brand > span:last-child { font-weight: 500; color: var(--a-ink-3); }
+.vadm-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.vadm-tabs::-webkit-scrollbar { display: none; }
+.vadm-tabs button { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; font: inherit; font-size: 14px; font-weight: 550; color: var(--a-ink-3); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.vadm-tabs button:hover { color: var(--a-ink); background: var(--a-hover); }
+.vadm-tabs button.is-on { color: var(--a-accent); background: var(--a-accent-soft); }
+.vadm-top-right { display: flex; align-items: center; gap: 4px; flex: none; }
+.vadm-me { display: inline-flex; margin-left: 6px; }
+
+.vadm-main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 64px; }
+.vadm-page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.vadm-page-head h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+
+/* Cards and stats */
+.vadm-card { padding: 18px; border-radius: 16px; background: var(--a-surface); border: 1px solid var(--a-border); box-shadow: var(--a-shadow); display: grid; gap: 12px; align-content: start; }
+.vadm-card.is-flush { padding: 0; overflow: hidden; }
+.vadm-card.is-alert { border-color: color-mix(in srgb, var(--a-danger) 45%, transparent); }
+.vadm-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vadm-card-head h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 650; }
+.vadm-card > .vadm-btn, .vadm-card > .vadm-link { justify-self: start; }
+.vadm-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.vadm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.vadm-stat { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 16px; border-radius: 16px; background: var(--a-surface); border: 1px solid var(--a-border); box-shadow: var(--a-shadow); }
+.vadm-stat-icon { grid-row: span 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: var(--a-accent); background: var(--a-accent-soft); }
+.vadm-stat.is-good .vadm-stat-icon { color: var(--a-good); background: var(--a-good-soft); }
+.vadm-stat.is-info .vadm-stat-icon { color: var(--a-info); background: var(--a-info-soft); }
+.vadm-stat.is-danger .vadm-stat-icon { color: var(--a-danger); background: var(--a-danger-soft); }
+.vadm-stat-value { font-size: 24px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.vadm-stat-label { font-size: 13px; color: var(--a-ink-3); }
+.vadm-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.vadm-checks li { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.4; color: var(--a-ink-2); }
+.vadm-checks svg { flex: none; margin-top: 1px; }
+.vadm-checks .is-ok svg { color: var(--a-good); }
+.vadm-checks .is-warn svg { color: var(--a-warn); }
+.vadm-checks .is-bad svg { color: var(--a-danger); }
+
+/* Lists and tables */
+.vadm-list { list-style: none; margin: 0; padding: 0; }
+.vadm-list > li + li { border-top: 1px solid var(--a-border); }
+.vadm-card:not(.is-flush) .vadm-list { margin: 0 -18px -18px; }
+.vadm-list-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 18px; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background 0.12s; }
+.vadm-list-row:hover:not(.is-static) { background: var(--a-hover); }
+.vadm-list-row.is-static { cursor: default; }
+.vadm-list-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.vadm-list-main strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vadm-list-main small { font-size: 12.5px; color: var(--a-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vadm-table-wrap { overflow-x: auto; }
+.vadm-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.vadm-table th { padding: 11px 16px; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--a-ink-3); background: var(--a-surface-2); border-bottom: 1px solid var(--a-border); white-space: nowrap; }
+.vadm-table td { padding: 11px 16px; border-bottom: 1px solid var(--a-border); vertical-align: middle; }
+.vadm-table tr:last-child td { border-bottom: 0; }
+.vadm-table tbody tr:not(.is-static) { cursor: pointer; transition: background 0.12s; }
+.vadm-table tbody tr:not(.is-static):hover, .vadm-table tbody tr:focus-visible { background: var(--a-hover); outline: none; }
+.vadm-table.is-audit td { vertical-align: top; }
+.vadm-user-cell { display: flex; align-items: center; gap: 11px; min-width: 0; max-width: 360px; }
+.vadm-action { font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+.vadm-action.is-hot { color: var(--a-danger); }
+.vadm-action.is-calm { color: var(--a-ink-2); }
+
+/* Toolbar, search, segmented control */
+.vadm-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vadm-search { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; padding: 0 6px 0 12px; height: 40px; border-radius: 11px; background: var(--a-surface); border: 1px solid var(--a-border-2); color: var(--a-ink-3); transition: border-color 0.15s, box-shadow 0.15s; }
+.vadm-search:focus-within { border-color: var(--a-accent); box-shadow: 0 0 0 3px var(--a-accent-soft); }
+.vadm-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--a-ink); }
+.vadm-seg { display: inline-flex; padding: 3px; border-radius: 11px; background: var(--a-active); gap: 2px; justify-self: start; }
+.vadm-seg button { padding: 6px 12px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; font-weight: 550; color: var(--a-ink-3); cursor: pointer; white-space: nowrap; }
+.vadm-seg button.is-on { background: var(--a-surface); color: var(--a-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.vadm-toggle { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 0; border-radius: 99px; background: var(--a-active); cursor: pointer; transition: background 0.2s; }
+.vadm-toggle span { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); transition: transform 0.2s; }
+.vadm-toggle.is-on { background: var(--a-good); }
+.vadm-toggle.is-on span { transform: translateX(18px); }
+.vadm-note { width: 100%; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--a-border-2); background: var(--a-surface); font: inherit; font-size: 14px; line-height: 1.5; color: var(--a-ink); resize: vertical; outline: none; }
+.vadm-note:focus { border-color: var(--a-accent); box-shadow: 0 0 0 3px var(--a-accent-soft); }
+
+/* User drawer */
+.vadm-drawer-wrap { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(15, 14, 13, 0.35); animation: vadm-fade 0.15s ease-out; }
+@keyframes vadm-fade { from { opacity: 0; } to { opacity: 1; } }
+.vadm-drawer { width: min(520px, 100%); height: 100%; overflow-y: auto; background: var(--a-bg); border-left: 1px solid var(--a-border); box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15); animation: vadm-slide 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes vadm-slide { from { transform: translateX(30px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+.vadm-drawer-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: flex-start; gap: 12px; padding: 18px 18px 14px; background: var(--a-bg); border-bottom: 1px solid var(--a-border); }
+.vadm-drawer-name { display: flex !important; align-items: center; gap: 8px; font-size: 17px !important; }
+.vadm-uid { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; margin-top: 4px; padding: 2px 7px; border-radius: 6px; border: 0; background: var(--a-active); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--a-ink-3); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.vadm-drawer-body { display: grid; gap: 14px; padding: 16px 18px 40px; }
+.vadm-status-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.vadm-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 0; border-radius: 14px; overflow: hidden; background: var(--a-border); border: 1px solid var(--a-border); }
+.vadm-facts > div { padding: 11px 13px; background: var(--a-surface); }
+.vadm-facts dt { font-size: 12px; color: var(--a-ink-3); margin-bottom: 2px; }
+.vadm-facts dd { margin: 0; font-size: 14px; font-weight: 550; }
+.vadm-section { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: var(--a-surface); border: 1px solid var(--a-border); }
+.vadm-section h4 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14.5px; font-weight: 650; }
+.vadm-section.is-legal { border-style: dashed; }
+.vadm-section > .vadm-btn { justify-self: start; }
+.vadm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vadm-devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.vadm-devices li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 11px; background: var(--a-surface-2); border: 1px solid var(--a-border); }
+.vadm-device-icon { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 10px; color: var(--a-ink-2); background: var(--a-active); }
+.vadm-devices .vadm-list-main small { white-space: normal; }
+
+/* Dialogs */
+.vadm-modal-wrap { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgba(15, 14, 13, 0.45); animation: vadm-fade 0.15s ease-out; }
+.vadm-modal { width: min(480px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; display: grid; gap: 14px; padding: 20px; border-radius: 18px; background: var(--a-surface); border: 1px solid var(--a-border); box-shadow: 0 24px 70px rgba(0, 0, 0, 0.25); animation: vadm-pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.vadm-modal.is-wide { width: min(860px, 100%); height: min(760px, calc(100vh - 32px)); grid-template-rows: auto auto auto 1fr; }
+@keyframes vadm-pop { from { transform: scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+.vadm-modal-head { display: flex; align-items: center; gap: 12px; }
+.vadm-modal-head h2 { flex: 1; margin: 0; font-size: 17px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.vadm-modal-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 11px; color: var(--a-ink-2); background: var(--a-active); }
+.vadm-modal-icon.is-danger { color: var(--a-danger); background: var(--a-danger-soft); }
+.vadm-modal-icon.is-warn { color: var(--a-warn); background: var(--a-warn-soft); }
+.vadm-modal-icon.is-good { color: var(--a-good); background: var(--a-good-soft); }
+.vadm-modal-body p { margin: 0 0 8px; font-size: 14px; line-height: 1.55; color: var(--a-ink-2); }
+.vadm-modal-body p:last-child { margin-bottom: 0; }
+.vadm-field { display: grid; gap: 6px; }
+.vadm-field-label { font-size: 13.5px; font-weight: 600; }
+.vadm-field-label em { font-style: normal; font-weight: 500; font-size: 12px; color: var(--a-ink-3); margin-left: 4px; }
+.vadm-field input[type="text"], .vadm-field textarea { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--a-border-2); background: var(--a-surface-2); font: inherit; font-size: 14px; color: var(--a-ink); outline: none; resize: vertical; }
+.vadm-field input[type="text"]:focus, .vadm-field textarea:focus { border-color: var(--a-accent); box-shadow: 0 0 0 3px var(--a-accent-soft); }
+.vadm-field small { font-size: 12.5px; color: var(--a-ink-3); }
+.vadm-field.is-check { grid-template-columns: auto 1fr; align-items: start; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--a-warn-soft); font-size: 13.5px; line-height: 1.45; cursor: pointer; }
+.vadm-field.is-check input { width: 17px; height: 17px; margin: 1px 0 0; accent-color: var(--a-accent); }
+.vadm-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+
+/* Chat viewer */
+.vadm-chats { display: grid; gap: 8px; align-content: start; overflow-y: auto; min-height: 0; padding-right: 2px; }
+.vadm-chat { border-radius: 12px; border: 1px solid var(--a-border); background: var(--a-surface-2); overflow: hidden; }
+.vadm-chat-head { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; width: 100%; padding: 11px 13px; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.vadm-chat-head strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vadm-chat-head .vadm-muted { font-size: 12.5px; white-space: nowrap; }
+.vadm-chat.is-open .vadm-chat-head .vadm-chev { transform: rotate(90deg); }
+.vadm-chat-body { display: grid; gap: 8px; padding: 4px 13px 13px; }
+.vadm-msg { padding: 9px 11px; border-radius: 10px; background: var(--a-surface); border: 1px solid var(--a-border); }
+.vadm-msg.is-user { border-left: 3px solid var(--a-accent); }
+.vadm-msg-role { display: block; margin-bottom: 3px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--a-ink-3); }
+.vadm-msg-text { font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow-y: auto; }
+
+/* Safety checklist */
+.vadm-safety { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.vadm-safety li { display: flex; gap: 14px; padding: 15px 16px; border-radius: 14px; background: var(--a-surface); border: 1px solid var(--a-border); }
+.vadm-safety li.is-ok { border-color: color-mix(in srgb, var(--a-good) 35%, transparent); }
+.vadm-safety li.is-todo { border-color: color-mix(in srgb, var(--a-warn) 45%, transparent); }
+.vadm-safety-num { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; font-size: 13.5px; font-weight: 700; color: var(--a-accent); background: var(--a-accent-soft); }
+.vadm-safety li.is-ok .vadm-safety-num { color: var(--a-good); background: var(--a-good-soft); }
+.vadm-safety strong { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 15px; }
+.vadm-safety p { margin: 4px 0 0; font-size: 14px; line-height: 1.55; color: var(--a-ink-2); }
+
+/* Toasts */
+.vadm-toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 80; display: grid; gap: 8px; justify-items: center; pointer-events: none; }
+.vadm-toast { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 12px; font-size: 14px; font-weight: 550; color: #fff; background: #2A2724; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); animation: vadm-pop 0.2s ease-out; }
+.vadm-toast.is-good svg { color: #6FD39B; }
+.vadm-toast.is-danger svg { color: #FF8F8F; }
+
+/* Small screens */
+@media (max-width: 900px) {
+  .vadm-stats { grid-template-columns: 1fr 1fr; }
+  .vadm-grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .vadm-top { flex-wrap: wrap; gap: 8px 10px; padding: 10px 16px; }
+  .vadm-tabs { order: 3; flex-basis: 100%; margin: 0 -16px; padding: 0 12px; }
+  .vadm-tabs button span { display: inline; }
+  .vadm-top-right { margin-left: auto; }
+  .vadm-main { padding: 18px 16px 56px; }
+  .vadm-page-head h1 { font-size: 21px; }
+  .vadm-hide-sm { display: none; }
+  .vadm-table th, .vadm-table td { padding: 10px 12px; }
+  .vadm-user-cell { max-width: 220px; }
+  .vadm-facts { grid-template-columns: 1fr; }
+  .vadm-modal-actions { flex-direction: column-reverse; }
+  .vadm-modal-actions .vadm-btn { width: 100%; }
+}
+@media (max-width: 420px) {
+  .vadm-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .vadm-stat { padding: 12px; column-gap: 10px; }
+  .vadm-stat-icon { width: 34px; height: 34px; }
+  .vadm-stat-value { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vadm-drawer, .vadm-modal, .vadm-toast, .vadm-drawer-wrap, .vadm-modal-wrap { animation: none; }
+}
+.vadm-door-alt { margin: 14px 0 0 !important; } .vadm-door-alt a { color: var(--a-accent); }
+/* Grid items default to their content's width; long unbroken text must not
+   widen the page on a phone. */
+.vadm-stack > *, .vadm-card > *, .vadm-grid-2 > *, .vadm-drawer-body > *, .vadm-section > * { min-width: 0; }
