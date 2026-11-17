@@ -55,6 +55,7 @@ import ChoicePanel from "./components/chat/visuals/ChoicePanel";
 import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones, compactLocalSessions } from "./lib/userStore";
 import { addCards, dueCards, mergeCards, requestFlashcards } from "./lib/flashcards";
+import { doodlePrompt, doodleRequestText, styleOf as doodleStyleOf } from "./lib/doodle";
 import { makeThumbnail } from "./lib/chatCache";
 import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
@@ -92,6 +93,7 @@ const UpgradeModal = React.lazy(() => import("./components/screens/UpgradeModal"
 const JobSearchPanel = React.lazy(() => import("./components/screens/JobSearchPanel"));
 const FlashcardsPanel = React.lazy(() => import("./components/screens/FlashcardsPanel"));
 const CameraTranslate = React.lazy(() => import("./components/screens/CameraTranslate"));
+const DoodlePad = React.lazy(() => import("./components/screens/DoodlePad"));
 const PluginHub = React.lazy(() => import("./components/screens/PluginHub"));
 const loadComputerUI = () => import("./components/screens/ComputerUI");
 const ComputerUI = React.lazy(loadComputerUI);
@@ -4991,6 +4993,8 @@ export default function App() {
   const [makingCardsFor, setMakingCardsFor] = useState(null);
   // Camera translate (lib/lens.js): point the camera at a sign or menu.
   const [showCameraTranslate, setShowCameraTranslate] = useState(false);
+  // Doodle → picture (lib/doodle.js): draw something rough, get a picture.
+  const [showDoodle, setShowDoodle] = useState(false);
   // Due counts follow the clock: a card reviewed this morning is due again tomorrow.
   const [cardClock, setCardClock]           = useState(() => Date.now());
   useEffect(() => {
@@ -8026,6 +8030,45 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
   // + → Create image: starts the request in the message box ("Create an
   // image of "), so the person says what they want and sends it as usual.
+  // Doodle → picture: the doodle goes into the chat as the person's message,
+  // and the image model turns it into the chosen look, keeping its
+  // composition (editImage, the doodle as the picture to work from). `again`:
+  // More like this, a fresh take on the same doodle.
+  const runDoodleJob = async ({ image, description = "", style, again = false }) => {
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const look = doodleStyleOf(style);
+    const text = again ? `More like this: ${doodleRequestText({ description, style: look.id }).replace(/^Turn my doodle into /, "my doodle as ")}` : doodleRequestText({ description, style: look.id });
+    const userMsg = {
+      role: "user", content: text, timestamp: ts, sentAt: Date.now(),
+      files: [{ name: "doodle.png", size: Math.round(image.length * 0.75), preview: image }],
+    };
+    const pendingBotMsg = {
+      role: "assistant", content: "Turning your doodle into a picture...", timestamp: ts,
+      isImageGen: true, isPending: true, imageMode: "edit", sourceImageUrl: image,
+    };
+    setMessages((prev) => [...prev, userMsg, pendingBotMsg]);
+    if (messages.length === 0) updateSessionTitle(description ? `Doodle: ${description}` : "Doodle");
+    const replace = (next) => setMessages((prev) => {
+      const u = [...prev];
+      const idx = u.lastIndexOf(pendingBotMsg);
+      if (idx !== -1) u[idx] = next;
+      return u;
+    });
+    try {
+      const url = await editImage(doodlePrompt({ description, style: look.id, again }), [image]);
+      replace({
+        role: "assistant",
+        content: `Here's your doodle as ${look.short}:`,
+        generatedImageUrl: url,
+        generatedImagePrompt: description || `your doodle as ${look.short}`,
+        doodle: { image, description, style: look.id },
+        timestamp: ts, isImageGen: true,
+      });
+    } catch (err) {
+      replace({ role: "assistant", content: `Couldn't turn the doodle into a picture: ${err.message}`, timestamp: ts });
+    }
+  };
+
   const startImageRequest = () => {
     setInput((current) => (detectImagePrompt(current) ? current : `Create an image of ${current.trim()}`.replace(/\s+$/, " ")));
     requestAnimationFrame(() => {
@@ -8549,7 +8592,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         ) : (
           <div className="vc-footer">
             <div className="vc-footer-left">
-              <PlusMenu onAddFiles={() => fileInputRef.current?.click()} onCreateImage={startImageRequest} onCameraTranslate={() => setShowCameraTranslate(true)} />
+              <PlusMenu onAddFiles={() => fileInputRef.current?.click()} onCreateImage={startImageRequest} onCameraTranslate={() => setShowCameraTranslate(true)} onDoodle={() => setShowDoodle(true)} />
               <div className="vc-model-wrap">
                 {showModelPicker && <WorkspacePopup
                   currentProvider={selectedProvider}
@@ -9183,6 +9226,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           <button onClick={() => { setSidebarMobileOpen(false); setShowCameraTranslate(true); }} className="claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
             <ScanText size={17} /> Camera translate
           </button>
+          <button onClick={() => { setSidebarMobileOpen(false); setShowDoodle(true); }} className="claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+            <Paintbrush size={17} /> Doodle to picture
+          </button>
           <button onClick={() => { setActiveNav('design'); setShowDesign(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'design' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Palette size={17} /> Design</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
@@ -9404,6 +9450,14 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           />
         )}
         {showJobs && <Suspense fallback={<ScreenLoader />}><JobSearchPanel onClose={() => setShowJobs(false)} /></Suspense>}
+        {showDoodle && (
+          <Suspense fallback={<ScreenLoader />}>
+            <DoodlePad
+              onClose={() => setShowDoodle(false)}
+              onSubmit={(doodle) => { setShowDoodle(false); runDoodleJob(doodle); }}
+            />
+          </Suspense>
+        )}
         {showCameraTranslate && (
           <Suspense fallback={<ScreenLoader />}>
             <CameraTranslate
@@ -9626,7 +9680,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                      busy={isLoading || messages.some(x => x.isPending && x.isImageGen)}
                                      onNotify={addToast}
                                      onEdit={(changes) => runImageJob({ userText: changes, prompt: changes, sourceUrl: m.generatedImageUrl })}
-                                     onVariation={m.generatedImagePrompt ? () => runImageJob({
+                                     onVariation={m.doodle ? () => runDoodleJob({ ...m.doodle, again: true }) : m.generatedImagePrompt ? () => runImageJob({
                                        userText: `More like this: ${m.generatedImagePrompt}`,
                                        prompt: m.generatedImagePrompt,
                                        apiPrompt: `${m.generatedImagePrompt}. A fresh take on it: a different composition, angle and details from any earlier version.`,
