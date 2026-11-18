@@ -200,13 +200,13 @@ test("Ling falls back to the closest listed Ling 3.0 Flash variant", () => {
   assert.equal(airouter.modelFor("Kling 2"), null, "only Ling itself");
 });
 
-test("AI Router's models get 90s to start and 90s of mid-stream silence, unless configured", () => {
+test("AI Router's models get 180s to start and 180s of mid-stream silence, unless configured", () => {
   const saved = { start: config.airouterStartTimeoutMs, idle: config.airouterIdleTimeoutMs };
   try {
     config.airouterStartTimeoutMs = undefined;
     config.airouterIdleTimeoutMs = undefined;
-    assert.equal(airouter.startTimeoutMs(), 90000);
-    assert.equal(airouter.idleTimeoutMs(), 90000);
+    assert.equal(airouter.startTimeoutMs(), 180000);
+    assert.equal(airouter.idleTimeoutMs(), 180000);
     config.airouterStartTimeoutMs = 120000;
     config.airouterIdleTimeoutMs = 60000;
     assert.equal(airouter.startTimeoutMs(), 120000);

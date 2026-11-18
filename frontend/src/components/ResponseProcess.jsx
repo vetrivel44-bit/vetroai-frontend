@@ -100,9 +100,17 @@ const ResponseProcess = React.memo(function ResponseProcess({
   const hasReasoning = Boolean(String(reasoning || "").trim());
   const searched = results.length > 0 || Boolean(searchQuery);
   const working = live && !answering;
-  const members = Array.isArray(council?.members) ? council.members : [];
+  // Once the reply is being written, or the request has ended (finished,
+  // stopped or failed) before the council's last update arrived, the council
+  // is over: anyone still "thinking…" never answered.
+  const councilOver = !live || answering || council?.phase === "done";
+  const members = (Array.isArray(council?.members) ? council.members : []).map((m) => (
+    councilOver && m.status !== "answered" && m.status !== "failed" ? { ...m, status: "failed" } : m
+  ));
   const hasCouncil = members.length > 0;
-  const councilSitting = hasCouncil && council.phase !== "done";
+  const councilSitting = hasCouncil && !councilOver;
+  // Seats, not everyone asked: a stand-in takes a seat, it doesn't add one.
+  const seatCount = members.filter((m) => !m.standsInFor).length;
   const answeredCount = members.filter((m) => m.status === "answered").length;
 
   // The steps it has been through, from the app's status line: each new one
@@ -217,8 +225,8 @@ const ResponseProcess = React.memo(function ResponseProcess({
                 <div className="vrp-step-body">
                   <div className="vrp-step-title">
                     {/* A model that couldn't answer is replaced by the next in line (backend councilService.js). */}
-                    <span className="vrp-query">{councilSitting ? "Asking" : "Asked"} {members.length} other AI model{members.length === 1 ? "" : "s"}</span>
-                    <span className="vrp-count">{answeredCount} of {members.length} answered</span>
+                    <span className="vrp-query">{councilSitting ? "Asking" : "Asked"} {seatCount} other AI model{seatCount === 1 ? "" : "s"}</span>
+                    <span className="vrp-count">{answeredCount} of {seatCount} answered</span>
                   </div>
                   <ul className="vrp-council">
                     {members.map((member, n) => (

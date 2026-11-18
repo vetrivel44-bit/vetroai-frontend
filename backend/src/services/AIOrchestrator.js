@@ -40,17 +40,24 @@ const MAX_FALLBACK_ATTEMPTS = 5;
 // five timeouts would keep the user waiting for minutes, so retries also stop
 // once the turn has run this long.
 const PICKED_ALONE_TRIES = 5;
-const PICKED_ALONE_BUDGET_MS = 180000;
+const PICKED_ALONE_BUDGET_MS = 600000;
+// A long reply that reaches its token limit is continued, by any model and
+// in every mode, until it is finished: up to this many extra parts (each one
+// a full token budget), on top of the tries for errors.
+const MAX_CONTINUATIONS = 12;
+// A reply that broke off after at least this much text is continued by the
+// next model instead of being erased and written again from the start.
+const KEEP_PARTIAL_CHARS = 200;
 const CONTINUE_PROMPT = "Your previous reply was cut off. Continue it exactly from where it stopped: do not repeat anything already written, do not restart or summarise, and keep any open code block or ```sketch block going.";
 let pickedAloneRetryDelayMs = 1000;
 // A screenshot is a much bigger, slower request than a text turn, so a vision
 // attempt gets a longer budget before it's called a timeout. This has to stay
 // >= the vision adapters' own fetch timeouts, or their ceiling is unreachable
 // and the orchestrator aborts first while their request leaks on un-cancelled.
-const ATTEMPT_TIMEOUT_MS = 30000;
+const ATTEMPT_TIMEOUT_MS = 90000;
 // A provider whose key or billing is broken stays parked this long.
 const CONFIG_PROBLEM_SUSPEND_MS = 10 * 60 * 1000;
-const VISION_ATTEMPT_TIMEOUT_MS = 50000;
+const VISION_ATTEMPT_TIMEOUT_MS = 150000;
 // How DeepSearch writes up its research (see agenticSearchService.js for the
 // research itself): a report in the style of Claude's Research, built only on
 // the numbered sources, with corroboration and disagreement made visible.
@@ -657,6 +664,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       }
     }
     let attempts = 0;
+    let continuations = 0;
     const attemptedProviders = new Set();
     // A model picked in the model picker answers alone: a timeout, a busy
     // moment or an empty reply is tried again on the same model, never handed
@@ -1062,7 +1070,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           seats,
           labelFor: (seat) => (seat.provider === "airouter" ? airouterAdapter.displayName(airouterModelOf(seat)) : this.providerLabel(seat.provider)),
           messages: council.memberMessages({ history, webContext, clockText: clockLine(params.clock || {}) }),
-          ask: (seat, councilMessages) => this.askQuietly(seat.provider, councilMessages, seat.provider === "airouter" ? { airouterModel: airouterModelOf(seat) } : {}),
+          ask: (seat, councilMessages, signal) => this.askQuietly(seat.provider, councilMessages, { ...(seat.provider === "airouter" ? { airouterModel: airouterModelOf(seat) } : {}), signal }),
           onUpdate: (snapshot) => this.sendVetroEvent(res, "council", snapshot),
           signal: params.signal,
         });
@@ -1142,11 +1150,16 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // next to nothing means the reply was already whole: stop there.
         const soFar = resumeText + (answer || "");
         const addedLittle = Boolean(resumeText) && (answer || "").trim().length < 40;
-        if (pickedAlone && attempts < maxAttempts && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
+        // Every mode, not only a picked model: Auto used to leave a long
+        // answer cut off at its token limit. A continuation doesn't use up
+        // the tries kept for errors.
+        if (continuations < MAX_CONTINUATIONS && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
           resumeText = soFar;
-          const label = this.providerLabel(pickedAlone);
-          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, attempt: attempts });
-          this.sendVetroEvent(res, "status", `${label} stopped mid-way. Continuing from where it left off (${attempts + 1} of ${maxAttempts})…`);
+          continuations++;
+          attempts--;
+          attemptedProviders.delete(currentProviderName);
+          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, part: continuations + 1 });
+          this.sendVetroEvent(res, "status", "Long answer: still writing…");
           continue;
         }
 
@@ -1259,8 +1272,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
             friendlyMsg = `${this.providerLabel(currentProviderName)} is unavailable. Switching to ${this.providerLabel(nextProvider)}, which can also read the image…`;
           }
 
-          this.sendVetroEvent(res, "clear", "");
-          this.sendVetroEvent(res, "status", friendlyMsg);
+          // A long answer that broke off part-way is kept: the next model
+          // continues it rather than erasing it and starting again.
+          const partial = !needsVision && !drawing ? (err.partialContent || "") : "";
+          if (partial.trim().length >= KEEP_PARTIAL_CHARS || (resumeText && partial.trim())) {
+            resumeText += partial;
+            this.sendVetroEvent(res, "status", "Still writing your answer…");
+          } else if (resumeText) {
+            this.sendVetroEvent(res, "status", "Still writing your answer…");
+          } else {
+            this.sendVetroEvent(res, "clear", "");
+            this.sendVetroEvent(res, "status", friendlyMsg);
+          }
           // No pause before the next hop: it always goes to a provider not yet
           // tried this turn, so there's nothing to back off from. The old
           // 2s/4s/6s waits added up to 18s of idle time on a bad day. Adapters
@@ -1294,12 +1317,21 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
   async askQuietly(providerName, messages, extra = {}) {
     const adapter = providerManager.getAdapter(providerName);
     if (!adapter) throw new Error(`No adapter for ${providerName}`);
+    // A model that reasons first needs tokens for the reasoning and the answer.
+    const maxTokens = adapter.reasonsNatively?.() ? council.REASONING_MEMBER_MAX_TOKENS : council.MEMBER_MAX_TOKENS;
     const stream = await withTimeout(
-      adapter.generateStream(messages, { maxTokens: council.MEMBER_MAX_TOKENS, temperature: 0.5, light: true, effort: "quick", ...extra }),
+      adapter.generateStream(messages, { maxTokens, temperature: 0.5, light: true, effort: "quick", ...extra }),
       ATTEMPT_TIMEOUT_MS,
       "Council member timeout",
     );
     if (!stream) throw new Error("Provider returned empty stream");
+    // Out of time or stopped: end the stream so the provider is free again.
+    const { signal } = extra;
+    if (signal) {
+      const end = () => { stream.destroy?.(); stream.controller?.abort?.(); };
+      if (signal.aborted) end();
+      else signal.addEventListener("abort", end, { once: true });
+    }
     const nowhere = { write() {}, end() {}, writableEnded: false, locals: {} };
     return this.pipeStream(stream, nowhere, providerName, {});
   }
@@ -1694,7 +1726,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
     let reader = null;
     // An adapter can allow longer (AI Router's models pause longer under load).
-    const IDLE_TIMEOUT_MS = providerManager.getAdapter(provider)?.idleTimeoutMs?.() || 45000;
+    const IDLE_TIMEOUT_MS = providerManager.getAdapter(provider)?.idleTimeoutMs?.() || 120000;
     let watchdogInterval = null;
     const watchdog = new Promise((_, reject) => {
       watchdogInterval = setInterval(() => {

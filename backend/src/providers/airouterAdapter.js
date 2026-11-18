@@ -29,8 +29,8 @@ function endpoint() {
 // general 30s start budget (and 45s mid-stream silence limit) cut replies off
 // and handed them to another model. AIROUTER_START_TIMEOUT_MS and
 // AIROUTER_IDLE_TIMEOUT_MS override these.
-const START_TIMEOUT_MS = 90000;
-const IDLE_TIMEOUT_MS = 90000;
+const START_TIMEOUT_MS = 180000;
+const IDLE_TIMEOUT_MS = 180000;
 const COMPLETE_TIMEOUT_MS = 30000;
 const positive = (value, fallback) => (Number(value) > 0 ? Number(value) : fallback);
 function startTimeoutMs() {
@@ -169,12 +169,16 @@ async function resolveRejectedModel(key, model) {
 // stalled stream). It used to abort the whole reply at 30s.
 // No reasoning_effort is sent: with it, airouter.in held DeepSeek and Qwen
 // requests for over 30s without answering (without it they answer in seconds).
-async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel() } = {}) {
+// `signal` (optional) cancels the request and its stream, e.g. a council
+// member that ran out of time.
+async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel(), signal } = {}) {
   const key = apiKey();
   let model = resolvedModels.get(wantedModel) || wantedModel;
   const request = async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`AI Router did not respond within ${timeoutMs / 1000}s`)), timeoutMs);
+    if (signal?.aborted) controller.abort(signal.reason);
+    else signal?.addEventListener?.("abort", () => controller.abort(signal.reason), { once: true });
     try {
       return await fetch(endpoint(), {
         method: "POST",
@@ -224,7 +228,7 @@ async function send(body, { stream, timeoutMs, model: wantedModel = defaultModel
 async function generateStream(messages, options = {}) {
   // airouterModel is set only when this provider was picked by name; a
   // fallback from another provider gets the default model.
-  const { temperature, maxTokens, airouterModel } = options;
+  const { temperature, maxTokens, airouterModel, signal } = options;
   try {
     const startedAt = Date.now();
     const model = airouterModel || defaultModel();
@@ -232,7 +236,7 @@ async function generateStream(messages, options = {}) {
       messages,
       temperature: temperature ?? config.airouterTemperature ?? 0.7,
       max_tokens: maxTokens ?? config.airouterMaxTokens ?? 8192,
-    }, { stream: true, timeoutMs: startTimeoutMs(), model });
+    }, { stream: true, timeoutMs: startTimeoutMs(), model, signal });
     return timed(res.body, model, startedAt, Date.now() - startedAt);
   } catch (err) {
     logger.error("airouterAdapter.generateStream", { error: err.message });
