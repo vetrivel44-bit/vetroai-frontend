@@ -18,13 +18,18 @@
 // analysing, debugging, proving…) or long, many-part ones; at Quick, only
 // for the clearest of those.
 
-const MEMBER_TIMEOUT_MS = 20000;
+// Generous: AI Router's models can take 15s just to start, then reason.
+const MEMBER_TIMEOUT_MS = 45000;
 // The whole council, stand-ins included, so the reply never waits long.
-const COUNCIL_TOTAL_MS = 32000;
+const COUNCIL_TOTAL_MS = 75000;
 // A stand-in is only asked with at least this much of that time left.
 const STAND_IN_MIN_MS = 4000;
 // Short answers: an opinion, not a finished reply.
 const MEMBER_MAX_TOKENS = 700;
+// A model that reasons before it answers (AI Router's DeepSeek, Ling, Qwen)
+// spends its tokens on the reasoning first: with 700 it ran out before
+// writing a word and showed as "couldn't answer". It gets room for both.
+const REASONING_MEMBER_MAX_TOKENS = 3000;
 // How much of each answer the writer is shown.
 const OPINION_CHARS = 1600;
 const OPINION_CHARS_TIGHT = 900;
@@ -126,16 +131,29 @@ const tidy = (text) => String(text || "")
   .replace(/\n{3,}/g, "\n\n")
   .trim();
 
-const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error("took too long")), ms);
+// Gives up after `ms`, and aborts `controller` so the request itself stops
+// (a member left running kept holding the provider, so the next model from
+// the same provider queued behind it and failed too).
+const withTimeout = (promise, ms, controller) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => { controller?.abort(new Error("took too long")); reject(new Error("took too long")); }, ms);
   promise.then((value) => { clearTimeout(timer); resolve(value); }, (err) => { clearTimeout(timer); reject(err); });
 });
+
+// A failure that every model of that provider will hit too: the key is
+// refused, the credit or daily quota is spent, it isn't set up. Then the
+// provider's other models aren't tried as stand-ins.
+const PROVIDER_DOWN = /not configured|api key|unauthori[sz]ed|forbidden|quota|credit|billing|insufficient|per day|daily limit/i;
+function providerIsDown(err) {
+  const status = Number(err?.statusCode ?? err?.status);
+  return [401, 402, 403].includes(status) || PROVIDER_DOWN.test(String(err?.message || ""));
+}
 
 /**
  * Asks the first `size` seats at once; when one can't answer, the next seat
  * in line takes its place (while there's time), so the council still hears
  * `size` answers. `seats`: from pickSeats (or plain provider names).
- * `ask(seat, messages)` resolves to that model's answer.
+ * `ask(seat, messages, signal)` resolves to that model's answer; `signal`
+ * aborts when the member runs out of time or the request is stopped.
  * `onUpdate(snapshot)` hears the council as it sits: { phase: "asking" |
  * "done", members: [{ name, status: "asking" | "answered" | "failed",
  * answer, ms, standsInFor }], ms }. Resolves to the final snapshot.
@@ -159,13 +177,22 @@ async function runCouncil({ seats, members, size = COUNCIL_SIZE, ask, labelFor =
   const hear = async (entry) => {
     const t0 = Date.now();
     const timeLeft = totalMs - (t0 - started);
+    const controller = new AbortController();
+    const stop = () => controller.abort(new Error("stopped"));
+    signal?.addEventListener?.("abort", stop, { once: true });
     try {
-      const answer = tidy(await withTimeout(Promise.resolve().then(() => ask(entry.seat, messages)), Math.max(1000, Math.min(timeoutMs, timeLeft))));
+      const answer = tidy(await withTimeout(Promise.resolve().then(() => ask(entry.seat, messages, controller.signal)), Math.max(1000, Math.min(timeoutMs, timeLeft)), controller));
       if (!answer) throw new Error("no answer");
       entry.answer = answer.slice(0, OPINION_CHARS);
       entry.status = "answered";
-    } catch {
+    } catch (err) {
       entry.status = "failed";
+      if (providerIsDown(err)) {
+        const provider = entry.seat?.provider;
+        for (let i = bench.length - 1; i >= 0; i--) if (bench[i].provider === provider) bench.splice(i, 1);
+      }
+    } finally {
+      signal?.removeEventListener?.("abort", stop);
     }
     entry.ms = Date.now() - t0;
     // Couldn't answer: the next one in line takes the seat.
@@ -213,6 +240,7 @@ module.exports = {
   runCouncil,
   chairBrief,
   MEMBER_MAX_TOKENS,
+  REASONING_MEMBER_MAX_TOKENS,
   MEMBER_ORDER,
   COUNCIL_SIZE,
 };

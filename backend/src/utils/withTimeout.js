@@ -9,4 +9,15 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-module.exports = { withTimeout };
+// For a streamed reply: a signal that gives up only if the reply hasn't
+// started within `ms`. Call started() once the response headers arrive and
+// the stream may then run as long as it needs (the orchestrator's idle
+// watchdog still catches one that goes silent). AbortSignal.timeout() on a
+// streaming fetch also aborts the body, which cut long answers off mid-way.
+function startTimeout(ms, message = `No reply within ${ms / 1000}s`) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(message)), ms);
+  return { signal: controller.signal, started: () => clearTimeout(timer) };
+}
+
+module.exports = { withTimeout, startTimeout };

@@ -57,7 +57,7 @@ async function* generateStream(messages) {
         system: systemMessage?.content || "You are a helpful assistant.",
         prompt,
       }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(180000),
     });
 
     if (!response.ok) {

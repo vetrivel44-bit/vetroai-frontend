@@ -1,3 +1,4 @@
+const { startTimeout } = require("../utils/withTimeout");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
@@ -48,6 +49,9 @@ async function generateStream(messages, options = {}) {
     stream: true,
   };
 
+  // Only the wait for the reply to start is limited; the stream itself may
+  // run as long as the answer needs.
+  const start = startTimeout(hasImages ? 120000 : 90000, "Cohere did not start replying in time");
   try {
     const res = await fetch(COHERE_ENDPOINT, {
       method: "POST",
@@ -58,8 +62,9 @@ async function generateStream(messages, options = {}) {
       body: JSON.stringify(body),
       // A screenshot makes the request far bigger and slower to process than a
       // text turn, so it gets a longer ceiling before being called a timeout.
-      signal: AbortSignal.timeout(hasImages ? 45000 : 25000),
+      signal: start.signal,
     });
+    start.started();
 
     if (!res.ok) {
       const detail = await res.text();
@@ -68,6 +73,7 @@ async function generateStream(messages, options = {}) {
 
     return res.body;
   } catch (err) {
+    start.started();
     logger.error("cohereAdapter.generateStream", { error: err.message, hasImages });
     throw err;
   }

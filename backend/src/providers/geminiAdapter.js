@@ -1,3 +1,4 @@
+const { startTimeout } = require("../utils/withTimeout");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const ApiError = require("../utils/apiError");
@@ -58,14 +59,23 @@ async function generateStream(messages, options = {}) {
     };
   }
 
-  const send = (payload) => fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(25000),
-  });
+  // Only the wait for the reply to start is limited; the stream itself may
+  // run as long as the answer needs.
+  const send = async (payload) => {
+    const start = startTimeout(90000, "Gemini did not start replying in time");
+    try {
+      return await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: start.signal,
+      });
+    } finally {
+      start.started();
+    }
+  };
 
   try {
     let res = await send(body);
