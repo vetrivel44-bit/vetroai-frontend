@@ -410,3 +410,58 @@ test("a reply that really ran out of tokens is continued, and stops once a try a
 test("Sarvam reasons in its own channel, so it is never also asked for a <think> block", () => {
   assert.equal(require("../src/providers/sarvamAdapter").reasonsNatively(), true);
 });
+
+test("a long answer that keeps reaching its token limit is continued until it's finished", async (t) => {
+  // Seven parts: more than the five tries kept for errors.
+  const part = (n, finish) => sse({ choices: [{ delta: { content: `Part ${n}. ${"More detail. ".repeat(50)}` } }] }, { choices: [{ delta: {}, finish_reason: finish }] });
+  const replies = [1, 2, 3, 4, 5, 6].map((n) => part(n, "length")).concat(part(7, "stop"));
+  const r = await chatWithSarvam(t, replies, { input: "Write a very long, detailed guide to the history of Chennai" });
+  assert.equal(r.calls.sarvam, 7);
+  assert.equal(r.cleared, false, "nothing written is erased");
+  for (let n = 1; n <= 7; n++) assert.match(r.text, new RegExp(`Part ${n}\\.`));
+  assert.equal(r.error, "");
+});
+
+test("Auto: a long answer that breaks off part-way is continued by the next model, not erased", async (t) => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const saved = {};
+  for (const key of ["chatgptApiKey", "groqApiKey", "agnesApiKey", "airouterApiKey", "geminiApiKey", "fableRapidApiKey", "sarvamApiKey", "cohereApiKey"]) saved[key] = config[key];
+  for (const key of Object.keys(saved)) config[key] = "";
+  config.sarvamApiKey = "test-key";
+  config.cohereApiKey = "test-key";
+  sarvam.resetReplacements();
+  const realFetch = global.fetch;
+  const opening = `The history of Chennai is long. ${"It grew as a port. ".repeat(20)}`;
+  const bodies = [];
+  global.fetch = async (url, init) => {
+    const href = String(url);
+    if (!/api\.sarvam\.ai|api\.cohere\.ai/.test(href)) throw new Error(`unexpected request to ${href}`);
+    bodies.push(JSON.parse(init.body));
+    return bodies.length === 1 ? breaksOffAfter(opening)() : sarvamSays("Today it is a major city.")();
+  };
+  t.after(() => {
+    global.fetch = realFetch;
+    Object.assign(config, saved);
+    for (const name of ["sarvam", "cohere"]) {
+      const p = providerManager.providers[name];
+      if (p) { p.isSuspended = false; p.consecutiveErrors = 0; }
+    }
+  });
+
+  const written = [];
+  const res = { write: (chunk) => written.push(chunk), end: () => {}, writableEnded: false, locals: {} };
+  const answered = await orchestrator.processRequest("test_long", {
+    messages: [{ role: "user", content: "Tell me the history of Chennai" }],
+    mode: "normal",
+    options: { temperature: 0.7, maxTokens: 256 },
+  }, res);
+  const events = written.join("").split("\n").filter((l) => l.startsWith("data:"))
+    .map((l) => { try { return JSON.parse(l.slice(5)); } catch { return null; } }).filter(Boolean);
+
+  assert.equal(answered, true);
+  assert.ok(!events.some((e) => e.type === "clear"), "the half-written answer is kept");
+  assert.equal(events.filter((e) => e.type === "content").map((e) => e.data).join(""), `${opening}Today it is a major city.`);
+  const [soFar, ask] = bodies[1].messages.slice(-2);
+  assert.equal(soFar.content, opening);
+  assert.match(ask.content, /Continue it exactly from where it stopped/);
+});

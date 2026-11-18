@@ -41,6 +41,13 @@ const MAX_FALLBACK_ATTEMPTS = 5;
 // once the turn has run this long.
 const PICKED_ALONE_TRIES = 5;
 const PICKED_ALONE_BUDGET_MS = 600000;
+// A long reply that reaches its token limit is continued, by any model and
+// in every mode, until it is finished: up to this many extra parts (each one
+// a full token budget), on top of the tries for errors.
+const MAX_CONTINUATIONS = 12;
+// A reply that broke off after at least this much text is continued by the
+// next model instead of being erased and written again from the start.
+const KEEP_PARTIAL_CHARS = 200;
 const CONTINUE_PROMPT = "Your previous reply was cut off. Continue it exactly from where it stopped: do not repeat anything already written, do not restart or summarise, and keep any open code block or ```sketch block going.";
 let pickedAloneRetryDelayMs = 1000;
 // A screenshot is a much bigger, slower request than a text turn, so a vision
@@ -657,6 +664,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       }
     }
     let attempts = 0;
+    let continuations = 0;
     const attemptedProviders = new Set();
     // A model picked in the model picker answers alone: a timeout, a busy
     // moment or an empty reply is tried again on the same model, never handed
@@ -1142,11 +1150,16 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // next to nothing means the reply was already whole: stop there.
         const soFar = resumeText + (answer || "");
         const addedLittle = Boolean(resumeText) && (answer || "").trim().length < 40;
-        if (pickedAlone && attempts < maxAttempts && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
+        // Every mode, not only a picked model: Auto used to leave a long
+        // answer cut off at its token limit. A continuation doesn't use up
+        // the tries kept for errors.
+        if (continuations < MAX_CONTINUATIONS && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
           resumeText = soFar;
-          const label = this.providerLabel(pickedAlone);
-          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, attempt: attempts });
-          this.sendVetroEvent(res, "status", `${label} stopped mid-way. Continuing from where it left off (${attempts + 1} of ${maxAttempts})…`);
+          continuations++;
+          attempts--;
+          attemptedProviders.delete(currentProviderName);
+          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, part: continuations + 1 });
+          this.sendVetroEvent(res, "status", "Long answer: still writing…");
           continue;
         }
 
@@ -1259,8 +1272,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
             friendlyMsg = `${this.providerLabel(currentProviderName)} is unavailable. Switching to ${this.providerLabel(nextProvider)}, which can also read the image…`;
           }
 
-          this.sendVetroEvent(res, "clear", "");
-          this.sendVetroEvent(res, "status", friendlyMsg);
+          // A long answer that broke off part-way is kept: the next model
+          // continues it rather than erasing it and starting again.
+          const partial = !needsVision && !drawing ? (err.partialContent || "") : "";
+          if (partial.trim().length >= KEEP_PARTIAL_CHARS || (resumeText && partial.trim())) {
+            resumeText += partial;
+            this.sendVetroEvent(res, "status", "Still writing your answer…");
+          } else if (resumeText) {
+            this.sendVetroEvent(res, "status", "Still writing your answer…");
+          } else {
+            this.sendVetroEvent(res, "clear", "");
+            this.sendVetroEvent(res, "status", friendlyMsg);
+          }
           // No pause before the next hop: it always goes to a provider not yet
           // tried this turn, so there's nothing to back off from. The old
           // 2s/4s/6s waits added up to 18s of idle time on a bad day. Adapters
