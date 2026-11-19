@@ -84,6 +84,73 @@ export function getBoardTexture() {
   return texture;
 }
 
+// Normal + roughness maps for the board: the same grain pattern painted as a
+// height field (grain lines = shallow grooves), converted to a tangent-space
+// normal map, plus a roughness map where grooves and square seams are a bit
+// more matte than the lacquered veneer. Built once and cached.
+let cachedMaps = null;
+
+export function getBoardSurfaceMaps() {
+  if (cachedMaps) return cachedMaps;
+  const size = 512;
+  const squares = 8;
+  const sq = size / squares;
+  const hc = document.createElement("canvas");
+  hc.width = size;
+  hc.height = size;
+  const hctx = hc.getContext("2d");
+  for (let r = 0; r < squares; r += 1) {
+    for (let f = 0; f < squares; f += 1) {
+      paintWoodGrain(hctx, f * sq, r * sq, sq, sq, "#c8c8c8", "#000000", r * 8 + f);
+    }
+  }
+  hctx.strokeStyle = "#000";
+  hctx.lineWidth = 1.5;
+  for (let i = 0; i <= squares; i += 1) {
+    hctx.beginPath(); hctx.moveTo(i * sq, 0); hctx.lineTo(i * sq, size); hctx.stroke();
+    hctx.beginPath(); hctx.moveTo(0, i * sq); hctx.lineTo(size, i * sq); hctx.stroke();
+  }
+  const height = hctx.getImageData(0, 0, size, size).data;
+  const h = (px, py) => height[(((py + size) % size) * size + ((px + size) % size)) * 4] / 255;
+
+  const nc = document.createElement("canvas");
+  nc.width = size;
+  nc.height = size;
+  const rc = document.createElement("canvas");
+  rc.width = size;
+  rc.height = size;
+  const nImg = nc.getContext("2d").createImageData(size, size);
+  const rImg = rc.getContext("2d").createImageData(size, size);
+  const strength = 2.2;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = (h(x + 1, y) - h(x - 1, y)) * strength;
+      const dy = (h(x, y + 1) - h(x, y - 1)) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * size + x) * 4;
+      nImg.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      nImg.data[i + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+      nImg.data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      nImg.data[i + 3] = 255;
+      // three.js reads roughness from the green channel.
+      const rough = 0.55 + (1 - h(x, y) / 0.785) * 0.45;
+      rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = Math.min(255, Math.max(0, rough * 255));
+      rImg.data[i + 3] = 255;
+    }
+  }
+  nc.getContext("2d").putImageData(nImg, 0, 0);
+  rc.getContext("2d").putImageData(rImg, 0, 0);
+
+  const normalMap = new THREE.CanvasTexture(nc);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.anisotropy = 8;
+  const roughnessMap = new THREE.CanvasTexture(rc);
+  roughnessMap.colorSpace = THREE.NoColorSpace;
+  roughnessMap.anisotropy = 8;
+  cachedMaps = { normalMap, roughnessMap };
+  return cachedMaps;
+}
+
 // Mahogany frame texture — long horizontal grain strokes, richer and darker
 // than the board squares, used on the surrounding border boxes.
 export function getFrameTexture() {
