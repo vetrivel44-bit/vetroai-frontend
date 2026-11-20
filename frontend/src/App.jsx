@@ -52,7 +52,7 @@ import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
 import { ReplyContext, findChoices } from "./lib/choices";
 import ChoicePanel from "./components/chat/visuals/ChoicePanel";
-import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
+import { OpenBlockContext, openFenceTail, isStillStreaming } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones, compactLocalSessions } from "./lib/userStore";
 import { addCards, dueCards, mergeCards, requestFlashcards } from "./lib/flashcards";
 import { doodlePrompt, doodleRequestText, styleOf as doodleStyleOf } from "./lib/doodle";
@@ -1229,8 +1229,80 @@ const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
 // While a reply is live, newly arrived words fade in (see lib/streamReveal).
 const REHYPE_PLUGINS_LIVE = [[rehypeKatex, KATEX_OPTIONS], rehypeStreamWords];
 
+// When a code block opens in the artifact panel by itself, as Claude's do:
+// only substantial, standalone work (a full program, a whole page or
+// drawing), never a short snippet that reads best inline. Shorter blocks
+// keep their Open button. Only one block per reply opens by itself.
+const ARTIFACT_AUTO_OPEN_LINES = 20;
+const opensAsArtifact = (code, lang) => {
+  const text = String(code || "");
+  if (text.split("\n").length >= ARTIFACT_AUTO_OPEN_LINES) return true;
+  const kind = String(lang || "").toLowerCase();
+  return (kind === "html" && /<html[\s>]|<!doctype html/i.test(text)) || (kind === "svg" && /<svg[\s>]/i.test(text) && text.length > 400);
+};
+
+// The artifact's name: "Python code", "Web page", "Drawing".
+const artifactTitleFor = (lang) => {
+  const kind = String(lang || "").toLowerCase();
+  if (kind === "html") return "Web page";
+  if (kind === "svg") return "Drawing";
+  return `${codeLangLabel(lang)} code`;
+};
+
+// A substantial piece of code in a reply, as Claude shows an artifact: a
+// card in the chat (name, language, length) that opens the code in the
+// panel beside it, instead of the whole program a second time in the chat.
+function ArtifactCard({ codeString, lang, onOpen, autoOpen = false }) {
+  const [copied, setCopied] = useState(false);
+  const openTail = useContext(OpenBlockContext);
+  const writing = isStillStreaming(openTail, codeString);
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || writing || openedRef.current) return;
+    openedRef.current = true;
+    // On a phone the panel covers the whole screen and hides the reply, so
+    // there the card waits for a tap, as in Claude's phone app.
+    if (window.matchMedia?.("(max-width: 760px)").matches) return;
+    onOpen();
+  }, [autoOpen, writing, onOpen]);
+  const lines = codeString.split("\n").length;
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(codeString);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  const download = (e) => {
+    e.stopPropagation();
+    const ext = { javascript: "js", typescript: "ts", python: "py", "c++": "cpp", cpp: "cpp", text: "txt", markdown: "md", bash: "sh", shell: "sh" }[String(lang).toLowerCase()] || lang || "txt";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([codeString], { type: "text/plain" }));
+    a.download = `${artifactTitleFor(lang).toLowerCase().replace(/\s+/g, "-")}.${ext}`;
+    a.click();
+  };
+  return (
+    <div className={`vai-artifact-card${writing ? " is-writing" : ""}`} role="button" tabIndex={0}
+      onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      aria-label={`Open ${artifactTitleFor(lang)} in the side panel`}>
+      <span className="vai-artifact-icon" aria-hidden="true">{lang === "html" || lang === "svg" ? <LayoutGrid size={18} /> : <FileText size={18} />}</span>
+      <span className="vai-artifact-text">
+        <span className="vai-artifact-title">{artifactTitleFor(lang)}</span>
+        <span className="vai-artifact-meta">{writing ? `Writing… ${lines} lines` : `${codeLangLabel(lang)} · ${lines} lines · Click to open`}</span>
+      </span>
+      {!writing && (
+        <span className="vai-artifact-actions">
+          <button type="button" className="code-copy-btn" onClick={copy} title="Copy code" aria-label="Copy code">{copied ? <CheckIcon /> : <CopyIcon />}</button>
+          <button type="button" className="code-copy-btn" onClick={download} title="Download file" aria-label="Download"><DlIcon /></button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Markdown with the full code-block treatment (artifact button, download, copy).
 const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact, isStreaming }) {
+  // The one block of this reply that may open the panel by itself.
+  const autoOpenClaimed = useRef(null);
   // The diagram still being streamed, shared through context so the code
   // renderer below stays stable (re-creating it every token would remount
   // every code block and diagram in the reply).
@@ -1257,11 +1329,26 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
       const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
       if (visual) return visual;
       const isArtifactWorthy = onSaveArtifact && codeString.split("\n").length >= 4;
+      // Claimed by its code, so a re-render picks the same block again.
+      if (autoOpen && isArtifactWorthy && autoOpenClaimed.current === null && opensAsArtifact(codeString, langMatch[1])) {
+        autoOpenClaimed.current = codeString;
+      }
+      const opensItself = Boolean(autoOpen && isArtifactWorthy && autoOpenClaimed.current === codeString);
+      if (onSaveArtifact && opensAsArtifact(codeString, langMatch[1])) {
+        return (
+          <ArtifactCard
+            codeString={codeString}
+            lang={langMatch[1]}
+            autoOpen={opensItself}
+            onOpen={() => onSaveArtifact(codeString, langMatch[1], artifactTitleFor(langMatch[1]))}
+          />
+        );
+      }
       return (
         <CodeBlock
           match={langMatch}
           codeString={codeString}
-          autoOpen={autoOpen}
+          autoOpen={opensItself}
           onSaveArtifact={isArtifactWorthy ? () => onSaveArtifact(codeString, langMatch[1], `${codeLangLabel(langMatch[1])} snippet`) : null}
         />
       );
