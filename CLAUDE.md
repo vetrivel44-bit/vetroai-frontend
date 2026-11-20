@@ -32,3 +32,20 @@ Tests that guard this: `backend/test/sarvamAdapter.test.js` ("continued until
 it's finished", "continued by the next model, not erased"),
 `backend/test/council.test.js`, `backend/test/airouterAdapter.test.js`.
 Run `cd backend && npm install && node --test`.
+
+## Replies are shown the way Claude shows them (owner's standing request)
+
+- **When to use what** is decided by `CHOOSING_THE_FORMAT` in
+  `backend/src/services/AIOrchestrator.js` (Groq gets
+  `CHOOSING_THE_FORMAT_SHORT`, because its prompt has to fit a ~5.7k-token
+  budget, checked by `backend/test/groqPrompt.test.js`). Prose by default;
+  lists, tables, headings and code only when the content has that shape.
+- **Code:** a short snippet stays inline as a code card. A substantial block
+  (`opensAsArtifact` in `frontend/src/App.jsx`: 20+ lines, or a full HTML/SVG
+  page) shows as an `ArtifactCard` and opens in the side panel by itself,
+  but only one per reply and never on a phone (≤760px), where it waits
+  for a tap.
+- **Look:** reply tables and the artifact card are styled in
+  `frontend/src/styles/replyProse.css` (loaded last). The reply box is
+  near-solid with a blur, and its dock fades the chat out under it
+  (`styles/composer.css`).

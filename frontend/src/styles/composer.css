@@ -371,3 +371,20 @@
   .vc-composer .vc-rec-dot,
   .vc-composer .vc-spinner { animation-duration: 2.4s; }
 }
+
+/* ── Nothing reads through the box ────────────────────────────────────────
+   The chat scrolls under the docked box. At 86% with no blur, the reply's
+   words were legible through the box and in the gap below it, mixing with
+   what you type. As in Claude's app: the box is nearly solid with a soft
+   blur, and the dock fades the chat out into the page under it. */
+.claude-input-box.vc-composer {
+  --vc-surface: rgba(32, 32, 30, 0.97);
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+}
+[data-theme="light"] .claude-input-box.vc-composer {
+  --vc-surface: rgba(255, 255, 255, 0.97);
+}
+.vc-composer-dock {
+  background: linear-gradient(to bottom, transparent 0, var(--vc-page-bg, var(--bg, #111215)) 28px) !important;
+}
