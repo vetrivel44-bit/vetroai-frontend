@@ -323,3 +323,128 @@
 .plugin-mention-option strong { color: #292524; font-size: 13px; }
 .plugin-mention-option small { color: #78716c; font-size: 11px; }
 .plugin-mention-empty { padding: 12px 9px; color: #78716c; font-size: 12px; }
+
+/* ── Category filters, card meta and the plugin page (PluginHub.jsx) ───── */
+.plugin-overlay { cursor: default; }
+.plugin-header p { max-width: 560px; }
+.plugin-search { position: relative; }
+.plugin-search button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-4, #8a847d); cursor: pointer; }
+.plugin-categories {
+  display: flex; gap: 6px; padding: 0 28px 14px; overflow-x: auto; scrollbar-width: none;
+}
+.plugin-categories::-webkit-scrollbar { display: none; }
+.plugin-categories button {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
+  border: 1px solid var(--border, #e7e2dc); border-radius: 999px; background: transparent;
+  color: var(--ink-2, #4b4743); font: 500 .8rem/1 var(--font, inherit); cursor: pointer; white-space: nowrap;
+}
+.plugin-categories button span { color: var(--ink-4, #8a847d); font-size: .72rem; }
+.plugin-categories button:hover { background: var(--surface-2, #f1eeea); }
+.plugin-categories button.active { background: var(--ink, #211f1d); color: var(--bg, #fbfaf8); border-color: transparent; }
+.plugin-categories button.active span { color: inherit; opacity: .7; }
+
+.plugin-card-main { min-height: 104px; }
+.plugin-card.is-installed { border-color: color-mix(in srgb, var(--ink, #211f1d) 22%, var(--border, #e7e2dc)); }
+.plugin-card-meta { margin-top: 8px; color: var(--ink-4, #8a847d); font-size: .72rem; }
+.plugin-live-badge {
+  font-style: normal; font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; color: #16a34a; background: color-mix(in srgb, #16a34a 14%, transparent);
+}
+.plugin-card-footer { display: flex; align-items: center; justify-content: flex-end; min-height: 52px; }
+.plugin-card-controls { display: flex; align-items: center; gap: 6px; }
+
+/* The plugin's own page. */
+.plugin-detail-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.plugin-detail-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border, #e7e2dc); }
+.plugin-back { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px 0 6px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-2, #4b4743); font: 600 .85rem/1 var(--font, inherit); cursor: pointer; }
+.plugin-back:hover { background: var(--surface-2, #f1eeea); }
+.plugin-detail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 32px 32px; }
+.plugin-detail-hero { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.plugin-icon.is-large { width: 60px; height: 60px; border-radius: 16px; }
+.plugin-detail-hero h2 { margin: 2px 0 2px; font-size: 1.5rem; letter-spacing: -0.03em; }
+.plugin-detail-hero > div:nth-child(2) { flex: 1; min-width: 200px; }
+.plugin-detail-category { color: var(--ink-4, #8a847d); font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.plugin-detail-tagline { margin: 0; color: var(--ink-3, #6f6a64); }
+.plugin-detail-actions { display: flex; align-items: center; gap: 8px; }
+.plugin-detail-desc { margin: 18px 0 6px; color: var(--ink-2, #4b4743); line-height: 1.6; max-width: 680px; }
+.plugin-detail-section { margin-top: 24px; }
+.plugin-detail-section h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: .95rem; }
+.plugin-skill-list, .plugin-command-list, .plugin-connector-list, .plugin-permission-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border, #e7e2dc); border-radius: 14px; overflow: hidden; }
+.plugin-skill-list li, .plugin-command-list li, .plugin-connector-list li, .plugin-permission-list li { padding: 12px 14px; }
+.plugin-skill-list li + li, .plugin-command-list li + li, .plugin-connector-list li + li, .plugin-permission-list li + li { border-top: 1px solid var(--border, #e7e2dc); }
+.plugin-skill-list li { display: flex; flex-direction: column; gap: 3px; }
+.plugin-skill-list strong { font-size: .88rem; }
+.plugin-skill-list span, .plugin-command-list span { color: var(--ink-3, #6f6a64); font-size: .82rem; }
+.plugin-skill-list details { margin-top: 4px; }
+.plugin-skill-list summary { color: var(--ink-4, #8a847d); font-size: .76rem; cursor: pointer; }
+.plugin-skill-list details p { margin: 6px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, #f1eeea); color: var(--ink-2, #4b4743); font-size: .8rem; line-height: 1.55; }
+.plugin-command-list li { display: flex; align-items: baseline; gap: 12px; }
+.plugin-command-list code, .plugin-invoke-tip code { padding: 2px 7px; border-radius: 6px; background: var(--surface-2, #f1eeea); font-size: .8rem; }
+.plugin-connector-list li { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.plugin-connector-name { flex: 1; font-size: .86rem; font-weight: 600; }
+.plugin-connector-list small { flex-basis: 100%; color: var(--ink-4, #8a847d); font-size: .74rem; padding-left: 25px; }
+.plugin-connector-state { font-size: .74rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+.plugin-connector-state.is-ok { color: #15803d; background: color-mix(in srgb, #16a34a 13%, transparent); }
+.plugin-connector-state.is-warn { color: #b45309; background: color-mix(in srgb, #d97706 14%, transparent); }
+.plugin-connector-state.is-info { color: var(--ink-3, #6f6a64); background: var(--surface-2, #f1eeea); }
+.plugin-permission-list li { display: flex; align-items: center; gap: 8px; font-size: .84rem; }
+.plugin-muted { margin: 0; color: var(--ink-4, #8a847d); font-size: .84rem; }
+.plugin-invoke-tip { display: flex; align-items: flex-start; gap: 10px; margin-top: 24px; padding: 14px; border-radius: 14px; background: var(--surface-2, #f1eeea); color: var(--ink-2, #4b4743); font-size: .84rem; line-height: 1.5; }
+.plugin-invoke-tip svg { flex: none; margin-top: 2px; }
+
+@media (max-width: 760px) {
+  .plugin-categories { padding: 0 16px 12px; }
+  .plugin-detail-body { padding: 20px 18px 28px; }
+  .plugin-detail-actions { width: 100%; }
+  .plugin-detail-actions .plugin-install.wide { width: 100%; justify-content: center; }
+}
+
+/* ── Theme ──────────────────────────────────────────────────────────────
+   The app defines no --surface-* variables, so every surface above fell
+   back to white: in the dark theme the page was dark with white cards,
+   tabs and search, and the Install button drew white text on the (light)
+   ink colour. The page's surfaces now come from the app's own theme
+   colours, and the older hard-coded light patches are overridden. */
+.plugin-overlay {
+  --surface-1: var(--bg-elevated, #ffffff);
+  --surface-2: var(--bg-hover, #f1eeea);
+  --surface-3: color-mix(in srgb, var(--ink, #211f1d) 12%, var(--bg-elevated, #ffffff));
+  --ink-4: color-mix(in srgb, var(--ink-3, #6f6a64) 80%, transparent);
+  --ink-5: color-mix(in srgb, var(--ink-3, #6f6a64) 60%, transparent);
+}
+.plugin-overlay .plugin-shell { background: var(--bg, #fbfaf8); color: var(--ink, #211f1d); }
+.plugin-overlay .plugin-tabs { background: var(--surface-2); }
+.plugin-overlay .plugin-tabs button { color: var(--ink-3); }
+.plugin-overlay .plugin-tabs button.active { color: var(--ink); background: var(--surface-1); }
+.plugin-overlay .plugin-search input { color: var(--ink); background: transparent; }
+.plugin-overlay .plugin-card { background: var(--surface-1); }
+.plugin-overlay .plugin-card-footer { color: var(--ink-3); background: color-mix(in srgb, var(--ink) 3%, transparent); border-top: 1px solid var(--border); }
+.plugin-overlay .plugin-card-tagline { color: var(--ink-2); }
+.plugin-overlay .plugin-card .plugin-install,
+.plugin-overlay .plugin-install,
+.plugin-overlay .plugin-install.wide { color: var(--bg) !important; background: var(--ink) !important; border: 0; }
+.plugin-overlay .plugin-install:hover { opacity: 0.88; }
+.plugin-overlay .plugin-close { color: var(--ink-3); background: var(--surface-2); }
+.plugin-overlay .plugin-close:hover { color: var(--ink); background: var(--surface-3); }
+.plugin-overlay .plugin-icon { background: color-mix(in srgb, var(--plugin-color) 16%, var(--surface-1)); }
+.plugin-overlay .plugin-empty button { color: var(--ink); background: var(--surface-1); }
+.plugin-overlay .plugin-card { color: var(--ink); }
+.plugin-overlay .plugin-card-topline strong { color: var(--ink); }
+.plugin-overlay .plugin-card-topline small,
+.plugin-overlay .plugin-card-description,
+.plugin-overlay .plugin-card-chevron { color: var(--ink-3); }
+.plugin-overlay .plugin-tabs button span { color: var(--ink-3); background: var(--surface-3); }
+.plugin-overlay .plugin-search { color: var(--ink-3); background: var(--surface-1); border-color: var(--border); }
+.plugin-overlay .plugin-search input::placeholder { color: var(--ink-3); }
+
+/* "Check live data" on a live plugin's page. */
+.plugin-live-check { display: flex; gap: 8px; }
+.plugin-live-check input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); color: var(--ink); font: inherit; font-size: .86rem; }
+.plugin-live-check button { height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--ink); color: var(--bg); font: 600 .84rem/1 var(--font, inherit); cursor: pointer; }
+.plugin-live-check button:disabled { opacity: .5; cursor: default; }
+.plugin-live-result { margin-top: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-1); font-size: .84rem; line-height: 1.55; }
+.plugin-live-result ul { margin: 0; padding-left: 18px; }
+.plugin-live-result p { margin: 0; }
+.plugin-live-result small { display: block; margin-top: 8px; color: var(--ink-3); font-size: .74rem; }
+.plugin-live-result.is-warn { border-color: color-mix(in srgb, #d97706 40%, var(--border)); color: #b45309; background: color-mix(in srgb, #d97706 8%, var(--surface-1)); }
+:root:not([data-theme="light"]) .plugin-live-result.is-warn { color: #fbbf24; }
