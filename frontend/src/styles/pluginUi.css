@@ -144,3 +144,11 @@
   .vc-menu { left: 6px; right: 6px; max-width: none; }
   .vc-menu-row { padding: 10px; }
 }
+
+/* Not enough room above the box (the start page, with many plugins): the
+   menu opens below it instead (ComposerMenu measures). */
+.vc-menu.is-below { bottom: auto; top: calc(100% + 8px); }
+
+/* "Live data · Highlightly Cricket API · fetched 19:52 UTC" under a reply. */
+.vai-live-source { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 4px; font-size: 12px; color: var(--ink-3, #8a847d); }
+.vai-live-source span { display: inline-flex; align-items: center; gap: 5px; }

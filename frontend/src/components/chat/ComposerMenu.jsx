@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import PluginIcon from "../../plugins/PluginIcon";
 
 /**
@@ -11,6 +11,29 @@ import PluginIcon from "../../plugins/PluginIcon";
  */
 export default function ComposerMenu({ kind, query, rows, activeIndex, onPick, onHover, onBrowse }) {
   const listRef = useRef(null);
+  const menuRef = useRef(null);
+  // Where the menu fits: above the box when there's room, else below it (the
+  // box sits mid-screen on the start page), never under the top bar or off
+  // the bottom; the list scrolls inside whatever height that leaves.
+  const [place, setPlace] = useState({ below: false, maxList: 340 });
+  useLayoutEffect(() => {
+    const measure = () => {
+      const box = menuRef.current?.parentElement?.getBoundingClientRect();
+      if (!box) return;
+      const header = document.querySelector(".chat-header")?.getBoundingClientRect();
+      const top = Math.max(header?.bottom || 0, 0) + 8;
+      const above = box.top - 8 - top;
+      const below = window.innerHeight - box.bottom - 16;
+      const chrome = 52; // the "Browse all plugins" row and padding
+      const wanted = Math.min(340, (listRef.current?.scrollHeight || 340));
+      const goBelow = above < wanted + chrome && below > above;
+      const room = (goBelow ? below : above) - chrome;
+      setPlace({ below: goBelow, maxList: Math.max(120, Math.min(340, room)) });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [rows.length]);
   useEffect(() => {
     listRef.current?.querySelector(`[data-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
@@ -66,9 +89,9 @@ export default function ComposerMenu({ kind, query, rows, activeIndex, onPick, o
   const label = kind === "slash" ? "Commands" : "Plugins";
 
   return (
-    <div className="vc-menu" role="listbox" id="vc-composer-menu" aria-label={label}
+    <div ref={menuRef} className={`vc-menu${place.below ? " is-below" : ""}`} role="listbox" id="vc-composer-menu" aria-label={label}
       aria-activedescendant={rows.length ? `vc-menu-row-${activeIndex}` : undefined}>
-      <div className="vc-menu-scroll" ref={listRef}>
+      <div className="vc-menu-scroll" ref={listRef} style={{ maxHeight: place.maxList }}>
         {kind === "slash" ? (
           rows.length ? (
             <>

@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 
 import {
   PLUGIN_CATALOG, PLUGIN_CATEGORIES, searchPlugins, searchCommands, scorePlugin,
-  expandSlashCommand, pluginsForPrompt, pluginContext, installedCount,
+  expandSlashCommand, pluginsForPrompt, pluginContext, installedCount, pluginFileFormats,
 } from "../src/plugins/catalog.js";
+import { formulaOf, spreadsheetTables, stripChatPreamble } from "../src/lib/documentExport.js";
+import { getPlugin } from "../src/plugins/catalog.js";
 
 const first = (query, state = {}) => {
   const { installed, available } = searchPlugins(query, state);
@@ -78,7 +80,7 @@ test("slash commands: installed plugins only, fuzzy, and expanded with their arg
   assert.equal(searchCommands("sco", state)[0].command.name, "score");
   assert.equal(searchCommands("cricket", state)[0].plugin.id, "sports-live");
   assert.ok(!searchCommands("", state).some((row) => row.plugin.id === "quiz-master"), "disabled plugin's commands hidden");
-  assert.deepEqual(expandSlashCommand("/score India vs Australia", state), { pluginId: "sports-live", command: "score", text: "Live score: India vs Australia" });
+  assert.deepEqual(expandSlashCommand("/score India vs Australia", state), { pluginId: "sports-live", command: "score", text: "Live score: India vs Australia", file: false });
   assert.equal(expandSlashCommand("/weather Chennai", state).text, "Weather in Chennai");
   assert.equal(expandSlashCommand("/quiz physics", state), null, "disabled");
   assert.equal(expandSlashCommand("hello /score", state), null);
@@ -95,4 +97,52 @@ test("a chip mention, a typed @name or a trigger word brings a plugin's skills i
   const [sports] = pluginContext(["sports-live"], "score");
   assert.equal(sports.live, "sports");
   assert.match(sports.skills[0].instructions, /never invent/i);
+});
+
+test("Sheets gives an Excel file and Docs a Word file, but only when asked for one", () => {
+  assert.deepEqual(pluginFileFormats(["sheet-builder"]), ["xlsx"]);
+  assert.deepEqual(pluginFileFormats(["doc-writer", "sheet-builder", "regex-lab"]), ["docx", "xlsx"]);
+  assert.deepEqual(pluginFileFormats(["sports-live"]), []);
+  const state = { "sheet-builder": { installed: true } };
+  assert.equal(expandSlashCommand("/sheet monthly budget", state).file, true, "/sheet makes a file");
+  assert.equal(expandSlashCommand("/formula sum of column B", state).file, false, "/formula answers in chat");
+});
+
+test("cells written as =formulas become Excel formulas; other text stays text", () => {
+  assert.equal(formulaOf("=SUM(B2:B13)"), "SUM(B2:B13)");
+  assert.equal(formulaOf("=B2*C2"), "B2*C2");
+  assert.equal(formulaOf(" =AVERAGE($C$2:$C$9) "), "AVERAGE($C$2:$C$9)");
+  assert.equal(formulaOf("=10/4"), "10/4");
+  assert.equal(formulaOf("= great"), null);
+  assert.equal(formulaOf("=)"), null);
+  assert.equal(formulaOf("1200"), null);
+  assert.equal(formulaOf("Total"), null);
+  const [table] = spreadsheetTables("# Budget\n\n### March\n\n| Item | Amount (₹) |\n|---|---|\n| Rent | 12000 |\n| Food | 6000 |\n| Total | =SUM(B2:B3) |");
+  assert.deepEqual(table.at(-1), ["Total", "=SUM(B2:B3)"], "the formula reaches the sheet intact");
+});
+
+test("plugins that need the app to do something say so: search, research, reading links", () => {
+  assert.equal(getPlugin("web-search").search, true);
+  assert.equal(getPlugin("jobs").search, true, "listings come from a search, never memory");
+  assert.equal(getPlugin("deep-report").research, true, "runs DeepSearch");
+  assert.equal(getPlugin("page-digest").readsLinks, true);
+  for (const id of ["sports-live", "weather-now", "news-brief", "markets", "currency-convert"]) assert.ok(getPlugin(id).live, id);
+  for (const id of ["quiz-master", "flashcard-maker", "slide-maker", "chart-maker"]) {
+    assert.doesNotMatch(getPlugin(id).skills[0].instructions, /when the app supports it/, `${id} always uses its block`);
+  }
+});
+
+test("a file leaves out the chat around the document: the opening line and a closing offer", () => {
+  const reply = "Here's your policy.\n\n# Leave Policy\n\n## Scope\n\nAll staff.\n\nWant me to add a section on sick leave?";
+  assert.equal(stripChatPreamble(reply), "# Leave Policy\n\n## Scope\n\nAll staff.");
+  const real = "# Notes\n\nShould employees carry leave over? Yes: up to 10 days, used by 31 March of the next year, after which unused days lapse and are not paid out in cash under any circumstances, including at exit, unless the law of the state requires it.";
+  assert.equal(stripChatPreamble(real), real, "a long last paragraph is the document's own");
+});
+
+test("a word-triggered web search steps aside for a plugin that brings its own data", () => {
+  const state = { markets: { installed: true }, "web-search": { installed: true } };
+  assert.deepEqual(pluginsForPrompt(state, "bitcoin price", ["markets"]), ["markets"], "'price' doesn't add Web Search");
+  assert.deepEqual(pluginsForPrompt(state, "bitcoin price"), ["markets"], "both by trigger: Markets wins");
+  assert.deepEqual(pluginsForPrompt(state, "bitcoin price", ["markets", "web-search"]).sort(), ["markets", "web-search"], "both picked: both kept");
+  assert.deepEqual(pluginsForPrompt(state, "latest news"), ["web-search"], "no data plugin: search as before");
 });

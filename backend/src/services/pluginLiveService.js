@@ -24,8 +24,11 @@ const LIVE_KIND_BY_PLUGIN = Object.freeze({
   "news-brief": "news",
   markets: "markets",
   "currency-convert": "currency",
+  // Not live data, but the same idea: the page a message links to is read
+  // before the model answers, so it summarises the page, not a guess.
+  "page-digest": "page",
 });
-const PLUGIN_NAME = { sports: "Live Sports", weather: "Weather", news: "News Brief", markets: "Markets", currency: "Currency" };
+const PLUGIN_NAME = { sports: "Live Sports", weather: "Weather", news: "News Brief", markets: "Markets", currency: "Currency", page: "Page & PDF Digest" };
 
 const TIMEOUT_MS = 9000;
 const CACHE_MS = 60_000;
@@ -348,7 +351,28 @@ async function currency(query, fetchImpl) {
   }
 }
 
-const HANDLERS = { sports, weather, news, markets, currency };
+// ── A linked page (Page & PDF Digest) ──
+const PAGE_CHARS = 14000;
+const URL_RE = /\bhttps?:\/\/[^\s<>"')\]]+/i;
+
+async function page(query, fetchImpl, deps = {}) {
+  const url = (URL_RE.exec(String(query || "")) || [])[0]?.replace(/[.,;:!?]+$/, "");
+  if (!url) {
+    return { kind: "page", connected: true, source: null, lines: ["No link in the message. If a PDF or document is attached, its text is in the conversation; summarise that. Otherwise ask the user for the link or file."] };
+  }
+  // The shared page reader: public sites only, size and time limits, and
+  // sign-in or bot-check pages reported rather than summarised.
+  const { readPage } = deps.pageReader || require("./pageReader");
+  const result = await readPage(url);
+  if (result.status !== "read") {
+    // No source: nothing was read, so the app shows no "Read: …" line.
+    return { kind: "page", connected: true, source: null, unread: url, lines: [`The page (${url}) couldn't be read: ${result.reason}. Say so, and offer to summarise it if the user pastes the text. Don't guess what it says.`] };
+  }
+  const text = result.text.length > PAGE_CHARS ? `${result.text.slice(0, PAGE_CHARS)}\n[…the rest of the page was cut]` : result.text;
+  return { kind: "page", connected: true, source: result.url, lines: [`Title: ${result.title || "(none)"}`, `Text of the page:\n${text}`] };
+}
+
+const HANDLERS = { sports, weather, news, markets, currency, page };
 
 /**
  * Live data for one source and message: { kind, connected, source, lines }
@@ -381,6 +405,10 @@ function liveBlock(result) {
   }
   if (result.error) {
     return `LIVE DATA — ${name}: the live service didn't answer just now (${String(result.error).slice(0, 120)}). Say the live data couldn't be fetched right now; do not guess or recall figures.`;
+  }
+  if (result.kind === "page") {
+    if (!result.source) return `LINKED PAGE — ${name}:\n${result.lines.join("\n")}`;
+    return `LINKED PAGE — read for ${name} (${result.source}, fetched ${result.fetchedAt}):\n${result.lines.join("\n")}\nSummarise from this text only; quote numbers exactly.`;
   }
   return `LIVE DATA — ${name} (source: ${result.source}; fetched ${result.fetchedAt}):\n${result.lines.join("\n")}\nUse only these figures for live values and name the source and time. If the user asked for something not listed here, say it isn't in the live data.`;
 }
@@ -416,7 +444,7 @@ function connectorStatus() {
 const clearCache = () => cache.clear();
 
 module.exports = {
-  LIVE_KIND_BY_PLUGIN, fetchLive, liveBlock, liveContextFor, connectorStatus, clearCache,
+  LIVE_KIND_BY_PLUGIN, PLUGIN_NAME, fetchLive, liveBlock, liveContextFor, connectorStatus, clearCache,
   // for tests
   sportFor, teamWords, placeFor, marketsFor, conversionFor, dateIn,
 };

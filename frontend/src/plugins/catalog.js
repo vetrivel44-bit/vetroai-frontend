@@ -15,6 +15,10 @@
 //     source (backend/src/services/pluginLiveService.js) that is fetched before
 //     the model answers, so scores, weather and prices are real, never made up.
 //
+//   - flags for what the app does around the answer: `search` (always runs
+//     a web search), `research` (runs DeepSearch when picked), `readsLinks`
+//     (the backend reads a linked page), `files` (the answer comes as a file).
+//
 // Ids are stable: saved install state and the backend refer to them.
 
 export const PLUGIN_STORAGE_KEY = "vetroai_plugins_v1";
@@ -25,12 +29,15 @@ export const PLUGIN_CATEGORIES = [
 ];
 
 const skill = (id, name, description, instructions, triggers = []) => ({ id, name, description, instructions, triggers });
-const command = (name, description, prompt) => ({ name, description, prompt });
+// `file`: this command's answer comes as the plugin's file (Sheets' /sheet).
+const command = (name, description, prompt, { file = false } = {}) => ({ name, description, prompt, ...(file ? { file: true } : {}) });
 
 export const PLUGIN_CATALOG = [
   // ── Research ────────────────────────────────────────────────────────────
   {
     id: "web-search",
+    // Runs a web search for every message it's used in (App.jsx triggerAI).
+    search: true,
     name: "Web Search",
     tagline: "Fresh answers with live sources",
     description: "Search the live web when a question needs current information, links, or citations.",
@@ -49,6 +56,8 @@ export const PLUGIN_CATALOG = [
   },
   {
     id: "deep-report",
+    // Runs VetroAI's DeepSearch research when picked (App.jsx triggerAI).
+    research: true,
     name: "Deep Report",
     tagline: "A researched report with sources",
     description: "Plan the research, read several sources and write a structured report with citations and open questions.",
@@ -65,6 +74,9 @@ export const PLUGIN_CATALOG = [
   },
   {
     id: "page-digest",
+    // The backend reads a linked page before the model answers
+    // (backend services/pluginLiveService.js, "page").
+    readsLinks: true,
     name: "Page & PDF Digest",
     tagline: "Summarise any link or PDF",
     description: "Read a web page, article or attached PDF and give the gist, the key points and what to read in full.",
@@ -258,9 +270,11 @@ export const PLUGIN_CATALOG = [
     aliases: ["docs", "document", "doc writer"],
     keywords: ["document", "word", "docx", "report", "proposal", "letter", "policy", "essay", "guide"],
     triggers: ["write a report", "proposal", "document"],
-    skills: [skill("document", "Write a document", "A finished document with headings.",
-      "Write the complete document, not an outline: a title, ## sections in a logical order, full paragraphs, and tables where data is compared. Use [placeholders] for details you don't have. Offer to export it only if the user asks about a file.")],
-    commands: [command("doc", "Write a document", "Write a document: {args}")],
+    // Picked by name, its reply comes as a Word file.
+    files: ["docx"],
+    skills: [skill("document", "Write a document", "A finished document, downloadable as Word.",
+      "Write the complete document, not an outline: one # title, ## sections in a logical order, full paragraphs, and tables where data is compared. Use [placeholders] for details you don't have.")],
+    commands: [command("doc", "Write a document", "Write a document: {args}", { file: true })],
     connectors: [],
   },
   {
@@ -274,9 +288,16 @@ export const PLUGIN_CATALOG = [
     aliases: ["sheets", "excel", "spreadsheet"],
     keywords: ["excel", "spreadsheet", "google sheets", "formula", "vlookup", "xlookup", "pivot", "table"],
     triggers: ["excel", "spreadsheet", "formula", "vlookup", "pivot"],
-    skills: [skill("formula", "Write formulas", "The formula, where it goes and why.",
-      "Give each formula in a code block with the cell it goes in, then explain it in a sentence. Prefer XLOOKUP/FILTER over older functions when the user's app supports them. Show a small example table with the expected result.")],
-    commands: [command("formula", "Write a spreadsheet formula", "Write a spreadsheet formula that: {args}")],
+    // Picked by name (chip, @, /command), its reply comes as an Excel file
+    // (App.jsx filesAskedBy → lib/documentExport.js).
+    files: ["xlsx"],
+    skills: [
+      skill("sheet", "Build a spreadsheet", "Tables that download as an Excel file with real formulas.",
+        "Build the spreadsheet as Markdown tables: start with a # title naming it, then one table per sheet (a header row, then the separator row) with a ### heading above each naming the sheet. Put plain numbers in number cells (1200, not ₹1,200; put the unit in the header, e.g. 'Amount (₹)'). Where a cell should calculate, write the Excel formula starting with = (e.g. =SUM(B2:B13), =B2*C2), using that table's cell addresses with row 1 as the header. Add a totals row when it helps. Keep any explanation to a line or two after the tables."),
+      skill("formula", "Write formulas", "The formula, where it goes and why.",
+        "Give each formula with the cell it goes in, then explain it in a sentence. Prefer XLOOKUP/FILTER over older functions when the user's app supports them. Show a small example table with the expected result.", ["formula", "vlookup", "xlookup"]),
+    ],
+    commands: [command("sheet", "Make an Excel spreadsheet", "Make a spreadsheet: {args}", { file: true }), command("formula", "Write a spreadsheet formula", "Write a spreadsheet formula that: {args}")],
     connectors: [],
   },
   {
@@ -291,7 +312,7 @@ export const PLUGIN_CATALOG = [
     keywords: ["slides", "presentation", "deck", "powerpoint", "pptx", "pitch", "speaker notes"],
     triggers: ["slides", "presentation", "deck", "powerpoint"],
     skills: [skill("deck", "Build a deck", "A slide deck the app can show.",
-      "Build the deck as a ```slides block when the app supports it; otherwise one ## heading per slide with 3–5 short bullets and speaker notes. One idea per slide, a title slide first and a clear ask or summary last.")],
+      "Build the whole deck as one ```slides block in the format given under [SLIDES] (the app shows it as slides with a .pptx download). One idea per slide, a title slide first, varied layouts, and a clear closing slide. Never write the slides out as text as well.")],
     commands: [command("slides", "Make a slide deck", "Make a slide deck about: {args}")],
     connectors: [],
   },
@@ -343,7 +364,7 @@ export const PLUGIN_CATALOG = [
     keywords: ["chart", "graph", "plot", "visualise", "visualize", "bar chart", "line chart", "pie", "data viz"],
     triggers: ["chart", "graph", "plot", "visualise", "visualize"],
     skills: [skill("chart", "Draw a chart", "A chart block with a one-line takeaway.",
-      "Choose the chart that fits (line for change over time, bar to compare, scatter for relationships; avoid pie beyond 5 parts) and draw it with the app's chart block. Only plot numbers the user gave or that are in the context. Add one sentence on what it shows.")],
+      "Draw it as one ```chartjs block in the format given under [CHART], choosing the type that fits (line for change over time, bar to compare, scatter for relationships; doughnut only for parts of a whole). Plot the user's numbers, or well-known reference figures labelled approximate; never invent data. Add one sentence on what it shows.")],
     commands: [command("chart", "Make a chart from numbers", "Make a chart of: {args}")],
     connectors: [],
   },
@@ -557,7 +578,7 @@ export const PLUGIN_CATALOG = [
     keywords: ["flashcards", "flash cards", "revise", "memorise", "memorize", "anki", "cards"],
     triggers: ["flashcards", "flash cards"],
     skills: [skill("cards", "Make flashcards", "A deck of flip cards.",
-      "Make 10–20 cards as a ```flashcards block when the app supports it, otherwise a two-column table (Front | Back). One fact per card, short fronts, answers under 25 words.")],
+      "Make the cards as one ```flashcards block in the format given under [FLASHCARDS] (the app plays them as flip cards): 10 unless asked otherwise, one fact per card, short fronts, answers under 25 words. Never list the cards as text as well.")],
     commands: [command("cards", "Make flashcards on a topic", "Make flashcards on: {args}")],
     connectors: [],
   },
@@ -573,7 +594,7 @@ export const PLUGIN_CATALOG = [
     keywords: ["quiz", "test", "mcq", "practice questions", "exam practice", "trivia"],
     triggers: ["quiz me", "test me", "mcq"],
     skills: [skill("quiz", "Run a quiz", "An interactive scored quiz.",
-      "Run a quiz as a ```quiz block when the app supports it: 5–10 questions, four options each, one correct, with a one-line explanation per answer. Mix easy and hard. Never show the answers outside the block.")],
+      "Start the quiz straight away as one ```quiz block in the format given under [QUIZ] (the app plays it and scores it): 5 questions unless asked otherwise, four options each, one correct, a simple explanation per answer. Mix easy and hard. Never show the questions or answers outside the block.")],
     commands: [command("quiz", "Quiz me on a topic", "Quiz me on: {args}")],
     connectors: [],
   },
@@ -626,12 +647,14 @@ export const PLUGIN_CATALOG = [
     keywords: ["places", "route", "directions", "nearby", "travel", "trip", "restaurant", "hotel"],
     triggers: ["near me", "nearby", "directions", "route", "restaurant", "hotel"],
     skills: [skill("places", "Find places", "Places with map links.",
-      "Give specific places with area and a map link each, and a map block when several are listed. Don't claim opening hours or availability unless they were fetched.")],
+      "Give specific places with area and a map link each, and a map block when several are listed. When the places come from your own knowledge rather than search results, say in one line that they're worth checking on the map before going (places close or move). Don't claim opening hours, prices or availability unless they were fetched.")],
     commands: [command("near", "Find places nearby", "Find {args} near me")],
     connectors: [{ id: "google-maps", name: "Google Maps", env: "GOOGLE_MAPS_API_KEY", optional: true }],
   },
   {
     id: "jobs",
+    // Listings come from a web search, never from memory.
+    search: true,
     name: "Job Search",
     tagline: "Discover roles and prepare to apply",
     description: "Search relevant roles and improve resumes, applications, and interview preparation.",
@@ -643,7 +666,7 @@ export const PLUGIN_CATALOG = [
     keywords: ["jobs", "vacancy", "hiring", "career", "interview", "openings", "internship"],
     triggers: ["job", "vacancy", "career", "interview", "hiring"],
     skills: [skill("jobs", "Find jobs", "Relevant openings and how to apply.",
-      "List relevant openings from the results provided with company, location and link; don't invent listings. Then give concrete next steps for applying and preparing.")],
+      "List openings only from the search results provided, each with company, role, location and link. If no results came through, say so plainly and point to where to search (with the exact search to type); don't name companies as currently hiring or quote salaries as fact without a source (say they're rough and need checking). Then give concrete next steps for applying and preparing.")],
     commands: [command("jobs", "Find job openings", "Find jobs: {args}")],
     connectors: [{ id: "jsearch", name: "Job listings", env: "JSEARCH_API_KEY", optional: true }],
   },
@@ -917,10 +940,19 @@ export function expandSlashCommand(text, state = {}) {
       const prompt = cmd.prompt.includes("{args}")
         ? cmd.prompt.replace("{args}", args).replace(/[:\s]+$/, args ? "" : "").trim()
         : `${cmd.prompt} ${args}`.trim();
-      return { pluginId: plugin.id, command: cmd.name, text: prompt || cmd.description };
+      return { pluginId: plugin.id, command: cmd.name, text: prompt || cmd.description, file: Boolean(cmd.file) };
     }
   }
   return null;
+}
+
+/**
+ * The file formats a message's plugins make of the reply ("xlsx" for Sheets,
+ * "docx" for Docs): the app adds the download card for them, as when a
+ * message asks for "an Excel sheet" in words.
+ */
+export function pluginFileFormats(ids = []) {
+  return [...new Set((ids || []).flatMap((id) => getPlugin(id)?.files || []))];
 }
 
 // ── Which plugins a message uses ─────────────────────────────────────────
@@ -950,16 +982,19 @@ export function pluginsForPrompt(state, prompt = "", mentioned = []) {
     if (!isEnabled(state, plugin.id)) continue;
     if (mentioned.includes(plugin.id) || textMentions(plugin, low)) picked.push(plugin.id);
   }
-  let byTrigger = 0;
+  const triggered = [];
   for (const plugin of PLUGIN_CATALOG) {
-    if (byTrigger >= 3 || picked.includes(plugin.id) || !isEnabled(state, plugin.id)) continue;
+    if (triggered.length >= 3 || picked.includes(plugin.id) || !isEnabled(state, plugin.id)) continue;
     const skillHit = (plugin.skills || []).some((s) => (s.triggers || []).some((t) => triggerPattern(t).test(low)));
-    if (skillHit || (plugin.triggers || []).some((t) => triggerPattern(t).test(low))) {
-      picked.push(plugin.id);
-      byTrigger++;
-    }
+    if (skillHit || (plugin.triggers || []).some((t) => triggerPattern(t).test(low))) triggered.push(plugin.id);
   }
-  return picked;
+  // A plugin that brings its own data (Markets, Weather, a linked page…)
+  // answers from it; a search plugin that only came in on a word ("price")
+  // steps aside, so no unrelated web results are mixed in. Picked by name,
+  // both stay.
+  const all = [...picked, ...triggered];
+  const bringsData = all.some((id) => getPlugin(id)?.live || getPlugin(id)?.readsLinks);
+  return all.filter((id) => !(bringsData && triggered.includes(id) && getPlugin(id)?.search));
 }
 
 /**

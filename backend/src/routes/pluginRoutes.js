@@ -4,7 +4,9 @@ const pluginLive = require("../services/pluginLiveService");
 
 const router = express.Router();
 
-const KINDS = new Set(Object.values(pluginLive.LIVE_KIND_BY_PLUGIN));
+// Live sources only: reading an arbitrary page happens inside a chat, not
+// through this public route.
+const KINDS = new Set(Object.values(pluginLive.LIVE_KIND_BY_PLUGIN).filter((kind) => kind !== "page"));
 
 // Which live-data connectors have their keys set (true/false only, never a
 // value), for the Plugins page's connector list.

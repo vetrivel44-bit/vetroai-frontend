@@ -61,7 +61,7 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge, Loader2, ScanText } from "lucide-react";
-import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils, ZoomIn, ZoomOut, Maximize2, Minimize2, History, ScanSearch, StopCircle, PenTool, Hotel, LayoutPanelLeft, Wand2 } from "lucide-react";
+import { Info, Radio, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils, ZoomIn, ZoomOut, Maximize2, Minimize2, History, ScanSearch, StopCircle, PenTool, Hotel, LayoutPanelLeft, Wand2 } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
@@ -102,7 +102,7 @@ if (typeof window !== "undefined") (window.requestIdleCallback || ((f) => setTim
 const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
 import ComposerMenu from "./components/chat/ComposerMenu";
 import PluginIcon from "./plugins/PluginIcon";
-import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention, pluginContext, expandSlashCommand, searchPlugins, searchCommands, getPlugin, installedCount } from "./plugins/catalog";
+import { PLUGIN_CATALOG, pluginFileFormats, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention, pluginContext, expandSlashCommand, searchPlugins, searchCommands, getPlugin, installedCount } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
@@ -222,6 +222,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("attachments", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
+      } else if (type === "plugin_live" && Array.isArray(data)) {
+        // Where a live plugin's figures came from, shown under the reply.
+        onMeta?.("plugin_live", data);
       } else if (type === "council" && data) {
         // The other models asked about a hard question, shown only inside
         // the thinking panel (ResponseProcess).
@@ -3237,6 +3240,16 @@ const DOWNLOAD_FORMATS = [
 // Structured PDF / Word / Excel downloads for one assistant reply. `requested`
 // are the formats the user asked for; those get a prominent file card, and
 // every reply also carries a compact Download menu.
+// The files a sent message asked for: in its words ("as an Excel sheet"), or
+// through a plugin whose answer is a file (the Sheets chip → Excel).
+// Only a plugin picked as a chip, or a command that makes a file (/sheet),
+// gives a file; one that switched on by itself from a word ("pivot"), or a
+// question command (/formula), answers in the chat.
+const filesAskedBy = (userMsg) => [...new Set([
+  ...requestedFileFormats(userMsg?.content || ""),
+  ...pluginFileFormats(Array.isArray(userMsg?.filePlugins) ? userMsg.filePlugins : []),
+])];
+
 function DocumentDownloads({ content, requested = [], variant = "menu" }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState("");
@@ -7156,7 +7169,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // the answer depends on current facts, at Quick effort so it starts
     // talking fast, whatever effort is picked for typed chat.
     const voiceTurn = voiceRef.current;
-    const pickedMode = autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
+    // A plugin picked by name that runs research (Deep Report) switches this
+    // message to DeepSearch.
+    const researchPlugin = (Array.isArray(lastUserMessage?.plugins) ? lastUserMessage.plugins : []).some((id) => getPlugin(id)?.research);
+    const pickedMode = researchPlugin && !filesData ? "deep_search" : autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
     const selectedMode = voiceTurn && pickedMode !== "web_search" ? "normal" : pickedMode;
     const turnEffort = voiceTurn ? "quick" : selectedEffort;
     const autoSearch = autoWebSearchRef.current || voiceTurn;
@@ -7270,7 +7286,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
     // First, so it survives if the backend has to cut a very long prompt.
-    const requestedFiles = requestedFileFormats(userQuery);
+    // Asked for in words ("as an Excel sheet"), or by a plugin whose answer
+    // is a file (Sheets → Excel, Docs → Word).
+    // The same rule as the download card under the reply (filesAskedBy).
+    const requestedFiles = filesAskedBy(lastUserMessage);
     if (requestedFiles.length) {
       finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
     }
@@ -7289,7 +7308,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // live scores or medical mode, whatever mode or plugin is on. "Ur name"
     // used to be searched, and answered with the history of the ancient city of Ur.
     const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery) || isFollowUpRequest(userQuery);
-    const sportsDetected = !humanizing && !notALookup && isSportsQuery(userQuery);
+    // Plugins that bring their own data (Live Sports, Weather, Markets, News,
+    // Currency, a linked page) answer from it: no general web search mixing
+    // unrelated results and citations in, unless a search plugin is used too.
+    const pluginBringsData = requestPlugins.some((id) => getPlugin(id)?.live || getPlugin(id)?.readsLinks);
+    const pluginSearches = requestPlugins.some((id) => getPlugin(id)?.search);
+    const sportsDetected = !humanizing && !notALookup && !pluginBringsData && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -7299,7 +7323,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
     const medicalDetected = !humanizing && !notALookup && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = !humanizing && !notALookup && (autoSearch || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const shouldWebSearch = !humanizing && !notALookup && (pluginSearches || isWebMode || isDeepSearch || selectedMode === "research"
+      || (!pluginBringsData && (autoSearch || sportsDetected || medicalDetected)));
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -7308,7 +7333,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // (askSearchIntent, below — the same one backend models get), so "I am
     // happy" isn't searched. Backend models are judged on the server, so the
     // activity line only promises a search for an explicit ask.
-    const explicitSearch = !notALookup && (requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const explicitSearch = !notALookup && (pluginSearches || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: explicitSearch }));
 
     const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
@@ -8190,6 +8215,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 if (metaType === "decider") last.decider = { ...(last.decider || {}), ...metaData };
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
                 if (metaType === "council") last.council = metaData;
+                if (metaType === "plugin_live") last.pluginLive = metaData;
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "research_reset") last.research = null;
                 u[u.length - 1] = last;
@@ -8545,6 +8571,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // The plugins this message uses by name: the chips in the box, and the
     // command's plugin. Kept on the user message, so a retry uses them too.
     const draftPlugins = [...new Set([...(prefill ? [] : composerPlugins), ...(slash ? [slash.pluginId] : [])])];
+    // Of those, the ones whose answer should come as a file: chips, and a
+    // command that makes one (/sheet, not /formula).
+    const filePlugins = [...new Set([...(prefill ? [] : composerPlugins), ...(slash?.file ? [slash.pluginId] : [])])];
     if (!prefill) setComposerPlugins([]);
     stopMic({ keepWanted: voiceRef.current });
     transcriptRef.current = "";
@@ -8741,7 +8770,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const text = await documentText(f);
       return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}), ...(text ? { text } : {}) };
     })) : null;
-    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now(), ...(draftPlugins.length ? { plugins: draftPlugins } : {}) };
+    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now(), ...(draftPlugins.length ? { plugins: draftPlugins } : {}), ...(filePlugins.length ? { filePlugins } : {}) };
     rememberTurnFiles(userMsg, filesToSend);
     const hist = [...messages, userMsg];
     setMessages(hist); setInput("");
@@ -9139,7 +9168,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     closeComposerMenu();
     setTimeout(() => {
       box?.focus();
-      box?.setSelectionRange(caret, caret);
+      // Only if nothing was typed since: moving the caret after a fast
+      // typist's first letter put the rest of the words in front of it.
+      if (box && box.value === next) box.setSelectionRange(caret, caret);
     }, 0);
   }, [input, pluginMention.start, pluginState, addToast, closeComposerMenu]);
 
@@ -10268,8 +10299,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <span>{m.realtimeNotice}</span>
                              </div>
                            )}
-                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
-                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           {m.content && Array.isArray(m.pluginLive) && m.pluginLive.some((p) => p.connected && p.source) && (
+                             <div className="vai-live-source" aria-label="Where the live data came from">
+                               {m.pluginLive.filter((p) => p.connected && p.source).map((p) => (
+                                 <span key={p.kind}>
+                                   <Radio size={11} aria-hidden="true" />
+                                   {p.kind === "page" ? <>Read: {p.source.replace(/^https?:\/\//, "").slice(0, 60)}</> : <>Live data · {p.source}{p.fetchedAt ? ` · fetched ${p.fetchedAt}` : ""}</>}
+                                 </span>
+                               ))}
+                             </div>
+                           )}
+                           {m.content && !isLoading && messages[i - 1]?.role === "user" && filesAskedBy(messages[i - 1]).length > 0 && (
+                             <DocumentDownloads variant="card" content={m.content} requested={filesAskedBy(messages[i - 1])} />
                            )}
                            {m.content && readingIdx === i && (
                              <ReadAloudBar
