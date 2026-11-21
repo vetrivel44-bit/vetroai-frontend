@@ -791,7 +791,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       this.sendVetroEvent(
         res,
         "status",
-        `${this.providerLabel(requested)} is not configured on the backend — using ${this.providerLabel(currentProviderName)} instead.`
+        `${this.providerLabel(requested)} isn't available right now, so ${this.providerLabel(currentProviderName)} is answering.`
       );
     }
 

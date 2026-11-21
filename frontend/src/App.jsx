@@ -9971,28 +9971,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <MedicalInfoCard data={m.medicalData} />
                            )}
                            {m.nearby && <NearbyMapCard data={m.nearby} />}
-                           {(m.answeredBy || m.decider) && (
+                           {/* The model that answered, quietly. The auto-router's
+                               mode/effort/provider choice is internal and not shown. */}
+                           {m.answeredBy && (
                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "6px" }}>
-                               {m.answeredBy && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--surface-2, rgba(0,0,0,0.06))", color: "var(--ink-secondary, #64748b)" }}>
-                                   {m.answeredBy}
-                                 </span>
-                               )}
-                               {m.decider?.mode && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
-                                   Mode: {m.decider.mode.replace(/_/g, " ")}
-                                 </span>
-                               )}
-                               {m.decider?.effort && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
-                                   Effort: {m.decider.effort}
-                                 </span>
-                               )}
-                               {m.decider?.provider && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
-                                   Provider: {m.decider.provider}
-                                 </span>
-                               )}
+                               <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--surface-2, rgba(0,0,0,0.06))", color: "var(--ink-secondary, #64748b)" }}>
+                                 {m.answeredBy}
+                               </span>
                              </div>
                            )}
                            {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || m.council?.members?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
