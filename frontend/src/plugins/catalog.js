@@ -25,7 +25,8 @@ export const PLUGIN_CATEGORIES = [
 ];
 
 const skill = (id, name, description, instructions, triggers = []) => ({ id, name, description, instructions, triggers });
-const command = (name, description, prompt) => ({ name, description, prompt });
+// `file`: this command's answer comes as the plugin's file (Sheets' /sheet).
+const command = (name, description, prompt, { file = false } = {}) => ({ name, description, prompt, ...(file ? { file: true } : {}) });
 
 export const PLUGIN_CATALOG = [
   // ── Research ────────────────────────────────────────────────────────────
@@ -258,9 +259,11 @@ export const PLUGIN_CATALOG = [
     aliases: ["docs", "document", "doc writer"],
     keywords: ["document", "word", "docx", "report", "proposal", "letter", "policy", "essay", "guide"],
     triggers: ["write a report", "proposal", "document"],
-    skills: [skill("document", "Write a document", "A finished document with headings.",
-      "Write the complete document, not an outline: a title, ## sections in a logical order, full paragraphs, and tables where data is compared. Use [placeholders] for details you don't have. Offer to export it only if the user asks about a file.")],
-    commands: [command("doc", "Write a document", "Write a document: {args}")],
+    // Picked by name, its reply comes as a Word file.
+    files: ["docx"],
+    skills: [skill("document", "Write a document", "A finished document, downloadable as Word.",
+      "Write the complete document, not an outline: one # title, ## sections in a logical order, full paragraphs, and tables where data is compared. Use [placeholders] for details you don't have.")],
+    commands: [command("doc", "Write a document", "Write a document: {args}", { file: true })],
     connectors: [],
   },
   {
@@ -274,9 +277,16 @@ export const PLUGIN_CATALOG = [
     aliases: ["sheets", "excel", "spreadsheet"],
     keywords: ["excel", "spreadsheet", "google sheets", "formula", "vlookup", "xlookup", "pivot", "table"],
     triggers: ["excel", "spreadsheet", "formula", "vlookup", "pivot"],
-    skills: [skill("formula", "Write formulas", "The formula, where it goes and why.",
-      "Give each formula in a code block with the cell it goes in, then explain it in a sentence. Prefer XLOOKUP/FILTER over older functions when the user's app supports them. Show a small example table with the expected result.")],
-    commands: [command("formula", "Write a spreadsheet formula", "Write a spreadsheet formula that: {args}")],
+    // Picked by name (chip, @, /command), its reply comes as an Excel file
+    // (App.jsx filesAskedBy → lib/documentExport.js).
+    files: ["xlsx"],
+    skills: [
+      skill("sheet", "Build a spreadsheet", "Tables that download as an Excel file with real formulas.",
+        "Build the spreadsheet as Markdown tables: start with a # title naming it, then one table per sheet (a header row, then the separator row) with a ### heading above each naming the sheet. Put plain numbers in number cells (1200, not ₹1,200; put the unit in the header, e.g. 'Amount (₹)'). Where a cell should calculate, write the Excel formula starting with = (e.g. =SUM(B2:B13), =B2*C2), using that table's cell addresses with row 1 as the header. Add a totals row when it helps. Keep any explanation to a line or two after the tables."),
+      skill("formula", "Write formulas", "The formula, where it goes and why.",
+        "Give each formula with the cell it goes in, then explain it in a sentence. Prefer XLOOKUP/FILTER over older functions when the user's app supports them. Show a small example table with the expected result.", ["formula", "vlookup", "xlookup"]),
+    ],
+    commands: [command("sheet", "Make an Excel spreadsheet", "Make a spreadsheet: {args}", { file: true }), command("formula", "Write a spreadsheet formula", "Write a spreadsheet formula that: {args}")],
     connectors: [],
   },
   {
@@ -917,10 +927,19 @@ export function expandSlashCommand(text, state = {}) {
       const prompt = cmd.prompt.includes("{args}")
         ? cmd.prompt.replace("{args}", args).replace(/[:\s]+$/, args ? "" : "").trim()
         : `${cmd.prompt} ${args}`.trim();
-      return { pluginId: plugin.id, command: cmd.name, text: prompt || cmd.description };
+      return { pluginId: plugin.id, command: cmd.name, text: prompt || cmd.description, file: Boolean(cmd.file) };
     }
   }
   return null;
+}
+
+/**
+ * The file formats a message's plugins make of the reply ("xlsx" for Sheets,
+ * "docx" for Docs): the app adds the download card for them, as when a
+ * message asks for "an Excel sheet" in words.
+ */
+export function pluginFileFormats(ids = []) {
+  return [...new Set((ids || []).flatMap((id) => getPlugin(id)?.files || []))];
 }
 
 // ── Which plugins a message uses ─────────────────────────────────────────

@@ -102,7 +102,7 @@ if (typeof window !== "undefined") (window.requestIdleCallback || ((f) => setTim
 const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
 import ComposerMenu from "./components/chat/ComposerMenu";
 import PluginIcon from "./plugins/PluginIcon";
-import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention, pluginContext, expandSlashCommand, searchPlugins, searchCommands, getPlugin, installedCount } from "./plugins/catalog";
+import { PLUGIN_CATALOG, pluginFileFormats, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention, pluginContext, expandSlashCommand, searchPlugins, searchCommands, getPlugin, installedCount } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
@@ -3237,6 +3237,16 @@ const DOWNLOAD_FORMATS = [
 // Structured PDF / Word / Excel downloads for one assistant reply. `requested`
 // are the formats the user asked for; those get a prominent file card, and
 // every reply also carries a compact Download menu.
+// The files a sent message asked for: in its words ("as an Excel sheet"), or
+// through a plugin whose answer is a file (the Sheets chip → Excel).
+// Only a plugin picked as a chip, or a command that makes a file (/sheet),
+// gives a file; one that switched on by itself from a word ("pivot"), or a
+// question command (/formula), answers in the chat.
+const filesAskedBy = (userMsg) => [...new Set([
+  ...requestedFileFormats(userMsg?.content || ""),
+  ...pluginFileFormats(Array.isArray(userMsg?.filePlugins) ? userMsg.filePlugins : []),
+])];
+
 function DocumentDownloads({ content, requested = [], variant = "menu" }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState("");
@@ -7270,7 +7280,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
     // First, so it survives if the backend has to cut a very long prompt.
-    const requestedFiles = requestedFileFormats(userQuery);
+    // Asked for in words ("as an Excel sheet"), or by a plugin whose answer
+    // is a file (Sheets → Excel, Docs → Word).
+    // The same rule as the download card under the reply (filesAskedBy).
+    const requestedFiles = filesAskedBy(lastUserMessage);
     if (requestedFiles.length) {
       finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
     }
@@ -8545,6 +8558,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // The plugins this message uses by name: the chips in the box, and the
     // command's plugin. Kept on the user message, so a retry uses them too.
     const draftPlugins = [...new Set([...(prefill ? [] : composerPlugins), ...(slash ? [slash.pluginId] : [])])];
+    // Of those, the ones whose answer should come as a file: chips, and a
+    // command that makes one (/sheet, not /formula).
+    const filePlugins = [...new Set([...(prefill ? [] : composerPlugins), ...(slash?.file ? [slash.pluginId] : [])])];
     if (!prefill) setComposerPlugins([]);
     stopMic({ keepWanted: voiceRef.current });
     transcriptRef.current = "";
@@ -8741,7 +8757,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const text = await documentText(f);
       return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}), ...(text ? { text } : {}) };
     })) : null;
-    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now(), ...(draftPlugins.length ? { plugins: draftPlugins } : {}) };
+    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now(), ...(draftPlugins.length ? { plugins: draftPlugins } : {}), ...(filePlugins.length ? { filePlugins } : {}) };
     rememberTurnFiles(userMsg, filesToSend);
     const hist = [...messages, userMsg];
     setMessages(hist); setInput("");
@@ -10268,8 +10284,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <span>{m.realtimeNotice}</span>
                              </div>
                            )}
-                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
-                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           {m.content && !isLoading && messages[i - 1]?.role === "user" && filesAskedBy(messages[i - 1]).length > 0 && (
+                             <DocumentDownloads variant="card" content={m.content} requested={filesAskedBy(messages[i - 1])} />
                            )}
                            {m.content && readingIdx === i && (
                              <ReadAloudBar

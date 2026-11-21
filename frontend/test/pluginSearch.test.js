@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   PLUGIN_CATALOG, PLUGIN_CATEGORIES, searchPlugins, searchCommands, scorePlugin,
-  expandSlashCommand, pluginsForPrompt, pluginContext, installedCount,
+  expandSlashCommand, pluginsForPrompt, pluginContext, installedCount, pluginFileFormats,
 } from "../src/plugins/catalog.js";
+import { formulaOf, spreadsheetTables } from "../src/lib/documentExport.js";
 
 const first = (query, state = {}) => {
   const { installed, available } = searchPlugins(query, state);
@@ -78,7 +79,7 @@ test("slash commands: installed plugins only, fuzzy, and expanded with their arg
   assert.equal(searchCommands("sco", state)[0].command.name, "score");
   assert.equal(searchCommands("cricket", state)[0].plugin.id, "sports-live");
   assert.ok(!searchCommands("", state).some((row) => row.plugin.id === "quiz-master"), "disabled plugin's commands hidden");
-  assert.deepEqual(expandSlashCommand("/score India vs Australia", state), { pluginId: "sports-live", command: "score", text: "Live score: India vs Australia" });
+  assert.deepEqual(expandSlashCommand("/score India vs Australia", state), { pluginId: "sports-live", command: "score", text: "Live score: India vs Australia", file: false });
   assert.equal(expandSlashCommand("/weather Chennai", state).text, "Weather in Chennai");
   assert.equal(expandSlashCommand("/quiz physics", state), null, "disabled");
   assert.equal(expandSlashCommand("hello /score", state), null);
@@ -95,4 +96,26 @@ test("a chip mention, a typed @name or a trigger word brings a plugin's skills i
   const [sports] = pluginContext(["sports-live"], "score");
   assert.equal(sports.live, "sports");
   assert.match(sports.skills[0].instructions, /never invent/i);
+});
+
+test("Sheets gives an Excel file and Docs a Word file, but only when asked for one", () => {
+  assert.deepEqual(pluginFileFormats(["sheet-builder"]), ["xlsx"]);
+  assert.deepEqual(pluginFileFormats(["doc-writer", "sheet-builder", "regex-lab"]), ["docx", "xlsx"]);
+  assert.deepEqual(pluginFileFormats(["sports-live"]), []);
+  const state = { "sheet-builder": { installed: true } };
+  assert.equal(expandSlashCommand("/sheet monthly budget", state).file, true, "/sheet makes a file");
+  assert.equal(expandSlashCommand("/formula sum of column B", state).file, false, "/formula answers in chat");
+});
+
+test("cells written as =formulas become Excel formulas; other text stays text", () => {
+  assert.equal(formulaOf("=SUM(B2:B13)"), "SUM(B2:B13)");
+  assert.equal(formulaOf("=B2*C2"), "B2*C2");
+  assert.equal(formulaOf(" =AVERAGE($C$2:$C$9) "), "AVERAGE($C$2:$C$9)");
+  assert.equal(formulaOf("=10/4"), "10/4");
+  assert.equal(formulaOf("= great"), null);
+  assert.equal(formulaOf("=)"), null);
+  assert.equal(formulaOf("1200"), null);
+  assert.equal(formulaOf("Total"), null);
+  const [table] = spreadsheetTables("# Budget\n\n### March\n\n| Item | Amount (₹) |\n|---|---|\n| Rent | 12000 |\n| Food | 6000 |\n| Total | =SUM(B2:B3) |");
+  assert.deepEqual(table.at(-1), ["Total", "=SUM(B2:B3)"], "the formula reaches the sheet intact");
 });

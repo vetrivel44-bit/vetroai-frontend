@@ -768,11 +768,29 @@ function loadXlsx() {
   return xlsxLoading;
 }
 
+/**
+ * The Excel formula in a cell's text, without its "=" ("=SUM(B2:B5)" →
+ * "SUM(B2:B5)"), or null. Written as text, Excel showed it as words; as a
+ * formula cell it is calculated when the file is opened.
+ */
+export function formulaOf(value) {
+  const text = String(value ?? "").trim();
+  if (!/^=[A-Za-z0-9(+\-$]/.test(text) || text.length < 2) return null;
+  // A formula has a function call, a cell address or arithmetic: "=SUM(A1)",
+  // "=B2*C2", "=10/4" — not a sentence that happens to start with "=".
+  return /[A-Z]{1,3}\$?\d+|[A-Z][A-Z0-9.]*\(|^=\s*[\d.]+\s*[-+*/^]/i.test(text) ? text.slice(1).trim() : null;
+}
+
 function workbookOf(XLSX, markdown, names = []) {
   const workbook = XLSX.utils.book_new();
   const used = new Set();
   spreadsheetTables(markdown).forEach((rows, index) => {
     const sheet = XLSX.utils.aoa_to_sheet(rows.map((row, r) => (r === 0 ? row : row.map(numeric))));
+    // Cells written as "=…" become real formulas.
+    rows.forEach((row, r) => row.forEach((value, c) => {
+      const formula = r > 0 ? formulaOf(value) : null;
+      if (formula) sheet[XLSX.utils.encode_cell({ r, c })] = { t: "n", f: formula };
+    }));
     const widths = rows[0]?.map((_, c) => ({ wch: Math.min(60, Math.max(10, ...rows.map((row) => String(row[c] ?? "").length + 2))) }));
     if (widths) sheet["!cols"] = widths;
     let name = String(names[index] || `Sheet${index + 1}`).replace(/[\\/?*[\]:]/g, " ").trim().slice(0, 31) || `Sheet${index + 1}`;
@@ -783,21 +801,26 @@ function workbookOf(XLSX, markdown, names = []) {
   return workbook;
 }
 
+// Each table's sheet is named by the heading above it.
+function sheetNamesOf(markdown) {
+  const names = [];
+  for (const block of String(markdown || "").split(/\n(?=#{1,4}\s)/)) {
+    const title = /^#{1,4}\s+(.+)/.exec(block)?.[1]?.replace(/[*_`]/g, "").trim() || "";
+    const tables = (block.match(/(^|\n)\s*\|.*\|\s*\n\s*\|?\s*:?-{2,}/g) || []).length;
+    for (let i = 0; i < tables; i++) names.push(i ? `${title} ${i + 1}` : title);
+  }
+  return names;
+}
+
 export async function exportXlsx(markdown) {
   const XLSX = await loadXlsx();
-  XLSX.writeFile(workbookOf(XLSX, markdown), safeFileName(documentTitle(markdown), "xlsx"));
+  XLSX.writeFile(workbookOf(XLSX, markdown, sheetNamesOf(markdown)), safeFileName(documentTitle(markdown), "xlsx"));
 }
 
 /** Every Markdown table as a sheet (named by the "###" heading above it), as an .xlsx Blob. */
 export async function xlsxBlobFromMarkdown(markdown) {
   const XLSX = await loadXlsx();
-  const names = [];
-  const blocks = String(markdown || "").split(/\n(?=#{1,4}\s)/);
-  for (const block of blocks) {
-    const title = /^#{1,4}\s+(.+)/.exec(block)?.[1]?.replace(/[*_`]/g, "").trim() || "";
-    const tables = (block.match(/(^|\n)\s*\|.*\|\s*\n\s*\|?\s*:?-{2,}/g) || []).length;
-    for (let i = 0; i < tables; i++) names.push(i ? `${title} ${i + 1}` : title);
-  }
+  const names = sheetNamesOf(markdown);
   const data = XLSX.write(workbookOf(XLSX, markdown, names), { type: "array", bookType: "xlsx" });
   return new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
