@@ -69,3 +69,25 @@ Run `cd backend && npm install && node --test`.
   backend environment variables only: `HIGHLIGHTLY_API_KEY` (sports, main),
   `CRICAPI_KEY` / `API_SPORTS_KEY` (fallbacks), `NEWS_API_KEY`,
   `ALPHAVANTAGE_API_KEY`. Weather, currency and crypto need no key.
+- **A plugin must work, not just be listed.** A plugin whose answer is a
+  block the app draws (quiz, flashcards, slides, chart, map) gets that exact
+  format from `pluginFormatPrompt` in `backend/src/services/visualsPrompt.js`,
+  for every model (Groq never gets the long visuals guide, and a chip removes
+  the plugin's name from the message). Flags in the catalog make the app do
+  the work: `search` (Web Search, Job Search), `research` (Deep Report runs
+  DeepSearch), `readsLinks` (Page Digest: the backend reads the link),
+  `files` (Sheets → .xlsx, Docs → .docx). When a plugin brings its own data,
+  a word-triggered web search steps aside, and the app shows "Live data ·
+  <source> · fetched <time>" under the reply.
+- **Check plugins against a real model** after changing skills or wiring: run
+  every plugin through `processRequest` with one realistic question each and
+  read the answers (the last audit is described in the commit "Verify every
+  plugin…").
+
+## AI Router
+
+- Models that always think first (`reasoningAlwaysOn`, AI Router) get at
+  least 16k tokens per reply (thinking counts against max_tokens), and an
+  all-thinking reply is retried with double the room before failing.
+- The decider (`deciderService.js`) uses AI Router's `/v1/decisions` (typed
+  predicate / choice questions); `/chat/completions` refuses decision models.

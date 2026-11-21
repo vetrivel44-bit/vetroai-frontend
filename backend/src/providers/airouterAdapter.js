@@ -279,6 +279,12 @@ function reasonsNatively() {
   return true;
 }
 
+// Its thinking can't be switched off (no reasoning_effort is sent, see send()),
+// and it counts against max_tokens: the orchestrator gives it room for both.
+function reasoningAlwaysOn() {
+  return true;
+}
+
 module.exports = {
   generateStream,
   // How long the orchestrator waits for a reply to start, and for the next
@@ -286,6 +292,7 @@ module.exports = {
   startTimeoutMs,
   idleTimeoutMs,
   reasonsNatively,
+  reasoningAlwaysOn,
   complete,
   MODEL,
   LING_MODEL,

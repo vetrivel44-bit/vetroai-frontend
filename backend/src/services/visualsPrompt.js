@@ -208,4 +208,40 @@ const FLASHCARDS_PROMPT = `
 [FLASHCARDS]
 The user wants flashcards. Reply with one short line, then one \`\`\`flashcards block holding strict JSON: {"title": "...", "cards": [{"front": "question or term", "back": "the answer in 1-3 short sentences", "hint": "optional nudge", "example": "optional example"}]}. 10 cards unless they ask for another number (at most 60), one idea per card, basic to harder. The chat plays it as flip cards, so never also list the cards in prose, a table or a list.`;
 
-module.exports = { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST };
+// One "X rules (```tag)" section of the guide above, up to the next one.
+function guideSection(heading) {
+  const start = VISUALS_PROMPT.indexOf(`\n${heading}`);
+  if (start === -1) return "";
+  const rest = VISUALS_PROMPT.slice(start + 1);
+  const next = rest.slice(1).search(/\n\n[A-Z][^\n]{0,60} rules \(/);
+  return (next === -1 ? rest : rest.slice(0, next + 1)).trim();
+}
+
+// The format a plugin's answer is drawn in, for plugins whose whole point is
+// that block (frontend src/plugins/catalog.js). Every writer gets it, even
+// one whose prompt leaves out the long guide (Groq), and even when the
+// plugin was picked as a chip, which takes its name out of the message.
+const QUIZ_NOW = "[QUIZ]\nThe user picked the Quiz Me plugin: they want to be quizzed now. Don't offer a quiz or ask first; reply with one short encouraging line and the ```quiz block on the topic they named (or on what was just discussed).";
+const PLUGIN_FORMAT_PROMPTS = Object.freeze({
+  "quiz-master": `\n\n${QUIZ_NOW}\n${guideSection("Quiz rules").split("\n").filter((line) => !/^- After you teach/.test(line)).join("\n")}`,
+  "flashcard-maker": FLASHCARDS_PROMPT,
+  "slide-maker": `\n\n[SLIDES]\n${guideSection("Slides rules")}`,
+  "chart-maker": `\n\n[CHART]\nThe user picked Chart Maker: draw the chart as a \`\`\`chartjs block.\n${guideSection("Chart rules")}`,
+  // Data Analyst's one chart, and Maps' pins, in the formats the app draws.
+  "data-analyst": `\n\n[CHART]\n${guideSection("Chart rules")}`,
+  maps: `\n\n[MAP]\nWhen you list places, add their pins as a \`\`\`json map block.\n${guideSection("Map rules")}`,
+});
+
+/** The block-format guides for the plugins in use, each once. */
+function pluginFormatPrompt(pluginIds = []) {
+  const seen = new Set();
+  return [...new Set(pluginIds)].map((id) => PLUGIN_FORMAT_PROMPTS[id] || "").filter((text) => {
+    // Chart Maker and Data Analyst share the chart guide: once is enough.
+    const key = text.includes("Chart rules") ? "chart" : text;
+    if (!text || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).join("");
+}
+
+module.exports = { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST, pluginFormatPrompt, guideSection };

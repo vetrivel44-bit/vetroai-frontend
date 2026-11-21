@@ -1,6 +1,6 @@
 // Trigger sync 2026-05-15 18:28
 const logger = require("../utils/logger");
-const { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST } = require("./visualsPrompt");
+const { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST, pluginFormatPrompt } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
@@ -46,6 +46,10 @@ const PICKED_ALONE_BUDGET_MS = 600000;
 // in every mode, until it is finished: up to this many extra parts (each one
 // a full token budget), on top of the tries for errors.
 const MAX_CONTINUATIONS = 12;
+// The least a model that thinks before answering gets for one reply
+// (thinking + answer), and the most a retry for more room asks for.
+const REASONING_MIN_TOKENS = 16384;
+const REASONING_MAX_TOKENS = 32768;
 // A reply that broke off after at least this much text is continued by the
 // next model instead of being erased and written again from the start.
 const KEEP_PARTIAL_CHARS = 200;
@@ -736,6 +740,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     }
     let attempts = 0;
     let continuations = 0;
+    let roomRetries = 0;
     const attemptedProviders = new Set();
     // A model picked in the model picker answers alone: a timeout, a busy
     // moment or an empty reply is tried again on the same model, never handed
@@ -1015,13 +1020,24 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // (scores, weather, prices) fetched now, or the "isn't connected yet"
     // notice when a service has no key (services/pluginLiveService.js).
     promptExtras += buildPluginPrompt(params.activePlugins, params.pluginContext);
+    // The block a plugin's answer is drawn in (quiz, flashcards, slides,
+    // chart), for every writer: services/visualsPrompt.js.
+    const formatGuide = pluginFormatPrompt(params.activePlugins || []);
+    promptExtras += formatGuide;
     if (params.activePlugins?.some((id) => pluginLive.LIVE_KIND_BY_PLUGIN[id]) && !params.signal?.aborted) {
-      this.sendVetroEvent(res, "status", "Getting live data…");
+      const onlyPage = params.activePlugins.every((id) => !pluginLive.LIVE_KIND_BY_PLUGIN[id] || pluginLive.LIVE_KIND_BY_PLUGIN[id] === "page");
+      this.sendVetroEvent(res, "status", onlyPage ? "Reading the page…" : "Getting live data…");
       const live = await pluginLive.liveContextFor(params.activePlugins, userQuery, { timezone: params.clock?.known ? params.clock.timeZone : "" });
       promptExtras += live.prompt;
+      // Where the figures came from and when, shown under the reply by the
+      // app (not left to the model to remember to say).
+      this.sendVetroEvent(res, "plugin_live", live.results.map((r) => ({
+        kind: r.kind, plugin: pluginLive.PLUGIN_NAME[r.kind] || r.kind, source: r.source || null, fetchedAt: r.fetchedAt || null,
+        connected: r.connected !== false && !r.error, notice: r.notice || null, error: r.error ? "unavailable" : null,
+      })));
       logger.info("AIOrchestrator.pluginLive", { reqId, results: live.results.map((r) => `${r.kind}:${r.error ? "error" : r.connected === false ? "not-connected" : "ok"}`) });
     }
-    if (FLASHCARDS_REQUEST.test(userQuery || "")) promptExtras += FLASHCARDS_PROMPT;
+    if (FLASHCARDS_REQUEST.test(userQuery || "") && !formatGuide.includes("[FLASHCARDS]")) promptExtras += FLASHCARDS_PROMPT;
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)
     // gets the search results with the question instead: inside the system
@@ -1196,7 +1212,17 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         const attemptMessages = resumeText
           ? [...promptFor(currentProviderName), { role: "assistant", content: resumeText }, { role: "user", content: CONTINUE_PROMPT }]
           : promptFor(currentProviderName);
-        const streamPromise = adapter.generateStream(attemptMessages, options);
+        // A model that thinks before it answers (AI Router's DeepSeek, Ling,
+        // Qwen) spends the same token budget on the thinking first: at
+        // Medium's 4096 it used all of it thinking and wrote no answer. It
+        // gets room for both; only what it writes is billed.
+        // (Not for a drawing, which is kept lean and bounded, nor a model that
+        // can switch its thinking off, like Sarvam: that one retries without.)
+        const thinksAlways = Boolean(adapter.reasoningAlwaysOn?.()) && !options?.drawing;
+        const attemptOptions = thinksAlways
+          ? { ...options, maxTokens: Math.max(Number(options?.maxTokens) || 0, REASONING_MIN_TOKENS) }
+          : options;
+        const streamPromise = adapter.generateStream(attemptMessages, attemptOptions);
         // A slow-starting model (Sarvam 105B) sets its own start budget.
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : (adapter.startTimeoutMs?.() || ATTEMPT_TIMEOUT_MS);
         const stream = await withTimeout(streamPromise, attemptTimeout, "Stream generation timeout");
@@ -1217,6 +1243,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // All thinking and no answer (Sarvam 105B spent its tokens
           // reasoning): the next try goes without reasoning, so the whole
           // budget is the answer's.
+          // Still all thinking at its limit: the same model again with twice
+          // the room, before any other model or giving up. Doesn't use up
+          // the tries kept for errors.
+          if (streamInfo.reasoningChars > 0 && /^(length|max_tokens)$/i.test(streamInfo.finishReason || "") && thinksAlways && roomRetries < 2 && !params.signal?.aborted) {
+            roomRetries++;
+            options = { ...options, maxTokens: Math.min(Math.max(Number(attemptOptions?.maxTokens) || REASONING_MIN_TOKENS, REASONING_MIN_TOKENS) * 2, REASONING_MAX_TOKENS) };
+            attempts--;
+            attemptedProviders.delete(currentProviderName);
+            logger.info("AIOrchestrator.moreRoomToThink", { reqId, provider: currentProviderName, maxTokens: options.maxTokens });
+            this.sendVetroEvent(res, "status", "Still thinking it through…");
+            continue;
+          }
           if (streamInfo.reasoningChars > 0 && !options?.light) {
             logger.info("AIOrchestrator.retryWithoutReasoning", { reqId, provider: currentProviderName, finish: streamInfo.finishReason || null });
             options = { ...options, light: true };

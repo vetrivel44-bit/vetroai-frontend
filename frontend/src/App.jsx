@@ -61,7 +61,7 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge, Loader2, ScanText } from "lucide-react";
-import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils, ZoomIn, ZoomOut, Maximize2, Minimize2, History, ScanSearch, StopCircle, PenTool, Hotel, LayoutPanelLeft, Wand2 } from "lucide-react";
+import { Info, Radio, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils, ZoomIn, ZoomOut, Maximize2, Minimize2, History, ScanSearch, StopCircle, PenTool, Hotel, LayoutPanelLeft, Wand2 } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
@@ -222,6 +222,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("attachments", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
+      } else if (type === "plugin_live" && Array.isArray(data)) {
+        // Where a live plugin's figures came from, shown under the reply.
+        onMeta?.("plugin_live", data);
       } else if (type === "council" && data) {
         // The other models asked about a hard question, shown only inside
         // the thinking panel (ResponseProcess).
@@ -7166,7 +7169,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // the answer depends on current facts, at Quick effort so it starts
     // talking fast, whatever effort is picked for typed chat.
     const voiceTurn = voiceRef.current;
-    const pickedMode = autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
+    // A plugin picked by name that runs research (Deep Report) switches this
+    // message to DeepSearch.
+    const researchPlugin = (Array.isArray(lastUserMessage?.plugins) ? lastUserMessage.plugins : []).some((id) => getPlugin(id)?.research);
+    const pickedMode = researchPlugin && !filesData ? "deep_search" : autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
     const selectedMode = voiceTurn && pickedMode !== "web_search" ? "normal" : pickedMode;
     const turnEffort = voiceTurn ? "quick" : selectedEffort;
     const autoSearch = autoWebSearchRef.current || voiceTurn;
@@ -7302,7 +7308,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // live scores or medical mode, whatever mode or plugin is on. "Ur name"
     // used to be searched, and answered with the history of the ancient city of Ur.
     const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery) || isFollowUpRequest(userQuery);
-    const sportsDetected = !humanizing && !notALookup && isSportsQuery(userQuery);
+    // Plugins that bring their own data (Live Sports, Weather, Markets, News,
+    // Currency, a linked page) answer from it: no general web search mixing
+    // unrelated results and citations in, unless a search plugin is used too.
+    const pluginBringsData = requestPlugins.some((id) => getPlugin(id)?.live || getPlugin(id)?.readsLinks);
+    const pluginSearches = requestPlugins.some((id) => getPlugin(id)?.search);
+    const sportsDetected = !humanizing && !notALookup && !pluginBringsData && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -7312,7 +7323,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
     const medicalDetected = !humanizing && !notALookup && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = !humanizing && !notALookup && (autoSearch || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const shouldWebSearch = !humanizing && !notALookup && (pluginSearches || isWebMode || isDeepSearch || selectedMode === "research"
+      || (!pluginBringsData && (autoSearch || sportsDetected || medicalDetected)));
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -7321,7 +7333,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // (askSearchIntent, below — the same one backend models get), so "I am
     // happy" isn't searched. Backend models are judged on the server, so the
     // activity line only promises a search for an explicit ask.
-    const explicitSearch = !notALookup && (requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const explicitSearch = !notALookup && (pluginSearches || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: explicitSearch }));
 
     const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
@@ -8203,6 +8215,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 if (metaType === "decider") last.decider = { ...(last.decider || {}), ...metaData };
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
                 if (metaType === "council") last.council = metaData;
+                if (metaType === "plugin_live") last.pluginLive = metaData;
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "research_reset") last.research = null;
                 u[u.length - 1] = last;
@@ -9155,7 +9168,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     closeComposerMenu();
     setTimeout(() => {
       box?.focus();
-      box?.setSelectionRange(caret, caret);
+      // Only if nothing was typed since: moving the caret after a fast
+      // typist's first letter put the rest of the words in front of it.
+      if (box && box.value === next) box.setSelectionRange(caret, caret);
     }, 0);
   }, [input, pluginMention.start, pluginState, addToast, closeComposerMenu]);
 
@@ -10282,6 +10297,16 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <div className="realtime-notice">
                                <AlertTriangle size={13} />
                                <span>{m.realtimeNotice}</span>
+                             </div>
+                           )}
+                           {m.content && Array.isArray(m.pluginLive) && m.pluginLive.some((p) => p.connected && p.source) && (
+                             <div className="vai-live-source" aria-label="Where the live data came from">
+                               {m.pluginLive.filter((p) => p.connected && p.source).map((p) => (
+                                 <span key={p.kind}>
+                                   <Radio size={11} aria-hidden="true" />
+                                   {p.kind === "page" ? <>Read: {p.source.replace(/^https?:\/\//, "").slice(0, 60)}</> : <>Live data · {p.source}{p.fetchedAt ? ` · fetched ${p.fetchedAt}` : ""}</>}
+                                 </span>
+                               ))}
                              </div>
                            )}
                            {m.content && !isLoading && messages[i - 1]?.role === "user" && filesAskedBy(messages[i - 1]).length > 0 && (

@@ -5,7 +5,8 @@ import {
   PLUGIN_CATALOG, PLUGIN_CATEGORIES, searchPlugins, searchCommands, scorePlugin,
   expandSlashCommand, pluginsForPrompt, pluginContext, installedCount, pluginFileFormats,
 } from "../src/plugins/catalog.js";
-import { formulaOf, spreadsheetTables } from "../src/lib/documentExport.js";
+import { formulaOf, spreadsheetTables, stripChatPreamble } from "../src/lib/documentExport.js";
+import { getPlugin } from "../src/plugins/catalog.js";
 
 const first = (query, state = {}) => {
   const { installed, available } = searchPlugins(query, state);
@@ -118,4 +119,30 @@ test("cells written as =formulas become Excel formulas; other text stays text", 
   assert.equal(formulaOf("Total"), null);
   const [table] = spreadsheetTables("# Budget\n\n### March\n\n| Item | Amount (₹) |\n|---|---|\n| Rent | 12000 |\n| Food | 6000 |\n| Total | =SUM(B2:B3) |");
   assert.deepEqual(table.at(-1), ["Total", "=SUM(B2:B3)"], "the formula reaches the sheet intact");
+});
+
+test("plugins that need the app to do something say so: search, research, reading links", () => {
+  assert.equal(getPlugin("web-search").search, true);
+  assert.equal(getPlugin("jobs").search, true, "listings come from a search, never memory");
+  assert.equal(getPlugin("deep-report").research, true, "runs DeepSearch");
+  assert.equal(getPlugin("page-digest").readsLinks, true);
+  for (const id of ["sports-live", "weather-now", "news-brief", "markets", "currency-convert"]) assert.ok(getPlugin(id).live, id);
+  for (const id of ["quiz-master", "flashcard-maker", "slide-maker", "chart-maker"]) {
+    assert.doesNotMatch(getPlugin(id).skills[0].instructions, /when the app supports it/, `${id} always uses its block`);
+  }
+});
+
+test("a file leaves out the chat around the document: the opening line and a closing offer", () => {
+  const reply = "Here's your policy.\n\n# Leave Policy\n\n## Scope\n\nAll staff.\n\nWant me to add a section on sick leave?";
+  assert.equal(stripChatPreamble(reply), "# Leave Policy\n\n## Scope\n\nAll staff.");
+  const real = "# Notes\n\nShould employees carry leave over? Yes: up to 10 days, used by 31 March of the next year, after which unused days lapse and are not paid out in cash under any circumstances, including at exit, unless the law of the state requires it.";
+  assert.equal(stripChatPreamble(real), real, "a long last paragraph is the document's own");
+});
+
+test("a word-triggered web search steps aside for a plugin that brings its own data", () => {
+  const state = { markets: { installed: true }, "web-search": { installed: true } };
+  assert.deepEqual(pluginsForPrompt(state, "bitcoin price", ["markets"]), ["markets"], "'price' doesn't add Web Search");
+  assert.deepEqual(pluginsForPrompt(state, "bitcoin price"), ["markets"], "both by trigger: Markets wins");
+  assert.deepEqual(pluginsForPrompt(state, "bitcoin price", ["markets", "web-search"]).sort(), ["markets", "web-search"], "both picked: both kept");
+  assert.deepEqual(pluginsForPrompt(state, "latest news"), ["web-search"], "no data plugin: search as before");
 });

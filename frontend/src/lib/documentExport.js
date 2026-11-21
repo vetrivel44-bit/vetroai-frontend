@@ -76,11 +76,23 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 // A reply often opens with a line of chat ("Here are your notes:") before the
 // document's own # title; that line doesn't belong in the file.
 export function stripChatPreamble(markdown = "") {
-  const text = String(markdown).replace(/\r/g, "");
+  const text = stripChatOffer(String(markdown).replace(/\r/g, ""));
   const match = /^#\s+\S/m.exec(text);
   if (!match || match.index === 0) return text;
   const before = text.slice(0, match.index).trim();
   return before.split("\n").length <= 2 && before.length <= 200 ? text.slice(match.index) : text;
+}
+
+// …and often ends with an offer to the user ("Want me to add a fees
+// sheet?"), which doesn't belong in the file either. Only a short last
+// paragraph that is plainly such an offer is taken off.
+const CHAT_OFFER = /^(?:want me to|would you like|shall i|should i|let me know|if you(?:'d| would) like|need me to|happy to|i can also)\b/i;
+function stripChatOffer(text) {
+  const trimmed = text.replace(/\s+$/, "");
+  const cut = trimmed.lastIndexOf("\n\n");
+  if (cut === -1) return text;
+  const last = trimmed.slice(cut + 2).trim();
+  return last.length <= 240 && !/^[#|`>-]/.test(last) && CHAT_OFFER.test(last) ? trimmed.slice(0, cut) : text;
 }
 
 export function parseMarkdownBlocks(markdown = "") {

@@ -10,9 +10,12 @@ const DECIDER_MODEL = "perplexity/pplx-decider-v1.3";
 // Hard timeout: a classification should be instant; waiting longer holds up the reply.
 const DECIDER_TIMEOUT_MS = 3000;
 
+// AI Router serves its decision models at /v1/decisions only: a
+// /chat/completions call is refused ("is a decision model. Use POST
+// /v1/decisions instead"), which had made every decision below fail.
+const base = () => (config.airouterBaseUrl || "https://api.airouter.in/v1").replace(/\/+$/, "");
 function endpoint() {
-  const base = (config.airouterBaseUrl || "https://api.airouter.in/v1").replace(/\/+$/, "");
-  return `${base}/chat/completions`;
+  return `${base()}/chat/completions`;
 }
 
 function apiKey() {
@@ -57,6 +60,41 @@ async function ask(system, user, { maxTokens = 30, temperature = 0, timeoutMs = 
   return String(data.choices?.[0]?.message?.content || "").trim();
 }
 
+/**
+ * Ask the decider structured questions about `input` (POST /v1/decisions).
+ * Each question: { name, type: "predicate" | "choice" | "score",
+ * instructions, choices?: [{ value }], levels?: [{ label }] }.
+ * Resolves to the answers by name, e.g.
+ *   { search: { type: "predicate", probability: 0.97 },
+ *     mode: { type: "choice", choice: "code", confidence: 0.99 } }.
+ */
+async function decide(input, questions, { timeoutMs = DECIDER_TIMEOUT_MS } = {}) {
+  const key = apiKey();
+  const res = await fetch(`${base()}/decisions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "x-api-key": key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: DECIDER_MODEL, input: String(input || "").slice(0, 4000), questions }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Decider ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return Object.fromEntries((data.answers || []).map((a, i) => [a.name || questions[i]?.name || String(i), a]));
+}
+
+// A multiple-choice decision: the chosen value, or null when unsure.
+async function chooseOne(input, name, instructions, values, minConfidence = 0.4) {
+  const answers = await decide(input, [{ name, type: "choice", instructions, choices: values.map((value) => ({ value })) }]);
+  const answer = answers[name];
+  return answer && values.includes(answer.choice) && (answer.confidence ?? 1) >= minConfidence ? answer.choice : null;
+}
+
+// The prompts below end "Reply with exactly one word…" for a chat model;
+// as decision instructions that line is left off.
+const asInstructions = (prompt) => prompt.replace(/\n*Reply with[^\n]*$/i, "").trim();
+
 // ─── 1. SEARCH INTENT ────────────────────────────────────────────────────────
 // Replaces the Groq llama model in searchIntentService.
 
@@ -73,13 +111,13 @@ async function decideSearchIntent(query, recentTurns, clock) {
     ? `Conversation so far:\n${recentTurns.join("\n")}\n\n`
     : "";
   const clockLine = clock ? `Today: ${clock}\n` : "";
-  const reply = await ask(
-    `${SEARCH_INTENT_PROMPT}\n\n${clockLine}`,
-    `${context}Latest message: ${query.slice(0, 1500)}`,
-  );
-  const upper = reply.toUpperCase();
-  if (/\bSEARCH\b/.test(upper)) return true;
-  if (/\bNO\b/.test(upper)) return false;
+  const answers = await decide(`${clockLine}${context}Latest message: ${query.slice(0, 1500)}`, [
+    { name: "search", type: "predicate", instructions: `${asInstructions(SEARCH_INTENT_PROMPT)}\n\nTrue when the assistant must search the web before replying to the latest message.` },
+  ]);
+  const p = answers.search?.probability;
+  if (typeof p !== "number") return null;
+  if (p >= 0.6) return true;
+  if (p <= 0.4) return false;
   return null; // unclear — caller falls back to rules
 }
 
@@ -100,10 +138,8 @@ Reply with exactly one word: deep_search, analyst, debugger, summarize, web_sear
 
 async function decideMode(query, fileNames) {
   const fileInfo = fileNames.length ? `\nAttached files: ${fileNames.join(", ")}` : "";
-  const reply = await ask(AUTO_MODE_PROMPT, `${query.slice(0, 1500)}${fileInfo}`);
-  const mode = reply.toLowerCase().replace(/[^a-z_]/g, "");
   const valid = ["deep_search", "analyst", "debugger", "summarize", "web_search", "normal"];
-  return valid.includes(mode) ? mode : null;
+  return chooseOne(`${query.slice(0, 1500)}${fileInfo}`, "mode", asInstructions(AUTO_MODE_PROMPT), valid);
 }
 
 // ─── 3. SEARCH QUERY REWRITER ────────────────────────────────────────────────
@@ -117,19 +153,12 @@ const REWRITE_PROMPT = `Rewrite the user's latest message as ONE self-contained 
 
 Reply with the query only, nothing else.`;
 
-async function rewriteQuery(query, recentTurns, clock) {
-  const context = recentTurns.length
-    ? `Conversation so far:\n${recentTurns.join("\n")}\n\n`
-    : "";
-  const clockLine = clock ? `Today: ${clock}\n` : "";
-  const reply = await ask(
-    `${REWRITE_PROMPT}\n\n${clockLine}`,
-    `${context}Latest message: ${query.slice(0, 600)}`,
-    { maxTokens: 60 },
-  );
-  // Clean: strip "Query:" prefix, quotes
-  const cleaned = reply.replace(/^(search\s*)?query\s*:\s*/i, "").replace(/^["'`""]+|["'`""]+$/g, "").trim();
-  return cleaned.length >= 2 && cleaned.length <= 200 ? cleaned : null;
+// A decision model answers questions; it can't write a query. The caller
+// (searchIntentService.searchQueryForTurn) goes straight on to its Groq
+// rewrite and then its rules, instead of a call that always failed.
+// REWRITE_PROMPT stays as the reference wording.
+async function rewriteQuery() {
+  return null;
 }
 
 // ─── 4. SEARCH EFFORT ────────────────────────────────────────────────────────
@@ -145,10 +174,7 @@ const EFFORT_PROMPT = `Pick how much web search effort an AI assistant should us
 Reply with exactly one word: quick, balanced, deep, or max.`;
 
 async function decideEffort(query) {
-  const reply = await ask(EFFORT_PROMPT, query.slice(0, 1500));
-  const effort = reply.toLowerCase().replace(/[^a-z]/g, "");
-  const valid = ["quick", "balanced", "deep", "max"];
-  return valid.includes(effort) ? effort : null;
+  return chooseOne(query.slice(0, 1500), "effort", asInstructions(EFFORT_PROMPT), ["quick", "balanced", "deep", "max"]);
 }
 
 // ─── 5. PROVIDER ROUTING ────────────────────────────────────────────────────
@@ -166,14 +192,12 @@ Reply with exactly one word: groq, fable, chatgpt, airouter, or gemini.`;
 
 async function decideProvider(query, fileNames) {
   const fileInfo = fileNames.length ? `\nAttached files: ${fileNames.join(", ")}` : "";
-  const reply = await ask(PROVIDER_PROMPT, `${query.slice(0, 1500)}${fileInfo}`);
-  const provider = reply.toLowerCase().replace(/[^a-z]/g, "");
-  const valid = ["groq", "fable", "chatgpt", "airouter", "gemini"];
-  return valid.includes(provider) ? provider : null;
+  return chooseOne(`${query.slice(0, 1500)}${fileInfo}`, "provider", asInstructions(PROVIDER_PROMPT), ["groq", "fable", "chatgpt", "airouter", "gemini"]);
 }
 
 module.exports = {
   ask,
+  decide,
   decideSearchIntent,
   decideMode,
   rewriteQuery,
