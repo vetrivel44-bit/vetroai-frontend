@@ -17,6 +17,7 @@ const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser"
 const { TEACHING, teachingNeed, teachingNote } = require("../config/teaching");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
+const pluginLive = require("./pluginLiveService");
 const { withTimeout } = require("../utils/withTimeout");
 const council = require("./councilService");
 const { PICTURES_IN_CHAT, ABOUT_PICTURES } = require("../config/aboutVetroAI");
@@ -1010,7 +1011,16 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       promptExtras += `\n\n[PHOTOS SHOWN]\nReal photos for this message are shown under your answer by the app. Don't say you can't show pictures, and don't add image links; answer in words, and you may say the photos are below.`;
     }
     if (browsed) promptExtras += BROWSE_RULES;
-    promptExtras += buildPluginPrompt(params.activePlugins);
+    // Plugins: their skills' instructions, then real data for the live ones
+    // (scores, weather, prices) fetched now, or the "isn't connected yet"
+    // notice when a service has no key (services/pluginLiveService.js).
+    promptExtras += buildPluginPrompt(params.activePlugins, params.pluginContext);
+    if (params.activePlugins?.some((id) => pluginLive.LIVE_KIND_BY_PLUGIN[id]) && !params.signal?.aborted) {
+      this.sendVetroEvent(res, "status", "Getting live data…");
+      const live = await pluginLive.liveContextFor(params.activePlugins, userQuery, { timezone: params.clock?.known ? params.clock.timeZone : "" });
+      promptExtras += live.prompt;
+      logger.info("AIOrchestrator.pluginLive", { reqId, results: live.results.map((r) => `${r.kind}:${r.error ? "error" : r.connected === false ? "not-connected" : "ok"}`) });
+    }
     if (FLASHCARDS_REQUEST.test(userQuery || "")) promptExtras += FLASHCARDS_PROMPT;
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)

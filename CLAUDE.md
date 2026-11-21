@@ -49,3 +49,23 @@ Run `cd backend && npm install && node --test`.
   `frontend/src/styles/replyProse.css` (loaded last). The reply box is
   near-solid with a blur, and its dock fades the chat out under it
   (`styles/composer.css`).
+
+## Plugins
+
+- **Catalog:** `frontend/src/plugins/catalog.js` is the single registry (id,
+  name, category, icon, keywords, skills with instructions, `/commands`,
+  connectors, `live` source). Ids are stable; the backend keeps the same list
+  in `backend/src/config/plugins.js` (`KNOWN_PLUGIN_IDS`), and
+  `backend/test/plugins.test.js` fails if the two differ.
+- **Search:** `searchPlugins` / `searchCommands` (fuzzy, all fields, most
+  words must hit), tested in `frontend/test/pluginSearch.test.js`.
+- **Runtime:** a message's plugins (chips from the @ menu, `/command`, typed
+  `@name`, or trigger words) are sent as `plugins` + `pluginContext` (skill
+  instructions); the backend bounds them and adds them to the system prompt.
+- **Live data:** `backend/src/services/pluginLiveService.js` fetches real
+  data before the model answers; which source runs is decided on the server
+  by plugin id. A missing key gives the exact "<Plugin> isn't connected yet —
+  add <ENV_VAR>" notice; never let a model invent scores or prices. Keys are
+  backend environment variables only: `HIGHLIGHTLY_API_KEY` (sports, main),
+  `CRICAPI_KEY` / `API_SPORTS_KEY` (fallbacks), `NEWS_API_KEY`,
+  `ALPHAVANTAGE_API_KEY`. Weather, currency and crypto need no key.

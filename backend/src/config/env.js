@@ -148,6 +148,13 @@ module.exports = {
     // per plan and reject anything over, so it is only sent when set.
     newsLimit:           getEnv("NEWS_API_LIMIT",        ""),
     apiSportsKey:        getEnv("API_SPORTS_KEY",         ""),
+    // Plugins' live data (services/pluginLiveService.js): CricAPI as a
+    // cricket fallback (cricapi.com) and Alpha Vantage for stock quotes. Weather,
+    // currency and crypto use free services that need no key.
+    // Highlightly (highlightly.net): one key for cricket and football scores.
+    highlightlyApiKey:   getEnv("HIGHLIGHTLY_API_KEY",    ""),
+    cricapiKey:          getEnv("CRICAPI_KEY",            ""),
+    alphaVantageKey:     getEnv("ALPHAVANTAGE_API_KEY",   ""),
     // ProKerala — Vedic astrology data (kundli, planet positions, dasha periods).
     // OAuth2 client-credentials: exchanged for a short-lived bearer token, cached
     // in prokeralaService until it expires.
