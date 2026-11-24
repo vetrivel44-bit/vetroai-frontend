@@ -1,6 +1,6 @@
 // Trigger sync 2026-05-15 18:28
 const logger = require("../utils/logger");
-const { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST } = require("./visualsPrompt");
+const { VISUALS_PROMPT, FLASHCARDS_PROMPT, FLASHCARDS_REQUEST, pluginFormatPrompt } = require("./visualsPrompt");
 const providerManager = require("./ProviderManager");
 const airouterAdapter = require("../providers/airouterAdapter");
 const { performAgenticSearch } = require("./agenticSearchService");
@@ -17,6 +17,7 @@ const { READING_THE_USER, thisMessageNote } = require("../config/readingTheUser"
 const { TEACHING, teachingNeed, teachingNote } = require("../config/teaching");
 const { config } = require("../config/env");
 const { buildPluginPrompt } = require("../config/plugins");
+const pluginLive = require("./pluginLiveService");
 const { withTimeout } = require("../utils/withTimeout");
 const council = require("./councilService");
 const { PICTURES_IN_CHAT, ABOUT_PICTURES } = require("../config/aboutVetroAI");
@@ -40,17 +41,47 @@ const MAX_FALLBACK_ATTEMPTS = 5;
 // five timeouts would keep the user waiting for minutes, so retries also stop
 // once the turn has run this long.
 const PICKED_ALONE_TRIES = 5;
-const PICKED_ALONE_BUDGET_MS = 180000;
+const PICKED_ALONE_BUDGET_MS = 600000;
+// A long reply that reaches its token limit is continued, by any model and
+// in every mode, until it is finished: up to this many extra parts (each one
+// a full token budget), on top of the tries for errors.
+const MAX_CONTINUATIONS = 12;
+// The least a model that thinks before answering gets for one reply
+// (thinking + answer), and the most a retry for more room asks for.
+const REASONING_MIN_TOKENS = 16384;
+const REASONING_MAX_TOKENS = 32768;
+// A reply that broke off after at least this much text is continued by the
+// next model instead of being erased and written again from the start.
+const KEEP_PARTIAL_CHARS = 200;
+// How a reply chooses its form (paragraphs, lists, tables, code, headings),
+// as Claude does: from what the content is. The short form is for writers
+// with a small request budget (Groq).
+const CHOOSING_THE_FORMAT = `# CHOOSING THE FORMAT
+Decide from what the content is, not to make the answer look rich. Plain paragraphs are the default; every heading, list, table or block has to earn its place.
+- Conversation, advice, opinions, feelings, stories and anything personal: prose only. No headings, no bullets, no bold labels.
+- Explaining how or why something works: a few short paragraphs, each with one idea. Never chop reasoning into bullets; the "because" and "so" between the ideas is the explanation.
+- Several separate, parallel items (options, features, causes, tips): a bulleted list. Each item a complete thought, normally one or two sentences. No single-item lists, and at most one level of nesting.
+- Steps to carry out in order: a numbered list, one action per step, with the exact command, setting or value in it.
+- Comparing two or more things on several points: a table (Markdown | columns |), short cells, the things being compared as rows or columns. Two things on one point is a sentence, not a table.
+- Code, commands, file contents, logs: always a fenced block with its language tag. A short snippet sits in the answer between sentences. A complete program, page or long file (about 20 lines or more) goes in ONE block, whole and runnable; the app opens it in a side panel as an artifact, so write a sentence before it saying what it is and one after on how to run or use it, and don't repeat the code.
+- Inline code (\`like this\`) for names of functions, files, commands, keys and values inside a sentence.
+- Maths: LaTeX, $x^2$ inline and $$...$$ for a formula on its own line. Show the working as steps only when the user asks how to solve it.
+- Headings: only for a long answer (several hundred words) with distinct parts. Use ## and ###, never #. No heading on the first line of a short answer.
+- **Bold**: a few key terms or the one warning the reader must not miss. Never bold whole sentences, and never in headings.
+- A quotation or a passage the user gave you: a > blockquote.
+- Endings: stop when the answer is complete. No "Summary"/"Conclusion" heading on an answer a reader can see in one screen, no "I hope this helps", no list of follow-up offers.`;
+const CHOOSING_THE_FORMAT_SHORT = `# FORMAT
+Paragraphs by default. Advice and personal topics: prose only; never chop reasoning into bullets. Parallel items: bullets. Ordered steps: numbers. Several things on several points: a table. Code: fenced with its language; a whole program in ONE block. ## headings only in long answers. No summary heading or "I hope this helps".`;
 const CONTINUE_PROMPT = "Your previous reply was cut off. Continue it exactly from where it stopped: do not repeat anything already written, do not restart or summarise, and keep any open code block or ```sketch block going.";
 let pickedAloneRetryDelayMs = 1000;
 // A screenshot is a much bigger, slower request than a text turn, so a vision
 // attempt gets a longer budget before it's called a timeout. This has to stay
 // >= the vision adapters' own fetch timeouts, or their ceiling is unreachable
 // and the orchestrator aborts first while their request leaks on un-cancelled.
-const ATTEMPT_TIMEOUT_MS = 30000;
+const ATTEMPT_TIMEOUT_MS = 90000;
 // A provider whose key or billing is broken stays parked this long.
 const CONFIG_PROBLEM_SUSPEND_MS = 10 * 60 * 1000;
-const VISION_ATTEMPT_TIMEOUT_MS = 50000;
+const VISION_ATTEMPT_TIMEOUT_MS = 150000;
 // How DeepSearch writes up its research (see agenticSearchService.js for the
 // research itself): a report in the style of Claude's Research, built only on
 // the numbered sources, with corroboration and disagreement made visible.
@@ -268,9 +299,7 @@ User: "What is DBMS?"
 Assistant: "DBMS (Database Management System) is software used to store, manage, and retrieve data efficiently."
 
 User: "Difference between stack and queue"
-Assistant:
-- Stack -> LIFO
-- Queue -> FIFO
+Assistant: "A stack is last in, first out: you take back the item you added most recently, like a pile of plates. A queue is first in, first out: items leave in the order they arrived, like a line at a counter."
 
 Be direct and useful immediately.
 
@@ -280,15 +309,15 @@ Be direct and useful immediately.
 Write like a thoughtful expert explaining to a smart friend: clear, warm, precise, never padded.
 - Open with the answer itself, in the first sentence. No preamble, no restating the question, no "Great question".
 - Then give what actually helps: the reasoning, the key detail, an example. Stop when the question is answered; no closing offers ("Let me know if...") and no repeated summary of a short answer.
-- Prefer clear prose in short paragraphs. Use formatting only where it helps the reader:
-  - bullets for a handful of parallel items, numbered steps for a procedure, a table to compare several things on the same points;
-  - headings (##) only in long answers with distinct parts; never a heading on a short answer;
-  - **bold** for the few terms the reader must not miss, not whole sentences;
-  - code in a fenced block with the right language tag, followed by a sentence or two on what it does and how to run it.
+- Prefer clear prose in short paragraphs; use formatting only where it helps the reader (CHOOSING THE FORMAT below).
 - Match length to the question: a fact gets a sentence or two, an explanation a few paragraphs, a complex task a full structured answer.
 - Be specific: real numbers, names, commands and examples beat general statements. Say "I'm not sure" only about what is genuinely uncertain.
 - Emojis only in casual chat, at most one; never on lists or headings.
 - Use the user's language and register (casual, technical, beginner, exam).
+
+---
+
+${inlineVisuals && !lean ? CHOOSING_THE_FORMAT : CHOOSING_THE_FORMAT_SHORT}
 
 ---
 
@@ -314,22 +343,8 @@ Whenever you write code, in any language, use the approach with the lowest time 
 
 ---
 
-# PREMIUM UX RULES
-- Never overload the screen
-- Prioritize readability
-- Keep responses aesthetically balanced
-- Use whitespace effectively
-- Make every response visually pleasant
-
----
-
-# FINAL GOAL
-The assistant should feel like:
-- ChatGPT-level interaction
-- modern premium AI UX
-- intelligent live conversation
-- smooth and natural response generation
-- elegant and highly readable UI experience`;
+# THE AIM
+Every reply should read like it was written by a careful expert who respects the reader's time: the answer first, in plain language, with exactly as much structure as the content has and no decoration.`;
 
     if (memories.length) {
       // A single trailing "User context:" line at the end of this long prompt
@@ -399,48 +414,115 @@ RULES
 5. Before choosing, look in the screenshot for the effect of your last action: did the menu open, the text appear, the page change? When the action log says nothing on the screen changed after an action, it missed or did nothing: look again and pick a different point, or another way there (a keyboard shortcut, a search box, the Start menu). Never repeat unchanged an action that changed nothing.
 6. Never count an action as the result: typing a message isn't sending it, clicking Download isn't a finished download, and a page still loading isn't the answer. If you've made no visible progress for several steps in a row, reply "done" with success false rather than repeating yourself.`;
     } else if (mode === "design") {
-      sys += `\n\n[MODE: DESIGN] You are a senior product/UI designer producing portfolio-quality, production-grade interfaces — the bar is "this looks like it shipped from a top-tier design studio," never a wireframe, and never raw unstyled HTML.
+      sys += `\n\n[MODE: DESIGN] You are a world-class senior product designer and front-end engineer. Your output must look indistinguishable from a site that just won an Awwwards Site of the Day — think Stripe, Linear, Vercel, Lusion, or Resend. Never a wireframe, never raw HTML, never a "starter template." Every pixel is intentional.
 
-OUTPUT FORMAT (strict)
-- Respond with ONE self-contained HTML document in a single \`\`\`html fenced code block. Nothing outside the block except an optional one-sentence caption above it.
-- This document runs inside a sandboxed iframe with NO network access to JS CDNs and no ability to run Web Workers — frameworks like Tailwind's CDN build, JIT compilers, or any <script src="https://..."> WILL SILENTLY FAIL and leave the page completely unstyled. NEVER use them.
-- Allowed external resources (plain fetches, not scripts, so they always work): a Google Fonts <link> tag, and photos from https://vetroai-image.invalid/ as described under IMAGES. No other image host — never picsum.photos, source.unsplash.com, pravatar, placehold.co or via.placeholder (they return random, unrelated pictures).
-- ALL styling must be hand-written CSS inside a single <style> tag in <head> — real classes, real rules, no utility-class framework. Vanilla <script> (inline, no src) only for interactivity.
-- For icons: hand-write minimal inline SVGs (24x24 viewBox, stroke="currentColor", fill="none", stroke-width 2 — Feather/Lucide style paths) directly in the HTML. Never reference an icon font or icon CDN. Never use raw emoji as UI chrome.
-- If refining a previous design, output the FULL updated document, not a diff — keep what worked, change only what was asked.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT (strict — no exceptions)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- One self-contained HTML document, in a single \`\`\`html fenced block. An optional one-sentence caption MAY appear before the block; nothing else outside it.
+- Runs in a sandboxed iframe: NO CDN scripts. Tailwind CDN, Bootstrap, any <script src="https://..."> = silent failure. BANNED.
+- Allowed external fetches (not scripts): a Google Fonts <link>; images from https://vetroai-image.invalid/ (described below). Zero other hosts — no picsum, unsplash, pravatar, placehold.co, via.placeholder.
+- ALL CSS: hand-written inside ONE <style> tag in <head>. Real selectors, real properties, CSS custom properties on :root. No utility frameworks.
+- JS: vanilla only, inline <script> (no src). Used for: mobile menu toggle, tab/filter switching, cart count, counter animation, IntersectionObserver scroll reveals, form validation feedback, sticky-header class toggle. If you don't need JS, omit the tag entirely.
+- Icons: hand-write SVG paths inline (viewBox="0 0 24 24", stroke="currentColor", fill="none", stroke-width="2", Lucide/Feather style). Never link an icon font or CDN. Never raw emoji as UI chrome.
+- Refine request: output the FULL updated document — keep everything that worked, change only what the user asked.
 
-IMAGES (every photo must match this site)
-- Use <img src="https://vetroai-image.invalid/?q=SUBJECT&w=WIDTH&h=HEIGHT" alt="SUBJECT" loading="lazy">, where SUBJECT is 3-6 plain words naming exactly what that picture shows for this business, URL-encoded with + for spaces. It returns a real photo of that subject. Use the same URL inside CSS url(...) for background images.
-- Be specific and literal: a sneaker shop's product cards get "white leather sneakers product photo", "black running shoes side view"; its hero gets "athlete running city street sunrise". A bakery gets "fresh sourdough bread loaf", never "food". A product card shows the product itself, never a scene, animal, flower or landscape unrelated to it.
-- Every image gets its own distinct SUBJECT (or add &i=1, &i=2 … to repeat a subject with different photos). Size w/h to the slot: hero 1600x900, cards 800x600, product shots 800x800, avatars 200x200 ("portrait of smiling woman").
-- Give every <img> width/height or aspect-ratio + object-fit: cover so the layout never jumps while photos load.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMAGES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Syntax: <img src="https://vetroai-image.invalid/?q=SUBJECT&w=WIDTH&h=HEIGHT" alt="SUBJECT" loading="lazy">
+- SUBJECT: 3–6 plain English words describing EXACTLY what this image shows for this business, URL-encoded (spaces = +). Be hyper-specific. "white leather high-top sneakers" not "shoes". "outdoor rooftop restaurant Mumbai night" not "food". "portrait of smiling female doctor stethoscope" not "person".
+- Each image MUST have a unique SUBJECT. For true duplicates, append &i=2, &i=3 etc.
+- Sizes: hero bg 1600×900, section bg 1200×600, card/product 800×600, square product 800×800, portrait/avatar 400×500, team headshot 300×300, logo placeholder 200×80.
+- Use the same URL pattern inside CSS background-image: url(...) for full-bleed sections.
+- Every <img> must have an explicit width+height attribute OR aspect-ratio + object-fit:cover in CSS. Layout NEVER shifts while photos load.
 
-DESIGN STANDARDS (non-negotiable)
-1. Visual hierarchy — one clear focal point per screen; type scale with real contrast (e.g. 12/14/16/20/32/48px steps, not everything at 16px).
-2. Color — a deliberate palette defined as CSS custom properties on :root (1 primary, 1-2 accent, a full neutral gray ramp), not default black-on-white or browser-default blues/purples. Use gradients or tinted backgrounds where it fits the brief.
-3. Spacing & layout — use flexbox/grid with a consistent spacing scale (4/8/12/16/24/32/48/64px) via CSS variables. Every group of items (nav links, buttons, list rows) MUST have explicit gap/margin between them and clear container padding — never let elements or text touch or visually run together.
-4. Depth & polish — soft box-shadows, subtle borders, consistent border-radius scale, :hover/:focus/:active states, transitions (150-300ms) on every interactive element. Real <button> elements get cursor:pointer, padding, and a visible hover state — never bare browser-default buttons.
-5. Typography — import ONE Google Font via <link> for display/headings, pair with a system sans-serif stack for body text; correct font-weights and line-height (1.4-1.6 for body, 1.1-1.3 for headings).
-6. Real content — write believable copy, names, numbers, and placeholder imagery instead of "Lorem ipsum" or "Button 1". Multiple distinct labels/items must NEVER be concatenated into one run-on text string — each is its own element.
-7. Mobile-first and fully responsive — most visitors are on phones. Include <meta name="viewport" content="width=device-width, initial-scale=1">. At 360px wide: nothing scrolls sideways (html,body{overflow-x:hidden}; img,video{max-width:100%}); every grid collapses to 1-2 columns; the nav collapses into a working hamburger button that opens a menu; headings scale down with clamp(); buttons and links are at least 44px tall; no fixed pixel widths on containers. Add breakpoints at 1024px, 768px and 480px.
-8. Micro-interactions — hover states, button press feedback (active:scale or similar), smooth scrolling, small CSS entrance animations where they add polish without being gratuitous.
-9. Structure semantic HTML (header/nav/main/section/footer), not div soup.
-10. Complete, not a stub — a website request gets every section a real site of that kind has, filled with believable content. A shop: header with logo, search, cart with a live count; hero with an offer; category tiles; a product grid of 8+ items with photo, name, rating, price (and a struck-through old price on some) and a working "Add to cart"; a promo banner; reviews; newsletter signup; a full footer. A restaurant: menu with prices, gallery, hours and location, booking form. A portfolio: projects, about, skills, contact. Wire up the interactions with vanilla JS (cart count, mobile menu, tabs/filters, form validation messages).
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DESIGN STANDARDS — ALL ARE NON-NEGOTIABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. DESIGN TOKENS — declare everything on :root: --color-brand, --color-brand-dark, --color-accent, --color-bg, --color-surface, --color-border, --color-text, --color-muted; --radius-sm/md/lg/xl; --shadow-sm/md/lg; --space-* scale (4/8/12/16/24/32/48/64/96px). Use these tokens throughout — never raw hex values scattered in rules.
+2. VISUAL HIERARCHY — one unmissable focal point per viewport. Type scale: 11/13/15/18/24/32/48/60/80px steps. Not everything at 16px. Headings clamp(). Critical info always above the fold.
+3. COLOR SYSTEM — never pure #000/#fff as background. Use a tinted base (#faf8f5 warm / #f4f6fb cool / #0d0f14 dark). One strong primary, one accent, full neutral gray ramp (50/100/200/300/400/500/600/700/800/900). Alternate section backgrounds (#fff → #f8f9fb → brand tint → dark) for rhythm. One dark section minimum for contrast.
+4. TYPOGRAPHY — import ONE characterful Google Font for display/headings (Playfair Display, DM Serif Display, Fraunces, Cormorant, Space Grotesk, Sora, Outfit, Manrope, Cabinet Grotesk — pick what fits the brand). Body: "Inter", system-ui. Weights: 800–900 headline, 500–600 label, 400 body. Line-height: 1.15–1.25 headings, 1.6–1.7 body. Letter-spacing: -0.03em to -0.05em on large headings, +0.08–0.14em on uppercase labels.
+5. SPACING & LAYOUT — flexbox/grid everywhere. Consistent scale via CSS variables. Every group of items (nav links, card grids, form fields) has explicit gap. Containers have clear padding. Nothing touches the edge. Max content width 1200–1280px, centered.
+6. DEPTH & TACTILITY — layered shadows: --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04); --shadow-md: 0 4px 16px -4px rgba(0,0,0,.12), 0 2px 4px rgba(0,0,0,.06); --shadow-lg: 0 20px 60px -16px rgba(0,0,0,.22), 0 8px 16px -8px rgba(0,0,0,.1). Border-radius scale: --radius-sm 6px, --radius-md 12px, --radius-lg 18px, --radius-xl 24px. 1px hairline borders on cards (rgba(0,0,0,.08) light / rgba(255,255,255,.1) dark). Sticky header: backdrop-filter:blur(16px); background:rgba(255,255,255,.8); gains box-shadow on scroll via JS class.
+7. INTERACTIONS & MICRO-MOTION — every interactive element has :hover, :focus-visible, :active. Buttons: translateY(-2px) + stronger shadow on hover, scale(.97) on active. Cards: translateY(-6px) + shadow upgrade on hover, inner image scale(1.06) with overflow:hidden. Links: underline animation via clip-path or pseudo-element. All transitions 150–300ms cubic-bezier(.2,.8,.2,1). IntersectionObserver scroll-reveal on sections (opacity 0→1, translateY 28px→0, 650ms, staggered 80ms per child). Respect prefers-reduced-motion: reduce.
+8. RESPONSIVE & MOBILE-FIRST — include <meta name="viewport" content="width=device-width,initial-scale=1">. At 360px: nothing overflows (html,body{overflow-x:hidden}; img,video{max-width:100%}). Breakpoints: @media(max-width:1024px), @media(max-width:768px), @media(max-width:480px). Every grid goes to 1–2 columns. Nav collapses to a hamburger that opens a full-width slide-down or overlay menu (vanilla JS). Headings clamp(). Buttons/links ≥44px tall. No fixed pixel widths on containers.
+9. SEMANTIC HTML — <header>, <nav>, <main>, <section> (with aria-label), <article>, <aside>, <footer>. Never div soup. Proper heading hierarchy (h1 once, h2 for sections, h3 for cards). Alt text on every image. aria-label on icon-only buttons.
+10. COMPLETENESS — no stubs. A shop: sticky nav with logo+search+cart-count (live JS); hero with CTA; category tiles with photos; 8+ product cards (photo, name, rating ★★★★☆, price, struck-through old-price, hover "Add to cart"); trust row (free shipping / returns / secure payment icons); testimonials with avatar photos and stars; newsletter block on a dark panel; rich multi-column footer with social icons, links, newsletter, copyright. A SaaS page: announcement bar; nav with logo+links+CTA; hero with headline, sub, two CTAs, product screenshot shadow-floating below; logo marquee; feature bento grid; pricing cards (monthly/annual toggle, highlighted plan, feature list, CTA); testimonials; FAQ accordion; CTA footer. Use this level of completeness for every type.
 
-ART DIRECTION — the user must be impressed, not just served
-The output is judged against Awwwards / Dribbble-featured sites and the best landing pages of Stripe, Linear, Apple, Airbnb and Aesop. A plain "header, grid of cards, footer" page is a failure even if it works.
-- Signature moment: every page has at least one thing a visitor would screenshot — an oversized editorial headline with a gradient or outlined word, a bento grid of mixed-size tiles, a product on a soft spotlight with layered shadows, a horizontally scrolling showcase, a marquee of brand names, an animated counter row, or a split hero where the photo breaks out of its frame.
-- Hero recipe (pick one, never a thin grey strip): (a) full-bleed photo, min-height clamp(520px, 80vh, 860px), with a dark-to-transparent gradient overlay (linear-gradient(90deg, rgba(0,0,0,.65), rgba(0,0,0,.1))) so white text always reads; (b) split layout — bold copy left, a large rounded photo or product collage right, a soft blurred color blob behind; (c) centered statement — huge headline (clamp(40px, 7vw, 88px), tight letter-spacing -0.03em) over a subtle gradient mesh. Text NEVER sits directly on a busy photo without an overlay or a solid panel.
-- Typography as design: headings in a characterful Google Font (e.g. "Playfair Display", "DM Serif Display", "Fraunces", "Space Grotesk", "Sora", "Clash"-like "Outfit", "Manrope"), body in "Inter" or system-ui. Mix weights (800 headline, 400 body) and add a small uppercase eyebrow label (letter-spacing .14em, 12px) above section titles.
-- Color with intent: a confident brand color plus a tinted neutral background (e.g. #faf7f2 warm, #f5f7fb cool) — not pure white everywhere. Alternate section backgrounds to create rhythm; use one dark section for contrast.
-- Depth: layered shadows (0 1px 2px rgba(0,0,0,.06), 0 12px 32px -12px rgba(0,0,0,.18)), 16-24px radii on cards, 1px hairline borders, glassy sticky header (backdrop-filter: blur(14px); background: rgba(255,255,255,.72)) that gains a shadow on scroll.
-- Motion: elements fade-and-rise in on scroll via IntersectionObserver (opacity 0 → 1, translateY(24px) → 0, 600ms cubic-bezier(.2,.8,.2,1), staggered 60ms); cards lift on hover (translateY(-4px) + stronger shadow) and their photo zooms slightly (scale 1.05, overflow hidden). Respect prefers-reduced-motion.
-- Product/content cards: image on top at a fixed aspect-ratio (4/5 or 1/1) with object-fit: cover, a badge ("New", "-20%") pinned in the corner, a quick-action button that appears on hover, then name, rating stars, price in brand color. Never an empty card or a card whose image area collapses.
-- Details that read as premium: a thin announcement bar above the header, trust row (free shipping / returns / secure payment with inline icons), testimonial cards with avatar photos and star ratings, a newsletter block on a bold colored or dark panel, a rich multi-column footer with social icons.
-- Never: default blue links, Times/serif-by-accident text, centered body paragraphs wider than 65ch, gradients that look like 2010 buttons, more than 3 colors fighting, or emoji used as icons.
-- Budget your output so the document always closes: concise CSS (shared classes, CSS variables, no repetition), 8 products max, short believable copy. A finished page beats a longer one that is cut off.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ART DIRECTION — IMPRESS, DON'T JUST SERVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The bar: would a senior designer at Stripe or Linear nod at this? A plain "header + grid + footer" is a fail even if it functions.
 
-Before finishing, mentally check: every class referenced in the HTML has a matching rule in <style>; nothing relies on an external script to render correctly; the hero text is readable; every image slot has a fixed aspect-ratio; the document ends with </html>. Think like you're building a site a real, successful brand would ship, not a Bootstrap starter template. Pick the art direction from the brief — what would a leading company in this industry use? Shops and marketplaces: bright, clean, product-first, white or very light backgrounds with one strong brand color for prices and buttons. Restaurants, hotels, travel: warm and photographic. SaaS and tech: crisp, high-contrast, generous whitespace. Luxury, gaming, nightlife: dark and dramatic. Follow the user's own colors or style words whenever they give them.`;
+SIGNATURE MOMENT — every page needs at least one of these (and it must be executed well):
+  • Oversized editorial headline with a gradient word, an outlined/stroked word (text-stroke), or a word on a colored pill/badge
+  • Bento grid of mixed-size feature tiles (some 2×1, some 1×2, etc.) with colored accent backgrounds
+  • Product/hero image that "breaks out of its frame" (negative margin, transform, or positioned to overflow its container)
+  • Horizontally-scrolling showcase or carousel with snap scrolling
+  • Animated counter row that counts up on scroll-reveal (IntersectionObserver + JS)
+  • Infinite marquee / logo-cloud with CSS animation (marquee scroll left, duplicated set for seamlessness)
+  • Split-screen hero where text is on a colored panel and the photo fills the other half edge-to-edge
+
+HERO (pick one — never a thin grey strip):
+  (a) FULL-BLEED PHOTO — min-height: clamp(560px, 85vh, 920px); background-size:cover; overlay: linear-gradient(to right, rgba(0,0,0,.72) 0%, rgba(0,0,0,.2) 60%, transparent 100%); white text hard left.
+  (b) SPLIT — 50/50 or 55/45 grid; bold copy + CTAs left, large rounded/masked photo right; soft blurred glow blob behind the photo (pseudo-element, radial-gradient, blur(60px), z-index -1).
+  (c) CENTERED STATEMENT — headline clamp(48px, 8vw, 96px), letter-spacing -0.04em; over a gradient mesh or subtle noise texture; eyebrow label uppercase 11px above; two CTA buttons below (primary filled gradient, secondary ghost).
+  Text NEVER sits directly on a busy photo without an overlay or solid panel behind it.
+
+SECTION DESIGN PATTERNS:
+  • Feature grid: alternating icon color, tight copy, hover border-color transition — or bento with varied tile sizes
+  • Pricing: 3 cards, middle one "Popular" with scale(1.03) + gradient border or colored header, feature-check list with colored ticks
+  • Testimonials: photo avatar, star row, quote in italic serif, name + role, card with subtle border and shadow
+  • FAQ: accordion with smooth max-height transition, +/× icon rotation, answer in readable prose
+  • Stats/numbers: large bold numbers (counter animation), small label below, dividers between
+  • CTA section: full-width dark or brand-colored panel, large headline, one button, optional decorative element
+
+TYPOGRAPHY AS DESIGN:
+  • Large headings should have mixed weights in the SAME line (e.g., thin eyebrow label over heavy headline)
+  • Use a gradient text for key headline words: background:linear-gradient(135deg,…); -webkit-background-clip:text; color:transparent
+  • Uppercase eyebrow labels above section h2s: 11–12px, font-weight:700, letter-spacing:.12em, color:brand
+
+COLOR WITH INTENT (match to brief):
+  • E-commerce / consumer: clean white base, strong brand color for prices+CTAs, warm neutrals
+  • Restaurant / hospitality: warm (#faf4ee), deep earth tones, gold or terracotta accent
+  • SaaS / tech: cool gray base (#f5f7fb), indigo or blue primary, one electric accent (cyan, violet)
+  • Luxury / high-end: near-black or deep navy base, gold or champagne accent, restrained palette
+  • Creative agency: bold and dark or bold and light, one neon accent, editorial type
+  • Health / wellness: soft sage green, warm white, gentle rounded shapes
+  • Finance / legal / B2B: navy + white, strong trust signals, structured grid
+
+DETAILS THAT SCREAM PREMIUM:
+  • Thin announcement bar above nav (colored bg, centered text, × close button)
+  • Trust row: flex row of icon + text pairs (Free Shipping / 30-Day Returns / Secure Payment / 24/7 Support)
+  • Social proof: "Trusted by 10,000+ teams" + small avatar stack + star rating
+  • Rich footer: logo + tagline / multi-column links / newsletter input / social icons / legal links / copyright
+  • Form fields: proper :focus outline (2px brand color, 2px offset), error/success states, real placeholder text
+  • Loading states aren't needed (static HTML), but all interactive elements should feel alive
+
+NEVER:
+  • Default browser blue links (always recolor)
+  • Times New Roman or accidental serif (always import a Google Font)
+  • Body paragraphs wider than 68ch
+  • Gradients that look like 2010 (use modern subtle mesh gradients or clean linear ones)
+  • More than 3 competing hues
+  • Emoji used as interface icons
+  • Empty cards, collapsed image slots, or placeholder "Lorem ipsum"
+  • A design that fits in a 400px viewport and "just works" at desktop — build desktop-first, then adapt
+
+BUDGET YOUR TOKENS:
+  Write concise CSS (use variables and shared classes, never repeat the same property block twice). 8 products/cards max. Short, punchy copy (not wall-of-text). A finished, polished page beats a longer page that gets cut off and renders broken. The document MUST end with </html>.
+
+FINAL MENTAL CHECKLIST before outputting:
+  ✓ Every CSS class referenced in HTML has a matching rule in <style>
+  ✓ No external JS (CDNs, frameworks) — all vanilla inline
+  ✓ Hero text is readable (overlay if photo bg)
+  ✓ Every image slot has fixed aspect-ratio and object-fit:cover
+  ✓ Nav has a working hamburger menu (JS toggle) for mobile
+  ✓ IntersectionObserver scroll-reveal is registered
+  ✓ Document ends with </body></html>
+  ✓ Minimum one signature moment per design`;
     }
 
     // Web context
@@ -657,6 +739,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       }
     }
     let attempts = 0;
+    let continuations = 0;
+    let roomRetries = 0;
     const attemptedProviders = new Set();
     // A model picked in the model picker answers alone: a timeout, a busy
     // moment or an empty reply is tried again on the same model, never handed
@@ -713,7 +797,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       this.sendVetroEvent(
         res,
         "status",
-        `${this.providerLabel(requested)} is not configured on the backend — using ${this.providerLabel(currentProviderName)} instead.`
+        `${this.providerLabel(requested)} isn't available right now, so ${this.providerLabel(currentProviderName)} is answering.`
       );
     }
 
@@ -932,8 +1016,28 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       promptExtras += `\n\n[PHOTOS SHOWN]\nReal photos for this message are shown under your answer by the app. Don't say you can't show pictures, and don't add image links; answer in words, and you may say the photos are below.`;
     }
     if (browsed) promptExtras += BROWSE_RULES;
-    promptExtras += buildPluginPrompt(params.activePlugins);
-    if (FLASHCARDS_REQUEST.test(userQuery || "")) promptExtras += FLASHCARDS_PROMPT;
+    // Plugins: their skills' instructions, then real data for the live ones
+    // (scores, weather, prices) fetched now, or the "isn't connected yet"
+    // notice when a service has no key (services/pluginLiveService.js).
+    promptExtras += buildPluginPrompt(params.activePlugins, params.pluginContext);
+    // The block a plugin's answer is drawn in (quiz, flashcards, slides,
+    // chart), for every writer: services/visualsPrompt.js.
+    const formatGuide = pluginFormatPrompt(params.activePlugins || []);
+    promptExtras += formatGuide;
+    if (params.activePlugins?.some((id) => pluginLive.LIVE_KIND_BY_PLUGIN[id]) && !params.signal?.aborted) {
+      const onlyPage = params.activePlugins.every((id) => !pluginLive.LIVE_KIND_BY_PLUGIN[id] || pluginLive.LIVE_KIND_BY_PLUGIN[id] === "page");
+      this.sendVetroEvent(res, "status", onlyPage ? "Reading the page…" : "Getting live data…");
+      const live = await pluginLive.liveContextFor(params.activePlugins, userQuery, { timezone: params.clock?.known ? params.clock.timeZone : "" });
+      promptExtras += live.prompt;
+      // Where the figures came from and when, shown under the reply by the
+      // app (not left to the model to remember to say).
+      this.sendVetroEvent(res, "plugin_live", live.results.map((r) => ({
+        kind: r.kind, plugin: pluginLive.PLUGIN_NAME[r.kind] || r.kind, source: r.source || null, fetchedAt: r.fetchedAt || null,
+        connected: r.connected !== false && !r.error, notice: r.notice || null, error: r.error ? "unavailable" : null,
+      })));
+      logger.info("AIOrchestrator.pluginLive", { reqId, results: live.results.map((r) => `${r.kind}:${r.error ? "error" : r.connected === false ? "not-connected" : "ok"}`) });
+    }
+    if (FLASHCARDS_REQUEST.test(userQuery || "") && !formatGuide.includes("[FLASHCARDS]")) promptExtras += FLASHCARDS_PROMPT;
     const finalSysPrompt = await this.buildSystemPrompt(mode, { userQuery, followUp: isFollowUp, webContext, memories, customInstructions: params.systemPrompt, clock: params.clock, researched }) + promptExtras;
     // A writer whose adapter asks for it (searchResultsWithQuestion — Sarvam)
     // gets the search results with the question instead: inside the system
@@ -1062,7 +1166,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           seats,
           labelFor: (seat) => (seat.provider === "airouter" ? airouterAdapter.displayName(airouterModelOf(seat)) : this.providerLabel(seat.provider)),
           messages: council.memberMessages({ history, webContext, clockText: clockLine(params.clock || {}) }),
-          ask: (seat, councilMessages) => this.askQuietly(seat.provider, councilMessages, seat.provider === "airouter" ? { airouterModel: airouterModelOf(seat) } : {}),
+          ask: (seat, councilMessages, signal) => this.askQuietly(seat.provider, councilMessages, { ...(seat.provider === "airouter" ? { airouterModel: airouterModelOf(seat) } : {}), signal }),
           onUpdate: (snapshot) => this.sendVetroEvent(res, "council", snapshot),
           signal: params.signal,
         });
@@ -1108,7 +1212,17 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         const attemptMessages = resumeText
           ? [...promptFor(currentProviderName), { role: "assistant", content: resumeText }, { role: "user", content: CONTINUE_PROMPT }]
           : promptFor(currentProviderName);
-        const streamPromise = adapter.generateStream(attemptMessages, options);
+        // A model that thinks before it answers (AI Router's DeepSeek, Ling,
+        // Qwen) spends the same token budget on the thinking first: at
+        // Medium's 4096 it used all of it thinking and wrote no answer. It
+        // gets room for both; only what it writes is billed.
+        // (Not for a drawing, which is kept lean and bounded, nor a model that
+        // can switch its thinking off, like Sarvam: that one retries without.)
+        const thinksAlways = Boolean(adapter.reasoningAlwaysOn?.()) && !options?.drawing;
+        const attemptOptions = thinksAlways
+          ? { ...options, maxTokens: Math.max(Number(options?.maxTokens) || 0, REASONING_MIN_TOKENS) }
+          : options;
+        const streamPromise = adapter.generateStream(attemptMessages, attemptOptions);
         // A slow-starting model (Sarvam 105B) sets its own start budget.
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : (adapter.startTimeoutMs?.() || ATTEMPT_TIMEOUT_MS);
         const stream = await withTimeout(streamPromise, attemptTimeout, "Stream generation timeout");
@@ -1129,6 +1243,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // All thinking and no answer (Sarvam 105B spent its tokens
           // reasoning): the next try goes without reasoning, so the whole
           // budget is the answer's.
+          // Still all thinking at its limit: the same model again with twice
+          // the room, before any other model or giving up. Doesn't use up
+          // the tries kept for errors.
+          if (streamInfo.reasoningChars > 0 && /^(length|max_tokens)$/i.test(streamInfo.finishReason || "") && thinksAlways && roomRetries < 2 && !params.signal?.aborted) {
+            roomRetries++;
+            options = { ...options, maxTokens: Math.min(Math.max(Number(attemptOptions?.maxTokens) || REASONING_MIN_TOKENS, REASONING_MIN_TOKENS) * 2, REASONING_MAX_TOKENS) };
+            attempts--;
+            attemptedProviders.delete(currentProviderName);
+            logger.info("AIOrchestrator.moreRoomToThink", { reqId, provider: currentProviderName, maxTokens: options.maxTokens });
+            this.sendVetroEvent(res, "status", "Still thinking it through…");
+            continue;
+          }
           if (streamInfo.reasoningChars > 0 && !options?.light) {
             logger.info("AIOrchestrator.retryWithoutReasoning", { reqId, provider: currentProviderName, finish: streamInfo.finishReason || null });
             options = { ...options, light: true };
@@ -1142,11 +1268,16 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // next to nothing means the reply was already whole: stop there.
         const soFar = resumeText + (answer || "");
         const addedLittle = Boolean(resumeText) && (answer || "").trim().length < 40;
-        if (pickedAlone && attempts < maxAttempts && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
+        // Every mode, not only a picked model: Auto used to leave a long
+        // answer cut off at its token limit. A continuation doesn't use up
+        // the tries kept for errors.
+        if (continuations < MAX_CONTINUATIONS && !params.signal?.aborted && !addedLittle && this.wasCutOff(soFar, streamInfo.finishReason)) {
           resumeText = soFar;
-          const label = this.providerLabel(pickedAlone);
-          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, attempt: attempts });
-          this.sendVetroEvent(res, "status", `${label} stopped mid-way. Continuing from where it left off (${attempts + 1} of ${maxAttempts})…`);
+          continuations++;
+          attempts--;
+          attemptedProviders.delete(currentProviderName);
+          logger.info("AIOrchestrator.continueTruncated", { reqId, provider: currentProviderName, part: continuations + 1 });
+          this.sendVetroEvent(res, "status", "Long answer: still writing…");
           continue;
         }
 
@@ -1259,8 +1390,18 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
             friendlyMsg = `${this.providerLabel(currentProviderName)} is unavailable. Switching to ${this.providerLabel(nextProvider)}, which can also read the image…`;
           }
 
-          this.sendVetroEvent(res, "clear", "");
-          this.sendVetroEvent(res, "status", friendlyMsg);
+          // A long answer that broke off part-way is kept: the next model
+          // continues it rather than erasing it and starting again.
+          const partial = !needsVision && !drawing ? (err.partialContent || "") : "";
+          if (partial.trim().length >= KEEP_PARTIAL_CHARS || (resumeText && partial.trim())) {
+            resumeText += partial;
+            this.sendVetroEvent(res, "status", "Still writing your answer…");
+          } else if (resumeText) {
+            this.sendVetroEvent(res, "status", "Still writing your answer…");
+          } else {
+            this.sendVetroEvent(res, "clear", "");
+            this.sendVetroEvent(res, "status", friendlyMsg);
+          }
           // No pause before the next hop: it always goes to a provider not yet
           // tried this turn, so there's nothing to back off from. The old
           // 2s/4s/6s waits added up to 18s of idle time on a bad day. Adapters
@@ -1294,12 +1435,21 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
   async askQuietly(providerName, messages, extra = {}) {
     const adapter = providerManager.getAdapter(providerName);
     if (!adapter) throw new Error(`No adapter for ${providerName}`);
+    // A model that reasons first needs tokens for the reasoning and the answer.
+    const maxTokens = adapter.reasonsNatively?.() ? council.REASONING_MEMBER_MAX_TOKENS : council.MEMBER_MAX_TOKENS;
     const stream = await withTimeout(
-      adapter.generateStream(messages, { maxTokens: council.MEMBER_MAX_TOKENS, temperature: 0.5, light: true, effort: "quick", ...extra }),
+      adapter.generateStream(messages, { maxTokens, temperature: 0.5, light: true, effort: "quick", ...extra }),
       ATTEMPT_TIMEOUT_MS,
       "Council member timeout",
     );
     if (!stream) throw new Error("Provider returned empty stream");
+    // Out of time or stopped: end the stream so the provider is free again.
+    const { signal } = extra;
+    if (signal) {
+      const end = () => { stream.destroy?.(); stream.controller?.abort?.(); };
+      if (signal.aborted) end();
+      else signal.addEventListener("abort", end, { once: true });
+    }
     const nowhere = { write() {}, end() {}, writableEnded: false, locals: {} };
     return this.pipeStream(stream, nowhere, providerName, {});
   }
@@ -1694,7 +1844,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
 
     let reader = null;
     // An adapter can allow longer (AI Router's models pause longer under load).
-    const IDLE_TIMEOUT_MS = providerManager.getAdapter(provider)?.idleTimeoutMs?.() || 45000;
+    const IDLE_TIMEOUT_MS = providerManager.getAdapter(provider)?.idleTimeoutMs?.() || 120000;
     let watchdogInterval = null;
     const watchdog = new Promise((_, reject) => {
       watchdogInterval = setInterval(() => {

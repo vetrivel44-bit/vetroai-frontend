@@ -298,3 +298,13 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
 .cl-edit-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .cl-edit-btn.save { background: var(--bg-hover); }
 .cl-edit-btn.save:disabled { color: var(--ink-4); cursor: default; }
+
+/* A narrow top bar on a wide screen (the artifact panel open beside the
+   chat): the bar is sized by its own width, not the screen's, so the
+   centred switch no longer slides under the buttons on its right. */
+.chat-header { container: chat-header / inline-size; }
+@container chat-header (max-width: 760px) {
+  .ch-center { position: static !important; transform: none !important; flex: none; }
+  .ch-right { margin-left: auto; flex: none; }
+  .share-btn span { display: none; }
+}

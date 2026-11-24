@@ -122,6 +122,7 @@ app.use("/api/memory", require("./routes/memoryRoutes"));
 app.use("/api/time", require("./routes/timeRoutes"));
 app.use("/api/site-image", require("./routes/siteImageRoutes"));
 app.use("/api/photos", require("./routes/photoRoutes"));
+app.use("/api/plugins", require("./routes/pluginRoutes"));
 app.use("/api", require("./routes/externalDataRoutes"));
 app.use("/api/mock/buses", require("./routes/busMockRoutes"));
 app.use("/api", chatRoutes);

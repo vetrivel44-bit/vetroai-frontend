@@ -52,7 +52,7 @@ import { VISUALS_PROMPT } from "./lib/visualsPrompt";
 import { renderVisualBlock } from "./lib/visualBlocks";
 import { ReplyContext, findChoices } from "./lib/choices";
 import ChoicePanel from "./components/chat/visuals/ChoicePanel";
-import { OpenBlockContext, openFenceTail } from "./lib/visualStream";
+import { OpenBlockContext, openFenceTail, isStillStreaming } from "./lib/visualStream";
 import { setSyncUid, persistList, persistPref, readLocalList, mergeLists, persistDeletion, rememberTombstones, compactLocalSessions } from "./lib/userStore";
 import { addCards, dueCards, mergeCards, requestFlashcards } from "./lib/flashcards";
 import { doodlePrompt, doodleRequestText, styleOf as doodleStyleOf } from "./lib/doodle";
@@ -61,7 +61,7 @@ import { PAIR_PARAM, readPairLink, stashPair } from "./lib/dispatchCore";
 import { extractMemory, isDuplicate, makeMemory, toPromptList, MAX_MEMORIES, MAX_MEMORY_LENGTH, looksMemorable, AUTO_MEMORY_SYSTEM_PROMPT, parseAutoMemoryResponse } from "./lib/memory";
 import { loadUserData, upsertUserProfile, flushPending, resetSyncState } from "./lib/firestoreStore";
 import { Paperclip, X, CornerDownRight, ArrowDown, Zap, Globe, Play, Calendar, Paintbrush, Brain, Calculator, Target, Coffee, Leaf, Bot, GraduationCap, Terminal, Star, Smile, Pause, RotateCcw, Check, Timer, User, Flame, Rocket, Palette, Moon, Sun, Compass, Anchor, Crown, Gem, Shield, Heart, Key, Lock, ThumbsUp, Frown, Search, FileText, PenLine, Code, Lightbulb, Download, MessageSquare, FolderClosed, LayoutGrid, SlidersHorizontal, FlaskConical, Ghost, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Trash2, LogOut, Settings, HelpCircle, Plus, ExternalLink, Smartphone, Tablet, Monitor, Layers, Newspaper, Briefcase, Puzzle, Swords, AlertTriangle, Bell, Volume2, Gauge, Loader2, ScanText } from "lucide-react";
-import { Info, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils } from "lucide-react";
+import { Info, Radio, Square, Trophy, Cpu, TrendingUp, Landmark, Clapperboard, HeartPulse, Atom, CloudSun, Plane, Car, Scale, MoreVertical, ArrowLeft, MailCheck, Navigation, Mail, Eye, EyeOff, ArrowRight, Sparkles, ArrowUp, ShoppingBag, Copy, Utensils, ZoomIn, ZoomOut, Maximize2, Minimize2, History, ScanSearch, StopCircle, PenTool, Hotel, LayoutPanelLeft, Wand2 } from "lucide-react";
 import "./components/DesignStudio.css";
 import { needsLiveInfo, isAboutSelf, isSmallTalk, isFollowUpRequest, plainReading } from "./lib/liveInfoIntent";
 import { READING_THE_USER, thisMessageNote } from "./lib/readingTheUser";
@@ -100,7 +100,9 @@ const ComputerUI = React.lazy(loadComputerUI);
 // Fetch Computer in the background once the page is idle, so the switch opens it at once.
 if (typeof window !== "undefined") (window.requestIdleCallback || ((f) => setTimeout(f, 2500)))(() => { loadComputerUI().catch(() => {}); });
 const VoiceMode = React.lazy(() => import("./components/VoiceMode"));
-import { PLUGIN_CATALOG, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention } from "./plugins/catalog";
+import ComposerMenu from "./components/chat/ComposerMenu";
+import PluginIcon from "./plugins/PluginIcon";
+import { PLUGIN_CATALOG, pluginFileFormats, loadPluginState, savePluginState, pluginsForPrompt, pluginMentioned, removePluginMention, pluginContext, expandSlashCommand, searchPlugins, searchCommands, getPlugin, installedCount } from "./plugins/catalog";
 import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
@@ -220,6 +222,9 @@ const readSSEStream = async (reader, onChunk, onStatus, onError, isActive, reqId
         onMeta?.("attachments", data);
       } else if (type === "realtime_notice" && data) {
         onMeta?.("realtime_notice", data);
+      } else if (type === "plugin_live" && Array.isArray(data)) {
+        // Where a live plugin's figures came from, shown under the reply.
+        onMeta?.("plugin_live", data);
       } else if (type === "council" && data) {
         // The other models asked about a hard question, shown only inside
         // the thinking panel (ResponseProcess).
@@ -1229,8 +1234,80 @@ const REHYPE_PLUGINS = [[rehypeKatex, KATEX_OPTIONS]];
 // While a reply is live, newly arrived words fade in (see lib/streamReveal).
 const REHYPE_PLUGINS_LIVE = [[rehypeKatex, KATEX_OPTIONS], rehypeStreamWords];
 
+// When a code block opens in the artifact panel by itself, as Claude's do:
+// only substantial, standalone work (a full program, a whole page or
+// drawing), never a short snippet that reads best inline. Shorter blocks
+// keep their Open button. Only one block per reply opens by itself.
+const ARTIFACT_AUTO_OPEN_LINES = 20;
+const opensAsArtifact = (code, lang) => {
+  const text = String(code || "");
+  if (text.split("\n").length >= ARTIFACT_AUTO_OPEN_LINES) return true;
+  const kind = String(lang || "").toLowerCase();
+  return (kind === "html" && /<html[\s>]|<!doctype html/i.test(text)) || (kind === "svg" && /<svg[\s>]/i.test(text) && text.length > 400);
+};
+
+// The artifact's name: "Python code", "Web page", "Drawing".
+const artifactTitleFor = (lang) => {
+  const kind = String(lang || "").toLowerCase();
+  if (kind === "html") return "Web page";
+  if (kind === "svg") return "Drawing";
+  return `${codeLangLabel(lang)} code`;
+};
+
+// A substantial piece of code in a reply, as Claude shows an artifact: a
+// card in the chat (name, language, length) that opens the code in the
+// panel beside it, instead of the whole program a second time in the chat.
+function ArtifactCard({ codeString, lang, onOpen, autoOpen = false }) {
+  const [copied, setCopied] = useState(false);
+  const openTail = useContext(OpenBlockContext);
+  const writing = isStillStreaming(openTail, codeString);
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || writing || openedRef.current) return;
+    openedRef.current = true;
+    // On a phone the panel covers the whole screen and hides the reply, so
+    // there the card waits for a tap, as in Claude's phone app.
+    if (window.matchMedia?.("(max-width: 760px)").matches) return;
+    onOpen();
+  }, [autoOpen, writing, onOpen]);
+  const lines = codeString.split("\n").length;
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(codeString);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  const download = (e) => {
+    e.stopPropagation();
+    const ext = { javascript: "js", typescript: "ts", python: "py", "c++": "cpp", cpp: "cpp", text: "txt", markdown: "md", bash: "sh", shell: "sh" }[String(lang).toLowerCase()] || lang || "txt";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([codeString], { type: "text/plain" }));
+    a.download = `${artifactTitleFor(lang).toLowerCase().replace(/\s+/g, "-")}.${ext}`;
+    a.click();
+  };
+  return (
+    <div className={`vai-artifact-card${writing ? " is-writing" : ""}`} role="button" tabIndex={0}
+      onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      aria-label={`Open ${artifactTitleFor(lang)} in the side panel`}>
+      <span className="vai-artifact-icon" aria-hidden="true">{lang === "html" || lang === "svg" ? <LayoutGrid size={18} /> : <FileText size={18} />}</span>
+      <span className="vai-artifact-text">
+        <span className="vai-artifact-title">{artifactTitleFor(lang)}</span>
+        <span className="vai-artifact-meta">{writing ? `Writing… ${lines} lines` : `${codeLangLabel(lang)} · ${lines} lines · Click to open`}</span>
+      </span>
+      {!writing && (
+        <span className="vai-artifact-actions">
+          <button type="button" className="code-copy-btn" onClick={copy} title="Copy code" aria-label="Copy code">{copied ? <CheckIcon /> : <CopyIcon />}</button>
+          <button type="button" className="code-copy-btn" onClick={download} title="Download file" aria-label="Download"><DlIcon /></button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Markdown with the full code-block treatment (artifact button, download, copy).
 const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSaveArtifact, isStreaming }) {
+  // The one block of this reply that may open the panel by itself.
+  const autoOpenClaimed = useRef(null);
   // The diagram still being streamed, shared through context so the code
   // renderer below stays stable (re-creating it every token would remount
   // every code block and diagram in the reply).
@@ -1257,11 +1334,26 @@ const RichMarkdown = React.memo(function RichMarkdown({ content, autoOpen, onSav
       const visual = renderVisualBlock({ lang: langMatch[1], meta: node?.data?.meta, code: codeString, fallback: <CodeBlock match={langMatch} codeString={codeString} /> });
       if (visual) return visual;
       const isArtifactWorthy = onSaveArtifact && codeString.split("\n").length >= 4;
+      // Claimed by its code, so a re-render picks the same block again.
+      if (autoOpen && isArtifactWorthy && autoOpenClaimed.current === null && opensAsArtifact(codeString, langMatch[1])) {
+        autoOpenClaimed.current = codeString;
+      }
+      const opensItself = Boolean(autoOpen && isArtifactWorthy && autoOpenClaimed.current === codeString);
+      if (onSaveArtifact && opensAsArtifact(codeString, langMatch[1])) {
+        return (
+          <ArtifactCard
+            codeString={codeString}
+            lang={langMatch[1]}
+            autoOpen={opensItself}
+            onOpen={() => onSaveArtifact(codeString, langMatch[1], artifactTitleFor(langMatch[1]))}
+          />
+        );
+      }
       return (
         <CodeBlock
           match={langMatch}
           codeString={codeString}
-          autoOpen={autoOpen}
+          autoOpen={opensItself}
           onSaveArtifact={isArtifactWorthy ? () => onSaveArtifact(codeString, langMatch[1], `${codeLangLabel(langMatch[1])} snippet`) : null}
         />
       );
@@ -2627,7 +2719,33 @@ function parseDesignResponse(text) {
   return { caption: text.trim(), html: "" };
 }
 
+// ── Helpers to extract design metadata for the inspector ──────────────────────
+function extractDesignTokens(html) {
+  if (!html) return null;
+  const colors = [];
+  const fonts = [];
+  const colorRe = /#([0-9a-f]{3,8})\b|rgba?\([^)]+\)/gi;
+  let m;
+  while ((m = colorRe.exec(html)) !== null) {
+    const c = m[0]; if (!colors.includes(c) && colors.length < 20) colors.push(c);
+  }
+  const fontRe = /font-family\s*:\s*['"]?([^,;'"]+)/gi;
+  while ((m = fontRe.exec(html)) !== null) {
+    const f = m[1].trim().replace(/['"]/g, "");
+    if (!fonts.includes(f) && fonts.length < 8 && f.length < 40) fonts.push(f);
+  }
+  const titleMatch = html.match(/<title[^>]*>([^<]+)/i);
+  const h1Match = html.match(/<h1[^>]*>([^<]+)/i);
+  return {
+    colors: colors.slice(0, 12),
+    fonts: fonts.slice(0, 5),
+    title: (titleMatch?.[1] || "").trim(),
+    headline: (h1Match?.[1] || "").trim(),
+  };
+}
+
 function DesignCanvas({ onClose }) {
+  // ── Core state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState(() => { try { return JSON.parse(localStorage.getItem("vetroai_design_history") || "[]"); } catch { return []; } });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -2636,21 +2754,87 @@ function DesignCanvas({ onClose }) {
   const [copied, setCopied] = useState(false);
   const abortRef = useRef(null);
 
+  // ── Power features state ──────────────────────────────────────────────────
+  const [zoom, setZoom] = useState(100);              // stage zoom %
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showInspector, setShowInspector] = useState(false);
+  const [versionIndex, setVersionIndex] = useState(-1); // -1 = latest
+  const [toast, setToast] = useState(null);            // { msg, type }
+
+  // ── Persist conversation ──────────────────────────────────────────────────
   useEffect(() => {
-    try { localStorage.setItem("vetroai_design_history", JSON.stringify(messages.slice(-20))); } catch {}
+    try { localStorage.setItem("vetroai_design_history", JSON.stringify(messages.slice(-30))); } catch {}
+  }, [messages]);
+
+  // ── Toast helper ──────────────────────────────────────────────────────────
+  const showToast = useCallback((msg, type = "default") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2200);
+  }, []);
+
+  // ── Collect all assistant HTML versions ──────────────────────────────────
+  const allVersions = useMemo(() => {
+    return messages
+      .map((m, i) => ({ m, i }))
+      .filter(({ m }) => m.role === "assistant" && m.content && !m.content.startsWith("⚠️") && parseDesignResponse(m.content).html)
+      .map(({ m, i }, vi) => {
+        const parsed = parseDesignResponse(m.content);
+        const userBefore = messages.slice(0, i).reverse().find(x => x.role === "user");
+        return {
+          vi,
+          label: userBefore?.content || "Initial design",
+          html: resolveSiteImages(parsed.html, API),
+          caption: parsed.caption,
+        };
+      });
   }, [messages]);
 
   const lastDesign = useMemo(() => {
-    const lastAssistant = [...messages].reverse().find(m => m.role === "assistant" && m.content);
-    if (!lastAssistant) return { caption: "", html: "" };
-    // Photos are asked for by subject; point them at real matching pictures.
-    const parsed = parseDesignResponse(lastAssistant.content);
-    return { ...parsed, html: resolveSiteImages(parsed.html, API) };
-  }, [messages]);
+    if (allVersions.length === 0) return { caption: "", html: "" };
+    return allVersions[allVersions.length - 1];
+  }, [allVersions]);
 
+  // The design shown in the preview — could be a pinned historical version
+  const pinnedDesign = useMemo(() => {
+    if (versionIndex < 0 || versionIndex >= allVersions.length) return null;
+    return allVersions[versionIndex];
+  }, [versionIndex, allVersions]);
+
+  // ── Streaming state ───────────────────────────────────────────────────────
+  const streaming = isLoading && messages[messages.length - 1]?.role === "assistant";
+  const streamedChars = streaming ? (messages[messages.length - 1].content || "").length : 0;
+
+  const shownDesign = useMemo(() => {
+    if (pinnedDesign) return pinnedDesign;
+    if (!streaming) return lastDesign;
+    const done = [...messages].slice(0, -1).reverse().find(m => m.role === "assistant" && m.content && !m.content.startsWith("⚠️"));
+    if (!done) return { caption: "", html: "" };
+    const parsed = parseDesignResponse(done.content);
+    return { ...parsed, html: resolveSiteImages(parsed.html, API) };
+  }, [streaming, lastDesign, messages, pinnedDesign]);
+
+  const siteTitle = useMemo(() => {
+    const t = (shownDesign.html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
+    return t.trim() || "untitled-design";
+  }, [shownDesign.html]);
+  const siteHost = siteTitle.toLowerCase().split(/[|–—-]/)[0].trim().replace(/[^a-z0-9]+/g, "") || "preview";
+  const hasDesign = !!shownDesign.html;
+  const isPinned = pinnedDesign !== null;
+
+  // ── Build progress ────────────────────────────────────────────────────────
+  const BUILD_STEPS = ["Picking an art direction", "Pairing fonts & colours", "Building the layout", "Placing content & images", "Adding interactions & polish"];
+  const buildStep = Math.min(BUILD_STEPS.length - 1, Math.floor(streamedChars / 2800));
+  const buildPct = Math.min(97, 5 + Math.round(streamedChars / 270));
+
+  // ── Inspector tokens ──────────────────────────────────────────────────────
+  const inspectorTokens = useMemo(() => showInspector ? extractDesignTokens(shownDesign.html) : null, [showInspector, shownDesign.html]);
+
+  // ── Send ──────────────────────────────────────────────────────────────────
   const send = async (preset) => {
     const text = (typeof preset === "string" ? preset : input).trim();
     if (!text || isLoading) return;
+    setVersionIndex(-1); // jump to latest when sending
     const hist = [...messages, { role: "user", content: text }, { role: "assistant", content: "" }];
     setMessages(hist);
     setInput("");
@@ -2662,12 +2846,10 @@ function DesignCanvas({ onClose }) {
     try {
       const fd = new FormData();
       fd.append("input", text);
-      fd.append("messages", JSON.stringify(hist.slice(0, -1).slice(-8)));
+      fd.append("messages", JSON.stringify(hist.slice(0, -1).slice(-10)));
       fd.append("mode", "design");
       fd.append("temperature", "0.7");
-      // A complete site runs well past 6k tokens; at 6000 replies were cut
-      // off mid-page and rendered half-built. Providers still apply their caps.
-      fd.append("maxTokens", "14000");
+      fd.append("maxTokens", "16000");
       fd.append("reqId", `design_${Date.now()}`);
       fd.append("webSearch", "false");
       const res = await fetch(API + "/chat", { headers: authHeaders(), method: "POST", body: fd, signal: ctrl.signal });
@@ -2689,49 +2871,55 @@ function DesignCanvas({ onClose }) {
     }
   };
 
-  const copy = () => { navigator.clipboard.writeText(lastDesign.html); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  const download = () => {
-    const blob = new Blob([lastDesign.html], { type: "text/html" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "design.html"; a.click();
+  const stopGeneration = () => {
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+    setIsLoading(false);
+    showToast("Generation stopped", "default");
   };
-  const openInNewTab = () => { const w = window.open("", "_blank"); if (w) { w.document.write(lastDesign.html); w.document.close(); } };
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const copy = () => {
+    navigator.clipboard.writeText(shownDesign.html);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    showToast("HTML copied to clipboard", "success");
+  };
+  const download = () => {
+    const name = siteTitle.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "design";
+    const blob = new Blob([shownDesign.html], { type: "text/html" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${name}.html`; a.click();
+    showToast("Design exported", "success");
+  };
+  const openInNewTab = () => { const w = window.open("", "_blank"); if (w) { w.document.write(shownDesign.html); w.document.close(); } };
   const clearChat = () => {
-    if (messages.length && !window.confirm("Clear this design conversation?")) return;
-    setMessages([]);
+    if (messages.length && !window.confirm("Clear this design and start fresh?")) return;
+    setMessages([]); setVersionIndex(-1); setTab("preview");
     try { localStorage.removeItem("vetroai_design_history"); } catch {}
   };
 
-  // While a reply streams, the preview keeps the finished design (or a
-  // "building" screen) instead of re-rendering half-written HTML every token.
-  const streaming = isLoading && messages[messages.length - 1]?.role === "assistant";
-  const streamedChars = streaming ? (messages[messages.length - 1].content || "").length : 0;
-  const shownDesign = useMemo(() => {
-    if (!streaming) return lastDesign;
-    const done = [...messages].slice(0, -1).reverse().find(m => m.role === "assistant" && m.content && !m.content.startsWith("⚠️"));
-    if (!done) return { caption: "", html: "" };
-    const parsed = parseDesignResponse(done.content);
-    return { ...parsed, html: resolveSiteImages(parsed.html, API) };
-  }, [streaming, lastDesign, messages]);
-  const siteTitle = useMemo(() => {
-    const t = (shownDesign.html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
-    return t.trim() || "untitled-design";
-  }, [shownDesign.html]);
-  const siteHost = siteTitle.toLowerCase().split(/[|–—-]/)[0].trim().replace(/[^a-z0-9]+/g, "") || "preview";
+  // ── Zoom helpers ──────────────────────────────────────────────────────────
+  const ZOOM_STEPS = [50, 67, 75, 90, 100, 110, 125, 150, 175, 200];
+  const zoomIn  = () => setZoom(z => ZOOM_STEPS.find(s => s > z) ?? 200);
+  const zoomOut = () => setZoom(z => [...ZOOM_STEPS].reverse().find(s => s < z) ?? 50);
+  const resetZoom = () => setZoom(100);
 
-  const BUILD_STEPS = ["Choosing an art direction", "Pairing typography and colour", "Laying out the sections", "Finding photos that fit", "Adding motion and polish"];
-  const buildStep = Math.min(BUILD_STEPS.length - 1, Math.floor(streamedChars / 2600));
-  const buildPct = Math.min(96, 6 + Math.round(streamedChars / 260));
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (e.key === "=" || e.key === "+") { e.preventDefault(); zoomIn(); }
+      if (e.key === "-") { e.preventDefault(); zoomOut(); }
+      if (e.key === "0") { e.preventDefault(); resetZoom(); }
+      if (e.key === "f") { e.preventDefault(); setIsFullscreen(f => !f); }
+      if (e.key === "s" && hasDesign) { e.preventDefault(); download(); }
+      if (e.key === "c" && hasDesign && e.shiftKey) { e.preventDefault(); copy(); }
+      if (e.key === "h") { e.preventDefault(); setShowHistory(h => !h); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [hasDesign, shownDesign.html]);
 
-  const STARTERS = [
-    { icon: ShoppingBag, title: "Online store", prompt: "A premium online store for a modern sneaker brand: bold hero, categories, 8 products with ratings and prices, reviews, newsletter, rich footer." },
-    { icon: Rocket, title: "SaaS landing page", prompt: "A landing page for an AI note-taking app: striking hero with product screenshot, logo marquee, bento feature grid, pricing with 3 tiers, testimonials, FAQ." },
-    { icon: Utensils, title: "Restaurant", prompt: "A website for an upscale South Indian restaurant in Chennai: photographic hero, signature dishes, menu with prices, gallery, hours and location, table booking form." },
-    { icon: Briefcase, title: "Portfolio", prompt: "A portfolio for a product designer: editorial hero with large name, selected case studies in a bento grid, about, skills, contact." },
-    { icon: Plane, title: "Travel agency", prompt: "A travel agency site for Kerala tours: full-bleed hero with search bar, popular packages with prices, why us, traveller reviews, enquiry form." },
-    { icon: Gauge, title: "Analytics dashboard", prompt: "A clean analytics dashboard for an e-commerce admin: sidebar, KPI cards with trends, revenue chart, recent orders table, top products." },
-  ];
-  const REFINES = ["Make it more premium", "Switch to a dark theme", "Add testimonials", "Bolder hero section", "Change the colour palette"];
-
+  // ── Auto-scroll chat ──────────────────────────────────────────────────────
   const chatEndRef = useRef(null);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ block: "end" }); }, [messages.length, isLoading]);
 
@@ -2743,16 +2931,51 @@ function DesignCanvas({ onClose }) {
     return isLoading && i === messages.length - 1 ? "Designing…" : "";
   };
 
-  const hasDesign = !!shownDesign.html;
+  // ── Starters & refines ────────────────────────────────────────────────────
+  const STARTERS = [
+    { icon: ShoppingBag, title: "Online store",       prompt: "A premium online store for a modern sneaker brand: bold hero, category tiles, 8 product cards with photos, ratings, prices and an Add-to-cart button, trust row, testimonials, newsletter, rich footer." },
+    { icon: Rocket,      title: "SaaS landing",       prompt: "A landing page for an AI note-taking app: striking hero with product mockup, animated logo marquee, bento feature grid, 3-tier pricing with toggle, testimonials, FAQ accordion, CTA footer." },
+    { icon: Utensils,    title: "Restaurant",         prompt: "A website for an upscale South Indian restaurant: full-bleed photographic hero, featured dishes with photos and prices, menu with categories, gallery lightbox, chef's story, booking form, location map section." },
+    { icon: Briefcase,   title: "Portfolio",          prompt: "A product designer portfolio: editorial hero with oversized name and gradient word, selected case studies in a mixed bento grid, about with photo, skills cloud, process steps, contact form." },
+    { icon: Plane,       title: "Travel agency",      prompt: "A travel agency for Kerala backwater tours: cinematic full-bleed hero with search bar, featured packages with photos and prices, experience highlights, traveller reviews with photos, enquiry form." },
+    { icon: Gauge,       title: "Dashboard",          prompt: "A dark analytics dashboard for an e-commerce admin: collapsible sidebar with icons, KPI cards with sparklines, revenue area chart, recent orders table, top products list, notifications panel." },
+    { icon: Hotel,       title: "Hotel / Resort",     prompt: "A luxury boutique resort website: immersive full-screen hero video placeholder, room categories with gallery, amenities with icons, spa section, dining, awards row, booking widget, map section." },
+    { icon: PenTool,     title: "Agency",             prompt: "A creative design agency site: bold dark hero with large stacked type and neon accent, case study grid with hover reveals, services, team portraits, client logos marquee, contact form." },
+    { icon: Wand2,       title: "AI Product",         prompt: "A landing page for an AI image generation tool: dark dramatic hero with glowing generated image mosaic, feature bento grid, before/after showcase, 3-tier pricing, trust logos, demo CTA." },
+    { icon: Monitor,     title: "App landing",        prompt: "A mobile app landing page: split hero with phone mockup, feature highlights with screenshots, how-it-works steps, user reviews carousel, download buttons with store badges, FAQ." },
+    { icon: Layers,      title: "Blog / Magazine",    prompt: "A modern tech blog: editorial header with featured story hero, latest articles grid with cover images, categories sidebar, author card, newsletter signup, trending topics, full footer." },
+    { icon: LayoutPanelLeft, title: "Event / Conf",  prompt: "A tech conference website: countdown hero with date and location, speakers grid with photos and titles, schedule with day tabs, ticket tiers, sponsor logos in tiers, venue section with map." },
+  ];
 
+  const REFINES = [
+    "Make it more premium",
+    "Switch to a dark theme",
+    "Add more micro-animations",
+    "Bolder hero section",
+    "Change the colour palette",
+    "Add a testimonials section",
+    "Make the typography bigger",
+    "Add a sticky header on scroll",
+    "More whitespace and breathing room",
+    "Make it feel more modern & minimal",
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="design-canvas-overlay ds-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="design-canvas ds-studio" onClick={e => e.stopPropagation()}>
+      <div className={`design-canvas ds-studio${isFullscreen ? " ds-fullscreen" : ""}`} onClick={e => e.stopPropagation()}>
+
+        {/* ── Top bar ─────────────────────────────────────────────────── */}
         <header className="ds-top">
           <div className="ds-brand">
             <span className="ds-brand-mark"><Palette size={16} /></span>
             <span className="ds-brand-name">Design Studio</span>
             <span className="ds-beta">Beta</span>
+            {allVersions.length > 1 && (
+              <button className="ds-version-badge" onClick={() => setShowHistory(h => !h)} title="Version history">
+                v{allVersions.length}
+              </button>
+            )}
           </div>
 
           {hasDesign && (
@@ -2768,79 +2991,197 @@ function DesignCanvas({ onClose }) {
                   <button className={viewport === "desktop" ? "on" : ""} onClick={() => setViewport("desktop")} title="Desktop"><Monitor size={15} /></button>
                 </div>
               )}
+              {tab !== "code" && (
+                <div className="ds-zoom">
+                  <button onClick={zoomOut} title="Zoom out (⌘ -)">−</button>
+                  <span className="ds-zoom-label" onClick={resetZoom} title="Reset zoom">{zoom}%</span>
+                  <button onClick={zoomIn} title="Zoom in (⌘ +)">+</button>
+                </div>
+              )}
             </div>
           )}
 
           <div className="ds-actions">
-            {hasDesign && (
+            {isLoading && (
+              <button className="ds-stop-btn" onClick={stopGeneration}>
+                <StopCircle size={14} /> Stop
+              </button>
+            )}
+            {hasDesign && !isLoading && (
               <>
-                <button className="ds-icon-btn" onClick={copy} title={copied ? "Copied" : "Copy HTML"}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
+                <button className={`ds-icon-btn${showInspector ? " active" : ""}`} onClick={() => setShowInspector(v => !v)} title="Design inspector">
+                  <ScanSearch size={15} />
+                </button>
+                <button className={`ds-icon-btn${showHistory ? " active" : ""}`} onClick={() => setShowHistory(h => !h)} title="Version history (⌘H)">
+                  <History size={15} />
+                </button>
+                <span className="ds-divider" />
+                <button className="ds-icon-btn" onClick={copy} title={copied ? "Copied!" : "Copy HTML (⌘⇧C)"}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
                 <button className="ds-icon-btn" onClick={openInNewTab} title="Open in new tab"><ExternalLink size={15} /></button>
                 <button className="ds-export" onClick={download}><Download size={15} /> Export</button>
               </>
             )}
-            {messages.length > 0 && (
+            {messages.length > 0 && !isLoading && (
               <button className="ds-icon-btn" onClick={clearChat} title="Start over"><Trash2 size={15} /></button>
             )}
             <span className="ds-divider" />
-            <button className="ds-icon-btn" onClick={onClose} title="Close"><X size={17} /></button>
+            <button className="ds-icon-btn" onClick={() => setIsFullscreen(f => !f)} title={isFullscreen ? "Exit fullscreen (⌘F)" : "Fullscreen (⌘F)"}>
+              {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </button>
+            <button className="ds-icon-btn" onClick={onClose} title="Close (Esc)"><X size={17} /></button>
           </div>
         </header>
 
+        {/* ── Body ────────────────────────────────────────────────────── */}
         <div className="design-canvas-body ds-body">
-          <main className={`ds-stage${tab === "code" && hasDesign ? " is-code" : ""}`}>
+
+          {/* Version history sidebar */}
+          {showHistory && (
+            <div className="ds-history">
+              <div className="ds-history-head">
+                <span>Versions</span>
+                <button className="ds-icon-btn" style={{ width: 24, height: 24, borderRadius: 6 }} onClick={() => setShowHistory(false)}><X size={13} /></button>
+              </div>
+              <div className="ds-history-list">
+                {allVersions.length === 0 && <div className="ds-history-empty">No versions yet.<br />Generate a design to begin.</div>}
+                {[...allVersions].reverse().map((v) => {
+                  const isActive = isPinned ? versionIndex === v.vi : v.vi === allVersions.length - 1;
+                  return (
+                    <button key={v.vi} className={`ds-history-item${isActive ? " current" : ""}`}
+                      onClick={() => { setVersionIndex(v.vi === allVersions.length - 1 ? -1 : v.vi); setTab("preview"); }}>
+                      <span className="ds-history-item-num">v{v.vi + 1}</span>
+                      <span className="ds-history-item-label">{v.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Stage */}
+          <main className={`ds-stage${tab === "code" && hasDesign ? " is-code" : ""}${zoom !== 100 && tab !== "code" ? " ds-zoomed" : ""}`}>
+            {isPinned && (
+              <div className="ds-diff-banner">
+                <History size={13} />
+                <strong>v{(pinnedDesign.vi ?? 0) + 1}</strong>
+                <span>· {pinnedDesign.label?.slice(0, 48)}{(pinnedDesign.label?.length ?? 0) > 48 ? "…" : ""}</span>
+                <button onClick={() => setVersionIndex(-1)} style={{ marginLeft: 6, background: "rgba(124,108,255,.2)", border: "1px solid rgba(124,108,255,.4)", borderRadius: 6, color: "#c4bcff", fontSize: "0.72rem", padding: "2px 8px", cursor: "pointer" }}>Back to latest</button>
+              </div>
+            )}
+
             {!hasDesign && !streaming ? (
+              /* ── Empty state ── */
               <div className="ds-empty">
-                <div className="ds-empty-orb" aria-hidden="true"><Sparkles size={26} /></div>
+                <div className="ds-empty-orb" aria-hidden="true"><Sparkles size={28} /></div>
                 <h2>What should we design?</h2>
-                <p>Describe a website or app screen. You'll get a complete, polished, responsive design, ready to export as HTML.</p>
+                <p>Describe a website, app, or screen. You'll get a complete, polished, production-ready design — exported as self-contained HTML.</p>
                 <div className="ds-starters">
                   {STARTERS.map(({ icon: Icon, title, prompt }) => (
                     <button key={title} className="ds-starter" onClick={() => send(prompt)}>
                       <span className="ds-starter-icon"><Icon size={17} /></span>
                       <span className="ds-starter-title">{title}</span>
-                      <span className="ds-starter-sub">{prompt.split(":")[0]}</span>
+                      <span className="ds-starter-sub">{prompt.slice(0, 70)}…</span>
                     </button>
                   ))}
                 </div>
               </div>
             ) : tab === "code" && hasDesign ? (
+              /* ── Code view ── */
               <div className="ds-code">
                 <Suspense fallback={<pre className="ds-code-fallback">{shownDesign.html}</pre>}>
-                  <CodeHighlighter language="html" customStyle={{ margin: 0, height: "100%", fontSize: "0.8rem", background: "transparent" }}>
+                  <CodeHighlighter language="html" customStyle={{ margin: 0, height: "100%", fontSize: "0.78rem", background: "transparent" }}>
                     {shownDesign.html}
                   </CodeHighlighter>
                 </Suspense>
               </div>
             ) : (
-              <div className={`ds-device ds-${viewport}`}>
-                {viewport !== "mobile" && (
-                  <div className="ds-browser-bar">
-                    <span className="ds-dots"><i /><i /><i /></span>
-                    <span className="ds-url">{siteHost}.vetro.design</span>
-                    <span className="ds-dots-spacer" />
-                  </div>
-                )}
-                <div className="ds-screen">
-                  {hasDesign && <iframe title="design-preview" srcDoc={shownDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />}
-                  {streaming && (
-                    <div className={`ds-building${hasDesign ? " over" : ""}`}>
-                      <div className="ds-skeleton" aria-hidden="true">
-                        <div className="sk-nav" /><div className="sk-hero" /><div className="sk-row"><div /><div /><div /></div>
-                      </div>
-                      <div className="ds-build-card">
-                        <div className="ds-build-spark"><Sparkles size={18} /></div>
-                        <strong>{hasDesign ? "Updating your design" : "Designing your page"}</strong>
-                        <span className="ds-build-step" key={buildStep}>{BUILD_STEPS[buildStep]}…</span>
-                        <div className="ds-progress"><i style={{ width: `${buildPct}%` }} /></div>
-                      </div>
+              /* ── Preview ── */
+              <div className="ds-stage-inner" style={zoom !== 100 ? { transform: `scale(${zoom / 100})`, transformOrigin: "top center" } : {}}>
+                <div className={`ds-device ds-${viewport}`}>
+                  {viewport !== "mobile" && (
+                    <div className="ds-browser-bar">
+                      <span className="ds-dots"><i /><i /><i /></span>
+                      <span className="ds-url">{siteHost}.vetro.design</span>
+                      <span className="ds-dots-spacer" />
                     </div>
                   )}
+                  <div className="ds-screen">
+                    {hasDesign && <iframe key={shownDesign.html.slice(0, 80)} title="design-preview" srcDoc={shownDesign.html} sandbox="allow-scripts allow-same-origin allow-popups" className="design-frame" />}
+                    {streaming && (
+                      <div className={`ds-building${hasDesign ? " over" : ""}`}>
+                        <div className="ds-skeleton" aria-hidden="true">
+                          <div className="sk-nav" /><div className="sk-hero" /><div className="sk-row"><div /><div /><div /></div>
+                        </div>
+                        <div className="ds-build-card">
+                          <div className="ds-build-spark"><Sparkles size={18} /></div>
+                          <strong>{hasDesign ? "Updating your design…" : "Crafting your design…"}</strong>
+                          <span className="ds-build-step" key={buildStep}>{BUILD_STEPS[buildStep]}…</span>
+                          <div className="ds-progress"><i style={{ width: `${buildPct}%` }} /></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
+              </div>
+            )}
+
+            {/* Toast */}
+            {toast && (
+              <div className="ds-toast-wrap">
+                <div className={`ds-toast${toast ? "" : " ds-toast-out"} ${toast.type}`}>{toast.msg}</div>
               </div>
             )}
           </main>
 
+          {/* Design inspector sidebar */}
+          {showInspector && hasDesign && (
+            <div className="ds-inspector">
+              <div className="ds-inspector-head">
+                <span>Inspector</span>
+                <button className="ds-icon-btn" style={{ width: 24, height: 24, borderRadius: 6 }} onClick={() => setShowInspector(false)}><X size={13} /></button>
+              </div>
+              <div className="ds-inspector-body">
+                {!inspectorTokens ? (
+                  <div className="ds-inspector-empty">Loading…</div>
+                ) : (
+                  <>
+                    {inspectorTokens.title && (
+                      <div className="ds-insp-section">
+                        <div className="ds-insp-label">Page</div>
+                        <div className="ds-insp-row"><span className="ds-insp-key">Title</span><span className="ds-insp-val" style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inspectorTokens.title}</span></div>
+                        {inspectorTokens.headline && <div className="ds-insp-row"><span className="ds-insp-key">H1</span><span className="ds-insp-val" style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inspectorTokens.headline}</span></div>}
+                      </div>
+                    )}
+                    {inspectorTokens.colors.length > 0 && (
+                      <div className="ds-insp-section">
+                        <div className="ds-insp-label">Colours</div>
+                        <div className="ds-insp-colors">
+                          {inspectorTokens.colors.map((c, i) => (
+                            <div key={i} className="ds-insp-swatch" style={{ background: c }} title={c}
+                              onClick={() => { navigator.clipboard.writeText(c); showToast(`Copied ${c}`, "success"); }} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {inspectorTokens.fonts.length > 0 && (
+                      <div className="ds-insp-section">
+                        <div className="ds-insp-label">Fonts</div>
+                        <div className="ds-insp-fonts">
+                          {inspectorTokens.fonts.map((f, i) => <div key={i} className="ds-insp-font-item">{f}</div>)}
+                        </div>
+                      </div>
+                    )}
+                    <div className="ds-insp-section">
+                      <div className="ds-insp-label">Version</div>
+                      <div className="ds-insp-row"><span className="ds-insp-key">v{(isPinned ? (pinnedDesign?.vi ?? 0) : allVersions.length - 1) + 1} of {allVersions.length}</span></div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Chat sidebar */}
           <aside className="ds-chat">
             <div className="ds-chat-head">
               <span>Conversation</span>
@@ -2850,7 +3191,7 @@ function DesignCanvas({ onClose }) {
               {messages.length === 0 && (
                 <div className="ds-hint">
                   <Sparkles size={15} />
-                  <p>Try “A pricing page with 3 tiers”, then refine it: “make the buttons rounded and purple”.</p>
+                  <p>Try <em>"A pricing page with 3 tiers"</em>, then refine: <em>"make the buttons rounded and purple"</em>.</p>
                 </div>
               )}
               {messages.map((m, i) => (
@@ -2875,7 +3216,7 @@ function DesignCanvas({ onClose }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                placeholder={hasDesign ? "Ask for a change…" : "Describe what you want to design…"}
+                placeholder={hasDesign ? "Describe a change…" : "Describe what you want to design…"}
                 rows={2}
                 disabled={isLoading}
               />
@@ -2899,6 +3240,16 @@ const DOWNLOAD_FORMATS = [
 // Structured PDF / Word / Excel downloads for one assistant reply. `requested`
 // are the formats the user asked for; those get a prominent file card, and
 // every reply also carries a compact Download menu.
+// The files a sent message asked for: in its words ("as an Excel sheet"), or
+// through a plugin whose answer is a file (the Sheets chip → Excel).
+// Only a plugin picked as a chip, or a command that makes a file (/sheet),
+// gives a file; one that switched on by itself from a word ("pivot"), or a
+// question command (/formula), answers in the chat.
+const filesAskedBy = (userMsg) => [...new Set([
+  ...requestedFileFormats(userMsg?.content || ""),
+  ...pluginFileFormats(Array.isArray(userMsg?.filePlugins) ? userMsg.filePlugins : []),
+])];
+
 function DocumentDownloads({ content, requested = [], variant = "menu" }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState("");
@@ -4784,6 +5135,19 @@ export default function App() {
     if (remoteSpace && applied.spaces.some((sp) => sp.id === remoteSpace)) {
       setCurrentSpaceId(remoteSpace);
     }
+
+    // Installed plugins follow the account: the cloud copy, merged over this
+    // device's (a plugin installed on either stays installed).
+    try {
+      const remotePlugins = remote.prefs?.plugin_state ? JSON.parse(remote.prefs.plugin_state) : null;
+      if (remotePlugins && typeof remotePlugins === "object") {
+        setPluginState((local) => {
+          const merged = { ...local, ...remotePlugins };
+          savePluginState(merged);
+          return merged;
+        });
+      }
+    } catch (err) { swallowError(err); }
   }, []);
 
   // Debounced Firestore writes would otherwise be lost when the tab is closed
@@ -6805,7 +7169,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // the answer depends on current facts, at Quick effort so it starts
     // talking fast, whatever effort is picked for typed chat.
     const voiceTurn = voiceRef.current;
-    const pickedMode = autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
+    // A plugin picked by name that runs research (Deep Report) switches this
+    // message to DeepSearch.
+    const researchPlugin = (Array.isArray(lastUserMessage?.plugins) ? lastUserMessage.plugins : []).some((id) => getPlugin(id)?.research);
+    const pickedMode = researchPlugin && !filesData ? "deep_search" : autoModeFor({ query: typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "", files: filesData, forced: selectedModeRef.current });
     const selectedMode = voiceTurn && pickedMode !== "web_search" ? "normal" : pickedMode;
     const turnEffort = voiceTurn ? "quick" : selectedEffort;
     const autoSearch = autoWebSearchRef.current || voiceTurn;
@@ -6865,7 +7232,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // diagram, a circuit, a figure, a graph, a structure) need careful
     // reasoning, not a sketch: they stay with Auto's usual (strongest) model.
     const requestProvider = drawingKind(userQuery) === "sketch" && selectedProvider === "Auto" ? SARVAM_105B_PROVIDER : selectedProvider;
-    const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery);
+    const requestPlugins = humanizing ? [] : pluginsForPrompt(pluginState, userQuery, Array.isArray(lastUserMessage?.plugins) ? lastUserMessage.plugins : []);
     const isFirstMsg = hist.filter(m => m.role === "user").length === 1;
 
     const fd = new FormData();
@@ -6893,6 +7260,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(isMemoryEnabled() ? toPromptList(memories) : []));
     fd.append("plugins", JSON.stringify(requestPlugins));
+    // Each plugin's skill instructions; the backend adds them to the system
+    // prompt and fetches live data for the live ones (config/plugins.js).
+    if (requestPlugins.length) fd.append("pluginContext", JSON.stringify(pluginContext(requestPlugins, userQuery)));
 
     let finalSystemPrompt = systemPromptRef.current || "";
     finalSystemPrompt = `${finalSystemPrompt}\n\n[REASONING EFFORT: ${turnEffort.toUpperCase()}]\n${EFFORT_INSTRUCTIONS[turnEffort] || EFFORT_INSTRUCTIONS.balanced}`.trim();
@@ -6916,7 +7286,10 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       }
     }
     // First, so it survives if the backend has to cut a very long prompt.
-    const requestedFiles = requestedFileFormats(userQuery);
+    // Asked for in words ("as an Excel sheet"), or by a plugin whose answer
+    // is a file (Sheets → Excel, Docs → Word).
+    // The same rule as the download card under the reply (filesAskedBy).
+    const requestedFiles = filesAskedBy(lastUserMessage);
     if (requestedFiles.length) {
       finalSystemPrompt = `${fileRequestInstruction(requestedFiles)}\n\n${finalSystemPrompt}`;
     }
@@ -6935,7 +7308,12 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // live scores or medical mode, whatever mode or plugin is on. "Ur name"
     // used to be searched, and answered with the history of the ancient city of Ur.
     const notALookup = isAboutSelf(userQuery) || isSmallTalk(userQuery) || isFollowUpRequest(userQuery);
-    const sportsDetected = !humanizing && !notALookup && isSportsQuery(userQuery);
+    // Plugins that bring their own data (Live Sports, Weather, Markets, News,
+    // Currency, a linked page) answer from it: no general web search mixing
+    // unrelated results and citations in, unless a search plugin is used too.
+    const pluginBringsData = requestPlugins.some((id) => getPlugin(id)?.live || getPlugin(id)?.readsLinks);
+    const pluginSearches = requestPlugins.some((id) => getPlugin(id)?.search);
+    const sportsDetected = !humanizing && !notALookup && !pluginBringsData && isSportsQuery(userQuery);
     // Photos (and follow-ups about them) are first offered to the visitor's own
     // computer, so those chats skip the location and maps lookups below, which
     // would reach outside services.
@@ -6945,7 +7323,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       || (lastAnswer?.provider === LOCAL_OLLAMA_PROVIDER && (!!latestSharedImage(hist) || !!rememberedDocs));
     // Drawing the heart or a kidney is a picture, not a medical question.
     const medicalDetected = !humanizing && !notALookup && !maybeLocal && !drawingAsked && isMedicalQuery(userQuery);
-    const shouldWebSearch = !humanizing && !notALookup && (autoSearch || requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const shouldWebSearch = !humanizing && !notALookup && (pluginSearches || isWebMode || isDeepSearch || selectedMode === "research"
+      || (!pluginBringsData && (autoSearch || sportsDetected || medicalDetected)));
     fd.append("webSearch", String(shouldWebSearch));
     // The user's timezone, so the backend's "today" is the user's today.
     fd.append("clientTimeZone", userTimeZone());
@@ -6954,7 +7333,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     // (askSearchIntent, below — the same one backend models get), so "I am
     // happy" isn't searched. Backend models are judged on the server, so the
     // activity line only promises a search for an explicit ask.
-    const explicitSearch = !notALookup && (requestPlugins.includes("web-search") || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
+    const explicitSearch = !notALookup && (pluginSearches || isWebMode || isDeepSearch || selectedMode === "research" || sportsDetected || medicalDetected);
     if (!humanizing) setRequestActivity(describeRequest({ query: userQuery, files: filesData, mode: selectedMode, webSearch: explicitSearch }));
 
     const nearbyMapsRequest = !humanizing && !maybeLocal && isNearbyRequest(userQuery);
@@ -7087,6 +7466,8 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       sources: null,
       realtimeNotice: null,
       nearby: nearbyCard,
+      // "Using Live Sports" above the reply.
+      usedPlugins: requestPlugins.map((id) => getPlugin(id)?.name).filter(Boolean),
     };
     setMessages([...hist, emptyAssistantMsg]);
 
@@ -7834,6 +8215,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                 if (metaType === "decider") last.decider = { ...(last.decider || {}), ...metaData };
                 if (metaType === "realtime_notice") last.realtimeNotice = metaData;
                 if (metaType === "council") last.council = metaData;
+                if (metaType === "plugin_live") last.pluginLive = metaData;
                 if (metaType === "research") last.research = metaData;
                 if (metaType === "research_reset") last.research = null;
                 u[u.length - 1] = last;
@@ -8180,8 +8562,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const sendMessage = async (e, prefill) => {
     e?.preventDefault();
     setPluginMention((previous) => ({ ...previous, open: false, query: "", start: -1, index: 0 }));
-    const text = (prefill || input).trim();
+    const typed = (prefill || input).trim();
+    // "/score India" from an installed plugin becomes that command's prompt,
+    // and brings its plugin along (plugins/catalog.js).
+    const slash = prefill ? null : expandSlashCommand(typed, pluginState);
+    const text = slash ? slash.text : typed;
     if (!text && !selFiles.length) return;
+    // The plugins this message uses by name: the chips in the box, and the
+    // command's plugin. Kept on the user message, so a retry uses them too.
+    const draftPlugins = [...new Set([...(prefill ? [] : composerPlugins), ...(slash ? [slash.pluginId] : [])])];
+    // Of those, the ones whose answer should come as a file: chips, and a
+    // command that makes one (/sheet, not /formula).
+    const filePlugins = [...new Set([...(prefill ? [] : composerPlugins), ...(slash?.file ? [slash.pluginId] : [])])];
+    if (!prefill) setComposerPlugins([]);
     stopMic({ keepWanted: voiceRef.current });
     transcriptRef.current = "";
 
@@ -8204,7 +8597,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     }
 
     // Image generation intercept
-    const imagePluginInvoked = pluginMentioned(pluginState, text, "image-studio");
+    const imagePluginInvoked = pluginMentioned(pluginState, text, "image-studio", draftPlugins);
     const cleanImagePrompt = imagePluginInvoked ? removePluginMention(text, "image-studio") : text;
     const imgPrompt = imagePluginInvoked ? (detectImagePrompt(cleanImagePrompt) || cleanImagePrompt) : detectImagePrompt(text);
     // Right after an image, "make the sky orange" / "add a hat" edits that
@@ -8377,7 +8770,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
       const text = await documentText(f);
       return { name: f.name, size: f.size, preview: preview || null, ...(thumb && thumb !== preview ? { thumb } : {}), ...(text ? { text } : {}) };
     })) : null;
-    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now() };
+    const userMsg = { role: "user", content: text, files: fileAttachments, timestamp: ts, sentAt: Date.now(), ...(draftPlugins.length ? { plugins: draftPlugins } : {}), ...(filePlugins.length ? { filePlugins } : {}) };
     rememberTurnFiles(userMsg, filesToSend);
     const hist = [...messages, userMsg];
     setMessages(hist); setInput("");
@@ -8512,10 +8905,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             })}
           </div>
         )}
+        {renderComposerPluginChips()}
 
         <textarea
           ref={textareaRef}
           className="claude-input-textarea"
+          aria-autocomplete="list"
+          aria-expanded={pluginMention.open}
+          aria-controls={pluginMention.open ? "vc-composer-menu" : undefined}
+          aria-activedescendant={pluginMention.open && composerMenuRows.length ? `vc-menu-row-${Math.min(pluginMention.index, composerMenuRows.length - 1)}` : undefined}
           rows="1"
           placeholder={
             dictation.phase === "transcribing" ? "Typing out what you said…" :
@@ -8538,22 +8936,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             }, 120);
           }}
           onKeyDown={(e) => {
-            if (pluginMention.open && mentionedPluginOptions.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-              e.preventDefault();
-              const direction = e.key === "ArrowDown" ? 1 : -1;
-              setPluginMention((previous) => ({ ...previous, index: (previous.index + direction + mentionedPluginOptions.length) % mentionedPluginOptions.length }));
-              return;
-            }
-            if (pluginMention.open && mentionedPluginOptions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
-              e.preventDefault();
-              selectMentionedPlugin(mentionedPluginOptions[pluginMention.index] || mentionedPluginOptions[0]);
-              return;
-            }
-            if (e.key === "Escape" && pluginMention.open) {
-              e.preventDefault();
-              setPluginMention((previous) => ({ ...previous, open: false }));
-              return;
-            }
+            if (handleComposerMenuKey(e)) return;
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               sendMessage(e);
@@ -8689,7 +9072,9 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     setShowComputer(true);
   }, []);
   const [pluginState, setPluginState] = useState(loadPluginState);
-  const [pluginMention, setPluginMention] = useState({ open: false, query: "", start: -1, index: 0 });
+  const [pluginMention, setPluginMention] = useState({ open: false, kind: "mention", query: "", start: -1, index: 0 });
+  // Plugins picked from the "@" menu for the next message (chips in the box).
+  const [composerPlugins, setComposerPlugins] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('chats');
@@ -8712,57 +9097,155 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
 
 
 
-  const mentionedPluginOptions = useMemo(() => {
-    const query = pluginMention.query.toLowerCase();
-    return PLUGIN_CATALOG
-      .filter((plugin) => pluginState[plugin.id]?.installed)
-      .filter((plugin) => !query || plugin.name.toLowerCase().includes(query) || plugin.category.toLowerCase().includes(query));
-  }, [pluginState, pluginMention.query]);
+  // The "@" and "/" menu above the composer (components/chat/ComposerMenu).
+  // "@…" searches the whole plugin catalog, installed first; "/…" at the
+  // start of the box lists the commands of installed plugins.
+  const composerMenuRows = useMemo(() => {
+    if (!pluginMention.open) return [];
+    if (pluginMention.kind === "slash") {
+      return searchCommands(pluginMention.query, pluginState).map((row) => ({ type: "command", ...row }));
+    }
+    const { installed, available } = searchPlugins(pluginMention.query, pluginState, { limit: 6 });
+    const notChipped = (plugin) => !composerPlugins.includes(plugin.id);
+    return [
+      ...installed.filter(notChipped).map((plugin) => ({ type: "plugin", plugin, installed: true, enabled: pluginState[plugin.id]?.enabled !== false })),
+      ...available.filter(notChipped).map((plugin) => ({ type: "plugin", plugin, installed: false, enabled: false })),
+    ];
+  }, [pluginState, pluginMention.open, pluginMention.kind, pluginMention.query, composerPlugins]);
 
   const updatePluginMention = useCallback((value, cursorPosition) => {
     const beforeCursor = value.slice(0, cursorPosition ?? value.length);
-    const match = beforeCursor.match(/(^|\s)@([^@\n]*)$/);
-    if (!match) {
-      setPluginMention((previous) => ({ ...previous, open: false }));
+    const slash = /^\/([a-z0-9-]*)$/i.exec(beforeCursor);
+    if (slash) {
+      setPluginMention((previous) => ({ open: true, kind: "slash", query: slash[1], start: 0, index: previous.open && previous.kind === "slash" && previous.query === slash[1] ? previous.index : 0 }));
       return;
     }
-    const rawQuery = match[2] || "";
-    setPluginMention({ open: true, query: rawQuery.trimStart(), start: beforeCursor.length - rawQuery.length - 1, index: 0 });
+    const match = beforeCursor.match(/(^|\s)@([^@\n]*)$/);
+    // A long run of words after "@" is a sentence, not a search.
+    if (!match || match[2].trim().split(/\s+/).length > 5) {
+      setPluginMention((previous) => (previous.open ? { ...previous, open: false } : previous));
+      return;
+    }
+    const query = match[2].trimStart();
+    setPluginMention((previous) => ({ open: true, kind: "mention", query, start: beforeCursor.length - match[2].length - 1, index: previous.open && previous.query === query ? previous.index : 0 }));
   }, []);
 
-  const selectMentionedPlugin = useCallback((plugin) => {
-    setPluginState((previous) => {
-      const status = previous[plugin.id] || {};
-      if (status.enabled !== false) return previous;
-      const next = { ...previous, [plugin.id]: { ...status, installed: true, enabled: true } };
-      savePluginState(next);
-      return next;
-    });
-    const cursor = textareaRef.current?.selectionStart ?? input.length;
+  const closeComposerMenu = useCallback(() => {
+    setPluginMention((previous) => ({ ...previous, open: false, query: "", start: -1, index: 0 }));
+  }, []);
+
+  // Picking a plugin installs and turns it on if needed, takes the "@query"
+  // out of the box and adds the plugin as a chip; picking a command puts
+  // "/command " in the box, ready for its arguments.
+  const pickComposerMenuRow = useCallback((row) => {
+    if (!row) return;
+    const box = textareaRef.current;
+    const cursor = box?.selectionStart ?? input.length;
     const start = pluginMention.start >= 0 ? pluginMention.start : cursor;
-    const next = `${input.slice(0, start)}@${plugin.name} ${input.slice(cursor)}`;
+    let next;
+    let caret;
+    if (row.type === "command") {
+      next = `/${row.command.name} ${input.slice(cursor).trimStart()}`;
+      caret = row.command.name.length + 2;
+    } else {
+      const { plugin } = row;
+      const status = pluginState[plugin.id] || {};
+      if (!status.installed || status.enabled === false) {
+        setPluginState((previous) => {
+          const updated = { ...previous, [plugin.id]: { ...(previous[plugin.id] || {}), installed: true, enabled: true } };
+          savePluginState(updated);
+          return updated;
+        });
+        addToast(status.installed ? `${plugin.name} turned on` : `${plugin.name} installed`, "success", 2200);
+      }
+      setComposerPlugins((previous) => (previous.includes(plugin.id) ? previous : [...previous, plugin.id]));
+      const head = input.slice(0, start).replace(/\s+$/, "");
+      const tail = input.slice(cursor).replace(/^\s+/, "");
+      next = head && tail ? `${head} ${tail}` : head || tail;
+      caret = head.length + (head && tail ? 1 : 0);
+    }
     setInput(next);
-    setPluginMention((previous) => ({ ...previous, open: false }));
+    closeComposerMenu();
     setTimeout(() => {
-      const nextCursor = start + plugin.name.length + 2;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+      box?.focus();
+      // Only if nothing was typed since: moving the caret after a fast
+      // typist's first letter put the rest of the words in front of it.
+      if (box && box.value === next) box.setSelectionRange(caret, caret);
     }, 0);
-  }, [input, pluginMention.start]);
+  }, [input, pluginMention.start, pluginState, addToast, closeComposerMenu]);
+
+  // The composer's keys while the menu is open: ↑/↓ move, Enter/Tab pick,
+  // Esc closes. Backspace at the very start of the box removes the last
+  // plugin chip. True when the key was handled.
+  const handleComposerMenuKey = useCallback((e) => {
+    if (pluginMention.open) {
+      const count = composerMenuRows.length;
+      if (count && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setPluginMention((previous) => ({ ...previous, index: (Math.min(previous.index, count - 1) + step + count) % count }));
+        return true;
+      }
+      if (count && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+        e.preventDefault();
+        pickComposerMenuRow(composerMenuRows[Math.min(pluginMention.index, count - 1)]);
+        return true;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeComposerMenu();
+        return true;
+      }
+    }
+    const box = e.currentTarget;
+    if (e.key === "Backspace" && composerPlugins.length && box?.selectionStart === 0 && box?.selectionEnd === 0) {
+      e.preventDefault();
+      setComposerPlugins((previous) => previous.slice(0, -1));
+      return true;
+    }
+    return false;
+  }, [pluginMention.open, pluginMention.index, composerMenuRows, composerPlugins.length, pickComposerMenuRow, closeComposerMenu]);
 
   const renderPluginMentionMenu = () => pluginMention.open && (
-    <div className="plugin-mention-menu" role="listbox" aria-label="Installed plugins">
-      <div className="plugin-mention-title">Installed plugins</div>
-      {mentionedPluginOptions.length ? mentionedPluginOptions.map((plugin, index) => (
-        <button type="button" role="option" aria-selected={index === pluginMention.index}
-          className={`plugin-mention-option ${index === pluginMention.index ? "active" : ""}`}
-          key={plugin.id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectMentionedPlugin(plugin)}>
-          <span className="plugin-mention-icon" style={{ color: plugin.color }}><Puzzle size={16} /></span>
-          <span><strong>{plugin.name}</strong><small>{plugin.category}</small></span>
-        </button>
-      )) : <div className="plugin-mention-empty">No installed plugin matches “{pluginMention.query}”</div>}
+    <ComposerMenu
+      kind={pluginMention.kind}
+      query={pluginMention.query}
+      rows={composerMenuRows}
+      activeIndex={Math.min(pluginMention.index, Math.max(0, composerMenuRows.length - 1))}
+      onPick={pickComposerMenuRow}
+      onHover={(index) => setPluginMention((previous) => ({ ...previous, index }))}
+      onBrowse={() => { closeComposerMenu(); setActiveNav("plugins"); setShowPlugins(true); }}
+    />
+  );
+
+  // The plugins picked for the next message, shown as chips in the box.
+  const renderComposerPluginChips = () => composerPlugins.length > 0 && (
+    <div className="vc-plugin-chips" aria-label="Plugins for this message">
+      {composerPlugins.map((id) => {
+        const plugin = getPlugin(id);
+        if (!plugin) return null;
+        return (
+          <span key={id} className="vc-plugin-chip" style={{ "--plugin-color": plugin.color }}>
+            <PluginIcon plugin={plugin} size={12} className="vc-plugin-chip-icon" />
+            {plugin.name}
+            <button type="button" aria-label={`Remove ${plugin.name}`} onClick={() => setComposerPlugins((previous) => previous.filter((x) => x !== id))}>
+              <X size={12} />
+            </button>
+          </span>
+        );
+      })}
     </div>
   );
+
+  // Plugin state is saved on the device (savePluginState) and, signed in,
+  // to the account's preferences so other devices get it too.
+  // Not the state this device started with: on a new device that is empty,
+  // and saving it would wipe the account's copy before it loads.
+  const initialPluginStateRef = useRef(pluginState);
+  useEffect(() => {
+    if (!userKey || pluginState === initialPluginStateRef.current) return;
+    persistPref(userKey, "plugin_state", JSON.stringify(pluginState));
+  }, [pluginState, userKey]);
 
   const updatePluginState = useCallback((pluginId, updater) => {
     setPluginState((previous) => {
@@ -8886,14 +9369,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           value={input}
           onChange={(e) => { setInput(e.target.value); updatePluginMention(e.target.value, e.target.selectionStart); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'; }}
           onKeyDown={(e) => {
-            if (pluginMention.open && mentionedPluginOptions.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-              e.preventDefault(); const direction = e.key === 'ArrowDown' ? 1 : -1;
-              setPluginMention((previous) => ({ ...previous, index: (previous.index + direction + mentionedPluginOptions.length) % mentionedPluginOptions.length })); return;
-            }
-            if (pluginMention.open && mentionedPluginOptions.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
-              e.preventDefault(); selectMentionedPlugin(mentionedPluginOptions[pluginMention.index] || mentionedPluginOptions[0]); return;
-            }
-            if (e.key === 'Escape' && pluginMention.open) { e.preventDefault(); setPluginMention((previous) => ({ ...previous, open: false })); return; }
+            if (handleComposerMenuKey(e)) return;
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e); }
           }}
           className="w-full bg-transparent border-none outline-none resize-none text-[16px] md:text-lg text-gray-800 placeholder-gray-400 py-1"
@@ -9113,6 +9589,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
             onInstall={installPlugin}
             onToggle={togglePlugin}
             onUninstall={uninstallPlugin}
+            apiBase={API}
             onClose={() => { setShowPlugins(false); if (activeNav === "plugins") setActiveNav("chats"); }}
           />
         </Suspense>
@@ -9231,7 +9708,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
           </button>
           <button onClick={() => { setActiveNav('plugins'); setShowPlugins(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'plugins' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Puzzle size={17} /> Plugins</span>
-            {enabledPlugins.length > 0 && <span className="plugin-toolbar-count">{enabledPlugins.length}</span>}
+            {installedCount(pluginState) > 0 && <span className="plugin-toolbar-count" aria-label={`${installedCount(pluginState)} installed`}>{installedCount(pluginState)}</span>}
           </button>
         </div>
 
@@ -9606,6 +10083,15 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                    })()}
                                  </div>
                                )}
+                               {Array.isArray(m.plugins) && m.plugins.length > 0 && (
+                                 <div className="vai-msg-plugins" aria-label="Plugins used">
+                                   {m.plugins.map(getPlugin).filter(Boolean).map((plugin) => (
+                                     <span key={plugin.id} className="vc-plugin-chip" style={{ "--plugin-color": plugin.color }}>
+                                       <PluginIcon plugin={plugin} size={12} className="vc-plugin-chip-icon" />{plugin.name}
+                                     </span>
+                                   ))}
+                                 </div>
+                               )}
                                <div className="chat-user-bubble">{m.content}</div>
                                <div className="user-msg-acts">
                                  <MessageTime ts={m.sentAt} fallback={m.timestamp} />
@@ -9635,26 +10121,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                              <MedicalInfoCard data={m.medicalData} />
                            )}
                            {m.nearby && <NearbyMapCard data={m.nearby} />}
-                           {(m.answeredBy || m.decider) && (
+                           {/* The model that answered, quietly. The auto-router's
+                               mode/effort/provider choice is internal and not shown. */}
+                           {(m.answeredBy || m.usedPlugins?.length > 0) && (
                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "6px" }}>
                                {m.answeredBy && (
                                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--surface-2, rgba(0,0,0,0.06))", color: "var(--ink-secondary, #64748b)" }}>
                                    {m.answeredBy}
                                  </span>
                                )}
-                               {m.decider?.mode && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
-                                   Mode: {m.decider.mode.replace(/_/g, " ")}
-                                 </span>
-                               )}
-                               {m.decider?.effort && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
-                                   Effort: {m.decider.effort}
-                                 </span>
-                               )}
-                               {m.decider?.provider && (
-                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, background: "var(--accent-subtle, rgba(99,102,241,0.12))", color: "var(--accent, #6366f1)" }}>
-                                   Provider: {m.decider.provider}
+                               {m.usedPlugins?.length > 0 && (
+                                 <span className="vai-using-plugins" title="Plugins used for this reply">
+                                   <Puzzle size={11} aria-hidden="true" />Using {m.usedPlugins.join(", ")}
                                  </span>
                                )}
                              </div>
@@ -9823,8 +10301,18 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                <span>{m.realtimeNotice}</span>
                              </div>
                            )}
-                           {m.content && !isLoading && messages[i - 1]?.role === "user" && requestedFileFormats(messages[i - 1].content).length > 0 && (
-                             <DocumentDownloads variant="card" content={m.content} requested={requestedFileFormats(messages[i - 1].content)} />
+                           {m.content && Array.isArray(m.pluginLive) && m.pluginLive.some((p) => p.connected && p.source) && (
+                             <div className="vai-live-source" aria-label="Where the live data came from">
+                               {m.pluginLive.filter((p) => p.connected && p.source).map((p) => (
+                                 <span key={p.kind}>
+                                   <Radio size={11} aria-hidden="true" />
+                                   {p.kind === "page" ? <>Read: {p.source.replace(/^https?:\/\//, "").slice(0, 60)}</> : <>Live data · {p.source}{p.fetchedAt ? ` · fetched ${p.fetchedAt}` : ""}</>}
+                                 </span>
+                               ))}
+                             </div>
+                           )}
+                           {m.content && !isLoading && messages[i - 1]?.role === "user" && filesAskedBy(messages[i - 1]).length > 0 && (
+                             <DocumentDownloads variant="card" content={m.content} requested={filesAskedBy(messages[i - 1])} />
                            )}
                            {m.content && readingIdx === i && (
                              <ReadAloudBar

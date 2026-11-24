@@ -35,7 +35,7 @@ async function* generateStream(messages, options = {}) {
         max_tokens: Math.min(options.maxTokens ?? 1024, 8192),
         web_access: false
       }),
-      signal: AbortSignal.timeout(25000)
+      signal: AbortSignal.timeout(180000)
     });
 
     if (!response.ok) {

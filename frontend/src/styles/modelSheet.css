@@ -1,0 +1,68 @@
+/* The phone model / effort sheet, as in Claude's app: one plain grouped
+   surface. Every row looks the same; the chosen one is marked only by its
+   checkmark, and each effort level says in a line what it does.
+
+   Loaded last (main.jsx). The phone palettes (mobilePalette.css and the
+   themes after it) paint every .ws-effort-option / .ws-model-option navy
+   with a border, and the chosen one grey with a purple label, which broke
+   the sheet into mismatched blocks. Scoped to the sheet, so the desktop
+   menu is untouched. */
+.workspace-popup.model-menu.is-sheet .ws-effort-option,
+.workspace-popup.model-menu.is-sheet .ws-effort-option.active,
+.workspace-popup.model-menu.is-sheet .ws-effort-option:hover,
+.workspace-popup.model-menu.is-sheet .ws-model-option,
+.workspace-popup.model-menu.is-sheet .ws-model-option.active,
+.workspace-popup.model-menu.is-sheet .ws-model-option:hover {
+  background: var(--mm-row) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+  color: var(--mm-text) !important;
+}
+.workspace-popup.model-menu.is-sheet .ws-effort-option strong,
+.workspace-popup.model-menu.is-sheet .ws-effort-option.active strong,
+.workspace-popup.model-menu.is-sheet .ws-model-option.active .ws-model-copy strong {
+  color: var(--mm-text) !important;
+}
+
+/* What each level does, under its name. */
+.workspace-popup.model-menu.is-sheet .mm-sub-effort .mm-copy small {
+  display: block !important;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  color: var(--mm-muted) !important;
+}
+.workspace-popup.model-menu.is-sheet .mm-sub-effort .ws-effort-option { min-height: 64px; padding: 12px 14px !important; }
+
+/* Rows in a group are split by a hairline, not by gaps of page colour. */
+.workspace-popup.model-menu.is-sheet .mm-sub.open,
+.workspace-popup.model-menu.is-sheet .mm-list,
+.workspace-popup.model-menu.is-sheet .mm-sub-scroll { gap: 0 !important; }
+.workspace-popup.model-menu.is-sheet .mm-sub.open > .ws-effort-option + .ws-effort-option,
+.workspace-popup.model-menu.is-sheet .mm-list > * + *,
+.workspace-popup.model-menu.is-sheet .mm-sub-scroll > * + * {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--mm-text) 8%, transparent) !important;
+}
+
+/* The checkmark: quiet, in the text colour. */
+.workspace-popup.model-menu.is-sheet .mm-check,
+.workspace-popup.model-menu.is-sheet .ws-choice-check { color: var(--mm-text) !important; }
+
+/* Badges: "Recommended" and Max's note, both quiet; no orange alarm. */
+.workspace-popup.model-menu.is-sheet .mm-badge,
+.workspace-popup.model-menu.is-sheet .mm-badge.warn {
+  background: color-mix(in srgb, var(--mm-text) 9%, transparent) !important;
+  color: var(--mm-muted) !important;
+  font-weight: 500;
+}
+.workspace-popup.model-menu.is-sheet .mm-badge.warn svg { display: none; }
+
+/* The effort checkmark sits where the model list's does: full size, centred
+   on the row (App.css pins it small in the corner for the desktop grid). */
+.workspace-popup.model-menu.is-sheet .ws-effort-option > svg.mm-check {
+  position: static !important;
+  width: 22px !important;
+  height: 22px !important;
+  flex: 0 0 auto;
+  margin-right: 4px;
+}

@@ -226,8 +226,10 @@ body:has(.vadm), body:has(.vadm-door) { margin: 0; }
 .vadm-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 
 /* Chat viewer */
-.vadm-chats { display: grid; gap: 8px; align-content: start; overflow-y: auto; min-height: 0; padding-right: 2px; }
-.vadm-chat { border-radius: 12px; border: 1px solid var(--a-border); background: var(--a-surface-2); overflow: hidden; }
+/* A column, not a grid: in a grid an open chat was squeezed to the window and
+   the rest of its messages were cut off instead of scrolling. */
+.vadm-chats { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; padding-right: 2px; overscroll-behavior: contain; }
+.vadm-chat { flex: none; border-radius: 12px; border: 1px solid var(--a-border); background: var(--a-surface-2); overflow: hidden; }
 .vadm-chat-head { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; width: 100%; padding: 11px 13px; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .vadm-chat-head strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vadm-chat-head .vadm-muted { font-size: 12.5px; white-space: nowrap; }

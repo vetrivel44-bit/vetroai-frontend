@@ -110,6 +110,42 @@ test("stand-ins stop when the council's time is up", async () => {
   assert.deepEqual(result.members.map((m) => m.name), ["groq"], "no time left for a stand-in");
 });
 
+test("a member out of time is aborted, not left running", async () => {
+  let aborted = false;
+  await council.runCouncil({
+    members: ["groq"],
+    size: 1,
+    timeoutMs: 30,
+    totalMs: 30,
+    labelFor: (seat) => seat.provider,
+    messages: [],
+    ask: async (seat, messages, signal) => new Promise(() => { signal.addEventListener("abort", () => { aborted = true; }); }),
+  });
+  assert.ok(aborted, "the member's request was cancelled");
+});
+
+test("a provider whose key or credit is refused isn't tried again as a stand-in", async () => {
+  const asked = [];
+  const result = await council.runCouncil({
+    seats: [
+      { provider: "airouter", variant: "" },
+      { provider: "airouter", variant: "Ling 3.0 Flash" },
+      { provider: "airouter", variant: "VetroAI" },
+      { provider: "sarvam", variant: "" },
+    ],
+    size: 1,
+    labelFor: (seat) => seat.variant || seat.provider,
+    messages: [],
+    ask: async (seat) => {
+      asked.push(seat.variant || seat.provider);
+      if (seat.provider === "airouter") throw Object.assign(new Error("AI Router service error: 402 insufficient credit"), { statusCode: 402 });
+      return "Sarvam's answer.";
+    },
+  });
+  assert.deepEqual(asked, ["airouter", "sarvam"]);
+  assert.equal(result.members.at(-1).status, "answered");
+});
+
 test("the writer never sits on its own council; AI Router's other models can", () => {
   const modelOf = (s) => (s.provider === "airouter" ? (s.variant ? `ar/${s.variant}` : "ar/default") : "");
   const seats = council.pickSeats({ available: ["airouter", "groq"], chair: "airouter", chairModel: "ar/default", modelOf });

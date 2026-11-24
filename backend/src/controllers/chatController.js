@@ -4,7 +4,7 @@ const { IMAGE_ANSWER_STYLE } = require("../services/imageAnswerPrompt");
 const logger = require("../utils/logger");
 const { successResponse } = require("../utils/response");
 const { config } = require("../config/env");
-const { normalizePluginIds } = require("../config/plugins");
+const { normalizePluginIds, normalizePluginContext } = require("../config/plugins");
 
 // ── Groq client ───────────────────────────────────────────────────────────────
 if (!config.groqApiKey) {
@@ -237,6 +237,9 @@ async function chat(req, res) {
   // after the start was cut, so a Space's files never reached the model.
   const systemPrompt = String(req.body?.systemPrompt || "").trim().slice(0, SYSTEM_PROMPT_LIMIT);
   const activePlugins = normalizePluginIds(req.body?.plugins);
+  // Their skills' instructions, from the app's plugin catalog (checked and
+  // bounded: config/plugins.js).
+  const pluginContext = normalizePluginContext(req.body?.pluginContext, activePlugins);
 
   // The user's own clock (IANA timezone from the browser), so "today" is
   // their today — see clockService.
@@ -386,6 +389,7 @@ async function chat(req, res) {
       hasAttachments: files.length > 0,
       fileNames: files.map((f) => f.originalname || f.filename || "").filter(Boolean),
       activePlugins,
+      pluginContext,
       effort,
       signal: cancel.signal,
       // Which Sarvam model ("Sarvam 105B"), in a field of its

@@ -1,0 +1,79 @@
+/* How a reply's tables read, as in Claude's app: no grid and no striping,
+   just a firm rule under the header and faint rules between rows, so a
+   table reads as part of the text rather than a spreadsheet dropped in.
+   Loaded last (main.jsx), over App.css's older full-grid rules. */
+.claude-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 0 !important;
+  background: transparent !important;
+  margin: 4px 0 18px;
+  font-size: 0.95em;
+  font-variant-numeric: tabular-nums;
+}
+.claude-prose th,
+.claude-prose td {
+  border: 0 !important;
+  border-bottom: 1px solid var(--border) !important;
+  background: transparent !important;
+  padding: 9px 14px 9px 0 !important;
+  text-align: left;
+  vertical-align: top;
+}
+.claude-prose th {
+  font-weight: 600;
+  border-bottom-color: color-mix(in srgb, currentColor 35%, transparent) !important;
+}
+.claude-prose tr:last-child td { border-bottom: 0 !important; }
+.claude-prose tr:nth-child(even) td { background: transparent !important; }
+
+/* A substantial piece of code shows as a card that opens it in the
+   artifact panel (ArtifactCard in App.jsx), as Claude's artifacts do. */
+.vai-artifact-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 16px;
+  padding: 10px 10px 10px 12px;
+  max-width: 420px;
+  border-radius: 12px;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e8e6e1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.vai-artifact-card:hover { border-color: rgba(255, 255, 255, 0.22); background: #232323; }
+.vai-artifact-card:focus-visible { outline: 2px solid var(--accent, #8ab4f8); outline-offset: 2px; }
+.vai-artifact-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.vai-artifact-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vai-artifact-title { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vai-artifact-meta { font-size: 0.8em; opacity: 0.65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vai-artifact-card.is-writing .vai-artifact-meta { animation: vai-artifact-pulse 1.4s ease-in-out infinite; }
+@keyframes vai-artifact-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .vai-artifact-card.is-writing .vai-artifact-meta { animation: none; } }
+.vai-artifact-actions { flex: none; display: flex; gap: 2px; }
+.vai-artifact-actions .code-copy-btn { color: #b9b7b0; }
+
+[data-theme="light"] .vai-artifact-card { background: #ffffff; border-color: var(--border-med, rgba(31, 30, 29, 0.15)); color: #1f1e1d; }
+[data-theme="light"] .vai-artifact-card:hover { background: #fafaf8; border-color: rgba(31, 30, 29, 0.28); }
+[data-theme="light"] .vai-artifact-icon { background: #f4f3ef; border-color: rgba(31, 30, 29, 0.08); }
+[data-theme="light"] .vai-artifact-actions .code-copy-btn { color: #59636e; }
+.vai-artifact-actions .code-copy-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 7px; background: transparent; cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.vai-artifact-actions .code-copy-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+[data-theme="light"] .vai-artifact-actions .code-copy-btn:hover { background: rgba(0, 0, 0, 0.06); color: #1f2328; }
+.vai-artifact-actions .code-copy-btn:focus-visible { outline: 2px solid var(--accent, #8ab4f8); outline-offset: 1px; }

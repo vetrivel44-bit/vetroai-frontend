@@ -179,4 +179,25 @@ async function newsPreviewImage(req, res, next) {
   }
 }
 
-module.exports = { latestNews, footballFixtures, newsPreviewImage };
+/**
+ * Headlines for a topic from the configured news services, newest first,
+ * without the picture lookups the feed panel needs: for the News Brief
+ * plugin (services/pluginLiveService.js). null when no news service is set up.
+ */
+async function headlinesFor(query = "", { language = "en" } = {}) {
+  const chain = newsProviderChain();
+  if (!chain.length) return null;
+  let lastError;
+  for (const entry of chain) {
+    try {
+      const payload = await fetchNewsPage(entry.provider, { apiKey: entry.apiKey, query: String(query).slice(0, 100), category: "top", language, limit: 0, page: "" });
+      return { provider: providerLabel(entry.provider), articles: dedupeArticles(sortNewestFirst(normalizeNewsPayload(entry.provider, payload, ""))) };
+    } catch (error) {
+      lastError = error;
+      logger.warn("news.headlinesFailed", { provider: entry.provider, status: error.statusCode, message: error.message });
+    }
+  }
+  throw lastError;
+}
+
+module.exports = { latestNews, footballFixtures, newsPreviewImage, headlinesFor, newsProviderChain };
