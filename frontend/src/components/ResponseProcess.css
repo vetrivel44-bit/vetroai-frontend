@@ -1,13 +1,10 @@
-/* What VetroAI did before answering (ResponseProcess.jsx), the way Claude
-   shows it: one quiet line of muted text with a chevron, shimmering while it
-   works, opening onto the steps set off by a thin rule. Theme colours, so it
-   follows light and dark; never wider than the reply. */
-.vrp { margin: 0 0 12px; max-width: 100%; }
+/* A readable activity timeline, sized for the narrow chat column as well as desktop. */
+.vrp { margin: 0 0 16px; max-width: 100%; }
 
 .vrp-head {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 9px;
   max-width: 100%;
   padding: 4px 0;
   margin: 0;
@@ -15,7 +12,7 @@
   background: none;
   color: var(--ink-3, #78746e);
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.4;
   text-align: left;
@@ -26,6 +23,7 @@
 .vrp-head:hover, .vrp-head:focus-visible { color: var(--ink, #1f1e1d); }
 .vrp-head:focus-visible { outline: 2px solid var(--ink, #1f1e1d); outline-offset: 3px; border-radius: 6px; }
 .vrp-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrp-details-label { flex: none; color: #e28b55; font-size: 14px; font-weight: 500; }
 .vrp-chevron { flex: none; opacity: .8; transition: transform .2s ease; }
 .vrp.is-open .vrp-chevron { transform: rotate(90deg); }
 
@@ -55,41 +53,57 @@
 
 .vrp-steps {
   list-style: none;
-  margin: 6px 0 4px 6px;
+  margin: 10px 0 8px 17px;
   padding: 0;
-  border-left: 1px solid var(--border-med, rgba(127, 127, 127, .28));
+  border-left: 1px solid var(--border-med, rgba(127, 127, 127, .34));
 }
-.vrp-step { position: relative; display: flex; gap: 10px; padding: 4px 0 10px 14px; }
+.vrp-step { position: relative; display: flex; gap: 12px; padding: 2px 0 22px 28px; }
 .vrp-step:last-child { padding-bottom: 4px; }
 .vrp-icon {
-  position: absolute; left: -9px; top: 4px;
-  width: 18px; height: 18px; display: grid; place-items: center;
+  position: absolute; left: -18px; top: 0;
+  width: 34px; height: 34px; display: grid; place-items: center;
   border-radius: 50%;
-  background: var(--bg, #fff);
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .34));
+  background: color-mix(in srgb, var(--bg, #fff) 90%, var(--ink, #000) 10%);
   color: var(--ink-3, #78746e);
+  box-shadow: 0 0 0 4px var(--bg, #fff);
 }
 .vrp-step.is-now .vrp-icon { color: var(--ink, #1f1e1d); }
+.vrp-step.is-done .vrp-step-title, .vrp-step.is-done .vrp-icon { color: var(--ink-3, #78746e); font-weight: 600; }
 /* The step it's on now: a softly pulsing dot. */
 .vrp-pulse {
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 12px; height: 12px; border-radius: 50%;
   background: currentColor;
   animation: vrpPulse 1.2s ease-in-out infinite;
 }
 @keyframes vrpPulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
 
-.vrp-step-body { flex: 1; min-width: 0; padding-left: 8px; }
+.vrp-step-body { flex: 1; min-width: 0; padding: 0 0 0 3px; }
 
-.vrp-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2, var(--ink)); }
-.vrp-query { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vrp-count { flex: none; color: var(--ink-3, #78746e); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.vrp-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 19px; line-height: 1.4; color: var(--ink-2, var(--ink)); }
+.vrp-query { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.vrp-count { flex: none; color: var(--ink-3, #78746e); font-size: 14px; font-variant-numeric: tabular-nums; }
+.vrp-step-details { margin-top: 3px; }
+.vrp-step-details > summary {
+  width: fit-content;
+  color: #e28b55;
+  font-size: 16px;
+  line-height: 1.45;
+  cursor: pointer;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.vrp-step-details > summary::-webkit-details-marker { display: none; }
+.vrp-step-details > summary:hover, .vrp-step-details > summary:focus-visible { color: #f0a06c; outline: none; text-decoration: underline; }
+.vrp-step-details[open] > summary { margin-bottom: 4px; }
 
 .vrp-results { list-style: none; margin: 4px 0 0; padding: 0; }
 .vrp-result {
   display: flex; align-items: center; gap: 8px;
-  min-height: 30px; padding: 4px 6px; margin-left: -6px;
+  min-height: 34px; padding: 5px 6px; margin-left: -6px;
   border-radius: 7px;
   color: var(--ink, inherit) !important;
-  font-size: 13px;
+  font-size: 15px;
   text-decoration: none !important;
 }
 .vrp-result:hover, .vrp-result:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .1)); outline: none; }
@@ -146,15 +160,22 @@
   max-height: 220px;
   overflow-y: auto;
   scrollbar-width: thin;
-  color: var(--ink-3, #78746e);
-  font-size: 13.5px;
-  line-height: 1.65;
+  color: var(--ink-3, #96918c);
+  font-size: 15px;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .vrp-placeholder { font-style: italic; }
 
 @media (max-width: 480px) {
+  .vrp { margin-bottom: 18px; }
+  .vrp-head { font-size: 16px; gap: 8px; }
+  .vrp-details-label { font-size: 14px; }
+  .vrp-step { padding-bottom: 21px; }
+  .vrp-step-title { font-size: 18px; }
+  .vrp-step-details > summary { font-size: 16px; }
+  .vrp-count { font-size: 13px; }
   .vrp-result { flex-wrap: wrap; row-gap: 0; }
   .vrp-result-title { flex-basis: calc(100% - 22px); }
   .vrp-result-site { max-width: none; margin-left: 22px; }
