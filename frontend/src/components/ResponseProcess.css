@@ -1,18 +1,23 @@
-/* A readable activity timeline, sized for the narrow chat column as well as desktop. */
-.vrp { margin: 0 0 16px; max-width: 100%; }
+/* Quiet, readable progress that sits naturally above the assistant's reply. */
+.vrp {
+  --vrp-accent: #dc8b58;
+  margin: 0 0 20px;
+  max-width: 100%;
+  color: var(--ink-2, var(--ink, #242424));
+}
 
 .vrp-head {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   max-width: 100%;
-  padding: 4px 0;
+  padding: 2px 0;
   margin: 0;
   border: 0;
   background: none;
-  color: var(--ink-3, #78746e);
+  color: var(--ink-3, #77736f);
   font: inherit;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   line-height: 1.4;
   text-align: left;
@@ -23,78 +28,65 @@
 .vrp-head:hover, .vrp-head:focus-visible { color: var(--ink, #1f1e1d); }
 .vrp-head:focus-visible { outline: 2px solid var(--ink, #1f1e1d); outline-offset: 3px; border-radius: 6px; }
 .vrp-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vrp-details-label { flex: none; color: #e28b55; font-size: 14px; font-weight: 500; }
-.vrp-chevron { flex: none; opacity: .8; transition: transform .2s ease; }
+.vrp-details-label { flex: none; color: var(--vrp-accent); font-size: 13px; font-weight: 500; }
+.vrp-chevron { flex: none; opacity: .65; transition: transform .2s ease; }
 .vrp.is-open .vrp-chevron { transform: rotate(90deg); }
 
-/* The line shimmers while it works. */
-.vrp.is-active .vrp-label {
-  background: linear-gradient(90deg,
-    var(--ink-3, #9a968f) 0%, var(--ink-3, #9a968f) 35%,
-    var(--ink, #1f1e1d) 50%,
-    var(--ink-3, #9a968f) 65%, var(--ink-3, #9a968f) 100%);
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: vrpShimmer 1.8s linear infinite;
-}
-@keyframes vrpShimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+.vrp.is-active .vrp-label { color: var(--ink-2, var(--ink, #242424)); }
 
 /* Opens and closes smoothly. */
 .vrp-body-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows .22s ease;
+  transition: grid-template-rows .2s ease;
 }
 .vrp.is-open .vrp-body-wrap { grid-template-rows: 1fr; }
 .vrp-body { min-height: 0; overflow: hidden; }
 
 .vrp-steps {
   list-style: none;
-  margin: 10px 0 8px 17px;
+  margin: 12px 0 8px 17px;
   padding: 0;
   border-left: 1px solid var(--border-med, rgba(127, 127, 127, .34));
 }
-.vrp-step { position: relative; display: flex; gap: 12px; padding: 2px 0 22px 28px; }
+.vrp-step { position: relative; display: flex; gap: 12px; padding: 1px 0 20px 27px; }
 .vrp-step:last-child { padding-bottom: 4px; }
 .vrp-icon {
   position: absolute; left: -18px; top: 0;
-  width: 34px; height: 34px; display: grid; place-items: center;
+  width: 33px; height: 33px; display: grid; place-items: center;
   border-radius: 50%;
-  border: 1px solid var(--border-med, rgba(127, 127, 127, .34));
-  background: color-mix(in srgb, var(--bg, #fff) 90%, var(--ink, #000) 10%);
-  color: var(--ink-3, #78746e);
+  border: 1px solid var(--border-med, rgba(127, 127, 127, .22));
+  background: var(--bg, #fff);
+  color: var(--ink-3, #77736f);
   box-shadow: 0 0 0 4px var(--bg, #fff);
 }
-.vrp-step.is-now .vrp-icon { color: var(--ink, #1f1e1d); }
-.vrp-step.is-done .vrp-step-title, .vrp-step.is-done .vrp-icon { color: var(--ink-3, #78746e); font-weight: 600; }
+.vrp-step.is-now .vrp-icon { color: var(--vrp-accent); }
+.vrp-step.is-done .vrp-step-title, .vrp-step.is-done .vrp-icon { color: var(--ink-3, #77736f); font-weight: 500; }
 /* The step it's on now: a softly pulsing dot. */
 .vrp-pulse {
-  width: 12px; height: 12px; border-radius: 50%;
+  width: 9px; height: 9px; border-radius: 50%;
   background: currentColor;
-  animation: vrpPulse 1.2s ease-in-out infinite;
+  animation: vrpPulse 1.5s ease-in-out infinite;
 }
 @keyframes vrpPulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
 
 .vrp-step-body { flex: 1; min-width: 0; padding: 0 0 0 3px; }
 
-.vrp-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 19px; line-height: 1.4; color: var(--ink-2, var(--ink)); }
+.vrp-step-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 18px; font-weight: 450; line-height: 1.35; color: var(--ink-2, var(--ink)); }
 .vrp-query { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.vrp-count { flex: none; color: var(--ink-3, #78746e); font-size: 14px; font-variant-numeric: tabular-nums; }
+.vrp-count { flex: none; color: var(--ink-3, #77736f); font-size: 12px; font-variant-numeric: tabular-nums; }
 .vrp-step-details { margin-top: 3px; }
 .vrp-step-details > summary {
   width: fit-content;
-  color: #e28b55;
-  font-size: 16px;
+  color: var(--vrp-accent);
+  font-size: 14px;
   line-height: 1.45;
   cursor: pointer;
   list-style: none;
   -webkit-tap-highlight-color: transparent;
 }
 .vrp-step-details > summary::-webkit-details-marker { display: none; }
-.vrp-step-details > summary:hover, .vrp-step-details > summary:focus-visible { color: #f0a06c; outline: none; text-decoration: underline; }
+.vrp-step-details > summary:hover, .vrp-step-details > summary:focus-visible { color: color-mix(in srgb, var(--vrp-accent) 78%, var(--ink)); outline: none; text-decoration: underline; }
 .vrp-step-details[open] > summary { margin-bottom: 4px; }
 
 .vrp-results { list-style: none; margin: 4px 0 0; padding: 0; }
@@ -170,12 +162,12 @@
 
 @media (max-width: 480px) {
   .vrp { margin-bottom: 18px; }
-  .vrp-head { font-size: 16px; gap: 8px; }
-  .vrp-details-label { font-size: 14px; }
-  .vrp-step { padding-bottom: 21px; }
-  .vrp-step-title { font-size: 18px; }
-  .vrp-step-details > summary { font-size: 16px; }
-  .vrp-count { font-size: 13px; }
+  .vrp-head { font-size: 14px; gap: 7px; }
+  .vrp-details-label { font-size: 12px; }
+  .vrp-step { padding-bottom: 18px; }
+  .vrp-step-title { font-size: 16px; }
+  .vrp-step-details > summary { font-size: 13px; }
+  .vrp-count { font-size: 11px; }
   .vrp-result { flex-wrap: wrap; row-gap: 0; }
   .vrp-result-title { flex-basis: calc(100% - 22px); }
   .vrp-result-site { max-width: none; margin-left: 22px; }
@@ -183,6 +175,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .vrp-pulse { animation: none; }
-  .vrp.is-active .vrp-label { animation: none; color: var(--ink-2, inherit); -webkit-text-fill-color: currentColor; background: none; }
   .vrp-body-wrap { transition: none; }
 }
