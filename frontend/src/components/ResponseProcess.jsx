@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Brain, Check, ChevronRight, Globe, Users, X } from "lucide-react";
-import { summarizeReasoning } from "../utils/activityLabel";
+import { Check, ChevronRight, CircleCheck, Settings, X } from "lucide-react";
+import { isGenericStatus, summarizeReasoning } from "../utils/activityLabel";
 import { sourceDomain } from "../lib/sources";
 import SourceFavicon from "./SourceFavicon";
 import "./ResponseProcess.css";
@@ -84,12 +84,14 @@ const ResponseProcess = React.memo(function ResponseProcess({
   sources = null,
   searching = false,
   live = false,
+  completed = false,
   answering = false,
   status = "",
   council = null,
   writer = "",
+  activity = "",
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => live);
   // How long it worked, timed here when there's no reasoning time to show.
   const [startedAt] = useState(() => (live ? Date.now() : null));
   const [elapsed, setElapsed] = useState(null);
@@ -99,7 +101,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
   const results = (sources || []).map((s, i) => ({ ...s, n: i + 1, domain: sourceDomain(s) }));
   const hasReasoning = Boolean(String(reasoning || "").trim());
   const searched = results.length > 0 || Boolean(searchQuery);
-  const working = live && !answering;
+  const working = live;
   // Once the reply is being written, or the request has ended (finished,
   // stopped or failed) before the council's last update arrived, the council
   // is over: anyone still "thinking…" never answered.
@@ -116,13 +118,21 @@ const ResponseProcess = React.memo(function ResponseProcess({
   // The steps it has been through, from the app's status line: each new one
   // is added as it comes (state adjusted while rendering, React's pattern
   // for state that follows a prop).
-  const [history, setHistory] = useState([]);
-  const current = working ? stepLabel(status) : "";
+  const [history, setHistory] = useState(["Understanding your request"]);
+  const current = working
+    ? answering
+      ? "Writing the answer"
+      : isGenericStatus(status)
+        ? ""
+        : stepLabel(status)
+    : "";
   if (current && !OWN_STEP.test(current) && !history.includes(current)) setHistory([...history, current]);
 
   // What it's doing right now, for the line at the top.
   const now = isThinking
     ? cleanSummary(summarizeReasoning(reasoning)) || "Thinking"
+    : working && answering
+      ? "Writing the answer"
     : searching
       ? "Searching the web"
       : working && councilSitting
@@ -130,7 +140,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
       : working && results.length
         ? `Reading ${results.length} result${results.length === 1 ? "" : "s"}`
         : working
-          ? current || "Thinking"
+          ? current || (history.length === 1 ? "Understanding your request" : activity || "Thinking")
           : "";
   useEffect(() => {
     if (working || !startedAt || elapsed !== null) return undefined;
@@ -153,7 +163,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
     if (el) el.scrollTop = el.scrollHeight;
   }, [reasoning, open, isThinking]);
 
-  if (!hasReasoning && !isThinking && !searched && !searching && !working && !hasCouncil) return null;
+  if (!hasReasoning && !isThinking && !searched && !searching && !working && !hasCouncil && !completed) return null;
   // Working, and nothing yet but the wait: the steps say so.
   const waitingOnly = working && !hasReasoning && !isThinking && !searched && !searching && !hasCouncil;
 
@@ -170,6 +180,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
         aria-controls={bodyId}
       >
         <span className="vrp-label" aria-live="polite">{label}</span>
+        <span className="vrp-details-label">{open ? "Hide details" : "Show details"}</span>
         <ChevronRight size={15} strokeWidth={2} className="vrp-chevron" aria-hidden="true" />
       </button>
 
@@ -177,51 +188,54 @@ const ResponseProcess = React.memo(function ResponseProcess({
         <div className="vrp-body">
           <ol className="vrp-steps">
             {history.map((step, n) => {
-              const onIt = working && n === history.length - 1 && step === current && !searching && !isThinking;
+              const onIt = working && n === history.length - 1 && (step === current || (!current && step === "Understanding your request")) && !searching && !isThinking;
               return (
                 <li key={step} className={`vrp-step${onIt ? " is-now" : ""}`}>
-                  <span className="vrp-icon" aria-hidden="true">{onIt ? <span className="vrp-pulse" /> : <Check size={13} strokeWidth={2.4} />}</span>
+                  <span className="vrp-icon" aria-hidden="true">{onIt ? <span className="vrp-pulse" /> : <Settings size={19} strokeWidth={1.8} />}</span>
                   <div className="vrp-step-body"><div className="vrp-step-title"><span className="vrp-query">{step}</span></div></div>
                 </li>
               );
             })}
             {(searched || searching) && (
               <li className={`vrp-step${searching ? " is-now" : ""}`}>
-                <span className="vrp-icon" aria-hidden="true"><Globe size={14} /></span>
+                <span className="vrp-icon" aria-hidden="true"><Settings size={19} strokeWidth={1.8} /></span>
                 <div className="vrp-step-body">
                   <div className="vrp-step-title">
                     <span className="vrp-query">{searchQuery || "Searched the web"}</span>
                     {results.length > 0 && <span className="vrp-count">{results.length} result{results.length === 1 ? "" : "s"}</span>}
                   </div>
                   {results.length > 0 && (
-                    <ul className="vrp-results">
-                      {visible.map((s) => {
-                        const fresh = freshness(s.published);
-                        return (
-                          <li key={s.n}>
-                            <a className="vrp-result" href={s.url} target="_blank" rel="noopener noreferrer" title={s.title || s.url}>
-                              <SourceFavicon domain={s.domain} />
-                              <span className="vrp-result-title">{s.title && s.title !== "(untitled)" ? s.title : s.url}</span>
-                              <span className="vrp-result-site">{s.domain}{fresh ? ` · ${fresh}` : ""}</span>
-                            </a>
+                    <details className="vrp-step-details">
+                      <summary>Show details</summary>
+                      <ul className="vrp-results">
+                        {visible.map((s) => {
+                          const fresh = freshness(s.published);
+                          return (
+                            <li key={s.n}>
+                              <a className="vrp-result" href={s.url} target="_blank" rel="noopener noreferrer" title={s.title || s.url}>
+                                <SourceFavicon domain={s.domain} />
+                                <span className="vrp-result-title">{s.title && s.title !== "(untitled)" ? s.title : s.url}</span>
+                                <span className="vrp-result-site">{s.domain}{fresh ? ` · ${fresh}` : ""}</span>
+                              </a>
+                            </li>
+                          );
+                        })}
+                        {results.length > SHOWN_RESULTS && (
+                          <li>
+                            <button type="button" className="vrp-more" onClick={() => setAllResults((v) => !v)}>
+                              {allResults ? "Show fewer" : `${results.length - SHOWN_RESULTS} more`}
+                            </button>
                           </li>
-                        );
-                      })}
-                      {results.length > SHOWN_RESULTS && (
-                        <li>
-                          <button type="button" className="vrp-more" onClick={() => setAllResults((v) => !v)}>
-                            {allResults ? "Show fewer" : `${results.length - SHOWN_RESULTS} more`}
-                          </button>
-                        </li>
-                      )}
-                    </ul>
+                        )}
+                      </ul>
+                    </details>
                   )}
                 </div>
               </li>
             )}
             {hasCouncil && (
               <li className={`vrp-step${councilSitting ? " is-now" : ""}`}>
-                <span className="vrp-icon" aria-hidden="true"><Users size={14} /></span>
+                <span className="vrp-icon" aria-hidden="true"><Settings size={19} strokeWidth={1.8} /></span>
                 <div className="vrp-step-body">
                   <div className="vrp-step-title">
                     {/* A model that couldn't answer is replaced by the next in line (backend councilService.js). */}
@@ -263,12 +277,21 @@ const ResponseProcess = React.memo(function ResponseProcess({
             )}
             {(hasReasoning || isThinking || (waitingOnly && !history.length)) && (
               <li className={`vrp-step${isThinking || waitingOnly ? " is-now" : ""}`}>
-                <span className="vrp-icon" aria-hidden="true"><Brain size={14} /></span>
+                <span className="vrp-icon" aria-hidden="true"><Settings size={19} strokeWidth={1.8} /></span>
                 <div className="vrp-step-body">
-                  <div className="vrp-think" ref={thinkRef}>
-                    {hasReasoning ? readable(reasoning) : <span className="vrp-placeholder">Working through the request…</span>}
-                  </div>
+                  <details className="vrp-step-details" open={isThinking || waitingOnly}>
+                    <summary>Show details</summary>
+                    <div className="vrp-think" ref={thinkRef}>
+                      {hasReasoning ? readable(reasoning) : <span className="vrp-placeholder">Working through the request…</span>}
+                    </div>
+                  </details>
                 </div>
+              </li>
+            )}
+            {completed && !settling && (
+              <li className="vrp-step is-done">
+                <span className="vrp-icon" aria-hidden="true"><CircleCheck size={20} strokeWidth={1.8} /></span>
+                <div className="vrp-step-body"><div className="vrp-step-title"><span className="vrp-query">Done</span></div></div>
               </li>
             )}
           </ol>

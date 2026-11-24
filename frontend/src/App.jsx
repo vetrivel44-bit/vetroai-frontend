@@ -7185,7 +7185,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     const requestId = ++requestIdRef.current;
     const isActive  = () => requestIdRef.current === requestId && !ctrl.signal.aborted;
 
-    setIsLoading(true); setIsTyping(true); setStreamStatus("preparing"); scrollToBottom(); stopSpeak();
+    setIsLoading(true); setIsTyping(true); setStreamStatus("Understanding your request"); scrollToBottom(); stopSpeak();
     setRequestActivity(describeRequest({ query: hist[hist.length - 1]?.content, files: filesData, mode: selectedMode }));
     setFollowUps([]); setIsContinuing(false);
 
@@ -10137,11 +10137,13 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                                )}
                              </div>
                            )}
-                           {(m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || m.council?.members?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
+                           {((m.content && !m.research) || m.reasoning || m.isThinking || m.searchQuery || m.sources?.length > 0 || m.council?.members?.length > 0 || (isLoading && i === messages.length - 1 && !m.research)) && (
                              <ResponseProcess
                                council={m.council}
                                writer={m.answeredBy}
-                               status={isLoading && i === messages.length - 1 && !m.research ? getStatusLabel(streamStatus, selectedMode, requestActivity) : ""}
+                               completed={Boolean(m.content) && !(isLoading && i === messages.length - 1) && !m.research}
+                               status={isLoading && i === messages.length - 1 && !m.research ? streamStatus : ""}
+                               activity={getStatusLabel(streamStatus, selectedMode, requestActivity)}
                                reasoning={m.reasoning}
                                isThinking={Boolean(m.isThinking)}
                                durationMs={m.thinkingMs}
@@ -10353,7 +10355,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
                      // Before the reply has a message of its own: the same
                      // process line it will have (Claude's look).
                      <div className="w-full mb-6">
-                       <ResponseProcess live status={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
+                       <ResponseProcess live status={streamStatus} activity={getStatusLabel(streamStatus, selectedMode, requestActivity)} />
                      </div>
                    )}
 
