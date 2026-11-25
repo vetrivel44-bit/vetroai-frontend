@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Check, ChevronRight, CircleCheck, Settings, X } from "lucide-react";
+import { Check, ChevronRight, CircleCheck, LoaderCircle, Settings, X } from "lucide-react";
 import { isGenericStatus, summarizeReasoning } from "../utils/activityLabel";
 import { sourceDomain } from "../lib/sources";
 import SourceFavicon from "./SourceFavicon";
@@ -119,10 +119,11 @@ const ResponseProcess = React.memo(function ResponseProcess({
   // is added as it comes (state adjusted while rendering, React's pattern
   // for state that follows a prop).
   const [history, setHistory] = useState(["Understanding your request"]);
+  const startingStatus = /^understanding your request$/i.test(stepLabel(status));
   const current = working
     ? answering
       ? "Writing the answer"
-      : isGenericStatus(status)
+      : isGenericStatus(status) || startingStatus
         ? ""
         : stepLabel(status)
     : "";
@@ -140,7 +141,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
       : working && results.length
         ? `Reading ${results.length} result${results.length === 1 ? "" : "s"}`
         : working
-          ? current || (history.length === 1 ? "Understanding your request" : activity || "Thinking")
+          ? current || (history.length === 1 ? "Thinking" : activity || "Thinking")
           : "";
   useEffect(() => {
     if (working || !startedAt || elapsed !== null) return undefined;
@@ -179,7 +180,10 @@ const ResponseProcess = React.memo(function ResponseProcess({
         aria-expanded={open}
         aria-controls={bodyId}
       >
-        <span className="vrp-label" aria-live="polite">{label}</span>
+        <span className="vrp-label" aria-live="polite">
+          {active && <LoaderCircle size={14} strokeWidth={2} className="vrp-label-spinner" aria-hidden="true" />}
+          <span className="vrp-label-text">{label}</span>
+        </span>
         <span className="vrp-details-label">{open ? "Hide details" : "Show details"}</span>
         <ChevronRight size={15} strokeWidth={2} className="vrp-chevron" aria-hidden="true" />
       </button>
@@ -191,7 +195,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
               const onIt = working && n === history.length - 1 && (step === current || (!current && step === "Understanding your request")) && !searching && !isThinking;
               return (
                 <li key={step} className={`vrp-step${onIt ? " is-now" : ""}`}>
-                  <span className="vrp-icon" aria-hidden="true">{onIt ? <span className="vrp-pulse" /> : <Settings size={19} strokeWidth={1.8} />}</span>
+                  <span className="vrp-icon" aria-hidden="true"><Settings size={19} strokeWidth={1.8} /></span>
                   <div className="vrp-step-body"><div className="vrp-step-title"><span className="vrp-query">{step}</span></div></div>
                 </li>
               );
