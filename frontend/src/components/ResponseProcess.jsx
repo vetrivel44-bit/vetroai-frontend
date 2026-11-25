@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Check, ChevronRight, CircleCheck, LoaderCircle, Settings, X } from "lucide-react";
+import { Check, ChevronRight, CircleCheck, Settings, X } from "lucide-react";
 import { isGenericStatus, summarizeReasoning } from "../utils/activityLabel";
 import { sourceDomain } from "../lib/sources";
 import SourceFavicon from "./SourceFavicon";
@@ -91,7 +91,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
   writer = "",
   activity = "",
 }) {
-  const [open, setOpen] = useState(() => live);
+  const [open, setOpen] = useState(false);
   // How long it worked, timed here when there's no reasoning time to show.
   const [startedAt] = useState(() => (live ? Date.now() : null));
   const [elapsed, setElapsed] = useState(null);
@@ -180,10 +180,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
         aria-expanded={open}
         aria-controls={bodyId}
       >
-        <span className="vrp-label" aria-live="polite">
-          {active && <LoaderCircle size={14} strokeWidth={2} className="vrp-label-spinner" aria-hidden="true" />}
-          <span className="vrp-label-text">{label}</span>
-        </span>
+        <span className="vrp-label" aria-live="polite"><span className="vrp-label-text">{label}</span></span>
         <span className="vrp-details-label">{open ? "Hide details" : "Show details"}</span>
         <ChevronRight size={15} strokeWidth={2} className="vrp-chevron" aria-hidden="true" />
       </button>

@@ -29,8 +29,6 @@
 .vrp-head:focus-visible { outline: 2px solid var(--ink, #1f1e1d); outline-offset: 3px; border-radius: 6px; }
 .vrp-label { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
 .vrp-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vrp-label-spinner { flex: none; animation: vrpSpin 1.2s linear infinite; }
-@keyframes vrpSpin { to { transform: rotate(360deg); } }
 .vrp.is-active .vrp-label-text {
   background: linear-gradient(105deg,
     var(--ink-3, #77736f) 0%, var(--ink-3, #77736f) 35%,
@@ -195,7 +193,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vrp-label-spinner,
   .vrp-pulse { animation: none; }
   .vrp.is-active .vrp-label-text {
     animation: none;
