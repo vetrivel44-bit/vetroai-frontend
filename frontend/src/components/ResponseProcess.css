@@ -31,6 +31,20 @@
 .vrp-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vrp-label-spinner { flex: none; animation: vrpSpin 1.2s linear infinite; }
 @keyframes vrpSpin { to { transform: rotate(360deg); } }
+.vrp.is-active .vrp-label-text {
+  background: linear-gradient(105deg,
+    var(--ink-3, #77736f) 0%, var(--ink-3, #77736f) 35%,
+    var(--ink-2, var(--ink, #242424)) 46%, var(--ink, #242424) 51%,
+    var(--ink-2, var(--ink, #242424)) 56%, var(--ink-3, #77736f) 67%,
+    var(--ink-3, #77736f) 100%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: vrpShimmer 2.8s ease-in-out infinite;
+}
+@keyframes vrpShimmer { from { background-position: 100% 0; } to { background-position: -120% 0; } }
 .vrp-details-label { flex: none; color: var(--vrp-accent); font-size: 13px; font-weight: 500; }
 .vrp-chevron { flex: none; opacity: .65; transition: transform .2s ease; }
 .vrp.is-open .vrp-chevron { transform: rotate(90deg); }
@@ -183,5 +197,11 @@
 @media (prefers-reduced-motion: reduce) {
   .vrp-label-spinner,
   .vrp-pulse { animation: none; }
+  .vrp.is-active .vrp-label-text {
+    animation: none;
+    background: none;
+    color: var(--ink-2, var(--ink, #242424));
+    -webkit-text-fill-color: currentColor;
+  }
   .vrp-body-wrap { transition: none; }
 }
