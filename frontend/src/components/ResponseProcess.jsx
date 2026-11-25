@@ -283,7 +283,7 @@ const ResponseProcess = React.memo(function ResponseProcess({
               <li className={`vrp-step${isThinking || waitingOnly ? " is-now" : ""}`}>
                 <span className="vrp-icon" aria-hidden="true"><Settings size={19} strokeWidth={1.8} /></span>
                 <div className="vrp-step-body">
-                  <details className="vrp-step-details" open={isThinking || waitingOnly}>
+                  <details className="vrp-step-details">
                     <summary>Show details</summary>
                     <div className="vrp-think" ref={thinkRef}>
                       {hasReasoning ? readable(reasoning) : <span className="vrp-placeholder">Working through the request…</span>}
