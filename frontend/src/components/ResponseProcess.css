@@ -27,7 +27,10 @@
 }
 .vrp-head:hover, .vrp-head:focus-visible { color: var(--ink, #1f1e1d); }
 .vrp-head:focus-visible { outline: 2px solid var(--ink, #1f1e1d); outline-offset: 3px; border-radius: 6px; }
-.vrp-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrp-label { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.vrp-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrp-label-spinner { flex: none; animation: vrpSpin 1.2s linear infinite; }
+@keyframes vrpSpin { to { transform: rotate(360deg); } }
 .vrp-details-label { flex: none; color: var(--vrp-accent); font-size: 13px; font-weight: 500; }
 .vrp-chevron { flex: none; opacity: .65; transition: transform .2s ease; }
 .vrp.is-open .vrp-chevron { transform: rotate(90deg); }
@@ -60,7 +63,11 @@
   color: var(--ink-3, #77736f);
   box-shadow: 0 0 0 4px var(--bg, #fff);
 }
-.vrp-step.is-now .vrp-icon { color: var(--vrp-accent); }
+.vrp-step.is-now .vrp-icon {
+  color: var(--vrp-accent);
+  border-color: color-mix(in srgb, var(--vrp-accent) 42%, var(--border-med, transparent));
+  background: color-mix(in srgb, var(--bg, #fff) 94%, var(--vrp-accent) 6%);
+}
 .vrp-step.is-done .vrp-step-title, .vrp-step.is-done .vrp-icon { color: var(--ink-3, #77736f); font-weight: 500; }
 /* The step it's on now: a softly pulsing dot. */
 .vrp-pulse {
@@ -174,6 +181,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .vrp-label-spinner,
   .vrp-pulse { animation: none; }
   .vrp-body-wrap { transition: none; }
 }
