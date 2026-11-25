@@ -8786,12 +8786,22 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const submitEdit = (idx, content = editInput) => {
     if (!String(content || "").trim()) return; stopSpeak();
     const ts   = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const currentMessages = messagesRef.current;
     // The edited message keeps the original's attachments (a picture, a file).
-    const original = messages[idx];
+    const original = currentMessages[idx];
+    if (!original || original.role !== "user") return;
     const edited = { role: "user", content, files: original?.files || null, timestamp: ts, sentAt: Date.now() };
     carryTurnFiles(original, edited);
-    const hist = [...messages.slice(0, idx), edited];
-    setMessages(hist); setEditIdx(null); triggerAI(hist, filesOfTurn(edited));
+    const hist = [...currentMessages.slice(0, idx), edited];
+    // Replace the edited turn and all later answers, then regenerate into a
+    // fresh assistant message immediately after the edited user message.
+    messagesRef.current = hist;
+    setMessages(hist);
+    setEditIdx(null);
+    setEditInput("");
+    setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    triggerAI(hist, filesOfTurn(edited));
   };
 
   // ── AI message copy / share ──────────────────────────────────────────────────
