@@ -78,6 +78,76 @@ test("processRequest reports failure when no provider is configured, so the turn
   assert.match(written.join(""), /not configured with an AI provider/i);
 });
 
+test("Voice Mode uses only AI Router's non-reasoning model without a thinking prompt or token floor", async () => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const providerManager = require("../src/services/ProviderManager");
+  const airouter = require("../src/providers/airouterAdapter");
+  const streamOf = (lines) => (async function* () { for (const line of lines) yield line + "\n"; })();
+  const original = {};
+  const patch = (target, name, fn) => { original[name] = [target, target[name]]; target[name] = fn; };
+  const seen = [];
+  const generatedProviders = [];
+  const adapter = {
+    reasoningAlwaysOn: () => true,
+    generateStream: async (messages, options) => {
+      seen.push({ messages, options });
+      return streamOf(['data: {"choices":[{"delta":{"content":"A relational database organizes information into tables."}}]}']);
+    },
+  };
+  const savedThinking = config.thinkingEnabled;
+  config.thinkingEnabled = true;
+  patch(providerManager, "isConfigured", (name) => name === "airouter");
+  patch(providerManager, "getAdapter", (name) => ({
+    ...adapter,
+    generateStream: (...args) => { generatedProviders.push(name); return adapter.generateStream(...args); },
+  }));
+  patch(providerManager, "updateMetrics", () => {});
+
+  try {
+    const written = [];
+    const res = { write: (chunk) => written.push(chunk), end: () => {}, writableEnded: false, locals: {} };
+    const answered = await orchestrator.processRequest("test_voice_mode", {
+      messages: [{ role: "user", content: "What does a relational database do and why is it useful?" }],
+      mode: "normal",
+      provider: "groq",
+      effort: "balanced",
+      voiceMode: true,
+      options: { temperature: 0.7, maxTokens: 256 },
+    }, res);
+
+    assert.equal(answered, true);
+    assert.equal(seen.length, 1);
+    assert.deepEqual(generatedProviders, ["airouter"]);
+    assert.equal(seen[0].options.airouterModel, airouter.modelFor("Grok 4.20 Non-Reasoning"));
+    assert.equal(seen[0].options.maxTokens, 256);
+    assert.ok(seen[0].messages.every((message) => !message.content?.includes("<think>")));
+  } finally {
+    config.thinkingEnabled = savedThinking;
+    for (const [name, [target, fn]] of Object.entries(original)) target[name] = fn;
+  }
+});
+
+test("chat forwards the explicit Voice Mode flag and leaves it false when omitted", async (t) => {
+  const orchestrator = require("../src/services/AIOrchestrator");
+  const original = orchestrator.processRequest;
+  const seen = [];
+  orchestrator.processRequest = async (_reqId, params) => { seen.push(params.voiceMode); return true; };
+  t.after(() => { orchestrator.processRequest = original; });
+
+  const baseUrl = await startServer(t);
+  for (const voiceMode of [true, false]) {
+    const body = new FormData();
+    body.append("input", "Say hello");
+    body.append("messages", JSON.stringify([{ role: "user", content: "Say hello" }]));
+    if (voiceMode) body.append("voiceMode", "true");
+    const response = await fetch(`${baseUrl}/api/chat`, { method: "POST", body });
+    await response.text();
+    assert.equal(response.status, 200);
+  }
+
+  assert.deepEqual(seen, [true, false]);
+});
+
 test("processRequest falls back to the next provider when one streams an empty answer", async () => {
   const orchestrator = require("../src/services/AIOrchestrator");
   const providerManager = require("../src/services/ProviderManager");

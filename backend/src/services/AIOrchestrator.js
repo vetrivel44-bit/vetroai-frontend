@@ -129,6 +129,7 @@ function historyWithinBudget(messages, maxChars = HISTORY_CHAR_BUDGET) {
 const galleryEligibleModeFor = (mode) => !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
 
 const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
+const VOICE_MODE_AIROUTER_MODEL = airouterAdapter.modelFor("Grok 4.20 Non-Reasoning");
 // Providers that get the lean prompt (no ~7k-token inline-visuals guide) on a
 // light turn — a greeting, "who are you", a few words — where there is nothing
 // to chart. AI Router's models read the whole prompt before the first word, so
@@ -686,6 +687,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
   async processRequest(reqId, params, res) {
     const { messages, mode, provider: preferredProvider, memories } = params;
     let { options } = params;
+    const voiceMode = params.voiceMode === true;
     const userQuery = messages[messages.length - 1]?.content || "";
 
     // A screen-control step's reply is one small JSON object, so whatever
@@ -711,6 +713,12 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // Only honoured when a provider can actually act on it; see the strip below.
     const needsVision = (isComputerUse || carriesImages) && Boolean(configuredVisionProvider);
 
+    if (voiceMode && (carriesImages || isComputerUse)) {
+      this.sendVetroEvent(res, "error", "Voice Mode uses a fast text model and cannot process images or screen-control requests. Send this request in text chat.", { code: "VOICE_MODE_VISION_UNAVAILABLE" });
+      res.end();
+      return false;
+    }
+
     // No vision provider configured, but images arrived anyway. Answering
     // with a text-only model just told the user "I can't see your image".
     // Instead the turn ends with a NO_VISION error, which the web app answers
@@ -727,6 +735,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     let currentProviderName;
     if (needsVision) {
       currentProviderName = configuredVisionProvider;
+    } else if (voiceMode) {
+      currentProviderName = providerManager.isConfigured("airouter") ? "airouter" : null;
+      if (currentProviderName) this.sendVetroEvent(res, "decider", { provider: currentProviderName });
     } else {
       try {
         const fileNames = (params.fileNames || []).slice(0, 5);
@@ -746,7 +757,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // moment or an empty reply is tried again on the same model, never handed
     // to another one. Only Auto walks the fallback chain.
     const pickedAloneSince = Date.now();
-    const pickedAlone = !needsVision && currentProviderName
+    const pickedAlone = !voiceMode && !needsVision && currentProviderName
       && providerManager.pickedAlone(preferredProvider) === currentProviderName
       ? currentProviderName : null;
     // Bounded, but not at the old 3: Cohere is every provider's last-resort
@@ -756,7 +767,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // backoff) before showing anything, so the tail is capped here and
     // `nextFallback` spends the final attempt on Cohere — bounded latency
     // without giving up the "always answers" property.
-    const maxAttempts = pickedAlone ? PICKED_ALONE_TRIES
+    const maxAttempts = voiceMode ? (providerManager.isConfigured("airouter") ? 1 : 0)
+      : pickedAlone ? PICKED_ALONE_TRIES
       : needsVision
       ? VISION_PROVIDERS.filter((name) => providerManager.isConfigured(name)).length
       : Math.min(MAX_FALLBACK_ATTEMPTS, providerManager.getAvailableProviders({ includeSuspended: true }).length);
@@ -782,7 +794,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       this.sendVetroEvent(
         res,
         "error",
-        "VetroAI is not configured with an AI provider yet. Add at least one provider API key on the backend."
+        voiceMode
+          ? "Voice Mode needs AI Router configured to use its fast, non-reasoning chat model."
+          : "VetroAI is not configured with an AI provider yet. Add at least one provider API key on the backend."
       );
       return false;
     }
@@ -895,7 +909,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     let browsed = false;
 
     // ── Smart effort: Perplexity Decider picks quick/balanced/deep/max ────
-    if (shouldSearch) {
+    if (shouldSearch && !voiceMode) {
       try {
         const originalEffort = params.effort || "balanced";
         params.effort = await smartEffort(userQuery, params.effort);
@@ -1079,14 +1093,14 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // (see messagesFor) — asking them as well made them deliberate twice.
     // Not for a drawing either: it goes straight to the sketch, and a <think>
     // block would be billed as output for nothing.
-    const wantsThinking = config.thinkingEnabled && !isGreeting && !drawing && userQuery.trim().length > 12 && mode !== "computer_use";
+    const wantsThinking = !voiceMode && config.thinkingEnabled && !isGreeting && !drawing && userQuery.trim().length > 12 && mode !== "computer_use";
     const thinkingPrompt = wantsThinking ? this.buildThinkingPrompt(params.effort) : "";
     const astrologyPrompt = astrology.prompt || "";
     // The adapters that honour it map this to the model's own reasoning depth.
     // A light turn (a greeting, "who are you", a few words) has nothing to
     // reason about, so models that reason natively (Sarvam) skip it and reply
     // at once.
-    const light = isGreeting || isIdentityQuestion || userQuery.trim().length <= 12;
+    const light = voiceMode || isGreeting || isIdentityQuestion || userQuery.trim().length <= 12;
     options = { ...options, effort: params.effort, light };
     if (isAgentic && webContext) {
       options.maxTokens = Math.max(Number(options.maxTokens) || 0, RESEARCH_MIN_TOKENS);
@@ -1148,7 +1162,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     // answered first by a few other models, and the reply is written with
     // their answers in hand. The app shows it only inside the thinking panel.
     let councilBrief = "";
-    if (council.needsCouncil({
+    if (!voiceMode && council.needsCouncil({
       query: userQuery, effort: params.effort, mode, isGreeting, light, drawing, needsVision,
       hasAttachments: params.hasAttachments, enabled: config.councilEnabled,
     }) && !params.signal?.aborted) {
@@ -1192,7 +1206,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
       
       if (!adapter) {
         logger.error(`AIOrchestrator: No adapter for ${currentProviderName}`);
-        const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision);
+        const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision, false, voiceMode);
         if (!nextProvider) break;
         currentProviderName = nextProvider;
         continue;
@@ -1218,10 +1232,12 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // gets room for both; only what it writes is billed.
         // (Not for a drawing, which is kept lean and bounded, nor a model that
         // can switch its thinking off, like Sarvam: that one retries without.)
-        const thinksAlways = Boolean(adapter.reasoningAlwaysOn?.()) && !options?.drawing;
+        const thinksAlways = !voiceMode && Boolean(adapter.reasoningAlwaysOn?.()) && !options?.drawing;
         const attemptOptions = thinksAlways
           ? { ...options, maxTokens: Math.max(Number(options?.maxTokens) || 0, REASONING_MIN_TOKENS) }
-          : options;
+          : voiceMode
+            ? { ...options, airouterModel: VOICE_MODE_AIROUTER_MODEL }
+            : options;
         const streamPromise = adapter.generateStream(attemptMessages, attemptOptions);
         // A slow-starting model (Sarvam 105B) sets its own start budget.
         const attemptTimeout = needsVision ? VISION_ATTEMPT_TIMEOUT_MS : (adapter.startTimeoutMs?.() || ATTEMPT_TIMEOUT_MS);
@@ -1369,7 +1385,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
           // attempts is already incremented for the current hop, so this is
           // true while choosing the provider for the final allowed attempt.
           const isLastAttempt = attempts === maxAttempts - 1;
-          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision, isLastAttempt);
+          const nextProvider = this.nextFallback(currentProviderName, attemptedProviders, needsVision, isLastAttempt, voiceMode);
           if (!nextProvider) {
             // Every image-capable provider failed: let the client read the
             // image itself (NO_VISION) rather than giving up on the turn.
@@ -1468,7 +1484,8 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
   // last resort, and a cap that stopped short of it would reintroduce exactly
   // the "no answer because everything else is out of credits" case it exists
   // to prevent.
-  nextFallback(failedProvider, attemptedProviders, needsVision, isLastAttempt = false) {
+  nextFallback(failedProvider, attemptedProviders, needsVision, isLastAttempt = false, voiceMode = false) {
+    if (voiceMode) return null;
     if (needsVision) {
       return VISION_PROVIDERS.find(
         (name) => !attemptedProviders.has(name) && providerManager.isConfigured(name)

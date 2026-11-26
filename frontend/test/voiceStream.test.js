@@ -16,6 +16,16 @@ test("stable cut stops at the last finished sentence", () => {
   assert.equal(raw.slice(0, stableCut(raw)), "First sentence.");
 });
 
+test("Devanagari danda ends streamed sentences and speech chunks", async () => {
+  const { firstClauseCut, sentencesOf } = await import("../src/lib/voiceStream.js");
+  assert.equal(stableCut("पहला वाक्य। अगला अभी जारी"), "पहला वाक्य।".length);
+  assert.deepEqual(sentencesOf("पहला वाक्य। दूसरा वाक्य।").map((sentence) => sentence.trim()), [
+    "पहला वाक्य।", "दूसरा वाक्य।",
+  ]);
+  const long = `${"यह एक लंबा वाक्य है ".repeat(3)}समाप्त। अगला वाक्य`;
+  assert.equal(long.slice(0, firstClauseCut(long)), `${"यह एक लंबा वाक्य है ".repeat(3)}समाप्त।`);
+});
+
 test("stable cut waits while inline code or a link is half-written", () => {
   assert.equal(stableCut("Use `npm. Run it"), 0);
   assert.equal(stableCut("Read [this](https://a.b/c. More"), 0);

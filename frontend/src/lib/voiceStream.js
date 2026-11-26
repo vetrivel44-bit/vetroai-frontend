@@ -100,7 +100,7 @@ function leavesNothingOpen(prefix) {
  */
 export function firstClauseCut(raw) {
   const text = String(raw || "");
-  const re = /[,;:—–](?=\s)| - /g;
+  const re = /[,;:—–।](?=\s|$)| - /g;
   let match;
   while ((match = re.exec(text))) {
     const cut = match.index + match[0].trimEnd().length;
@@ -116,7 +116,7 @@ export function firstClauseCut(raw) {
 export function stableCut(raw) {
   const text = String(raw || "");
   const cuts = [];
-  const re = /[.!?](?=\s)|\n/g;
+  const re = /[.!?।](?=\s|$)|\n/g;
   let match;
   while ((match = re.exec(text))) cuts.push(match[0] === "\n" ? match.index : match.index + 1);
   for (let i = cuts.length - 1; i >= 0; i--) {
@@ -132,13 +132,13 @@ const SHORT_FORM = /(?:^|[\s(])(?:mr|mrs|ms|dr|prof|sr|jr|st|mt|vs|etc|no|nos|ap
 
 /**
  * The sentences of `text`, each with the space after it. A sentence ends at
- * . ! or ? followed by a space (so "3.5" and "VetroAI.com" stay whole), and
+ * . ! ? or danda followed by space (so "3.5" and "VetroAI.com" stay whole), and
  * not after a short form like "Dr.".
  */
 export function sentencesOf(text) {
   const source = String(text || "");
   const out = [];
-  const re = /[.!?]+["'’”)\]]*(?=\s|$)/g;
+  const re = /[.!?।]+["'’”)\]]*(?=\s|$)/g;
   let start = 0;
   let match;
   while ((match = re.exec(source))) {

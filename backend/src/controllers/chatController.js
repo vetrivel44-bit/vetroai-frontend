@@ -217,6 +217,7 @@ async function chat(req, res) {
   const safeMode = String(req.body?.safeMode || "false") === "true";
   const temperature = Number(req.body?.temperature ?? 0.7);
   const maxTokens = Number(req.body?.maxTokens ?? 2048);
+  const voiceMode = String(req.body?.voiceMode || "false") === "true";
   // Drives how deep the streamed <think> block goes (see AIOrchestrator.buildThinkingPrompt).
   const effort = String(req.body?.effort || "balanced").slice(0, 16);
   
@@ -358,7 +359,7 @@ async function chat(req, res) {
 
   // ── Smart mode: Perplexity Decider can upgrade "normal" to a better mode ──
   let smartMode = mode;
-  if (!mode || mode === "normal") {
+  if (!voiceMode && (!mode || mode === "normal")) {
     try {
       const fileNames = files.map((f) => f.originalname || f.filename || "").filter(Boolean);
       const userText = String(req.body?.input || "").trim();
@@ -391,6 +392,7 @@ async function chat(req, res) {
       activePlugins,
       pluginContext,
       effort,
+      voiceMode,
       signal: cancel.signal,
       // Which Sarvam model ("Sarvam 105B"), in a field of its
       // own so a fallback provider never receives a Sarvam model name.

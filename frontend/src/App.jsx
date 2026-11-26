@@ -7230,6 +7230,7 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
     fd.append("temperature", String(temperature));
     fd.append("maxTokens", String(effectiveMaxTokens));
     fd.append("effort", turnEffort);
+    if (voiceTurn) fd.append("voiceMode", "true");
     fd.append("reqId", reqId);
     fd.append("memories", JSON.stringify(isMemoryEnabled() ? toPromptList(memories) : []));
     fd.append("plugins", JSON.stringify(requestPlugins));
