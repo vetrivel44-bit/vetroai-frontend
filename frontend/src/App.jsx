@@ -933,6 +933,12 @@ const EFFORT_INSTRUCTIONS = {
   max: `Use maximum reasoning effort. Work the problem through, test the conclusion and self-check for mistakes. Give the most complete, expert answer the question deserves: full reasoning, edge cases, trade-offs, complete runnable code when code is asked for, and a short summary at the end of a long answer. ${ANSWER_SHAPE}`,
 };
 
+// Computer is a desktop mode. Below this width the header switch hides it (the
+// same breakpoint is used in styles/polish.css) and the app stays on Chat.
+const COMPUTER_MIN_WIDTH = 1024;
+// The viewport query for phones and tablets: everything narrower than a PC.
+const COMPUTER_HIDDEN_MQ = `(max-width: ${COMPUTER_MIN_WIDTH - 1}px)`;
+
 const MODES_LIST = [
   { id: "normal", name: "Normal Chat", icon: "Bot", desc: "General conversation and assistant" },
   { id: "web_search", name: "Web Search", icon: "Globe", desc: "Search the web — live results with sources" },
@@ -9088,6 +9094,21 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('chats');
+  // Set when Computer was opened from the header switch, so shrinking the
+  // window to phone/tablet width can return to Chat. Computer opened from a
+  // Dispatch pairing (a phone that scanned a QR code) is left alone.
+  const computerFromSwitchRef = useRef(false);
+  useEffect(() => {
+    const mq = window.matchMedia(COMPUTER_HIDDEN_MQ);
+    const onViewportChange = (e) => {
+      if (!e.matches || !computerFromSwitchRef.current) return;
+      computerFromSwitchRef.current = false;
+      setShowComputer(false);
+      setActiveNav("chats");
+    };
+    mq.addEventListener("change", onViewportChange);
+    return () => mq.removeEventListener("change", onViewportChange);
+  }, []);
   const [recentsSortOpen, setRecentsSortOpen] = useState(false);
   const [recentsSortMode, setRecentsSortMode] = useState('recent');
   const [openRecentMenuId, setOpenRecentMenuId] = useState(null);
@@ -9922,9 +9943,19 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
               );
             })()}
           </div>
-          {/* Chat and Computer, side by side in the middle of the top bar — the way Perplexity puts Search and Computer. */}
+          {/* Chat and Computer, side by side in the middle of the top bar — the way Perplexity puts Search and Computer.
+              Computer is desktop-only: below COMPUTER_MIN_WIDTH the switch is replaced by the standalone Chat pill (ModeSwitch)
+              and this guard keeps Computer unreachable. */}
           <div className="ch-center">
-            <ModeSwitch mode="chat" onComputer={() => { setActiveNav('computer'); setShowComputer(true); }} />
+            <ModeSwitch
+              mode="chat"
+              onComputer={() => {
+                if (window.matchMedia(COMPUTER_HIDDEN_MQ).matches) return;
+                computerFromSwitchRef.current = true;
+                setActiveNav('computer');
+                setShowComputer(true);
+              }}
+            />
           </div>
           <div className="ch-right">
             {/* No inline color on the inactive state — these four used to force
