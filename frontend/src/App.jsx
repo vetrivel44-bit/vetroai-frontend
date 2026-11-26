@@ -9746,20 +9746,21 @@ Write the definitive, comprehensive answer with proper markdown formatting (head
         {/* Products section */}
         <div className="px-1 flex flex-col gap-0.5" style={{ marginTop: 12 }}>
           <p className="claude-sb-group-label text-[11.5px] font-medium px-3 py-1" style={{ color: 'var(--ink-4)' }}>Products</p>
-          <button onClick={() => { setActiveNav('code'); setShowPlayground(true); }} className={`claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'code' ? 'active' : ''}`}>
+          {/* Code and Design are desktop-only; the phone/tablet rows below are hidden on desktop (styles/polish.css). */}
+          <button onClick={() => { setActiveNav('code'); setShowPlayground(true); }} className={`claude-sb-item sb-product-desktop flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'code' ? 'active' : ''}`}>
             <Code size={17} /> Code
           </button>
-          <button onClick={() => { setSidebarMobileOpen(false); setShowFlashcards(true); }} className="claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+          <button onClick={() => { setSidebarMobileOpen(false); setShowFlashcards(true); }} className="claude-sb-item sb-product-mobile flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
             <span className="flex items-center gap-3"><Layers size={17} /> Flashcards</span>
             {flashcardsDue > 0 && <span className="plugin-toolbar-count" title={`${flashcardsDue} to review`}>{flashcardsDue}</span>}
           </button>
-          <button onClick={() => { setSidebarMobileOpen(false); setShowCameraTranslate(true); }} className="claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+          <button onClick={() => { setSidebarMobileOpen(false); setShowCameraTranslate(true); }} className="claude-sb-item sb-product-mobile flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
             <ScanText size={17} /> Camera translate
           </button>
-          <button onClick={() => { setSidebarMobileOpen(false); setShowDoodle(true); }} className="claude-sb-item flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
+          <button onClick={() => { setSidebarMobileOpen(false); setShowDoodle(true); }} className="claude-sb-item sb-product-mobile flex items-center gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors">
             <Paintbrush size={17} /> Doodle to picture
           </button>
-          <button onClick={() => { setActiveNav('design'); setShowDesign(true); }} className={`claude-sb-item flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'design' ? 'active' : ''}`}>
+          <button onClick={() => { setActiveNav('design'); setShowDesign(true); }} className={`claude-sb-item sb-product-desktop flex items-center justify-between gap-3 w-full px-3 py-2 text-[13.5px] rounded-lg transition-colors ${activeNav === 'design' ? 'active' : ''}`}>
             <span className="flex items-center gap-3"><Palette size={17} /> Design</span>
             <FlaskConical size={13} style={{ color: "var(--ink-4)" }} />
           </button>

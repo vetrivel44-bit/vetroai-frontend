@@ -229,16 +229,28 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
      there, so the standalone Chat pill takes its place (centred further
      down this file, between the menu button and the tools). */
   .chat-header .vetro-mode-switch { display: none; }
+  /* No fill or border here: Chat is a label on the header, not a button. */
   .chat-header .vetro-mode-chat-pill {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    height: 38px; padding: 0 18px; border-radius: 999px; flex: none;
-    color: var(--ink); background: var(--bg-elevated);
-    border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
-    box-shadow: 0 1px 3px rgba(0,0,0,.18);
+    height: 38px; padding: 0 18px; flex: none;
+    color: var(--ink); background: transparent;
+    border: 0;
+    box-shadow: none;
     font-family: 'Inter', system-ui, sans-serif; font-size: 15px; font-weight: 500;
     line-height: 1; white-space: nowrap;
   }
   .chat-header .vetro-mode-chat-pill svg { width: 18px; height: 18px; }
+}
+
+/* Products are split by device: Code and Design are desktop tools, while
+   Flashcards, Camera translate and Doodle to picture are the phone and tablet
+   ones. The 1024px breakpoint matches COMPUTER_MIN_WIDTH in App.jsx. Only the
+   rows are hidden, so the rest of the Products list is unchanged. */
+@media (max-width: 1023.98px) {
+  .claude-sb-item.sb-product-desktop { display: none !important; }
+}
+@media (min-width: 1024px) {
+  .claude-sb-item.sb-product-mobile { display: none !important; }
 }
 
 /* The switch sits in the middle of the chat's top bar. */
