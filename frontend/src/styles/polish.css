@@ -219,13 +219,30 @@ div:has(> .chat-user-bubble) { max-width: min(85%, 620px); }
 /* The switch sits in the middle of the chat's top bar. */
 .chat-header { position: relative; }
 .chat-header .ch-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; }
-/* Chat's tools (Jobs, News, web search) as round buttons, like Perplexity's. */
+/* Chat's tools (Jobs, News, Incognito, Share) are plain icons in the top bar:
+   the round shape and tap area stay, but there is no pill fill or border at
+   rest - only the icon shows. The fill still appears on hover/focus. */
 .chat-header .ch-right .claude-sb-icon-btn {
   width: 40px !important; min-width: 40px !important; height: 40px !important; border-radius: 999px !important;
-  background: color-mix(in srgb, var(--ink) 5%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
 }
-.chat-header .ch-right .claude-sb-icon-btn:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.chat-header .ch-right .claude-sb-icon-btn:hover,
+.chat-header .ch-right .claude-sb-icon-btn:focus-visible { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+
+/* Share is a header tool too, and the mobile palettes give it a filled pill
+   with a border; strip that at rest and keep the pill on hover only. */
+.chat-header .ch-right .share-btn {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.chat-header .ch-right .share-btn:hover,
+.chat-header .ch-right .share-btn:focus-visible {
+  background: var(--bg-hover) !important;
+  border-color: transparent !important;
+}
 
 /* Phones: the switch takes the middle and the tools tuck in beside it. */
 @media (max-width: 760px) {
