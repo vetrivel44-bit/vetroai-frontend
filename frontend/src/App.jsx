@@ -107,7 +107,6 @@ import { resolveApiBase } from "./lib/apiBase";
 import { pickBrowserRetryProvider } from "./lib/browserRetry";
 import { describeRequest, isGenericStatus } from "./utils/activityLabel";
 import { resolveSiteImages } from "./lib/siteImages";
-import { pickBrowserVoice, describeTtsVoice } from "./utils/browserVoice";
 import { locationAlwaysAllowed, setLocationAlwaysAllowed, nearbySubject, nearbyTitle, isNearbyRequest } from "./utils/locationPermission";
 import LocationPermissionSheet from "./components/LocationPermissionSheet";
 import NearbyMapCard from "./components/chat/NearbyMapCard";
@@ -869,24 +868,16 @@ const SARVAM_105B_CHAT_PROVIDER = "Sarvam 105B Chat";
 const PROVIDERS = ["Auto", "GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna", "GPT-5.3 Codex", CLAUDE_FABLE_PROVIDER, VETROAI_PROVIDER, AIROUTER_PROVIDER, LING_PROVIDER, GROK_420_PROVIDER, HAIKU_55_PROVIDER, "Groq", "Gemini", SARVAM_105B_PROVIDER, SARVAM_105B_CHAT_PROVIDER];
 const CODE_GENERATION_RE = /\b(write|create|generate|build|implement|develop|debug|fix|refactor|optimi[sz]e|explain)\b[\s\S]{0,100}\b(code|function|class|method|script|program|algorithm|api|component|website|app|sql|query|regex|python|javascript|typescript|java|c\+\+|react|node|html|css)\b|\b(code|function|class|script|program|algorithm)\b[\s\S]{0,80}\b(in|using|for)\b/i;
 const shouldUseCodex = (query, mode) => mode === "debugger" || CODE_GENERATION_RE.test(query || "");
-// The voice for voice mode and Read aloud. Jenny was the default and was saved
-// for everyone on their first visit, so a saved Jenny is almost always that
-// old default rather than a choice: it moves, once, to the default below.
-// The default is free (Ava, Microsoft's conversational voice). Premium
-// (Sarvam) voices are paid per character, so they're used only when picked
-// by hand: Aparna was the default for a while and was saved for everyone,
-// so a saved Aparna moves, once, to the free default too.
-const VOICE_DEFAULT = "en-US-AvaMultilingualNeural";
-// The first Premium voices were renamed when they moved to Sarvam's
-// expressive personas.
-const RENAMED_VOICES = { "sarvam-ishita": "sarvam-aparna", "sarvam-priya": "sarvam-sanchita", "sarvam-ratan": "sarvam-dev" };
+// The voice for voice mode and Read aloud: OpenAI's tts-1 voices, spoken by AI
+// Router (backend airouterTtsService.js). nova is the default. An id saved by
+// an older build (Edge, Google's free voice, a Sarvam Premium voice) maps to
+// the closest tts-1 voice — on the server too — so an old pick keeps speaking.
+const TTS_VOICES = ["nova", "shimmer", "alloy", "echo", "fable", "onyx"];
+const VOICE_DEFAULT = "nova";
 function initialVoice() {
   try {
-    const saved = RENAMED_VOICES[localStorage.getItem("vetro_tts_voice")] || localStorage.getItem("vetro_tts_voice");
-    if (localStorage.getItem("vetro_tts_voice_v3")) return saved || VOICE_DEFAULT;
-    localStorage.setItem("vetro_tts_voice_v2", "1");
-    localStorage.setItem("vetro_tts_voice_v3", "1");
-    return !saved || saved === "en-US-JennyNeural" || saved === "sarvam-aparna" ? VOICE_DEFAULT : saved;
+    const saved = localStorage.getItem("vetro_tts_voice");
+    return TTS_VOICES.includes(saved) ? saved : VOICE_DEFAULT;
   } catch {
     return VOICE_DEFAULT;
   }
@@ -5548,7 +5539,6 @@ export default function App() {
   useEffect(() => { selectedModeRef.current = selectedMode; }, [selectedMode]);
   useEffect(() => { systemPromptRef.current = systemPrompt; }, [systemPrompt]);
   useEffect(() => { autoWebSearchRef.current = autoWebSearch; }, [autoWebSearch]);
-  useEffect(() => { window.speechSynthesis?.cancel(); }, []);
   useEffect(() => { localStorage.setItem("vetroai_sysprompt", systemPrompt); }, [systemPrompt]);
   useEffect(() => { ttsVoiceRef.current = ttsVoice; localStorage.setItem("vetro_tts_voice", ttsVoice); }, [ttsVoice]);
   useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
@@ -6192,7 +6182,6 @@ export default function App() {
   // ── Voice helpers ─────────────────────────────────────────────────────────────────────────────
   const stopSpeak = () => {
     stopActiveSpeaker();
-    window.speechSynthesis?.cancel();
     if (window.currentAudio) {
       window.currentAudio.pause();
       window.currentAudio.currentTime = 0;
@@ -6302,8 +6291,7 @@ export default function App() {
   // during that window or the assistant transcribes its own voice.
   const isTTSActive = () =>
     Boolean(window.isTTSLoading) ||
-    Boolean(window.currentAudio && !window.currentAudio.paused) ||
-    Boolean(window.speechSynthesis?.speaking);
+    Boolean(window.currentAudio && !window.currentAudio.paused);
 
   // Every mic start goes through here. It is idempotent, keeps isListening in
   // sync with the recognizer, and refuses to open the mic while TTS is audible.
@@ -6533,35 +6521,17 @@ export default function App() {
       setIsSpeaking(true);
       await audio.play();
     } catch (e) {
+      // No robotic browser voice to fall back to: say it plainly and hand the
+      // turn back to the microphone so the conversation carries on.
       console.error("TTS Error:", e);
       window.isTTSLoading = false;
-      // Fallback to browser TTS if the backend proxy fails (e.g. not configured yet)
-      if (window.speechSynthesis) {
-        const u = new SpeechSynthesisUtterance(c);
-        // Closest browser voice to the one picked in voice mode, rather than
-        // the browser's default.
-        // A failure here only loses the voice match, never the reply itself.
-        try {
-          const browserVoice = pickBrowserVoice(window.speechSynthesis.getVoices(), ttsVoiceRef.current);
-          if (browserVoice) u.voice = browserVoice;
-          u.lang = browserVoice?.lang || describeTtsVoice(ttsVoiceRef.current).lang;
-        } catch (err) { swallowError(err); }
-        u.onstart = () => { stopMic({ keepWanted: true }); setIsSpeaking(true); };
-        u.onend   = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
-        u.onerror = () => { setIsSpeaking(false); if (voiceRef.current) startMic(); };
-        window.speechSynthesis.speak(u);
-      } else {
-        setIsSpeaking(false);
-        addToast("⚠️ Voice playback isn't supported in this browser", "error");
-        if (voiceRef.current) startMic();
-      }
+      setIsSpeaking(false);
+      addToast("Voice playback isn't available right now", "error");
+      if (voiceRef.current) startMic();
     }
   };
 
   useEffect(() => {
-    const lv = () => window.speechSynthesis?.getVoices();
-    lv();
-    if (window.speechSynthesis?.onvoiceschanged !== undefined) window.speechSynthesis.onvoiceschanged = lv;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { speechOkRef.current = false; setSpeechSupported(false); return; }
     speechOkRef.current = true;
@@ -6765,10 +6735,7 @@ export default function App() {
       addToast("⚠️ Voice mode needs a secure (https) connection", "error");
       return;
     }
-    // Priming speech synthesis inside the click keeps the browser-TTS fallback
-    // usable later, when no user gesture is in scope.
-    window.speechSynthesis?.speak(new SpeechSynthesisUtterance(""));
-    // Likewise the audio that plays VetroAI's voice.
+    // The click is what lets the audio that plays VetroAI's voice start.
     unlockSpeechAudio();
     // Wake the free-tier backend now so the first reply isn't a cold start.
     fetch(API + "/health", { cache: "no-store" }).catch(() => {});

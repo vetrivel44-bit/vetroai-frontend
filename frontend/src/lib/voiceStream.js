@@ -8,7 +8,7 @@
 // after the model starts answering.
 //
 // Read aloud uses the same speaker on a finished reply. It used to speak one
-// sentence per clip, which sounded robotic and dragged:
+// sentence per clip, which dragged:
 //   • every clip carries its own silence at the start and the end, and a new
 //     audio element has to start for each one, so each full stop became a
 //     long wait;
@@ -22,7 +22,6 @@
 // fetched ahead of the one playing, a clip that fails is asked for again
 // before giving up on it, and clips are played back to back with their
 // silence trimmed and a short, natural pause between them.
-import { pickBrowserVoice, describeTtsVoice } from "../utils/browserVoice.js";
 import { detectSpeechLanguage } from "./speechLanguage.js";
 
 const MAX_SPOKEN_CHARS = 1500; // a spoken reply should not read out an essay
@@ -290,25 +289,18 @@ export function duckActiveSpeaker(down) {
 
 // ── Read-aloud controls ─────────────────────────────────────────────────────
 // Read aloud can be paused, moved a sentence back or forward, and sped up or
-// slowed down. The speed is asked of the voice itself (Edge's rate, Bulbul's
-// pace), so a faster voice keeps its pitch; only the clip already playing
-// when the speed changes is sped up in the browser, and Google's free voice,
-// which has no speed of its own.
-
-// Indian languages Google's free voice reads with an Indian voice.
-const INDIAN = new Set(["hi", "ta", "te", "kn", "ml", "bn", "mr", "gu", "pa", "ur", "or"]);
+// slowed down. The speed is asked of the voice itself (tts-1's speed), so a
+// faster voice keeps its pitch; only the clip already playing when the speed
+// changes is sped up in the browser.
 
 /**
- * The voice Read aloud uses: always Google's free voice, so reading long
- * replies costs nothing (the Premium voices are paid per character). English
- * is read with Google's Indian English voice; a reply in another language by
- * Google's voice for that language. `lang` is the reply's language ("ta"),
- * or empty for English.
+ * The voice Read aloud uses: nova, OpenAI's tts-1 voice through AI Router. It
+ * reads English and the Indian languages in their own script, at one price,
+ * so a long reply and a Tamil one sound equally natural. The reply's language
+ * is no longer needed: tts-1 works it out from the text itself.
  */
-export function freeReadAloudVoice(lang) {
-  const code = String(lang || "").toLowerCase();
-  if (!/^[a-z]{2,3}$/.test(code) || code === "en") return "google-en-IN";
-  return `google-${code}-${INDIAN.has(code) ? "IN" : "US"}`;
+export function freeReadAloudVoice() {
+  return "nova";
 }
 
 /** The speeds the read-aloud bar offers. */
@@ -441,10 +433,9 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
   const sizeFor = (index) => (index === 1 ? Math.min(chunkChars, SECOND_CHUNK_CHARS) : chunkChars);
 
   // One clip from the server, as a blob plus (where Web Audio is used) its
-  // decoded audio. A busy or briefly failing server is asked twice more
-  // before the clip falls back to the browser's own voice, which often can't
-  // start without a click, so the rest of a reply used to be skipped in
-  // silence after its first line.
+  // decoded audio. A busy or briefly failing server is asked twice more before
+  // the clip is let go: the robotic browser voice that used to take over here
+  // is gone, so a clip that can't be had is skipped rather than read badly.
   const fetchAudio = async (text, atSpeed) => {
     const signal = abort.signal;
     const askedRate = combinedRate(rate, atSpeed);
@@ -622,43 +613,6 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     audio.play().catch(end);
   });
 
-  // The server's voice couldn't be had for this clip: say it with the
-  // browser's own voice, picked to match the chosen one. One utterance per
-  // sentence (some browsers cut a long utterance off part way), all queued at
-  // once so they follow each other without a wait.
-  const playBrowser = (item, from = 0) => new Promise((resolve) => {
-    const synth = window.speechSynthesis;
-    const sentences = item.first >= 0 ? item.parts.slice(from) : splitSentences(item.text);
-    if (!synth || typeof SpeechSynthesisUtterance === "undefined" || !sentences.length) { resolve(); return; }
-    const textLang = lang || detectSpeechLanguage(item.text);
-    let match = null;
-    try {
-      // Text in another language: the browser's own voice for that language.
-      const voices = synth.getVoices();
-      const native = textLang && voices.find((v) => v.lang?.toLowerCase().startsWith(textLang));
-      match = native || (textLang ? null : pickBrowserVoice(voices, voice));
-    } catch { /* default voice */ }
-    const playback = {
-      stop: () => { try { synth.cancel(); } catch { /* no speech engine */ } resolve(); },
-      pause: () => { try { synth.pause(); } catch { /* no speech engine */ } },
-      resume: () => { try { synth.resume(); } catch { /* no speech engine */ } },
-    };
-    current = playback;
-    sentences.forEach((sentence, i) => {
-      const utterance = new SpeechSynthesisUtterance(sentence);
-      if (match) utterance.voice = match;
-      utterance.lang = match?.lang || textLang || describeTtsVoice(voice).lang;
-      utterance.rate = speed;
-      if (ducked) utterance.volume = DUCKED_VOLUME;
-      if (item.first >= 0) utterance.onstart = () => emit(item.first + from + i);
-      if (i === sentences.length - 1) {
-        utterance.onend = () => { if (current === playback) current = null; resolve(); };
-        utterance.onerror = utterance.onend;
-      }
-      synth.speak(utterance);
-    });
-  });
-
   // `from`: the sentence of the clip to start at (after a skip).
   const play = async (item, clip, gen, from) => {
     await whilePaused();
@@ -676,7 +630,6 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     if (webAudio) await playBuffer(clip.buffer, options);
     // An <audio> element plays the clip's own silence, which is pause enough.
     else if (clip?.blob) await playBlob(clip.blob, options);
-    else await playBrowser(item, from);
     if (gen === generation) pauseBefore = pauseAfter(item.text);
   };
 
@@ -759,7 +712,6 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
     current = null;
     const audio = window.currentAudio;
     if (audio) { try { audio.pause(); } catch { /* already stopped */ } window.currentAudio = null; }
-    try { window.speechSynthesis?.cancel(); } catch { /* no speech engine */ }
   };
 
   // Stop what's audible and go on from items[next] (a skip), keeping a

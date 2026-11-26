@@ -284,12 +284,11 @@ test("a reply that is retried from scratch never plays a clip from before", asyn
   }
 });
 
-test("Read aloud always uses Google's free voice, in the reply's language", async () => {
+test("Read aloud uses the natural tts-1 voice, whatever the reply's language", async () => {
   const { freeReadAloudVoice } = await import("../src/lib/voiceStream.js");
-  assert.equal(freeReadAloudVoice(undefined), "google-en-IN");
-  assert.equal(freeReadAloudVoice("en"), "google-en-IN");
-  assert.equal(freeReadAloudVoice("ta"), "google-ta-IN");
-  assert.equal(freeReadAloudVoice("hi"), "google-hi-IN");
-  assert.equal(freeReadAloudVoice("es"), "google-es-US");
-  assert.equal(freeReadAloudVoice("sarvam-aparna"), "google-en-IN", "anything odd: the English voice");
+  // One voice reads English and the Indian languages alike, so the reply's
+  // language no longer picks a different (robotic) engine.
+  for (const lang of [undefined, "en", "ta", "hi", "kn", "ml", "es", "sarvam-aparna"]) {
+    assert.equal(freeReadAloudVoice(lang), "nova", String(lang));
+  }
 });

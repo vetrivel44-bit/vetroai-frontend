@@ -28,7 +28,7 @@ const airouterModelFor = airouterAdapter.modelFor;
 const { decideSearch } = require("../services/searchIntentService");
 const { decideMode } = require("../services/deciderService");
 const { decideScreen } = require("../services/screenIntentService");
-const ttsService = require("../services/ttsService");
+const airouterTts = require("../services/airouterTtsService");
 const medicalService = require("../services/medicalService");
 const followUpService = require("../services/followUpService");
 const flashcardService = require("../services/flashcardService");
@@ -585,30 +585,26 @@ async function medicalAnswer(req, res) {
   return successResponse(res, "Medical answer generated", result);
 }
 
+// Voice Mode's speech: openai/tts-1 through AI Router (airouterTtsService.js).
+// The MP3 is streamed straight back as it arrives, so the first words play
+// without waiting for the whole clip. The text is sent exactly as written -
+// full UTF-8, no stripping or transliterating - so Indian languages are read
+// in their own script.
 async function textToSpeech(req, res) {
-  const text = String(req.body?.text || "").trim();
-  if (!text) throw new ApiError(400, "text is required");
-  const voice = String(req.body?.voice || "en-US-AvaMultilingualNeural").slice(0, 48);
+  const text = String(req.body?.text || "");
+  if (!text.trim()) throw new ApiError(400, "text is required");
+  const voice = String(req.body?.voice || config.airouterTtsVoice || "nova").slice(0, 48);
   // Speaking speed relative to the voice's own ("+6%"); anything else is ignored.
   const rate = /^[+-]\d{1,2}%$/.test(String(req.body?.rate || "")) ? String(req.body.rate) : undefined;
-  // The text's language ("ta", "hi"…), sent by the app: a reply in another
-  // language than the picked voice is read by a native voice.
-  const lang = String(req.body?.lang || "").slice(0, 3);
 
-  let audio;
   try {
-    audio = await ttsService.synthesizeSpeech({ text: text.slice(0, 2000), voice, lang, rate });
+    await airouterTts.streamSpeech({ text, voice, rate }, res);
   } catch (err) {
-    // 503 tells the browser to fall back to its own voice instead of failing.
-    throw new ApiError(503, `Text-to-speech is unavailable right now: ${err?.message || "unknown error"}`);
+    // Failure after the audio started can only end the reply, not change it.
+    if (res.headersSent) { try { res.end(); } catch { /* the client went away */ } return; }
+    const status = err?.status >= 400 && err.status < 600 ? err.status : 503;
+    throw new ApiError(status, `Text-to-speech is unavailable right now: ${err?.message || "unknown error"}`);
   }
-  const { buffer, contentType, provider } = audio;
-  res.setHeader("X-TTS-Provider", provider || "unknown");
-  // The exact model and voice, when the provider says (Sarvam's persona or v3 speaker).
-  if (audio.voice) res.setHeader("X-TTS-Voice", String(audio.voice).slice(0, 80));
-  res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Length", buffer.length);
-  return res.send(buffer);
 }
 
 // Browser models search in the app: it asks here whether a message needs a web

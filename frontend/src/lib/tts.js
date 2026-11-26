@@ -1,7 +1,8 @@
-// Speak text with VetroAI's free Google voice (/api/tts on the backend), and
-// fall back to the browser's built-in voice if the backend can't be reached.
-// Used by news "Listen" and Computer narration; chat voice mode has its own
-// mic-aware loop in App.jsx that calls the same endpoint.
+// Speak text with VetroAI's voice (/api/tts on the backend: openai/tts-1
+// through AI Router). There is no browser-voice fallback any more: a robotic
+// reading is worse than none. Used by news "Listen" and Computer narration;
+// chat voice mode has its own mic-aware loop in App.jsx that calls the same
+// endpoint.
 import { resolveApiBase } from "./apiBase.js";
 import { detectSpeechLanguage } from "./speechLanguage.js";
 
@@ -15,7 +16,6 @@ export function stopSpeaking() {
   current = null;
   if (playing?.audio) { try { playing.audio.pause(); } catch { /* already stopped */ } }
   if (playing?.url) URL.revokeObjectURL(playing.url);
-  try { window.speechSynthesis?.cancel(); } catch { /* no speech engine */ }
 }
 
 /**
@@ -48,14 +48,8 @@ export async function speakText(text, { voice, rate, onEnd } = {}) {
     audio.onerror = audio.onended;
     await audio.play();
   } catch {
-    if (current !== handle) return;
-    if (typeof window === "undefined" || !window.speechSynthesis) { finish(); return; }
-    const utterance = new SpeechSynthesisUtterance(clean);
-    const textLang = detectSpeechLanguage(clean);
-    if (textLang) utterance.lang = textLang;
-    if (rate) utterance.rate = rate;
-    utterance.onend = finish;
-    utterance.onerror = finish;
-    window.speechSynthesis.speak(utterance);
+    // The voice couldn't be had: end quietly rather than switching to the
+    // browser's robotic speech synthesis, which this app no longer uses.
+    finish();
   }
 }

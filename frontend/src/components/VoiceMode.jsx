@@ -2,36 +2,17 @@ import React, { useEffect, useState } from "react";
 import { Check, ChevronDown, Mic, MicOff, X } from "lucide-react";
 import "./VoiceMode.css";
 
-// Every option is free: "…Neural" voices are Microsoft Edge's neural voices and
-// "google-…" voices are Google's free voice, both spoken by the backend's /tts.
-// The first four are Microsoft's newer conversational voices, the most like a
-// person talking; Ava is the default (initialVoice in App.jsx).
-// "sarvam-…" voices are the Premium ones: Sarvam's Bulbul, paid per
-// character, native Indian voices that talk with feeling (companion and
-// conversational personas), and read Tamil, Hindi and nine other Indian
-// languages too (backend sarvamTtsService.js). Used only when picked; Read
-// aloud always uses Google's free voice.
+// OpenAI's tts-1 voices, spoken by AI Router on the backend (/api/tts): fast,
+// natural and the same voice in every language, so a reply that switches from
+// English to Tamil or Hindi keeps its tone. nova is the default (initialVoice
+// in App.jsx).
 const VOICES = [
-  { id: "sarvam-aparna", name: "Aparna", note: "Warm and caring", accent: "India", premium: true },
-  { id: "sarvam-dev", name: "Dev", note: "Relaxed and natural", accent: "India", premium: true },
-  { id: "sarvam-sanchita", name: "Sanchita", note: "Friendly and lively", accent: "India", premium: true },
-  { id: "sarvam-shubh", name: "Shubh", note: "Calm storyteller", accent: "India", premium: true },
-  { id: "en-US-AvaMultilingualNeural", name: "Ava", note: "Warm and expressive", accent: "US" },
-  { id: "en-US-AndrewMultilingualNeural", name: "Andrew", note: "Relaxed and genuine", accent: "US" },
-  { id: "en-US-EmmaMultilingualNeural", name: "Emma", note: "Cheerful and chatty", accent: "US" },
-  { id: "en-US-BrianMultilingualNeural", name: "Brian", note: "Casual and easygoing", accent: "US" },
-  { id: "en-US-JennyNeural", name: "Jenny", note: "Warm and friendly", accent: "US" },
-  { id: "en-US-AriaNeural", name: "Aria", note: "Bright and expressive", accent: "US" },
-  { id: "en-US-GuyNeural", name: "Guy", note: "Calm and steady", accent: "US" },
-  { id: "en-US-SteffanNeural", name: "Steffan", note: "Clear and confident", accent: "US" },
-  { id: "en-GB-SoniaNeural", name: "Sonia", note: "Polished and gentle", accent: "UK" },
-  { id: "en-GB-RyanNeural", name: "Ryan", note: "Relaxed and easygoing", accent: "UK" },
-  { id: "en-IN-NeerjaNeural", name: "Neerja", note: "Clear and cheerful", accent: "India" },
-  { id: "en-IN-PrabhatNeural", name: "Prabhat", note: "Calm and clear", accent: "India" },
-  { id: "en-AU-NatashaNeural", name: "Natasha", note: "Bright and easy", accent: "Australia" },
-  { id: "en-AU-WilliamNeural", name: "William", note: "Easygoing", accent: "Australia" },
-  // Google's free voice is the same whatever the accent, so it is one option.
-  { id: "google-en-US", name: "Google", note: "Google's free voice", accent: "US" },
+  { id: "nova", name: "Nova", note: "Warm and expressive", accent: "Natural" },
+  { id: "shimmer", name: "Shimmer", note: "Clear and gentle", accent: "Natural" },
+  { id: "alloy", name: "Alloy", note: "Even and neutral", accent: "Natural" },
+  { id: "echo", name: "Echo", note: "Calm and steady", accent: "Natural" },
+  { id: "fable", name: "Fable", note: "Bright storyteller", accent: "British" },
+  { id: "onyx", name: "Onyx", note: "Deep and relaxed", accent: "Natural" },
 ];
 
 /**
@@ -113,7 +94,7 @@ export default function VoiceMode({
                   aria-pressed={v.id === current.id}
                 >
                   <span className="vm-voice-text">
-                    <strong>{v.name}{v.premium && <span className="vm-premium">Premium</span>}</strong>
+                    <strong>{v.name}</strong>
                     <small>{v.note} · {v.accent}</small>
                   </span>
                   <span className="vm-check">{v.id === current.id && <Check size={16} />}</span>

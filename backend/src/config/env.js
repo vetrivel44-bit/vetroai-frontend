@@ -50,7 +50,6 @@ module.exports = {
     sarvamModel:         getEnv("SARVAM_MODEL",          "sarvam-105b"),
     // The same key reads aloud (Bulbul, the Premium voices) and types out
     // Indian-language dictation (Saaras).
-    sarvamTtsModel:      getEnv("SARVAM_TTS_MODEL",      "bulbul:v3"),
     sarvamSttModel:      getEnv("SARVAM_STT_MODEL",      "saaras:v3"),
     // Cohere — universal last-resort fallback (see ProviderManager fallbacks).
     // Uses Cohere's OpenAI-compatible endpoint so it streams standard SSE chunks.
@@ -71,6 +70,10 @@ module.exports = {
     airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "alibaba/qwen3.7-flash"),
     // The only image generator: Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite).
     airouterImageModel:  getEnv("AIROUTER_IMAGE_MODEL",  "google/gemini-3.1-flash-lite-image"),
+    // Voice Mode's speech, on the same key: OpenAI's tts-1 through AI Router.
+    airouterTtsModel:    getEnv("AIROUTER_TTS_MODEL",    "openai/tts-1"),
+    airouterTtsVoice:    getEnv("AIROUTER_TTS_VOICE",    "nova"),
+    airouterTtsStartTimeoutMs: Number(getEnv("AIROUTER_TTS_START_TIMEOUT_MS", "45000")),
     airouterStartTimeoutMs: Number(getEnv("AIROUTER_START_TIMEOUT_MS", "90000")),
     airouterIdleTimeoutMs:  Number(getEnv("AIROUTER_IDLE_TIMEOUT_MS",  "90000")),
     airouterTemperature: Number(getEnv("AIROUTER_TEMPERATURE", "0.7")),
