@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createVad, downsample, encodeWav, levelDb, looksLikeEcho } from "../src/lib/voiceListener.js";
+import { createVad, downsample, encodeWav, levelDb, looksLikeEcho, CUT_IN_MS } from "../src/lib/voiceListener.js";
 
 const FRAME = 43;
 const run = (vad, pattern, opts = {}) => {
@@ -50,8 +50,8 @@ test("while VetroAI is speaking it takes a louder, longer sound to count as the 
   run(vad, [[-70, 1000]]);
   // Leftover echo at a moderate level.
   assert.deepEqual(run(vad, [[-46, 1500]], { assistantSpeaking: true }), []);
-  // The person talking over it.
-  assert.deepEqual(run(vad, [[-18, 1200], [-70, 1500]], { assistantSpeaking: true }), ["start", "end"]);
+  // The person talking over it: they cut in (VetroAI stops), then it ends.
+  assert.deepEqual(run(vad, [[-18, 1200], [-70, 1500]], { assistantSpeaking: true }), ["start", "sustained", "end"]);
 });
 
 test("a tap sends what was said so far", () => {
@@ -100,4 +100,23 @@ test("only the person really cutting in stops VetroAI mid-reply", async () => {
   for (const heard of ["wait", "Stop.", "Okay stop", "hold on", "What about Bangalore?", "tell me more"]) {
     assert.equal(interruptsReply(heard, spoken), true, heard);
   }
+});
+
+test("talking over VetroAI for CUT_IN_MS cuts it off: once, and not for a cough", () => {
+  const vad = createVad();
+  const frame = 40;
+  const feedFor = (db, ms, assistantSpeaking = true) => {
+    const out = [];
+    for (let t = 0; t < ms; t += frame) { const r = vad.feed(db, { frameMs: frame, assistantSpeaking }); if (r) out.push(r); }
+    return out;
+  };
+  feedFor(-70, 400, false); // the room is measured first
+  // A cough or a word over the reply: heard, but too short to cut it off.
+  assert.deepEqual(feedFor(-30, 360), ["start"]);
+  assert.ok(!feedFor(-80, 1200).includes("sustained"));
+  // Really talking over it: cut in after ~0.6s of speech, and only once.
+  const talking = feedFor(-30, 1500);
+  assert.deepEqual(talking, ["start", "sustained"]);
+  assert.equal(CUT_IN_MS, 600);
+  assert.deepEqual(feedFor(-80, 1200), ["end"], "what they said is still sent to be written down");
 });

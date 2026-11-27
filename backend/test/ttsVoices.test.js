@@ -52,9 +52,9 @@ test("a reply is spoken by openai/tts-1 on AI Router, as MP3", async (t) => {
   assert.equal(sent[0].body.model, "openai/tts-1");
   assert.equal(sent[0].body.input, "Hello there.");
   assert.equal(sent[0].body.voice, "nova");
-  assert.equal(sent[0].body.response_format, "mp3");
+  assert.equal(sent[0].body.response_format, "aac", "AAC starts ~1s sooner than MP3");
   assert.equal(sent[0].body.speed, 1.06, "voice mode talks a touch faster");
-  assert.equal(audio.contentType, "audio/mpeg");
+  assert.equal(audio.contentType, "audio/aac");
   assert.equal(audio.provider, "airouter");
   assert.equal(audio.voice, "openai/tts-1/nova");
 });

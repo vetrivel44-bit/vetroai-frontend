@@ -85,9 +85,12 @@ function plainWords(q) {
  * Resolves to { search, by }: by is "model" when the model decided, "rules"
  * when the word list did.
  */
-async function decideSearch({ query, history = [], mode, clock } = {}) {
+async function decideSearch({ query, history = [], mode, clock, fast = false } = {}) {
   const q = String(query || "").trim();
   const rules = (reason) => ({ search: needsLiveInfo(q, { mode }), by: "rules", reason });
+  // Voice Mode: the word rules alone, at once. The model judge took ~1s
+  // before every spoken reply.
+  if (fast) return !q || isAboutSelf(q) || isSmallTalk(q) || isFollowUpRequest(q) ? { search: false, by: "rules" } : rules("voice");
   // Asking the assistant about itself ("Ur name", "who r u"), small talk
   // ("how r u", "thank u") and asking for the last answer another way ("in
   // tamil", "in short", "give eg") are never searched, and need no model.

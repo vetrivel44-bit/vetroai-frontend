@@ -67,6 +67,7 @@ function displayName(modelId) {
   if (/grok/i.test(id)) return "Grok 4.20 Non-Reasoning";
   if (/haiku/i.test(id)) return "Claude Haiku 5.5";
   if (/qwen/i.test(id)) return "VetroAI";
+  if (/gemini-2\.5-flash-lite/i.test(id)) return "Gemini 2.5 Flash Lite";
   return "DeepSeek V4.1 Flash";
 }
 

@@ -3,7 +3,7 @@
 // Voice Mode's speech: OpenAI's tts-1, served by AI Router (airouter.in).
 //
 // One pipeline only. The reply text goes to POST {AIROUTER_BASE_URL}/audio/speech
-// and the MP3 comes straight back, chunk by chunk, so the browser can start
+// and the audio (AAC) comes straight back, chunk by chunk, so the browser can start
 // playing on the first bytes instead of waiting for a finished file. Nothing is
 // written to disk and no audio is re-encoded.
 //
@@ -19,6 +19,9 @@ const { startTimeout } = require("../utils/withTimeout");
 // tts-1's voices. nova and shimmer are the warm female ones, onyx and echo the
 // deeper male ones, fable is British. nova is Voice Mode's default.
 const VOICES = ["nova", "shimmer", "alloy", "echo", "fable", "onyx"];
+// The audio format asked for, and the type it's served as.
+const FORMATS = { aac: "audio/aac", mp3: "audio/mpeg", opus: "audio/ogg", wav: "audio/wav" };
+const FORMAT = () => (FORMATS[String(config.airouterTtsFormat || "").toLowerCase()] ? String(config.airouterTtsFormat).toLowerCase() : "aac");
 const DEFAULT_VOICE = "nova";
 // tts-1 reads up to 4096 characters a request. Voice Mode speaks in clips far
 // shorter than that; this only guards a direct call.
@@ -88,7 +91,8 @@ async function requestSpeech({ text, voice, rate, speed }) {
     model: config.airouterTtsModel || "openai/tts-1",
     input: input.slice(0, MAX_CHARS),
     voice: voiceFor(voice),
-    response_format: "mp3",
+    // AAC: tts-1's first bytes come ~1s sooner than with MP3 (see env.js).
+    response_format: FORMAT(),
   };
   const pace = speedFor(rate, speed);
   if (pace !== 1) body.speed = pace;
@@ -124,7 +128,7 @@ async function synthesize({ text, voice, rate, speed }) {
   const { res, model, voice: used } = await requestSpeech({ text, voice, rate, speed });
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length < 200) throw new SpeechError(502, "AI Router's voice returned no audio.");
-  return { buffer, contentType: "audio/mpeg", provider: "airouter", model, voice: `${model}/${used}` };
+  return { buffer, contentType: FORMATS[FORMAT()], provider: "airouter", model, voice: `${model}/${used}` };
 }
 
 /**
@@ -135,7 +139,7 @@ async function streamSpeech({ text, voice, rate, speed }, res) {
   const { res: upstream, model, voice: used } = await requestSpeech({ text, voice, rate, speed });
   const contentType = String(upstream.headers?.get?.("content-type") || "").startsWith("audio/")
     ? upstream.headers.get("content-type")
-    : "audio/mpeg";
+    : FORMATS[FORMAT()];
 
   res.status(200);
   res.setHeader("Content-Type", contentType);

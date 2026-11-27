@@ -6638,6 +6638,8 @@ export default function App() {
   // ── Voice mode's open microphone ─────────────────────────────────────────
   // The person started talking: if VetroAI is speaking, turn it down until
   // it's clear they're really talking to it.
+  // What VetroAI was saying when the person cut in (see onSpeechSustained).
+  const cutInRef = useRef(null);
   const duckReply = (down) => {
     duckActiveSpeaker(down);
     const audio = window.currentAudio;
@@ -6684,6 +6686,12 @@ export default function App() {
     setVoiceTranscribing(false);
     if (!voiceRef.current) return;
     const words = heard.trim();
+    // Cut off mid-reply (onSpeechSustained): VetroAI has already stopped; if
+    // what was said turns out to be a "yeah" or its own voice coming back,
+    // it isn't sent as a new message, and VetroAI just listens.
+    const cutIn = cutInRef.current;
+    cutInRef.current = null;
+    if (cutIn && (!words || !interruptsReply(words, speakableText(cutIn)))) return;
     if (!words) { duckReply(false); return; }
     if (isTTSActive()) {
       // Heard while VetroAI talks: only the person really cutting in stops
@@ -6703,6 +6711,12 @@ export default function App() {
         if (isTTSActive()) duckReply(true);
       },
       onSpeechCancel: () => { setVoiceHearing(false); duckReply(false); },
+      // Still talking over VetroAI: stop it now, as ChatGPT's voice does.
+      onSpeechSustained: () => {
+        if (voiceMutedRef.current || !isTTSActive()) return;
+        cutInRef.current = [...msgsRef.current].reverse().find((m) => m?.role === "assistant")?.content || "";
+        stopSpeak();
+      },
       onUtterance: (wav) => { if (!voiceMutedRef.current) handleVoiceUtterance(wav); },
       onError: (err) => voiceMicFailedRef.current?.(err),
       isAssistantSpeaking: () => isTTSActive(),
