@@ -118,7 +118,8 @@ test("Voice Mode uses only AI Router's non-reasoning model without a thinking pr
     assert.equal(answered, true);
     assert.equal(seen.length, 1);
     assert.deepEqual(generatedProviders, ["airouter"]);
-    assert.equal(seen[0].options.airouterModel, airouter.modelFor("Grok 4.20 Non-Reasoning"));
+    assert.equal(seen[0].options.airouterModel, config.airouterVoiceModel, "the voice model (Gemini 2.5 Flash Lite by default)");
+    assert.equal(config.airouterVoiceModel, "google/gemini-2.5-flash-lite");
     assert.equal(seen[0].options.maxTokens, 256);
     assert.ok(seen[0].messages.every((message) => !message.content?.includes("<think>")));
   } finally {

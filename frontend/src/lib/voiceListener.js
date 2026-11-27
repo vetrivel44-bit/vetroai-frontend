@@ -21,6 +21,11 @@ const ONSET_MS_WHILE_SPEAKING = 320;
 const END_SILENCE_MS = 750;        // a pause this long ends what you said…
 const END_SILENCE_SHORT_MS = 1000; // …or this long after only a word or two
 const MIN_SPEECH_MS = 280;         // shorter than this is a click or a cough
+// Talking this long, without stopping, over VetroAI: they're cutting in, so
+// it stops at once, as ChatGPT's voice does, instead of carrying on (turned
+// down) until they finish and what they said has been written down. Long
+// enough that a cough, a click or a blip of its own voice doesn't stop it.
+export const CUT_IN_MS = 600;
 const MAX_UTTERANCE_MS = 60000;
 const CALIBRATE_MS = 300;          // the room's noise is measured first
 const TARGET_RATE = 16000;         // what Whisper works at
@@ -42,6 +47,7 @@ export function levelDb(samples) {
  *   "start"   speech began (the frames since the pre-roll belong to it)
  *   "end"     what was said is over; take the utterance
  *   "cancel"  it was too short to be speech; drop it
+ *   "sustained" they've talked over VetroAI for CUT_IN_MS: once per utterance
  */
 export function createVad({ onsetMs = ONSET_MS, onsetWhileSpeakingMs = ONSET_MS_WHILE_SPEAKING } = {}) {
   let noise = -60;
@@ -52,6 +58,7 @@ export function createVad({ onsetMs = ONSET_MS, onsetWhileSpeakingMs = ONSET_MS_
   let voicedMs = 0;
   let silentMs = 0;
   let lengthMs = 0;
+  let sustained = false;
 
   const threshold = (assistantSpeaking) => Math.max(noise + (assistantSpeaking ? 20 : 12), assistantSpeaking ? -44 : -52);
 
@@ -80,6 +87,7 @@ export function createVad({ onsetMs = ONSET_MS, onsetWhileSpeakingMs = ONSET_MS_
           silentMs = 0;
           lengthMs = aboveMs;
           aboveMs = 0;
+          sustained = false;
           return "start";
         }
         return null;
@@ -87,6 +95,8 @@ export function createVad({ onsetMs = ONSET_MS, onsetWhileSpeakingMs = ONSET_MS_
       lengthMs += frameMs;
       // A little below the start threshold still counts as talking.
       if (db > limit - 6) { voicedMs += frameMs; silentMs = 0; } else silentMs += frameMs;
+      // Only over VetroAI: that's the only time it matters.
+      if (assistantSpeaking && !sustained && voicedMs >= CUT_IN_MS && silentMs === 0) { sustained = true; return "sustained"; }
       const pause = voicedMs < 1000 ? END_SILENCE_SHORT_MS : END_SILENCE_MS;
       if (silentMs >= pause || lengthMs >= MAX_UTTERANCE_MS) {
         speaking = false;
@@ -205,12 +215,13 @@ export function canListen(win = globalThis.window) {
  * Opens the microphone and calls back as the person talks.
  *   onSpeechStart()        they started talking
  *   onSpeechCancel()       it was a click or a cough after all
+ *   onSpeechSustained()    they've kept talking for CUT_IN_MS (cut VetroAI off)
  *   onUtterance(wavBlob)   what they said, as 16 kHz WAV
  *   onError(err)           the microphone couldn't be opened or was lost
  *   isAssistantSpeaking()  whether VetroAI is talking right now
  * Returns { start(), stop(), pause(), resume(), flush(), get open, get paused }.
  */
-export function createVoiceListener({ onSpeechStart, onSpeechCancel, onUtterance, onError, isAssistantSpeaking = () => false } = {}) {
+export function createVoiceListener({ onSpeechStart, onSpeechCancel, onSpeechSustained, onUtterance, onError, isAssistantSpeaking = () => false } = {}) {
   let stream = null;
   let context = null;
   let source = null;
@@ -252,6 +263,8 @@ export function createVoiceListener({ onSpeechStart, onSpeechCancel, onUtterance
     } else if (result === "cancel") {
       utterance = null;
       onSpeechCancel?.();
+    } else if (result === "sustained") {
+      onSpeechSustained?.();
     }
   };
 

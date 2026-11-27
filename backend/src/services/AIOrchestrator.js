@@ -129,7 +129,9 @@ function historyWithinBudget(messages, maxChars = HISTORY_CHAR_BUDGET) {
 const galleryEligibleModeFor = (mode) => !["design", "code_exec", "data_analysis", "computer_use"].includes(mode);
 
 const TIGHT_BUDGET_PROVIDERS = new Set(["groq"]);
-const VOICE_MODE_AIROUTER_MODEL = airouterAdapter.modelFor("Grok 4.20 Non-Reasoning");
+// Voice Mode's model: fast to start, no thinking first (config/env.js
+// AIROUTER_VOICE_MODEL; Gemini 2.5 Flash Lite by default).
+const VOICE_MODE_AIROUTER_MODEL = config.airouterVoiceModel || airouterAdapter.modelFor("Grok 4.20 Non-Reasoning");
 // Providers that get the lean prompt (no ~7k-token inline-visuals guide) on a
 // light turn — a greeting, "who are you", a few words — where there is nothing
 // to chart. AI Router's models read the whole prompt before the first word, so
@@ -859,7 +861,9 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
     const searchAllowed = !isGreeting && !isIdentityQuestion && !isRedo && !answeredByClock && !params.hasAttachments;
     let shouldSearch = searchAllowed && (params.forceSearch || isExplicitSearchMode);
     if (searchAllowed && !shouldSearch && autoSearchRequested) {
-      const decision = await decideSearch({ query: userQuery, history: messages.slice(0, -1), mode, clock: params.clock });
+      // Voice can't wait a second for the search judge: it decides from the
+      // words (fast: services/searchIntentService.js).
+      const decision = await decideSearch({ query: userQuery, history: messages.slice(0, -1), mode, clock: params.clock, fast: voiceMode });
       shouldSearch = decision.search;
       logger.info("AIOrchestrator.searchDecision", { reqId, search: decision.search, by: decision.by, ...(decision.reason ? { reason: decision.reason } : {}) });
     }
@@ -1325,7 +1329,7 @@ Choose the single best-fitting visualization block(s) from the formats below. Fe
         // AI Router serves several models: name the one that answered, so the
         // reply shows DeepSeek's or Ling's logo rather than a generic one.
         const answeredBy = currentProviderName === "airouter"
-          ? airouterAdapter.displayName(options?.airouterModel)
+          ? airouterAdapter.displayName(voiceMode ? VOICE_MODE_AIROUTER_MODEL : options?.airouterModel)
           : this.providerLabel(currentProviderName);
         if (res.locals) res.locals.answeredBy = answeredBy;
         this.sendVetroEvent(res, "model", answeredBy);
