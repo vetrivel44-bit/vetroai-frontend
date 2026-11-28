@@ -1,28 +1,26 @@
 "use strict";
 
-// Voice Mode's speech: OpenAI's tts-1, served by AI Router (airouter.in).
+// Voice Mode's speech: Voxtral Mini TTS (default) or tts-1, via AI Router.
 //
-// One pipeline only. The reply text goes to POST {AIROUTER_BASE_URL}/audio/speech
-// and the audio (AAC) comes straight back, chunk by chunk, so the browser can start
-// playing on the first bytes instead of waiting for a finished file. Nothing is
-// written to disk and no audio is re-encoded.
+// The reply text goes to POST {AIROUTER_BASE_URL}/audio/speech and the audio
+// streams back chunk by chunk, so the browser plays on the first bytes.
 //
-// The text is sent exactly as the model wrote it (UTF-8), so Tamil, Hindi,
-// Telugu, Kannada, Malayalam and the rest are read in their own script rather
-// than transliterated or dropped.
+// Voxtral has ONE natural voice (no voice parameter accepted), ignores speed,
+// and can't produce AAC (opus/mp3/flac/wav only). When Voxtral is selected the
+// service omits voice and speed; the frontend applies playback speed in-browser
+// instead (signalled by the X-TTS-Honors-Rate: false header).
 
 const { Readable } = require("stream");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
 const { startTimeout } = require("../utils/withTimeout");
 
-// tts-1's voices. nova and shimmer are the warm female ones, onyx and echo the
-// deeper male ones, fable is British. nova is Voice Mode's default.
+// tts-1's voices (Voxtral has only one and rejects any voice parameter).
 const VOICES = ["nova", "shimmer", "alloy", "echo", "fable", "onyx"];
-// The audio format asked for, and the type it's served as.
-const FORMATS = { aac: "audio/aac", mp3: "audio/mpeg", opus: "audio/ogg", wav: "audio/wav" };
-const FORMAT = () => (FORMATS[String(config.airouterTtsFormat || "").toLowerCase()] ? String(config.airouterTtsFormat).toLowerCase() : "aac");
+const FORMATS = { aac: "audio/aac", mp3: "audio/mpeg", opus: "audio/ogg", wav: "audio/wav", flac: "audio/flac" };
+const FORMAT = () => (FORMATS[String(config.airouterTtsFormat || "").toLowerCase()] ? String(config.airouterTtsFormat).toLowerCase() : "opus");
 const DEFAULT_VOICE = "nova";
+const isVoxtral = (m) => /voxtral/i.test(m);
 // tts-1 reads up to 4096 characters a request. Voice Mode speaks in clips far
 // shorter than that; this only guards a direct call.
 const MAX_CHARS = 4096;
@@ -87,15 +85,21 @@ async function requestSpeech({ text, voice, rate, speed }) {
   if (!input.trim()) throw new SpeechError(400, "Nothing to speak.");
   if (!available()) throw new SpeechError(503, "Voice playback isn't set up on this server (AIROUTER_API_KEY).");
 
+  const model = config.airouterTtsModel || "mistral/voxtral-mini-tts-3";
+  const voxtral = isVoxtral(model);
+  // Voxtral can't do AAC; fall back to opus when the config says aac.
+  const fmt = voxtral && FORMAT() === "aac" ? "opus" : FORMAT();
   const body = {
-    model: config.airouterTtsModel || "openai/tts-1",
+    model,
     input: input.slice(0, MAX_CHARS),
-    voice: voiceFor(voice),
-    // AAC: tts-1's first bytes come ~1s sooner than with MP3 (see env.js).
-    response_format: FORMAT(),
+    response_format: fmt,
   };
-  const pace = speedFor(rate, speed);
-  if (pace !== 1) body.speed = pace;
+  // Voxtral rejects voice and speed parameters.
+  if (!voxtral) {
+    body.voice = voiceFor(voice);
+    const pace = speedFor(rate, speed);
+    if (pace !== 1) body.speed = pace;
+  }
 
   const wait = startTimeout(START_TIMEOUT_MS());
   let res;
@@ -120,15 +124,18 @@ async function requestSpeech({ text, voice, rate, speed }) {
     if (res.status === 429) throw new SpeechError(429, "Voice is busy right now. Try again in a moment.");
     throw new SpeechError(502, `AI Router's voice returned ${res.status}${detail ? `: ${detail}` : ""}`);
   }
-  return { res, model: body.model, voice: body.voice, speed: pace };
+  const usedVoice = voxtral ? "voxtral" : body.voice;
+  const honorsRate = !voxtral;
+  return { res, model: body.model, voice: usedVoice, honorsRate };
 }
 
 /** The whole clip as a Buffer (a direct call, or a player that can't stream). */
 async function synthesize({ text, voice, rate, speed }) {
-  const { res, model, voice: used } = await requestSpeech({ text, voice, rate, speed });
+  const { res, model, voice: used, honorsRate } = await requestSpeech({ text, voice, rate, speed });
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length < 200) throw new SpeechError(502, "AI Router's voice returned no audio.");
-  return { buffer, contentType: FORMATS[FORMAT()], provider: "airouter", model, voice: `${model}/${used}` };
+  const fmt = isVoxtral(model) && FORMAT() === "aac" ? "opus" : FORMAT();
+  return { buffer, contentType: FORMATS[fmt], provider: "airouter", model, voice: `${model}/${used}`, honorsRate };
 }
 
 /**
@@ -136,10 +143,11 @@ async function synthesize({ text, voice, rate, speed }) {
  * buffering of the whole clip, so playback starts on the first chunk.
  */
 async function streamSpeech({ text, voice, rate, speed }, res) {
-  const { res: upstream, model, voice: used } = await requestSpeech({ text, voice, rate, speed });
+  const { res: upstream, model, voice: used, honorsRate } = await requestSpeech({ text, voice, rate, speed });
+  const fmt = isVoxtral(model) && FORMAT() === "aac" ? "opus" : FORMAT();
   const contentType = String(upstream.headers?.get?.("content-type") || "").startsWith("audio/")
     ? upstream.headers.get("content-type")
-    : FORMATS[FORMAT()];
+    : FORMATS[fmt];
 
   res.status(200);
   res.setHeader("Content-Type", contentType);
@@ -147,6 +155,7 @@ async function streamSpeech({ text, voice, rate, speed }, res) {
   res.setHeader("X-TTS-Provider", "airouter");
   res.setHeader("X-TTS-Model", model);
   res.setHeader("X-TTS-Voice", String(`${model}/${used}`).slice(0, 80));
+  res.setHeader("X-TTS-Honors-Rate", honorsRate ? "true" : "false");
   res.flushHeaders?.();
 
   if (!upstream.body) {
