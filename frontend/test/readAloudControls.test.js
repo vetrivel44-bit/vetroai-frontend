@@ -161,7 +161,8 @@ test("a voice with no speed of its own is sped up by the browser", async (t) => 
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(init.body);
     fake.requests.push(body);
-    return { ok: true, status: 200, headers: { get: () => "google-free" }, blob: async () => ({ size: 1, text: body.text }) };
+    const hdrs = { "x-tts-provider": "google-free", "x-tts-honors-rate": "false" };
+    return { ok: true, status: 200, headers: { get: (n) => hdrs[String(n).toLowerCase()] || null }, blob: async () => ({ size: 1, text: body.text }) };
   };
   const { createStreamingSpeaker } = await import("../src/lib/voiceStream.js");
   const speaker = createStreamingSpeaker({ apiBase: "/api", maxChars: 20000, chunkChars: 40, speed: 1.25 });

@@ -41,22 +41,20 @@ function withKey(t, key = "test-key") {
 
 const apiBase = () => String(config.airouterBaseUrl || "https://api.airouter.in/v1").replace(/\/+$/, "");
 
-test("a reply is spoken by openai/tts-1 on AI Router, as MP3", async (t) => {
+test("default TTS is Voxtral: no voice, no speed, opus format", async (t) => {
   withKey(t);
-  const sent = fakeRouter(t, { body: Buffer.concat([Buffer.from("ID3"), Buffer.alloc(400, 1)]) });
+  const sent = fakeRouter(t, { body: Buffer.concat([Buffer.from("OggS"), Buffer.alloc(400, 1)]), headers: { "content-type": "audio/ogg" } });
   const audio = await tts.synthesize({ text: "Hello there.", voice: "nova", rate: "+6%" });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].url, `${apiBase()}/audio/speech`);
-  assert.equal(sent[0].method, "POST");
-  assert.equal(sent[0].headers.Authorization, "Bearer test-key");
-  assert.equal(sent[0].body.model, "openai/tts-1");
+  assert.equal(sent[0].body.model, "mistral/voxtral-mini-tts-3");
   assert.equal(sent[0].body.input, "Hello there.");
-  assert.equal(sent[0].body.voice, "nova");
-  assert.equal(sent[0].body.response_format, "aac", "AAC starts ~1s sooner than MP3");
-  assert.equal(sent[0].body.speed, 1.06, "voice mode talks a touch faster");
-  assert.equal(audio.contentType, "audio/aac");
+  assert.equal(sent[0].body.voice, undefined, "Voxtral rejects voice");
+  assert.equal(sent[0].body.speed, undefined, "Voxtral rejects speed");
+  assert.equal(sent[0].body.response_format, "opus");
+  assert.equal(audio.contentType, "audio/ogg");
   assert.equal(audio.provider, "airouter");
-  assert.equal(audio.voice, "openai/tts-1/nova");
+  assert.equal(audio.honorsRate, false, "frontend must apply playback speed");
 });
 
 test("the text goes out as full UTF-8: Indian languages are not stripped or transliterated", async (t) => {
@@ -92,8 +90,8 @@ test("a speaking speed becomes tts-1's speed, within its own range", () => {
 test("/api/tts streams the audio back as it arrives", async (t) => {
   withKey(t);
   const app = require("../src/app");
-  const audio = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(900, 7)]);
-  const sent = fakeRouter(t, { body: audio, stream: true });
+  const audio = Buffer.concat([Buffer.from("OggS"), Buffer.alloc(900, 7)]);
+  const sent = fakeRouter(t, { body: audio, stream: true, headers: { "content-type": "audio/ogg" } });
   const server = app.listen(0, "127.0.0.1");
   t.after(() => new Promise((resolve) => server.close(resolve)));
   await new Promise((resolve) => server.once("listening", resolve));
@@ -103,14 +101,15 @@ test("/api/tts streams the audio back as it arrives", async (t) => {
     body: JSON.stringify({ text: "Vanakkam, எப்படி இருக்கீங்க?", voice: "nova", rate: "+6%", lang: "ta" }),
   });
   assert.equal(res.status, 200);
-  assert.equal(res.headers.get("content-type"), "audio/mpeg");
+  assert.equal(res.headers.get("content-type"), "audio/ogg");
   assert.equal(res.headers.get("x-tts-provider"), "airouter");
-  assert.equal(res.headers.get("x-tts-voice"), "openai/tts-1/nova");
+  assert.equal(res.headers.get("x-tts-voice"), "mistral/voxtral-mini-tts-3/voxtral");
+  assert.equal(res.headers.get("x-tts-honors-rate"), "false", "Voxtral ignores speed");
   assert.equal(res.headers.get("cache-control"), "no-store");
   const back = Buffer.from(await res.arrayBuffer());
   assert.deepEqual(back, audio, "every byte of the audio reached the browser");
   assert.equal(sent[0].body.input, "Vanakkam, எப்படி இருக்கீங்க?", "the script is sent as it is");
-  assert.equal(sent[0].body.speed, 1.06);
+  assert.equal(sent[0].body.speed, undefined, "Voxtral rejects speed");
 });
 
 test("/api/tts accepts a long read-aloud burst without running out of requests", async (t) => {

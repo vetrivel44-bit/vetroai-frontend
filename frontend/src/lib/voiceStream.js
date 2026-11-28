@@ -459,9 +459,16 @@ export function createStreamingSpeaker({ apiBase, voice, onStart, onDone, onStop
         if (ctx && typeof blob.arrayBuffer === "function") {
           try { buffer = await decode(ctx, await blob.arrayBuffer()); } catch { buffer = null; }
         }
-        let provider = "";
-        try { provider = String(res.headers?.get?.("X-TTS-Provider") || ""); } catch { /* not exposed */ }
-        return { blob, buffer, honorsRate: !IGNORES_RATE.test(provider) };
+        let honors = true;
+        try {
+          const hdr = res.headers?.get?.("X-TTS-Honors-Rate");
+          if (hdr === "false") honors = false;
+          else if (!hdr) {
+            const provider = String(res.headers?.get?.("X-TTS-Provider") || "");
+            honors = !IGNORES_RATE.test(provider);
+          }
+        } catch { /* not exposed */ }
+        return { blob, buffer, honorsRate: honors };
       }
       const retry = !res || res.status === 429 || res.status >= 500;
       if (!retry || attempt >= MAX_RETRIES || signal.aborted) throw new Error(`TTS ${res?.status}`);

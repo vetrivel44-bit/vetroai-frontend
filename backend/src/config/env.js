@@ -70,11 +70,10 @@ module.exports = {
     airouterQwenModel:   getEnv("AIROUTER_QWEN_MODEL",   "alibaba/qwen3.7-flash"),
     // The only image generator: Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite).
     airouterImageModel:  getEnv("AIROUTER_IMAGE_MODEL",  "google/gemini-3.1-flash-lite-image"),
-    // Voice Mode's speech, on the same key: OpenAI's tts-1 through AI Router.
-    airouterTtsModel:    getEnv("AIROUTER_TTS_MODEL",    "openai/tts-1"),
-    // tts-1 starts sending AAC ~1s sooner than MP3 through AI Router
-    // (measured: ~1.9s vs ~3.1s to the first bytes); every browser plays it.
-    airouterTtsFormat:   getEnv("AIROUTER_TTS_FORMAT",   "aac"),
+    // Voice Mode's speech, on the same key: Voxtral Mini TTS through AI Router.
+    airouterTtsModel:    getEnv("AIROUTER_TTS_MODEL",    "mistral/voxtral-mini-tts-3"),
+    // Voxtral can't produce AAC; opus streams fastest (~1.4s first audio).
+    airouterTtsFormat:   getEnv("AIROUTER_TTS_FORMAT",   "opus"),
     // Voice Mode's replies: a fast model that doesn't think first. Gemini 2.5
     // Flash Lite started in ~1.1s (Grok 4.20 Non-Reasoning ~1.6s) and wrote
     // natural Tamil, where faster small models garbled it.
